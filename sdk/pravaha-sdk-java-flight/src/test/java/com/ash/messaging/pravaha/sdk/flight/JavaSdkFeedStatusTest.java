@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -93,26 +94,31 @@ class JavaSdkFeedStatusTest {
     @Test
     void aStoppedFeedIsListedWithItsCodeWhereAndWhenAndTheQueryStillRunning() {
         client.register("stalled", "SELECT trade_id, amount FROM trade", List.of(0));
-        feeds.get("stalled").stopped = new PravahaException(
-                new ErrorCode(5107, "KAFKA_READ_FAILED"), "reading trades-3 failed: the topic was deleted");
+        java.util.Objects.requireNonNull(feeds.get("stalled"), "the stalled query's feed").stopped =
+                new PravahaException(
+                        new ErrorCode(5107, "KAFKA_READ_FAILED"), "reading trades-3 failed: the topic was deleted");
 
         RegisteredQueryInfo listed = client.queries().get(0);
         assertThat(listed.state()).isEqualTo("RUNNING");
         assertThat(listed.isRunning()).isTrue();
         assertThat(listed.feed()).isEqualTo("STOPPED");
         assertThat(listed.isSourceStopped()).isTrue();
-        assertThat(listed.feedStop().code()).isEqualTo("PRV-5107");
-        assertThat(listed.feedStop().message()).endsWith("reading trades-3 failed: the topic was deleted");
-        assertThat(listed.feedStop().where()).isEqualTo("trade#3");
-        assertThat(listed.feedStop().at()).isEqualTo("2026-09-19T08:00:00Z");
+        RegisteredQueryInfo.FeedStop stop = java.util.Objects.requireNonNull(listed.feedStop(), "feedStop");
+        assertThat(stop.code()).isEqualTo("PRV-5107");
+        assertThat(stop.message()).endsWith("reading trades-3 failed: the topic was deleted");
+        assertThat(stop.where()).isEqualTo("trade#3");
+        assertThat(stop.at()).isEqualTo("2026-09-19T08:00:00Z");
     }
 
     /** A feed reading trade#3, stopped once {@link #stopped} is set. */
     private static final class StubFeed implements SourceFeed {
 
-        private volatile PravahaException stopped;
+        private volatile @Nullable PravahaException stopped;
 
+        // FeedStatus.Source takes null for "no stop" on a running source; pravaha-registry does not
+        // declare that yet, so NullAway reads the parameter as non-null.
         @Override
+        @SuppressWarnings("NullAway")
         public FeedStatus status() {
             PravahaException failure = stopped;
             FeedStatus.Source source = failure == null

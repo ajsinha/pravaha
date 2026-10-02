@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.sdk.flight;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -61,9 +62,10 @@ class JavaSdkTlsTest {
             .field("total", Types.int64())
             .build();
 
-    private PravahaFlightServer server;
-    private PravahaFlightClient client;
-    private SelfSignedTestCertificate certificate;
+    // Each test starts the server, client and certificate it needs; @AfterEach closes whichever exist.
+    private @Nullable PravahaFlightServer server;
+    private @Nullable PravahaFlightClient client;
+    private @Nullable SelfSignedTestCertificate certificate;
 
     private PravahaFlightServer startTlsServer(SelfSignedTestCertificate cert) {
         ServedView view = new ServedView("user_volume", SCHEMA, List.of(0), 10_000);
@@ -135,10 +137,10 @@ class JavaSdkTlsTest {
         // store, and the connection must fail rather than quietly succeed.
         certificate = SelfSignedTestCertificate.generate();
         server = startTlsServer(certificate);
+        int port = server.port();
 
         assertThatThrownBy(() -> {
-                    try (PravahaFlightClient insecure =
-                            PravahaFlightClient.connect("grpc+tls://localhost:" + server.port())) {
+                    try (PravahaFlightClient insecure = PravahaFlightClient.connect("grpc+tls://localhost:" + port)) {
                         insecure.query("SELECT user_id FROM user_volume").close();
                     }
                 })

@@ -314,6 +314,9 @@ class JavaSdkRegistryTest {
     }
 
     @Test
+    // The client is closed and forgotten here, so @AfterEach does not close it twice; nothing reads
+    // the field after that.
+    @SuppressWarnings("NullAway")
     void closingTheClientReleasesTheServersSideOfASubscription() throws Exception {
         client.register("feed", SQL, List.of(0));
 

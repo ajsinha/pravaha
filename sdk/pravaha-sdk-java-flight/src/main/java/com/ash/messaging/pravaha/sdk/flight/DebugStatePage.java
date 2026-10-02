@@ -20,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * One page of one operator's state inside a debug session's fork (ADR-048).
  *
@@ -32,7 +34,7 @@ import java.util.Map;
  * @param entries the page itself, each a key and that key's columns in the operator's own order
  */
 public record DebugStatePage(
-        String id, String kind, String key, int offset, int limit, long total, List<Entry> entries) {
+        String id, String kind, @Nullable String key, int offset, int limit, long total, List<Entry> entries) {
 
     /** One key's state: a join's row, a group's accumulators, a window's contents. */
     public record Entry(String key, Map<String, String> values) {}

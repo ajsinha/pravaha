@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -100,7 +101,7 @@ class JavaSdkDecimalTest {
         List<String> seen = new ArrayList<>();
         try (QueryResult result = client.query("SELECT entry_id, amount FROM ledger")) {
             for (Row row : result) {
-                String id = row.getString("entry_id");
+                String id = java.util.Objects.requireNonNull(row.getString("entry_id"), "entry_id");
                 switch (id) {
                     case "zero" -> {
                         assertThat(row.getBigDecimal("amount")).isEqualTo(new BigDecimal("0E-8"));
@@ -208,14 +209,15 @@ class JavaSdkDecimalTest {
         private final Map<List<Object>, Long> rows = new java.util.HashMap<>();
         private final java.util.Set<Class<?>> classes = new java.util.HashSet<>();
 
-        private List<List<Object>> first;
+        private @Nullable List<List<Object>> first;
 
         synchronized void accept(ChangeBatch batch) {
             List<List<Object>> these = new ArrayList<>();
             for (Row row : batch) {
                 these.add(List.of(row.toArray()));
                 rows.merge(List.of(row.toArray()), row.weight(), Long::sum);
-                classes.add(row.get("amount").getClass());
+                classes.add(java.util.Objects.requireNonNull(row.get("amount"), "amount")
+                        .getClass());
             }
             rows.values().removeIf(weight -> weight == 0);
             if (first == null) {
@@ -224,7 +226,8 @@ class JavaSdkDecimalTest {
         }
 
         synchronized List<List<Object>> first() {
-            return first == null ? List.of() : List.copyOf(first);
+            List<List<Object>> seen = first;
+            return seen == null ? List.of() : List.copyOf(seen);
         }
 
         synchronized Map<List<Object>, Long> rows() {

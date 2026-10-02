@@ -23,6 +23,7 @@ import java.util.NoSuchElementException;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
@@ -114,8 +115,7 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
     /** Walks rows within a batch, and batches within the stream. */
     private final class BatchIterator implements Iterator<Row> {
 
-        private VectorSchemaRoot root;
-        private Row cursor;
+        private @Nullable Row cursor;
         private int index;
         private int rowsInBatch;
 
@@ -153,7 +153,7 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
             if (!more) {
                 return false;
             }
-            root = stream.getRoot();
+            VectorSchemaRoot root = stream.getRoot();
             rowsInBatch = root.getRowCount();
             index = 0;
             cursor = new Row(root, columns);
@@ -165,7 +165,12 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
             if (!hasNext()) {
                 throw new NoSuchElementException("the result has no more rows");
             }
-            return cursor.at(index++);
+            // hasNext() is true only once a batch, and so a cursor, is in hand.
+            Row current = cursor;
+            if (current == null) {
+                throw new NoSuchElementException("the result has no more rows");
+            }
+            return current.at(index++);
         }
     }
 }

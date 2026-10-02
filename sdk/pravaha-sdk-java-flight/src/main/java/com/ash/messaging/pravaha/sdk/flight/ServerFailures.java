@@ -20,6 +20,7 @@ import java.util.Optional;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.wire.ErrorWire;
@@ -73,7 +74,7 @@ final class ServerFailures {
      */
     static PravahaClientException of(FlightRuntimeException e, String endpoint, ErrorCode fallback) {
         CallStatus status = e.status();
-        String description = status.description() == null ? e.getMessage() : status.description();
+        String description = describe(status, e);
 
         Optional<ErrorCode> reported = ErrorWire.recover(description, nameTrailer(status));
         if (reported.isPresent()) {
@@ -113,6 +114,19 @@ final class ServerFailures {
                 || status.code() == FlightStatusCode.TIMED_OUT;
     }
 
+    /**
+     * What the failure said: the status's description, else the exception's message, else a sentence
+     * saying there was none -- so a refusal never reads "null".
+     */
+    private static String describe(CallStatus status, FlightRuntimeException e) {
+        String described = status.description();
+        if (described != null) {
+            return described;
+        }
+        String message = e.getMessage();
+        return message != null ? message : "the server sent no description";
+    }
+
     /** The description with its leading code stripped, since the exception renders one itself. */
     private static String messageUnder(ErrorCode code, String description) {
         String prefix = code.code();
@@ -129,7 +143,7 @@ final class ServerFailures {
      * real diagnosis to a {@code NullPointerException} raised while decoding it would be a poor
      * trade.
      */
-    private static String nameTrailer(CallStatus status) {
+    private static @Nullable String nameTrailer(CallStatus status) {
         try {
             return status.metadata() == null ? null : status.metadata().get(ErrorWire.NAME_HEADER);
         } catch (RuntimeException ignored) {

@@ -34,6 +34,7 @@ import org.apache.arrow.flight.sql.FlightSqlClient;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
@@ -373,7 +374,7 @@ public final class PravahaFlightClient implements AutoCloseable {
      *
      * @param sink the sink's binding name on the server, or null to write only the view
      */
-    public RegisteredQueryInfo register(String name, String sql, List<Integer> keyColumns, String sink) {
+    public RegisteredQueryInfo register(String name, String sql, List<Integer> keyColumns, @Nullable String sink) {
         return register(name, sql, keyColumns, sink, null);
     }
 
@@ -385,17 +386,17 @@ public final class PravahaFlightClient implements AutoCloseable {
      *     registration rather than keeping a different amount than you asked for
      */
     public RegisteredQueryInfo register(
-            String name, String sql, List<Integer> keyColumns, String sink, String retention) {
+            String name, String sql, List<Integer> keyColumns, @Nullable String sink, @Nullable String retention) {
         String ordinals = keyColumns.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
-        boolean hasSink = sink != null && !sink.isBlank();
-        boolean hasRetention = retention != null && !retention.isBlank();
+        String sinkField = sink != null && !sink.isBlank() ? sink : "";
+        String kept = retention == null ? "" : retention.strip();
         // Trailing fields are optional on the wire, so only what is set is sent: a server that
         // predates retention answers a four-field registration exactly as it always did.
         List<List<String>> results;
-        if (hasRetention) {
-            results = act(ControlWire.REGISTER, name, sql, ordinals, hasSink ? sink : "", retention.strip());
-        } else if (hasSink) {
-            results = act(ControlWire.REGISTER, name, sql, ordinals, sink);
+        if (!kept.isEmpty()) {
+            results = act(ControlWire.REGISTER, name, sql, ordinals, sinkField, kept);
+        } else if (!sinkField.isEmpty()) {
+            results = act(ControlWire.REGISTER, name, sql, ordinals, sinkField);
         } else {
             results = act(ControlWire.REGISTER, name, sql, ordinals);
         }
@@ -484,7 +485,7 @@ public final class PravahaFlightClient implements AutoCloseable {
      *     rollback.retention}, or null for the defaults. An option the server does not build is
      *     refused by name rather than ignored
      */
-    public ReplacementInfo replace(String name, String sql, List<Integer> keyColumns, String options) {
+    public ReplacementInfo replace(String name, String sql, List<Integer> keyColumns, @Nullable String options) {
         String ordinals = keyColumns.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
         List<List<String>> results = options == null || options.isBlank()
                 ? act(ControlWire.REPLACE, name, sql, ordinals)
@@ -856,7 +857,7 @@ public final class PravahaFlightClient implements AutoCloseable {
     }
 
     /** Forks from a particular checkpoint. {@link #debugCheckpoints} says which there are. */
-    public DebugSessionInfo debugFork(String query, Long checkpointId) {
+    public DebugSessionInfo debugFork(String query, @Nullable Long checkpointId) {
         return oneSession(act(ControlWire.DEBUG_FORK, query, checkpointId == null ? "" : checkpointId.toString()));
     }
 
@@ -1041,7 +1042,7 @@ public final class PravahaFlightClient implements AutoCloseable {
 
     private static List<Integer> ordinalsOf(String text) {
         List<Integer> ordinals = new java.util.ArrayList<>();
-        for (String part : text.split(",")) {
+        for (String part : text.split(",", -1)) {
             if (!part.isBlank()) {
                 try {
                     ordinals.add(Integer.parseInt(part.strip()));

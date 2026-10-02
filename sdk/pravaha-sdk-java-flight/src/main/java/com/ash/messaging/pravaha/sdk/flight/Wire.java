@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.sdk.flight;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Reading positional fields off the control wire, defensively.
  *
@@ -43,7 +45,7 @@ final class Wire {
     }
 
     /** A number, or null when the field is empty -- "no watermark yet" is not "watermark zero". */
-    static Long optionalNumber(List<String> fields, int index) {
+    static @Nullable Long optionalNumber(List<String> fields, int index) {
         String value = text(fields, index).strip();
         if (value.isEmpty()) {
             return null;
