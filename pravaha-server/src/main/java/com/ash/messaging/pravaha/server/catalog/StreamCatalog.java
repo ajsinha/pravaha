@@ -20,12 +20,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.config.ConfigErrors;
+import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 
 /**
@@ -43,7 +45,46 @@ public class StreamCatalog {
 
     private final Map<String, StreamSchema> lookups = new LinkedHashMap<>();
 
-    public synchronized StreamSchema register(StreamSchema schema) {
+    /**
+     * Held across a declaration and the registry being told of it, so two declarations reach the
+     * registry in the order they were recorded. Never this object's own monitor: the registry, holding
+     * its lock, reads this catalogue (the catalogue policy's configured streams), so telling it while
+     * holding the monitor could deadlock.
+     */
+    private final Object declaring = new Object();
+
+    /** The registry planning over these streams; told of each stream declared after it was built. */
+    private volatile QueryRegistry registry;
+
+    /**
+     * Builds the node's registry over the streams declared now, and tells it of every stream declared
+     * from then on (DECLSTREAM-1) -- in one step, so no declaration falls between the two.
+     *
+     * <p>The registry used to be built over a copy of this catalogue taken at start, so a stream
+     * declared by {@code POST /api/v1/streams} or {@code pravaha streams declare} was listed and
+     * validated against (both ask this catalogue) and then refused {@code PRV-2002} by the registration
+     * that planned over the copy.
+     */
+    public QueryRegistry registryOver(Function<StreamSchema[], QueryRegistry> build) {
+        synchronized (declaring) {
+            QueryRegistry built = build.apply(all().toArray(new StreamSchema[0]));
+            registry = built;
+            return built;
+        }
+    }
+
+    public StreamSchema register(StreamSchema schema) {
+        synchronized (declaring) {
+            StreamSchema recorded = record(schema);
+            QueryRegistry planning = registry;
+            if (planning != null) {
+                planning.declare(recorded);
+            }
+            return recorded;
+        }
+    }
+
+    private synchronized StreamSchema record(StreamSchema schema) {
         StreamSchema existing = streams.get(schema.name());
         if (existing != null && existing.version() == schema.version()) {
             // DOCX-19: PRV-1014, not PRV-2002. This is a declaration conflicting with what the

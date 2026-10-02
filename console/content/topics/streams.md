@@ -132,6 +132,13 @@ never its options. Over HTTP the durations are ISO-8601 (`PT10S`); in YAML, `10s
 time, and there is none. A stream
 declared over HTTP lasts until the node restarts; declare it in configuration to keep it.
 
+A stream declared over HTTP (or with `pravaha streams declare`) can be registered over at once —
+`pravaha register`, `CREATE CONTINUOUS QUERY`, any SDK — exactly like one from configuration
+(DECLSTREAM-1: before 2.0.1 it validated and was then refused `PRV-2002 not found`). It has no source
+binding unless `pravaha.sources` names it, so a query over it starts and waits for rows. Because the
+declaration does not survive a restart, neither does a registration over it: at the next start
+recovery refuses that query, and logs why, unless the stream is declared in configuration by then.
+
 ## Declaring a stream in code
 
 Embedded, before `start()`:

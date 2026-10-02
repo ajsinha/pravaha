@@ -383,9 +383,9 @@ def test_qi045_anonymous_large_login_bodies_leave_the_node_serving():
 
 
 @needs_flight
-@open_defect("QI-REG: open defect -- a stream declared over POST /api/v1/streams (pravaha streams "
-                         "declare) validates over HTTP but is PRV-2002 'not found' to a Flight registration")
 def test_qi059_a_declared_stream_can_be_registered_over(admin):
+    # DECLSTREAM-1, fixed: the registry is told of every stream declared after start, so a stream
+    # declared over POST /api/v1/streams (pravaha streams declare) is registered over by Flight.
     pytest.importorskip("pyarrow")
     from pravaha import connect
     from pravaha.options import ClientOptions

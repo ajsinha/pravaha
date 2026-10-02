@@ -101,6 +101,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   to any wider integer or to `DOUBLE`, `float4` to `DOUBLE`); a wider integer is accepted only when its
   value is in range (`PRV-2062` otherwise). `PgTypesTest`, `JdbcClientTest` (real pgjdbc `setInt`,
   `setShort`), ADV-SURFACE `test_qi031` now a passing check.
+- **A stream declared over HTTP can be registered over (DECLSTREAM-1).** `POST /api/v1/streams`
+  (`pravaha streams declare`, `Client.declare_stream`) recorded the stream in the node's catalogue,
+  which listing and validation read, but the registry planned over a copy of the catalogue taken at
+  start, so `pravaha register` over it was `PRV-2002 not found` — catalogue on or off. The registry is
+  now told of every stream declared after start (a new name takes a fresh stream identity, a new
+  version keeps the one it replaces). The declaration, and so a query over it, still lasts until the
+  node restarts. `DeclaredStreamTest`, `DeclaredStreamRegistrationTest` (HTTP declare, validate, Flight
+  register), ADV-SURFACE `test_qi059` now a passing check.
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 
