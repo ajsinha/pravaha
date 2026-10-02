@@ -121,6 +121,10 @@ final class CdcStream implements AutoCloseable {
             open(assembler.resumeLsn(), Duration.ofSeconds(15));
         } catch (SQLException e) {
             closeQuietly();
+            com.ash.messaging.pravaha.api.ConfigurationException privilege = Preflight.replicationRefused(options, e);
+            if (privilege != null) {
+                throw privilege; // CDCPRIVCODE-1: the prerequisite's code, and ALTER ROLE ... REPLICATION
+            }
             throw new PravahaException(
                     CdcErrors.STREAM_FAILED,
                     "cannot start streaming slot '" + options.slot() + "': " + e.getMessage(),

@@ -635,8 +635,10 @@ could retract only the key), the publication does not publish updates and delete
 the table, the role may not create the publication (it does not own the table —
 `ALTER TABLE ... OWNER TO <role>;` — or has no `CREATE` on the database —
 `GRANT CREATE ON DATABASE <db> TO <role>;`; or create the publication as a role that may and set
-`create.publication: "false"`), the server is older than PostgreSQL 14, or the slot is missing,
-invalidated or belongs to another plugin or database.
+`create.publication: "false"`), the role has no `REPLICATION` attribute (`ALTER ROLE <role>
+REPLICATION;`, or `GRANT rds_replication TO <role>;` on Amazon RDS — until CDCPRIVCODE-1 this was
+PRV-5118 or PRV-5111), the server is older than PostgreSQL 14, or the slot is missing, invalidated or
+belongs to another plugin or database.
 
 ### PRV-5113 — PostgreSQL CDC: schema mismatch
 

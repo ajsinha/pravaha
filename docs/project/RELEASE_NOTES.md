@@ -285,6 +285,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   1 s), stops with the new `PRV-5130`: the feed stops and node health is `DEGRADED`, as for any stopped
   source (FEED-1). A broker that cannot be asked is not counted. `KafkaSourcePluginTest`,
   `KafkaSourceBrokerTest` (Testcontainers: a real topic deleted under a reader).
+- **A CDC role without `REPLICATION` gets the prerequisite's code and remedy (CDCPRIVCODE-1).** After
+  `ALTER ROLE … NOREPLICATION`, registering over the table was `PRV-5118 … cannot start the initial
+  snapshot … FATAL: permission denied to start WAL sender` followed by advice about transactions left
+  idle and `max_replication_slots` (and `PRV-5111` when the plugin created the slot). Refused for want
+  of privilege (`42501`) when creating the slot, starting the snapshot or starting the stream, it is now
+  `PRV-5112` naming `ALTER ROLE <role> REPLICATION;` (`GRANT rds_replication TO <role>;` on Amazon RDS
+  or Aurora). `ReplicationPrivilegeRefusalTest` (Testcontainers, PostgreSQL 16).
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

@@ -579,7 +579,11 @@ refused, or the PostgreSQL driver not on the classpath — the plugin uses the d
 supplies, as `jdbc` does. A role that may not create the publication — it does not own the table,
 or has no `CREATE` on the database — is `PRV-5112`, naming `ALTER TABLE <table> OWNER TO <role>;` or
 `GRANT CREATE ON DATABASE <db> TO <role>;`, or a publication made by a role that may with
-`create.publication: "false"`.
+`create.publication: "false"`. A role without the `REPLICATION` attribute — refused creating the slot,
+starting the initial snapshot or starting the stream ("permission denied to start WAL sender") — is
+`PRV-5112` too, naming `ALTER ROLE <role> REPLICATION;` (on Amazon RDS or Aurora,
+`GRANT rds_replication TO <role>;`). Until CDCPRIVCODE-1 it was `PRV-5118`, with advice about
+transactions left idle, or `PRV-5111`.
 
 **A `postgres-cdc` source with `snapshot.mode: initial` is refused with `PRV-5118`.** The initial
 snapshot could not start or could not be read. At start it is almost always a transaction left open
