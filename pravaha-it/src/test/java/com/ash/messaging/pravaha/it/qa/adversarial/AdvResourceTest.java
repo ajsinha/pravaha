@@ -232,6 +232,36 @@ class AdvResourceTest {
         }
     }
 
+    /** A row of {@code size} characters pushed with the inbox cell raised to 64 KiB; the query's state after it. */
+    static String wideRow(int size) {
+        try (PravahaEngine engine = AdvSupport.engine(
+                Map.of("pravaha.lane.inbox.cell-bytes", "65536"),
+                e -> e.declareStream("s", "id:INT64,t:STRING", null))) {
+            engine.register("q", "SELECT id, t FROM s", "id");
+            String outcome = AdvSupport.attempt(() -> engine.push("s", new Object[] {1L, "x".repeat(size)}));
+            return AdvSupport.state(engine, "q").lines().findFirst().orElse("") + " | push "
+                    + outcome.lines().findFirst().orElse("");
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.Disabled(
+            "QE-167: the embedded engine ignores pravaha.lane.inbox.cell-bytes, so any row wider "
+                    + "than 512 bytes (a 600-character string) stops every query on the stream for good, and the remedy the "
+                    + "refusal names cannot be applied")
+    void qe167_aRowWithinTheConfiguredCellIsAccepted() {
+        assertThat(wideRow(4_000)).startsWith("RUNNING");
+    }
+
+    @Test
+    void qe167_observed() {
+        String small = wideRow(400);
+        String wide = wideRow(600);
+        System.out.println("NOTE QE-167 400 chars: " + small + " || 600 chars: " + wide);
+        assertThat(small).startsWith("RUNNING");
+        assertThat(wide).startsWith("FAILED PRV-8004").contains("exceeds the cell size of 512");
+    }
+
     @Test
     void qe150_aTenMegabyteString() {
         try (PravahaEngine engine = engine()) {
