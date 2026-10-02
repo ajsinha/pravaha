@@ -105,6 +105,35 @@ public class PravahaServerApplication {
                         com.ash.messaging.pravaha.server.security.BearerTokenFilter.DEFAULT_SWAGGER_UI_PATH)));
         registration.setEnabled(verifier != null);
         registration.addUrlPatterns("/*");
+        // Second: RequestLimitFilter runs first, so a body is bounded before anything reads it.
+        registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 1);
+        return registration;
+    }
+
+    /**
+     * Bounds every request's body, and the sign-ins running at once, ahead of everything else
+     * (HTTPBODY-1). Registered whether or not authentication is on: an open node's bodies are
+     * anonymous too.
+     */
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<
+                    com.ash.messaging.pravaha.server.security.RequestLimitFilter>
+            pravahaRequestLimits(
+                    com.ash.messaging.pravaha.server.security.HttpLimitsProperties limits, Environment environment) {
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<
+                com.ash.messaging.pravaha.server.security.RequestLimitFilter>();
+        registration.setFilter(limits.filter(com.ash.messaging.pravaha.server.security.RequestLimitFilter.openPaths(
+                documentationPath(
+                        environment,
+                        "springdoc.api-docs.enabled",
+                        "springdoc.api-docs.path",
+                        com.ash.messaging.pravaha.server.security.BearerTokenFilter.DEFAULT_API_DOCS_PATH),
+                documentationPath(
+                        environment,
+                        "springdoc.swagger-ui.enabled",
+                        "springdoc.swagger-ui.path",
+                        com.ash.messaging.pravaha.server.security.BearerTokenFilter.DEFAULT_SWAGGER_UI_PATH))));
+        registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         return registration;
     }

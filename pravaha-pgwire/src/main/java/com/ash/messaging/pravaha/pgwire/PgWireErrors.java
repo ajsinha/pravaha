@@ -160,6 +160,36 @@ public final class PgWireErrors {
     /** {@code DISCARD ALL} inside a transaction block: {@code 25001 active_sql_transaction}, as PostgreSQL. */
     public static final ErrorCode TRANSACTION_ACTIVE = new ErrorCode(6215, "PGWIRE_TRANSACTION_ACTIVE");
 
+    /**
+     * {@code pravaha.pgwire.limits.max-connections}, {@code max-unauthenticated} or {@code
+     * max-connections-per-principal} is reached: {@code 53300 too_many_connections}, and the
+     * connection closes (PGPREAUTH-1). Retry later, or close idle connections.
+     */
+    public static final ErrorCode TOO_MANY_CONNECTIONS = new ErrorCode(6216, "PGWIRE_TOO_MANY_CONNECTIONS");
+
+    /**
+     * A message declared more bytes than this gateway accepts: before sign-in, more than a startup
+     * packet or a password can need; after it, more than {@code pravaha.pgwire.limits.max-message-size}.
+     * Refused before any of it is read or allocated, {@code 54000}, and the connection closes.
+     */
+    public static final ErrorCode MESSAGE_TOO_LARGE = new ErrorCode(6217, "PGWIRE_MESSAGE_TOO_LARGE");
+
+    /**
+     * The credential a connection signed in with no longer verifies -- the API key revoked, the
+     * session signed out or expired, the user disabled -- and the connection is ended at its next
+     * statement, {@code FATAL 28000} (PGREVOKE-1). Sign in again with a valid credential.
+     */
+    public static final ErrorCode CREDENTIAL_REVOKED = new ErrorCode(6218, "PGWIRE_CREDENTIAL_REVOKED");
+
+    /**
+     * A signed-in connection sent nothing for {@code pravaha.pgwire.limits.idle-timeout}: {@code
+     * FATAL 57P05 idle_session_timeout}, as PostgreSQL's own {@code idle_session_timeout} answers.
+     */
+    public static final ErrorCode IDLE_TIMEOUT = new ErrorCode(6219, "PGWIRE_IDLE_TIMEOUT");
+
+    /** A {@code pravaha.pgwire.limits.*} setting is out of range; the node does not start. */
+    public static final ErrorCode BAD_LIMITS = new ErrorCode(6220, "PGWIRE_BAD_LIMITS");
+
     /** Refuses a continuous-query statement, if {@code statement} is one; the same words from both protocols. */
     static void refuseContinuousStatement(String statement) {
         if (com.ash.messaging.pravaha.sql.ContinuousStatements.isContinuousStatement(statement)) {
@@ -232,6 +262,11 @@ public final class PgWireErrors {
             case "PRV-6215" -> "25001"; // active_sql_transaction
             case "PRV-6207" -> "26000"; // invalid_sql_statement_name
             case "PRV-6208" -> "34000"; // invalid_cursor_name
+            case "PRV-6216" -> "53300"; // too_many_connections
+            case "PRV-6217" -> "54000"; // program_limit_exceeded
+            case "PRV-6218" -> "28000"; // invalid_authorization_specification: the credential is gone
+            case "PRV-6219" -> "57P05"; // idle_session_timeout
+            case "PRV-6220" -> "08000";
             // 54000 program_limit_exceeded: the result was larger than one response may carry.
             case "PRV-4024" -> "54000";
             // Everything else is the query's fault as far as the client can tell: a name that does

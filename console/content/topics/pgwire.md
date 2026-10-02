@@ -7,7 +7,7 @@ icon: server
 summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
-keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
+keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, "53300", max-connections, idle-timeout, revoked]
 guide: architecture
 related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
@@ -34,6 +34,8 @@ It is **read-only**, and **off by default**.
 | Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); with the engine's own accounts on, an **API key** or a **session token** — never the account's own password (PGWIREPASS-1). The user name is informational |
 | Writes | None. `INSERT`/`UPDATE`/`DELETE` are refused by the planner; continuous-query statements with PRV-6211 (SQLSTATE `25006`) |
 | TLS | `pravaha.pgwire.tls.certificate` and `pravaha.pgwire.tls.key` (PEM chain, PKCS#8 key): the gateway then answers `SSLRequest` on the same port. **Off until both are set** — see below |
+| Limits | 100 connections, 32 of them still signing in, a 10 s handshake, 16 KiB before sign-in and 1 MB per message after it, no idle timeout — `pravaha.pgwire.limits.*`, see [Limits and revocation](#limits-and-revocation) |
+| Revocation | The credential is verified again at **every statement**: a revoked key, an ended session or a disabled user ends the open connection with `FATAL 28000` (PRV-6218) |
 
 ## Turning it on
 
@@ -129,6 +131,31 @@ Plain connections, `DatabaseMetaData.getTables()`/`getColumns()` and a `Prepared
 parameter are driven by the module's own tests through the real driver, without
 `preferQueryMode=simple`. That is one gateway's worth of protocol coverage, not a claim about every
 statement every ORM might send.
+
+## Limits and revocation
+
+The gateway is meant to be exposed (with TLS), so what an unauthenticated peer can make it hold is
+bounded, and so is what one credential can hold (PGPREAUTH-1). Every limit is a setting:
+
+| Setting | Default | What happens past it |
+|---|---|---|
+| `pravaha.pgwire.limits.max-connections` | `100` | A new connection is answered `FATAL 53300` too_many_connections ([PRV-6216](/help/codes/PRV-6216)) at once, before its startup packet is read, and closed |
+| `pravaha.pgwire.limits.max-unauthenticated` | `32` | The same, counting only connections still in their handshake — the cheap kind for a stranger to multiply |
+| `pravaha.pgwire.limits.authentication-timeout` | `10s` | One deadline for the whole handshake, startup to `AuthenticationOk`; a peer trickling a byte at a time does not renew it. The socket is closed |
+| `pravaha.pgwire.limits.max-connections-per-principal` | `0` (no share smaller than the whole) | A credential already holding that many is answered `FATAL 53300` (PRV-6216) after signing in |
+| `pravaha.pgwire.limits.max-message-size` | `1MB` | A message declaring more is refused `FATAL 54000` ([PRV-6217](/help/codes/PRV-6217)) on its length, before anything is read or allocated. Before sign-in the cap is a fixed 16 KiB, enough for any token or key |
+| `pravaha.pgwire.limits.idle-timeout` | `0s` (never) | A signed-in connection that sends nothing for this long is ended `FATAL 57P05` idle_session_timeout ([PRV-6219](/help/codes/PRV-6219)) |
+
+A value out of range stops the node at startup with [PRV-6220](/help/codes/PRV-6220). Even an
+accepted message is allocated as its bytes arrive, not on the size a client declared.
+
+**Revocation is immediate here too.** The credential a connection signed in with is verified again,
+through the same verifier, before every statement — a `Query`, or a `Parse`, `Bind`, `Describe` or
+`Execute`. Revoke the key (`DELETE /api/v1/keys/{id}`), sign the session out, or disable the user, and
+the connection's next statement is answered `FATAL 28000` ([PRV-6218](/help/codes/PRV-6218)) and the
+connection closes — exactly when HTTP starts answering `401` and a Flight subscription ends. A role
+taken away applies from the next statement. A connection that sends nothing holds no data; set
+`idle-timeout` if idle connections themselves should go.
 
 ## Finding the views
 
@@ -301,6 +328,10 @@ refused with PRV-6209.
 | A read joining two views | PRV-4025 | `0A000` |
 | A view you may not read | PRV-7002 | `42501` insufficient_privilege |
 | A wrong password | — | `28P01` invalid_password |
+| A connection past `max-connections`, `max-unauthenticated` or `max-connections-per-principal` | PRV-6216 | `53300` too_many_connections |
+| A message larger than `max-message-size` (or 16 KiB before sign-in) | PRV-6217 | `54000` |
+| Any statement after the connection's credential was revoked, signed out or its user disabled | PRV-6218, and the connection closes | `28000` |
+| Nothing sent for `idle-timeout` | PRV-6219, and the connection closes | `57P05` idle_session_timeout |
 | The node's read admission is full | PRV-4026 / PRV-4027 / PRV-4028 | `53000` |
 | A read past its deadline | PRV-4029 | `57014` query_canceled |
 | More than 1,000,000 result rows | PRV-4024 | `54000` |

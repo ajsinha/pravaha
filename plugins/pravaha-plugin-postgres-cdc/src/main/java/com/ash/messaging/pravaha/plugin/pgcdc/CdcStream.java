@@ -71,6 +71,8 @@ final class CdcStream implements AutoCloseable {
     /** SQLSTATEs that another attempt cannot fix. */
     private static final Set<String> PERMANENT = Set.of("42704", "55000", "42501", "28000", "28P01", "3D000");
 
+    private static final System.Logger LOG = System.getLogger(CdcStream.class.getName());
+
     private final CdcOptions options;
     private final TransactionAssembler assembler;
     private final ConcurrentLinkedQueue<CdcTransaction> queue = new ConcurrentLinkedQueue<>();
@@ -202,7 +204,6 @@ final class CdcStream implements AutoCloseable {
         long heartbeatNanos = options.heartbeat().toNanos();
         long lastHeartbeat = System.nanoTime();
         long lastStatus = System.nanoTime();
-        long backoffMillis = 500;
         while (running) {
             try {
                 long now = System.nanoTime();
@@ -227,7 +228,6 @@ final class CdcStream implements AutoCloseable {
                     continue;
                 }
                 assembler.accept(PgOutput.decode(message));
-                backoffMillis = 500;
             } catch (PravahaException e) {
                 failure = e;
                 break;
@@ -235,9 +235,8 @@ final class CdcStream implements AutoCloseable {
                 if (!running) {
                     break;
                 }
-                if (e instanceof SQLException sql && PERMANENT.contains(sql.getSQLState())) {
-                    failure = new PravahaException(
-                            CdcErrors.STREAM_FAILED,
+                if (permanent(e)) {
+                    fail(
                             "the replication stream of slot '" + options.slot() + "' failed and cannot be resumed: "
                                     + e.getMessage() + ". If the slot was dropped or invalidated (pg_replication_slots."
                                     + "wal_status = 'lost'), the WAL the engine needs is gone: drop the registration's "
@@ -249,17 +248,115 @@ final class CdcStream implements AutoCloseable {
                 reconnects.incrementAndGet();
                 closeQuietly();
                 assembler.connectionLost();
-                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(backoffMillis));
-                backoffMillis = Math.min(backoffMillis * 2, 30_000);
-                try {
-                    open(assembler.resumeLsn(), Duration.ZERO);
-                    lastProblem = "";
-                } catch (SQLException again) {
-                    lastProblem = "reconnecting after: " + again.getMessage();
+                if (!reconnect()) {
+                    break;
                 }
             }
         }
         closeQuietly();
+    }
+
+    /**
+     * Opens the stream again from the end of the last transaction queued, with backoff, until it
+     * opens, {@link #close} is called, or the slot turns out to be gone.
+     *
+     * <p>CDCSLOT-1. This used to retry every failure for ever, including the ones no retry can fix:
+     * a slot dropped while its walsender was down answers every reconnect with {@code 42704}, and
+     * that answer was caught, kept as "reconnecting after: ..." and tried again -- so the stream sat
+     * in a reconnect loop, the reader returned nothing, the query stayed RUNNING, health said UP, and
+     * every change after the drop was silently missing. Now a permanent refusal on reconnect fails
+     * the stream exactly as one on the open stream does, and before each attempt the slot is asked
+     * about directly on the control connection: gone, invalidated, or confirmed past what this reader
+     * has read (recreated under the same name, or advanced by something else) is each PRV-5117,
+     * because each means the changes in between are no longer in the log.
+     *
+     * @return true when the stream is open again; false when it failed or this stream is closing
+     */
+    private boolean reconnect() {
+        long backoffMillis = 500;
+        while (running) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(backoffMillis));
+            backoffMillis = Math.min(backoffMillis * 2, 30_000);
+            if (!running) {
+                return false;
+            }
+            try {
+                String gone = slotGone();
+                if (gone != null) {
+                    fail(gone, null);
+                    return false;
+                }
+            } catch (SQLException unreachable) {
+                // The database itself cannot be asked: that is exactly what reconnecting is for.
+                lastProblem = "reconnecting: cannot read the state of slot '" + options.slot() + "': "
+                        + unreachable.getMessage();
+                closeControl();
+                continue;
+            }
+            try {
+                open(assembler.resumeLsn(), Duration.ZERO);
+                lastProblem = "";
+                return true;
+            } catch (SQLException again) {
+                closeQuietly();
+                if (permanent(again)) {
+                    fail(
+                            "the replication stream of slot '" + options.slot() + "' could not be resumed: "
+                                    + again.getMessage()
+                                    + ". If the slot was dropped or invalidated, the WAL the engine "
+                                    + "needs is gone: drop the registration's checkpoints and register the query again.",
+                            again);
+                    return false;
+                }
+                lastProblem = "reconnecting after: " + again.getMessage();
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Why the slot can no longer give this reader the changes after where it stopped, or null when it
+     * still can. Asked of {@code pg_replication_slots} on the control connection.
+     */
+    private synchronized String slotGone() throws SQLException {
+        if (control == null || control.isClosed()) {
+            control = PostgresCdcSourcePlugin.connect(options, false);
+        }
+        java.util.Optional<PostgresCdcSourcePlugin.SlotStatus> status = Preflight.slotStatus(control, options);
+        long resume = assembler.resumeLsn();
+        if (status.isEmpty()) {
+            return "replication slot '" + options.slot() + "' was dropped while this reader was streaming from it; "
+                    + "the changes after " + CdcOffset.format(resume) + " are no longer in the log. Drop the "
+                    + "registration's checkpoints and register the query again (a new slot is created).";
+        }
+        PostgresCdcSourcePlugin.SlotStatus slot = status.get();
+        if ("lost".equals(slot.walStatus())) {
+            return "replication slot '" + options.slot() + "' was invalidated (wal_status = 'lost', usually "
+                    + "max_slot_wal_keep_size): the WAL after " + CdcOffset.format(resume) + " is gone. Drop the "
+                    + "registration's checkpoints and the slot, and register the query again.";
+        }
+        long confirmed = CdcOffset.parseLsn(slot.confirmedFlushLsn());
+        if (resume != 0L && confirmed > resume) {
+            return "replication slot '" + options.slot() + "' has confirmed " + slot.confirmedFlushLsn() + ", past "
+                    + CdcOffset.format(resume) + " where this reader stopped: it was recreated or advanced by "
+                    + "something else, and PostgreSQL would silently start after the changes in between. Drop the "
+                    + "registration's checkpoints and register the query again.";
+        }
+        return null;
+    }
+
+    private static boolean permanent(Exception e) {
+        return e instanceof SQLException sql && PERMANENT.contains(sql.getSQLState());
+    }
+
+    /** Ends the stream with PRV-5117; the reader throws it at its next poll, which stops the feed. */
+    private void fail(String message, Exception cause) {
+        PravahaException failed = cause == null
+                ? new PravahaException(CdcErrors.STREAM_FAILED, message)
+                : new PravahaException(CdcErrors.STREAM_FAILED, message, cause);
+        lastProblem = "failed: " + message;
+        failure = failed;
+        LOG.log(System.Logger.Level.ERROR, failed.getMessage());
     }
 
     private void acknowledge() throws SQLException {

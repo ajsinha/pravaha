@@ -249,6 +249,16 @@ public class PravahaNode implements SmartLifecycle {
     private com.ash.messaging.pravaha.flight.FlightObservation flightObservation =
             com.ash.messaging.pravaha.flight.FlightObservation.NONE;
 
+    /** pravaha.pgwire.limits.* (PGPREAUTH-1). A setter, as setTenancy; the defaults when unset. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPgWireLimits(PgWireLimitsProperties properties) {
+        pgWireLimits =
+                properties == null ? com.ash.messaging.pravaha.pgwire.PgWireLimits.DEFAULTS : properties.limits();
+    }
+
+    private com.ash.messaging.pravaha.pgwire.PgWireLimits pgWireLimits =
+            com.ash.messaging.pravaha.pgwire.PgWireLimits.DEFAULTS;
+
     /** The node's alerts, once it has started (ADR-057). */
     public Optional<com.ash.messaging.pravaha.registry.alert.AlertService> alerts() {
         return alerts.service();
@@ -1293,7 +1303,9 @@ public class PravahaNode implements SmartLifecycle {
             // or behind a terminator; nobody gets it by not reading the configuration file.
             com.ash.messaging.pravaha.pgwire.PravahaPgWireServer server =
                     new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
-                            .authorizedBy(securityPolicyOf(registry), auditSink());
+                            .authorizedBy(securityPolicyOf(registry), auditSink())
+                            // PGPREAUTH-1: connection, handshake, message-size and idle limits.
+                            .limitedBy(pgWireLimits);
             TokenVerifier pgVerifier = transportVerifier();
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);

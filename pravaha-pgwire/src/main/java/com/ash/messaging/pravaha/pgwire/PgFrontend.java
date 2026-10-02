@@ -36,10 +36,12 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * <h2>Why the caps are here</h2>
  *
  * <p>Every frontend message declares its own length before it declares anything else, so an
- * unauthenticated peer chooses the size of the array this server allocates. Both caps below are
- * enforced before a single byte of payload is read. PostgreSQL's own startup cap is 10000 bytes and
- * this matches it; the per-message cap is generous for a {@code Query} and still far short of what
- * a loop of lengths could do to a heap.
+ * unauthenticated peer would otherwise choose the size of the array this server allocates. Every cap
+ * below is enforced on the declared length, before a single byte of payload is read, and even an
+ * accepted length is allocated as its bytes arrive ({@link #READ_CHUNK_BYTES} at a time), not on the
+ * peer's word. PostgreSQL's own startup cap is 10000 bytes and this matches it; before authentication
+ * a message may be {@link #MAX_PASSWORD_BYTES}, enough for any credential; after it, {@code
+ * pravaha.pgwire.limits.max-message-size} (PGPREAUTH-1).
  */
 final class PgFrontend {
 
@@ -58,8 +60,26 @@ final class PgFrontend {
     /** PostgreSQL's own limit on a startup packet. */
     static final int MAX_STARTUP_BYTES = 10_000;
 
-    /** As much as one regular frontend message may be. A {@code Query} far larger is a mistake. */
-    static final int MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+    /**
+     * As much as a message may be before the connection has authenticated: a {@code PasswordMessage}
+     * carrying a session token, an API key or a JWT. Generous for the largest of those and far short
+     * of what used to be allowed here -- 16 MiB, allocated on the word of a peer that had sent nothing
+     * but a startup packet, which is how sixty sockets ran a 1 GiB node out of heap (PGPREAUTH-1).
+     */
+    static final int MAX_PASSWORD_BYTES = 16 * 1024;
+
+    /**
+     * How much of a message is allocated before its bytes have actually arrived. A larger message
+     * grows its buffer as it is read, so a peer that declares a large message and then sends nothing
+     * holds this much, not what it declared.
+     */
+    static final int READ_CHUNK_BYTES = 64 * 1024;
+
+    /** The exact length of {@code SSLRequest} and {@code GSSENCRequest}: a length and a code. */
+    private static final int ENCRYPTION_REQUEST_BYTES = 8;
+
+    /** The exact length of {@code CancelRequest}: a length, a code, a process id and a key. */
+    private static final int CANCEL_REQUEST_BYTES = 16;
 
     /** A framed frontend message: its one-byte type, and its payload with the length stripped. */
     record Message(char type, byte[] payload) {
@@ -186,9 +206,18 @@ final class PgFrontend {
     }
 
     private final DataInputStream in;
+    private int maxMessageBytes = MAX_PASSWORD_BYTES;
+    private boolean authenticated;
 
+    /** A frontend that accepts only what an unauthenticated peer may send; see {@link #afterAuthentication}. */
     PgFrontend(InputStream in) {
         this.in = new DataInputStream(in);
+    }
+
+    /** Raises the per-message cap to the signed-in one, once the connection has authenticated. */
+    void afterAuthentication(int maxMessageBytes) {
+        this.maxMessageBytes = maxMessageBytes;
+        this.authenticated = true;
     }
 
     /**
@@ -206,9 +235,18 @@ final class PgFrontend {
                             + ". This is not a PostgreSQL client, or not a PostgreSQL port.");
         }
         int code = in.readInt();
-        byte[] rest = new byte[length - 8];
-        in.readFully(rest);
-        if (code == SSL_REQUEST_CODE || code == GSSENC_REQUEST_CODE || code == CANCEL_REQUEST_CODE) {
+        int expected = code == SSL_REQUEST_CODE || code == GSSENC_REQUEST_CODE
+                ? ENCRYPTION_REQUEST_BYTES
+                : code == CANCEL_REQUEST_CODE ? CANCEL_REQUEST_BYTES : -1;
+        if (expected > 0 && length != expected) {
+            // A magic packet has one length. Reading whatever else it declared would be reading an
+            // unauthenticated peer's padding into memory for no reason the protocol has.
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "a request with code " + code + " declared " + length + " bytes; the protocol says " + expected);
+        }
+        byte[] rest = readPayload(length - 8);
+        if (expected > 0) {
             return new Startup(code, Map.of());
         }
         return new Startup(code, parameters(rest));
@@ -234,15 +272,48 @@ final class PgFrontend {
                     PgWireErrors.PROTOCOL_VIOLATION,
                     "a '" + (char) type + "' message ended before its length field did");
         }
-        if (length < 4 || length > MAX_MESSAGE_BYTES) {
+        if (length < 4) {
             throw new PravahaException(
                     PgWireErrors.PROTOCOL_VIOLATION,
-                    "a '" + (char) type + "' message declared " + length + " bytes; this server accepts 4 to "
-                            + MAX_MESSAGE_BYTES);
+                    "a '" + (char) type + "' message declared " + length + " bytes; the length counts itself, "
+                            + "so the least it can be is 4");
         }
-        byte[] payload = new byte[length - 4];
-        in.readFully(payload);
-        return new Message((char) type, payload);
+        if (length > maxMessageBytes) {
+            // Refused on the declaration, before a byte of it is read or allocated.
+            throw new PravahaException(
+                    PgWireErrors.MESSAGE_TOO_LARGE,
+                    "a '" + (char) type + "' message declared " + length + " bytes; "
+                            + (!authenticated
+                                    ? "before authentication this server accepts at most " + MAX_PASSWORD_BYTES
+                                    : "this server accepts at most " + maxMessageBytes
+                                            + " (pravaha.pgwire.limits.max-message-size)"));
+        }
+        return new Message((char) type, readPayload(length - 4));
+    }
+
+    /**
+     * Reads exactly {@code size} bytes, allocating as they arrive rather than all at once on the
+     * peer's say-so: a buffer of at most {@link #READ_CHUNK_BYTES} to start, doubled as it fills.
+     */
+    private byte[] readPayload(int size) throws IOException {
+        if (size <= READ_CHUNK_BYTES) {
+            byte[] payload = new byte[size];
+            in.readFully(payload);
+            return payload;
+        }
+        byte[] buffer = new byte[READ_CHUNK_BYTES];
+        int filled = 0;
+        while (filled < size) {
+            if (filled == buffer.length) {
+                buffer = java.util.Arrays.copyOf(buffer, (int) Math.min(size, 2L * buffer.length));
+            }
+            int read = in.read(buffer, filled, buffer.length - filled);
+            if (read < 0) {
+                throw new EOFException("the client closed the connection " + (size - filled) + " bytes into a message");
+            }
+            filled += read;
+        }
+        return buffer;
     }
 
     /** Startup parameters: {@code key\0value\0} pairs, ended by an empty key. */

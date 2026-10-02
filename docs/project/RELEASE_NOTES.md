@@ -16,6 +16,39 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
   50 findings opened — 46 defects (10 HIGH) and 4 design notes. None is fixed yet.
+- **A PostgreSQL CDC slot dropped under a running query is detected (CDCSLOT-1).** The reader treated
+  the slot's `42704` at reconnect as one more transient failure and retried for ever, so the query
+  stayed `RUNNING`, health `UP`, and every later change was silently missing. Now a permanent refusal
+  at reconnect stops the feed with `PRV-5117`, and before each reconnect the reader asks
+  `pg_replication_slots` whether the slot still exists, is not `lost`, and has not been confirmed past
+  where the reader stopped (recreated under the same name); any of those is `PRV-5117`, logged at
+  `ERROR`, with node health `DEGRADED` (FEED-1). `PostgresCdcSlotDroppedTest`.
+- **The PostgreSQL gateway bounds what an unauthenticated peer can make it hold (PGPREAUTH-1).** It
+  allocated whatever a client declared for its `PasswordMessage` — up to 16 MiB — before reading a
+  byte, from a pool with no connection cap: sixty silent sockets ended a 1 GiB node. Now a message
+  before sign-in is at most 16 KiB and refused on its declared length (`54000`, `PRV-6217`); any
+  message is allocated as its bytes arrive; magic packets must have their exact length; the handshake
+  has one 10 s deadline a trickling peer cannot renew; and new settings `pravaha.pgwire.limits.*`
+  bound connections (`max-connections` 100, `max-unauthenticated` 32, optional
+  `max-connections-per-principal`; past them `FATAL 53300`, `PRV-6216`, before a thread is spent),
+  the signed-in message size (`max-message-size` 1MB) and idle time (`idle-timeout`, off; `57P05`,
+  `PRV-6219`). Out-of-range limits stop the node (`PRV-6220`). `PgWireLimitsTest`,
+  `PravahaNodePgWireLimitsTest`.
+- **Revoking a credential ends the PostgreSQL connections it opened (PGREVOKE-1).** The gateway
+  checked the password once, at sign-in; a revoked key, a signed-out session or a disabled user kept
+  reading on an open connection. It now verifies the credential again before every statement (`Query`,
+  `Parse`, `Bind`, `Describe`, `Execute`) and ends the connection `FATAL 28000` (`PRV-6218`); a role
+  removed applies from the next statement. Flight subscriptions already re-verified every two seconds.
+  `PgWireLimitsTest`, `PgWireSignInTest` (real pgjdbc against identity: key revoked, session signed
+  out, user disabled).
+- **HTTP request bodies are bounded before anything reads them (HTTPBODY-1).** A body was read whole,
+  before authentication, up to Jackson's 20 M-character limit, and thirty 19 MB anonymous sign-ins
+  ran a 1 GiB node out of heap. A new filter, first in the chain, refuses a body over
+  `pravaha.http.max-anonymous-body` (16KB, open paths) or `pravaha.http.max-request-body` (4MB) with
+  `413` `PRV-1054` on its declared length, or as soon as a chunked body passes it; at most
+  `pravaha.http.max-concurrent-sign-ins` (8) sign-ins run at once (`429` `PRV-1055`, `Retry-After`);
+  Tomcat's `max-connections`, `max-swallow-size` and form-post size are set in `application.yaml`.
+  `RequestLimitHttpTest`, `RequestLimitFilterTest`.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

@@ -140,6 +140,58 @@ class PgWireSignInTest {
         }
     }
 
+    // ------------------------------------------------------------------ PGREVOKE-1
+
+    @Test
+    void revokingAKeyEndsTheConnectionItOpenedAtItsNextStatement() throws SQLException {
+        IdentityService.IssuedKey key = users.createKey(bea, "power-bi", null, null, null);
+        try (Connection connection = connect("bea", key.key())) {
+            assertThat(show(connection)).isNotEmpty();
+            users.revokeKey(bea, key.keyId());
+            assertRevoked(connection);
+        }
+    }
+
+    @Test
+    void signingASessionOutEndsTheConnectionItOpened() throws SQLException {
+        String session = users.login("bea", "Bea-chosen-7Zx", null).token();
+        try (Connection connection = connect("bea", session)) {
+            assertThat(show(connection)).isNotEmpty();
+            users.logout(session);
+            assertRevoked(connection);
+        }
+    }
+
+    @Test
+    void disablingTheUserEndsTheConnectionsTheirKeyOpened() throws SQLException {
+        String key = users.createKey(bea, "grafana", null, null, null).key();
+        Principal admin = node.verifier()
+                .verify(users.login("admin", IdentityService.DEFAULT_ADMIN_PASSWORD, null)
+                        .token());
+        try (Connection connection = connect("bea", key)) {
+            assertThat(show(connection)).isNotEmpty();
+            users.updateUser(admin, "bea", null, null, null, "disabled");
+            assertRevoked(connection);
+        }
+    }
+
+    private static String show(Connection connection) throws SQLException {
+        try (java.sql.Statement statement = connection.createStatement();
+                java.sql.ResultSet rows = statement.executeQuery("SHOW server_version")) {
+            assertThat(rows.next()).isTrue();
+            return rows.getString(1);
+        }
+    }
+
+    /** The next statement is refused FATAL 28000 with PRV-6218, and the connection is over. */
+    private static void assertRevoked(Connection connection) throws SQLException {
+        assertThatThrownBy(() -> show(connection)).isInstanceOfSatisfying(SQLException.class, e -> {
+            assertThat(e.getSQLState()).isEqualTo("28000");
+            assertThat(e.getMessage()).contains("PRV-6218");
+        });
+        assertThat(connection.isValid(2)).as("and the connection is closed").isFalse();
+    }
+
     private Connection connect(String user, String password) throws SQLException {
         Properties properties = new Properties();
         properties.setProperty("user", user);

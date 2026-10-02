@@ -284,7 +284,11 @@ since it was created. `pravaha.checkpoint.interval` (a minute by default) is als
 slot's confirmed position trails the reader.
 
 What the guarantee does not survive is the slot itself going away — dropped, invalidated, lost in a
-failover. That is detected and refused, never skipped over.
+failover. That is detected and refused, never skipped over. A slot dropped under a running query — its walsender
+terminated, then `pg_drop_replication_slot` — is seen at the reader's first reconnect: before each
+attempt the reader asks `pg_replication_slots` whether the slot still exists, is not `lost`, and has not
+been confirmed past where the reader stopped (a slot recreated under the same name). Any of those
+stops the feed with `PRV-5117`, the query's view keeps what it had, and node health turns `DEGRADED`.
 
 ## The slot
 
@@ -400,7 +404,7 @@ DROP PUBLICATION IF EXISTS pravaha_orders;
 | [PRV-5114](/help/codes/PRV-5114) | at restore | A checkpoint holds an offset this plugin did not write |
 | [PRV-5115](/help/codes/PRV-5115) | at restore | The slot has confirmed past the checkpoint being restored. Recover as above |
 | [PRV-5116](/help/codes/PRV-5116) | while running | A `TRUNCATE`, or a key-only before-image (the replica identity was changed while capturing). Everything before it was delivered. Recover as above |
-| [PRV-5117](/help/codes/PRV-5117) | while running | The replication stream failed in a way no reconnect fixes: the slot dropped or invalidated, the role's privileges revoked |
+| [PRV-5117](/help/codes/PRV-5117) | while running | The replication stream failed in a way no reconnect fixes: the slot dropped, invalidated or recreated under the same name, the role's privileges revoked. Caught at the reader's first reconnect, within seconds; the feed stops and node health turns `DEGRADED`. Recover as above |
 | [PRV-5118](/help/codes/PRV-5118) | at open, or during a snapshot | The initial snapshot could not start — a transaction left open since before it, or no room for the temporary slot — or its read failed. A restart resumes it exactly |
 
 ## Pitfalls
