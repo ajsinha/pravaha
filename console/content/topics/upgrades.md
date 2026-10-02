@@ -25,7 +25,10 @@ honest account of what the "zero downtime" machinery does today.
 1. **Read the release notes for format changes.** Look for a checkpoint snapshot version change and
    for journal record changes. Most releases have neither. **Upgrading 1.x to 2.0** changes neither,
    and needs **Java 25**: point `JAVA_HOME` at a JDK or JRE 25 first, or the new launcher refuses to
-   start (the image is already on 25).
+   start (the image is already on 25). **Upgrading 2.0.0 to 2.0.1** changes answers where 2.0.0's
+   were defects — NULL for an all-NULL `SUM`, overflow instead of wrap, merged `NaN`/`-0.0` groups,
+   `HOP` windows on multiples of the slide, `MIN`/`MAX` over a CDC source refused — and the `users`
+   profile's policy; read the release notes' list (and COMPATIBILITY.md, "2.0.1") first.
 2. **Check the last checkpoint is recent** — `time() - pravaha_query_checkpoint_last_success_timestamp_seconds`
    well under an interval for every query. That is how much the restart replays.
 3. **Back up** the checkpoint root and the journal together (a filesystem snapshot, or copy with the
@@ -48,7 +51,9 @@ standby. The outage is the lease expiry plus the restore, rather than the host r
 ### The journal
 
 Records a newer engine wrote are refused by an older one with PRV-8005 — refused, not skipped,
-because skipping would silently drop a registration. So **downgrading past a journal format change
+because skipping would silently drop a registration. 2.0.1 adds one record (`M`, a shared
+computation's survivors re-homed, SHAREDLOSS-1), and refuses with PRV-8005 a journal damaged in the
+middle rather than reading past it (JOURNALMID-1). So **downgrading past a journal format change
 loses nothing silently, but will not start those queries**; restore the backup taken in step 3.
 
 ### Checkpoints
@@ -67,6 +72,7 @@ The format changes so far, as examples of what to look for:
 | The served view's snapshot went to version 2, keeping every value's exact type (VIEW-2) | a checkpoint whose view is version 1 | — |
 | The operator snapshot went to version 4 when unwindowed aggregates began carrying their accumulators (CKPT-2) | a version 3 checkpoint of an unwindowed aggregate | version 3 windowed and join checkpoints still restore |
 | The pipeline snapshot went to version 5 when `COUNT(DISTINCT)` state moved off-heap (ADR-044) | a version 3 or 4 snapshot holding windowed state | a version 3 or 4 snapshot of a plan with no windowed aggregate restores |
+| 2.0.1: every checkpoint ends with a CRC32C and records its output schema (CKPTSUM-1, RETYPERESTORE-1) | none by format: a 2.0.0 checkpoint has neither and restores, logged as unverified. Not restored: one that fails its checksum (PRV-4094, the one before it is used), one of another output schema (PRV-4095), and one holding a `-0.0` or non-standard `NaN` as a key (NANGROUP-1) | 2.0.0 still reads a 2.0.1 checkpoint, the checksum being a tail after an unchanged body |
 
 **Plan an upgrade across such a change for a time when replaying the sources is affordable** — a
 source that no longer holds the history cannot replay it — or accept that those views warm up.

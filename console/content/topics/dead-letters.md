@@ -4,7 +4,7 @@ slug: dead-letters
 category: operating
 order: 100
 icon: envelope-exclamation
-summary: "pravaha.dlq.directory: where a record a source cannot decode is kept, one JSON line each, so one bad field does not stop a feed. What goes there, how much is kept, and reading and replaying them from the console, the CLI or the API."
+summary: "pravaha.dlq.directory: where a record a source cannot decode, or a row that fails evaluation, is kept, one JSON line each, so one bad field stops nothing. What goes there, how much is kept, and reading and replaying them from the console, the CLI or the API."
 audience: Operators
 keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, division by zero, overflow, PRV-3027, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha-engine run --dlq, pravaha dlq list]
 guide: operations#files-that-hold-data
@@ -15,7 +15,8 @@ A dead-letter queue keeps two rules that pull against each other: **never drop a
 and **never let one record stop the pipeline**. Without somewhere durable to put a bad record, "keep
 going" is just "drop it" — so a node with no queue configured keeps the first rule and fails loudly.
 Configure a directory and it keeps both: an undecodable record is written there with its bytes and
-its reason, and the source reads on.
+its reason, and the source reads on — and so, from 2.0.1, is a row that decoded and then failed
+evaluation before reaching state (`PRV-3027`, below), and the query runs on.
 
 ## The setting
 
@@ -27,7 +28,7 @@ pravaha:
 
 | Key | Default | What it decides |
 |---|---|---|
-| `pravaha.dlq.directory` | empty | Where undecodable records go, **one file per query**, named `<query>.dlq`. Empty: no queue, and a decode failure stops that query's source |
+| `pravaha.dlq.directory` | empty | Where undecodable records and rows that fail evaluation go, **one file per query**, named `<query>.dlq`. Empty: no queue, and a decode failure stops that query's source, an evaluation failure the query |
 | `pravaha.dlq.max-bytes` | `268435456` (256 MiB) | The largest one query's file may grow. Past it the **oldest entries are evicted** and the loss is recorded. `0` for no byte bound |
 | `pravaha.dlq.max-entries` | `0` (off) | The most entries one query's file may hold |
 | `pravaha.dlq.max-age` | `0` (off) | How long an entry is kept, as a duration (`30d`, `PT72H`) |

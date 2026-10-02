@@ -254,6 +254,8 @@ HAVING COUNT(*) >= 3 AND SUM(amount) > 500
 | `SUM`/`AVG`/`MIN`/`MAX` over `FLOAT64` | no, PRV-2020 | no, PRV-2020 |
 | `SUM`/`MIN`/`MAX` over `DECIMAL` | yes, exact at the column's scale | yes |
 | `AVG` over `DECIMAL` | no, PRV-2021 (a quotient would be rounded) | no, PRV-2021 |
+| `MIN`/`MAX` over a source that retracts (CDC, an operation column) | no, PRV-2076 | — |
+| A `HOP` a row would land in more than `pravaha.lane.max-windows-per-row` windows of | no, PRV-3026 | — |
 | `SESSION` windows | no, PRV-2020 | — |
 
 A global aggregate is one group, so it is bounded:
@@ -441,6 +443,7 @@ something specific with UNKNOWN:
 | `WHERE`, `HAVING`, a join's `ON` | The row is kept only if the predicate is TRUE; UNKNOWN drops it |
 | `GROUP BY` | NULL is a group: every row with a NULL key gathers under one NULL key |
 | `COUNT(col)`, `COUNT(DISTINCT col)` | NULLs are not counted; `COUNT(*)` counts rows |
+| `SUM`, `AVG`, `MIN`, `MAX` | NULLs are skipped; a group with no non-null value answers NULL (0 before 2.0.1) |
 | Arithmetic | NULL in, NULL out |
 | `\|\|` concatenation | NULL concatenated with anything is NULL — not an empty string |
 | A projected boolean | Must not be able to be UNKNOWN (below) |
@@ -549,7 +552,8 @@ FROM orders
 | `ABS`, `FLOOR`, `CEIL`, `ROUND` | yes | One argument each |
 | `ROUND(x, 2)` | no | PRV-2021 — scale, round, and name the scale |
 | `SQRT`, `POWER`, `LN`, ... | no | PRV-2021 |
-| `CAST` between numeric types | yes | |
+| `CAST` between numeric types | yes | A value the target cannot hold — `NaN`, `±Infinity`, past its range — is an overflow, not `0` or a clamped extreme |
+| A result outside its type's range | — | An overflow, never wrapped: `INT * INT` is an `INT`, and `2e9 * 2` stops the query naming the expression (or, with a dead-letter queue, the row is dead-lettered, PRV-3027). `CAST(i AS BIGINT) * 2` asks for 64 bits |
 | `CAST` to or from text or dates | no | PRV-2021 |
 
 ```sql
@@ -676,8 +680,10 @@ do the conversion where the decimal already lives
 
 ### Timestamps
 
-`TIMESTAMP` is the event-time type — nanosecond precision end to end. Arithmetic with a day-time
-interval works; truncating to a date by cast does not (use a one-day window instead):
+`TIMESTAMP` is the event-time type — nanosecond precision end to end, so it spans 1677-09-21 to
+2262-04-11 UTC; a value outside that is refused where it enters (a file line `PRV-5040`), never
+wrapped. Arithmetic with a day-time interval works; truncating to a date by cast does not (use a
+one-day window instead):
 
 ```sql
 SELECT window_start, window_end, COUNT(*) AS txn_count
