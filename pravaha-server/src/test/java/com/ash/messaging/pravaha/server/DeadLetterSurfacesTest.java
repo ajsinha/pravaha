@@ -338,6 +338,33 @@ class DeadLetterSurfacesTest {
     }
 
     @Test
+    void aRowThatDividesByZeroIsDeadLetteredAndTheQueryKeepsRunning() throws Exception {
+        // DLQPROJ-1: the row 1,ann,100 makes amount - 100 zero. It decodes, fails evaluation before
+        // any state, and goes to the queue coded PRV-3027 -- the query keeps running and answers the
+        // next row. Replaying it is refused: the same values would fail the same way.
+        RegisteredQuery query = node.registry()
+                .orElseThrow()
+                .register("ratio", "SELECT id, amount / (amount - 100) AS r FROM txn", List.of(0), DANA);
+        awaitDeadLetters("ratio", 1);
+        Files.writeString(txn, "2,bob,300\n", StandardOpenOption.APPEND);
+        awaitViewSize(query, 1);
+        assertThat(query.state()).isEqualTo(com.ash.messaging.pravaha.registry.QueryState.RUNNING);
+
+        DeadLetterController api = api();
+        DeadLetterDtos.DeadLetter entry =
+                api.list("ratio", "0", "10", as(DANA)).entries().get(0);
+        assertThat(entry.code()).isEqualTo("PRV-3027");
+        assertThat(entry.stream()).isEqualTo("txn");
+        assertThat(entry.reason()).contains("division by zero");
+        assertThat(new String(Base64.getDecoder().decode(entry.raw()), StandardCharsets.UTF_8))
+                .isEqualTo("{\"id\":\"1\",\"user_id\":\"ann\",\"amount\":\"100\"}");
+        assertThatThrownBy(() -> api.replay("ratio", new DeadLetterDtos.ReplayRequest(List.of(entry.id())), as(DANA)))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-4092")
+                .hasMessageContaining("evaluation failed");
+    }
+
+    @Test
     void anIdThatIsNotInTheQueueIsItsOwnRefusal() throws Exception {
         register("big_txn");
 

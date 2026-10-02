@@ -704,6 +704,12 @@ correlation id, source offset, reason, and the original bytes in Base64 — mean
 the queue itself could not write, that count goes to stderr: a run that reports `ok` while having
 quietly discarded input is the thing the queue exists to prevent, not something it may cause.
 
+On a node or an embedded engine the queue also takes a row that decoded and then failed evaluation —
+a division by zero, an overflow, a `CAST` with no answer — before it reached any state, coded
+`PRV-3027`, with the row's columns as a JSON object in place of source bytes; the query keeps running.
+So every query has a `<query>.dlq` once a directory is set, pushed-to or source-fed. Such an entry is
+not replayable (`PRV-4092`). A failure above state still stops the query (DLQPROJ-1).
+
 **The queue is bounded, and it evicts rather than refuses.** `pravaha.dlq.max-bytes` defaults to
 256 MiB a query, with `pravaha.dlq.max-entries` and `pravaha.dlq.max-age` off unless set. Past a
 bound the *oldest* entries go: refusing the newest would hand the writer a queue that has stopped

@@ -766,32 +766,25 @@ class AdvDurabilityTest {
     // ------------------------------------------------------------------ QE-012, QE-094, QE-164
 
     @Test
-    @Disabled("QE-012: with pravaha.dlq.directory set, a row that divides by zero stops the query (PRV-8003) instead "
-            + "of going to the dead-letter queue as CQ §11 and the PRV-3010 message say")
     void qe012_aRowThatDividesByZeroGoesToTheDeadLetterQueue(@TempDir Path dir) throws Exception {
+        // DLQPROJ-1, fixed: with pravaha.dlq.directory set, a row whose evaluation fails before it
+        // reaches state is dead-lettered (PRV-3027) and the query keeps running.
         try (PravahaEngine engine = divisionEngine(dir)) {
-            Thread.sleep(2000);
+            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+            while (AdvSupport.rows(engine, "SELECT * FROM q").size() < 2 && System.nanoTime() < deadline) {
+                Thread.sleep(100);
+            }
             assertThat(AdvSupport.state(engine, "q")).isEqualTo("RUNNING");
             assertThat(engine.deadLetters()
                             .counts(engine.find("q").orElseThrow().name())
                             .entries())
                     .isEqualTo(1);
-            assertThat(AdvSupport.rows(engine, "SELECT * FROM q")).containsExactly("1|5", "3|2");
-        }
-    }
-
-    @Test
-    void qe012_observed(@TempDir Path dir) throws Exception {
-        try (PravahaEngine engine = divisionEngine(dir)) {
-            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-            while (AdvSupport.state(engine, "q").equals("RUNNING") && System.nanoTime() < deadline) {
-                Thread.sleep(100);
-            }
-            String state = AdvSupport.state(engine, "q");
-            long entries = engine.deadLetters().counts("q").entries();
-            System.out.println("NOTE QE-012 state=" + state.lines().findFirst().orElse("") + " dlqEntries=" + entries);
-            assertThat(state).startsWith("FAILED PRV-8003").contains("division by zero");
-            assertThat(entries).isZero();
+            assertThat(AdvSupport.rows(engine, "SELECT * FROM q")).containsExactlyInAnyOrder("1|5", "3|2");
+            var letter = engine.deadLetters().page("q", 0, 10).entries().get(0).letter();
+            assertThat(letter.code()).isEqualTo("PRV-3027");
+            assertThat(letter.reason()).contains("division by zero");
+            assertThat(new String(letter.raw(), java.nio.charset.StandardCharsets.UTF_8))
+                    .contains("\"id\":\"2\"");
         }
     }
 

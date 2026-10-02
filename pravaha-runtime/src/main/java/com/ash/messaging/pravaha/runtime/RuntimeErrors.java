@@ -66,6 +66,14 @@ public final class RuntimeErrors {
      */
     public static final ErrorCode WINDOW_TOO_FINE = new ErrorCode(3026, "RUNTIME_WINDOW_TOO_FINE");
 
+    /**
+     * A row whose evaluation failed -- a division by zero, an overflow, a cast with no answer --
+     * before it reached any state, and which went to the query's dead-letter queue rather than
+     * stopping the query (DLQPROJ-1). The code a dead letter of that kind carries; such a letter is
+     * not replayed, because the same row would fail the same way. See {@code exec.RowGuard}.
+     */
+    public static final ErrorCode ROW_EVALUATION_FAILED = new ErrorCode(3027, "RUNTIME_ROW_EVALUATION_FAILED");
+
     // 3023 is retired, not free. It was RUNTIME_COUNT_DISTINCT_CANNOT_SPILL: an aggregate containing
     // COUNT(DISTINCT) kept its distinct sets on the heap and was refused when the overflow tier was
     // configured. ADR-044 moved those sets into RowStore, so they spill like every other state and

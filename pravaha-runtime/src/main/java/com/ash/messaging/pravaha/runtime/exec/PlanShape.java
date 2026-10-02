@@ -102,4 +102,26 @@ final class PlanShape {
         }
         operator.inputs().forEach(input -> collectStreams(input, into));
     }
+
+    /**
+     * The join key columns of one input, expressed in that input's own scan ordinals.
+     *
+     * <p>Walks down from the join, mapping ordinals through anything between it and the scan. A
+     * projection renumbers columns, so taking the join's ordinals as the scan's would route rows by
+     * whatever column happens to sit at that position -- correct-looking, and wrong.
+     */
+    static int[] joinKeyOrdinals(PhysicalOperator plan, int input) {
+        com.ash.messaging.pravaha.runtime.plan.JoinOperator join = PlanShape.findJoin(plan);
+        if (join == null) {
+            throw new IllegalStateException("this query has no join, so there is no key to partition by; use pumpInto");
+        }
+        boolean left = input == 0;
+        List<Integer> keys = left ? join.leftKeys() : join.rightKeys();
+        PhysicalOperator side = left ? join.left() : join.right();
+        int[] mapped = new int[keys.size()];
+        for (int i = 0; i < mapped.length; i++) {
+            mapped[i] = PlanShape.mapDownToScan(side, keys.get(i));
+        }
+        return mapped;
+    }
 }

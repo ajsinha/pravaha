@@ -6,7 +6,7 @@ order: 100
 icon: envelope-exclamation
 summary: "pravaha.dlq.directory: where a record a source cannot decode is kept, one JSON line each, so one bad field does not stop a feed. What goes there, how much is kept, and reading and replaying them from the console, the CLI or the API."
 audience: Operators
-keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha-engine run --dlq, pravaha dlq list]
+keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, division by zero, overflow, PRV-3027, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha-engine run --dlq, pravaha dlq list]
 guide: operations#files-that-hold-data
 related: [source-filesystem, source-kafka, observability, checkpoints-recovery, configuration]
 ---
@@ -66,6 +66,26 @@ query's state to show it (TIME-4).
 
 **With `pravaha.dlq.directory` set.** Line 812 is written to `/opt/pravaha/data/dlq/<query>.dlq`, the
 other 19,999 rows are ingested, and the query carries on.
+
+## A row that decodes and then fails
+
+A row can decode and still have no answer: `a / b` with `b` zero, an `INT` result past `INT`'s range,
+`CAST(d AS BIGINT)` of `NaN`. **With a queue configured**, such a row goes to the same file, coded
+[PRV-3027](/help/codes/PRV-3027), with the reason (`division by zero …`, `INT overflow: …`) and the
+row's columns as a JSON object in place of the source's bytes — `{"id":"2","a":"10","b":"0"}` — and the
+query keeps running. That holds for a pushed row as for a source's, so every query gets its queue.
+**Without one**, it stops the query, as before (`FAILED`, `PRV-3010` with the cause).
+
+Only a failure **before the row reaches state** goes there: in a `WHERE`, a projection or a computed
+column under any aggregate, window, join or top-N. There, leaving the row out is exact — the view is
+what it would have been had the row never arrived. A failure *above* state — `HAVING SUM(a) / SUM(b)
+> 1`, a projection of an aggregate, a `SUM` past 64 bits (`PRV-3025`) — stops the query either way,
+because the state has already taken the row and dropping it could not undo that.
+
+Such an entry is **not replayed**: it decoded, and the same values would fail the same way. A replay
+is refused [PRV-4092](/help/codes/PRV-4092); correct the record at the source or change the query.
+Until DLQPROJ-1 the guide said these rows went to the queue while they stopped the query with the
+queue configured and empty.
 
 ## What a dead letter looks like
 
@@ -192,7 +212,8 @@ A replay is for a record the source will never send again. Where the source *wil
 you can correct, a topic you can republish to — correcting it at the source is better, because the
 record then arrives in order and the offsets still mean what they say.
 
-Four things make a replay refused with [PRV-4092](/help/codes/PRV-4092): the stream's schema has
+Five things make a replay refused with [PRV-4092](/help/codes/PRV-4092): the entry is a row whose
+evaluation failed (`PRV-3027`, above), the stream's schema has
 changed since the record was rejected, the source promises `EXACTLY_ONCE` and has not read past the
 record's offset (so it is going to deliver it again itself), the source cannot decode a record
 outside its own read, or the query is gone or reads a different stream now.

@@ -193,6 +193,18 @@ public final class DeadLetters {
                                 + "into. A dead letter belongs to the computation that rejected it: re-register the "
                                 + "query and let its source deliver the corrected record."));
         DeadLetterEntry entry = store.find(query, id).orElseThrow(() -> noSuchLetter(typed, id));
+        if (com.ash.messaging.pravaha.runtime.RuntimeErrors.ROW_EVALUATION_FAILED
+                .code()
+                .equals(entry.letter().code())) {
+            // DLQPROJ-1: the row decoded and evaluating it failed. Its bytes are the row rendered as
+            // text, not a source record any decoder reads, and the same row would fail the same way.
+            throw new PravahaException(
+                    StateErrors.DLQ_REPLAY_REFUSED,
+                    "dead letter " + id + " is a row of '" + typed + "' whose evaluation failed ("
+                            + entry.letter().reason() + "). It decoded; replaying it would evaluate the "
+                            + "same values the same way. Correct the record at the source, or change the "
+                            + "query so the row has an answer.");
+        }
         String newestBefore = newestId(query);
         DeadLetterEntry.Replay outcome = registered
                 .feed()

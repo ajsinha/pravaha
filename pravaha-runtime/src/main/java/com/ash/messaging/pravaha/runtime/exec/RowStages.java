@@ -65,15 +65,22 @@ final class RowStages {
                         "the compute stage's arena is full; raise pravaha.lane.arena.slab-bytes or reduce pravaha.lane.batch-size");
             }
             writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-            for (int out = 0; out < expressions.size(); out++) {
-                Expression expression = expressions.get(out);
-                if (expression.isNull(row)) {
-                    // SQL's rule, not Java's: null in, null out. Writing a zero here would make
-                    // a downstream SUM produce a number that looks entirely reasonable.
-                    writer.setNull(out);
-                    continue;
+            try {
+                for (int out = 0; out < expressions.size(); out++) {
+                    Expression expression = expressions.get(out);
+                    if (expression.isNull(row)) {
+                        // SQL's rule, not Java's: null in, null out. Writing a zero here would make
+                        // a downstream SUM produce a number that looks entirely reasonable.
+                        writer.setNull(out);
+                        continue;
+                    }
+                    writeComputed(writer, out, expression, row, compute.outputSchema());
                 }
-                writeComputed(writer, out, expression, row, compute.outputSchema());
+            } catch (RuntimeException failure) {
+                // A row whose evaluation failed is dead-lettered and the next one computed
+                // (DLQPROJ-1), so the half-written row must not stay open on the writer.
+                writer.abort();
+                throw failure;
             }
             writer.weight(row.weight())
                     .eventTimestampNanos(row.eventTimestampNanos())

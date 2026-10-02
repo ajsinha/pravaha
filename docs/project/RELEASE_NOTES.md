@@ -68,6 +68,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `-9223372036854775808`, and `WHERE CAST(d AS BIGINT) = 0` kept NaN rows. An integer literal outside
   `BIGINT` is refused `PRV-2021` at registration instead of compiled as its low 64 bits. A query that
   ran over such values now stops on them: filter them out (`WHERE d BETWEEN ...`) or keep them `DOUBLE`.
+- **A row that fails evaluation goes to the dead-letter queue, as the guide said** (DLQPROJ-1). With
+  `pravaha.dlq.directory` set, a row whose evaluation fails before it reaches state — a division by
+  zero, an overflow, a cast with no answer, in a `WHERE`, a projection or a computed column — is
+  written to the query's queue coded `PRV-3027` (new), its columns as a JSON object, and the query
+  keeps running; pushed rows too, so every query now has a `<query>.dlq` once a directory is set.
+  Such an entry is not replayable (`PRV-4092`). A failure above an aggregate, window, join or top-N
+  still stops the query, and without a queue every one does, as before. **Upgrade:** a query that
+  used to stop on such a row now keeps running with the row in its queue — watch the queue's depth.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the
