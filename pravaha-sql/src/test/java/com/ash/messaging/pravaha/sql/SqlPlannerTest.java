@@ -209,4 +209,19 @@ class SqlPlannerTest {
         assertThat(planner.schema().contains("other")).isTrue();
         assertThat(planner.plan("SELECT k FROM other")).isNotNull();
     }
+
+    @Test
+    void aParseFailureWithoutAReasonStillSaysWhatHappened() {
+        // UNCODEDAPI-1: 3,000 nested parentheses were refused "PRV-2001  null".
+        String deep = "SELECT txn_id FROM txn_stream WHERE " + "(".repeat(3000) + "txn_id > 1" + ")".repeat(3000);
+        assertThatThrownBy(() -> planner().plan(deep))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageStartingWith("PRV-2001")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContainPattern("PRV-2001\\s+null"));
+        assertThat(SqlPlanner.parseFailure(new org.apache.calcite.sql.parser.SqlParseException(
+                                null, null, null, null, new StackOverflowError()))
+                        .getMessage())
+                .startsWith("PRV-2001")
+                .contains("nests too deeply");
+    }
 }

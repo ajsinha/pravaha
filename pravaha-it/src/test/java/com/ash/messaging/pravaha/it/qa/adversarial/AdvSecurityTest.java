@@ -36,7 +36,6 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -435,19 +434,12 @@ class AdvSecurityTest {
     }
 
     @Test
-    @Disabled("QE-105: CREATE ALERT whose WHERE compares a column masked for its owner is accepted (ACTIVE) instead of "
-            + "refused PRV-7006 as SECURITY.md promises; it is marked broken only when it starts following")
     void qe105_anAlertComparingAMaskedColumnIsRefusedWhenCreated() throws Exception {
-        assertThat(maskedAlert().get(0)).contains("PRV-7006");
-    }
-
-    @Test
-    void qe105_observed() throws Exception {
+        // MASKALERT-1, fixed: both are refused PRV-7006 to the person creating them.
         List<String> seen = maskedAlert();
         seen.forEach(s -> System.out.println("NOTE QE-105 " + s));
-        assertThat(seen.get(0)).contains("raw_guess|ACTIVE");
-        // What matters most: it never fires on the raw value.
-        assertThat(seen.get(2)).doesNotContain("FIRING");
+        assertThat(seen.get(0)).contains("PRV-7006");
+        assertThat(seen.get(1)).contains("PRV-7006");
     }
 
     // ------------------------------------------------------------------ row filters

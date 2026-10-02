@@ -132,6 +132,69 @@ public final class QueryListing {
     }
 
     /**
+     * A journalled registration the last recovery refused, as a principal may see it (RECOVERYHEALTH-1).
+     *
+     * @param name the name as this principal is shown it
+     * @param refused the refusal; its SQL is empty unless this principal may administer the name
+     */
+    public record RefusedEntry(String name, RecoveryRefusals.Refused refused) {
+
+        /**
+         * The {@code pravaha.list} row: {@code FAILED}, the SQL when shown, no fingerprint, key or
+         * retention (nothing was planned), rows withheld ({@code -1}), and the code and reason in the
+         * feed fields, where a client already looks for why a query stopped, {@code where} saying
+         * {@code recovery}.
+         */
+        public String[] listRow() {
+            String[] row = new String[com.ash.messaging.pravaha.api.wire.ControlWire.LIST_FIELDS.size()];
+            java.util.Arrays.fill(row, "");
+            set(row, "name", name);
+            set(row, "state", QueryState.FAILED.name());
+            set(row, "sql", refused.sql());
+            set(row, "rows_in", "-1");
+            set(row, "feed_state", FeedStatus.State.STOPPED.name());
+            set(row, "feed_code", refused.code());
+            set(row, "feed_message", refused.reason());
+            set(row, "feed_where", "recovery");
+            set(row, "sink_state", "NONE");
+            set(row, "owner", refused.owner());
+            return row;
+        }
+
+        private static void set(String[] row, String field, String value) {
+            row[com.ash.messaging.pravaha.api.wire.ControlWire.listField(field)] = value;
+        }
+    }
+
+    /**
+     * The registrations recovery refused that this principal may learn of, each listed {@code FAILED}
+     * with its code beside the running queries, until it is dropped or registered again. A name the
+     * policy denies is absent, as a running one is; the SQL, which was never planned here and so
+     * cannot be checked against what it reads, is shown only to whoever may administer the name.
+     */
+    public List<RefusedEntry> refused(Principal principal, String action) {
+        List<RefusedEntry> visible = new ArrayList<>();
+        for (RecoveryRefusals.Refused each : registry.refusedAtRecovery().all()) {
+            if (!ViewNames.visibleTo(principal, each.name())) {
+                continue;
+            }
+            AccessDecision byName = policy.mayRead(principal, each.name());
+            audit.record(AuditEvent.of(principal, action, each.name(), byName, "refused at recovery"));
+            if (!byName.allowed()) {
+                continue;
+            }
+            boolean administers =
+                    registry.owners().mayAdminister(principal, each.name()).allowed();
+            visible.add(new RefusedEntry(
+                    ViewNames.shown(principal, each.name()),
+                    administers
+                            ? each
+                            : new RecoveryRefusals.Refused(each.name(), each.code(), each.reason(), "", each.owner())));
+        }
+        return visible;
+    }
+
+    /**
      * One name, exactly as {@link #list} would show it.
      *
      * <p>Refused when the policy denies the name -- whether or not it exists, so the refusal is not an

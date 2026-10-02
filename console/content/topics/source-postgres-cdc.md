@@ -399,7 +399,7 @@ DROP PUBLICATION IF EXISTS pravaha_orders;
 |---|---|---|
 | [PRV-5110](/help/codes/PRV-5110) | at configuration | An option missing or malformed: a URL that is not `jdbc:postgresql:`, a slot name with a capital, `status.interval: 0`, a `tls.*` option |
 | [PRV-5111](/help/codes/PRV-5111) | at open | The database unreachable, the credentials refused, or the PostgreSQL driver not on the classpath |
-| [PRV-5112](/help/codes/PRV-5112) | at open | A prerequisite missing — `wal_level`, `REPLICA IDENTITY FULL`, the publication, the role's ownership of the table or `CREATE` on the database to create it, PostgreSQL 14 — or the slot missing, invalidated, or another plugin's. The message names the statement that fixes it |
+| [PRV-5112](/help/codes/PRV-5112) | at open | A prerequisite missing — `wal_level`, `REPLICA IDENTITY FULL`, the publication, the role's ownership of the table or `CREATE` on the database to create it, the role's `REPLICATION` attribute (`ALTER ROLE <role> REPLICATION;`, also when the snapshot or the stream starts), PostgreSQL 14 — or the slot missing, invalidated, or another plugin's. The message names the statement that fixes it |
 | [PRV-5113](/help/codes/PRV-5113) | at open | A declared `schema` that disagrees with the table, or a column with no mapping |
 | [PRV-5114](/help/codes/PRV-5114) | at restore | A checkpoint holds an offset this plugin did not write |
 | [PRV-5115](/help/codes/PRV-5115) | at restore | The slot has confirmed past the checkpoint being restored. Recover as above |

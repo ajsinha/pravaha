@@ -171,6 +171,9 @@ public final class PredicateCompiler {
     private Predicate comparison(RexCall call, boolean negated) {
         RexNode left = call.getOperands().get(0);
         RexNode right = call.getOperands().get(1);
+        if (negated && (isFloatingPoint(left) || isFloatingPoint(right))) {
+            return negatedFloatingComparison(call, left, right);
+        }
         Predicate.Op op = negated ? opOf(call.getKind()).negated() : opOf(call.getKind());
         refuseIncomparableColumn(call, left);
         refuseIncomparableColumn(call, right);
@@ -291,6 +294,52 @@ public final class PredicateCompiler {
             // compares it exactly without rescaling it into a shape it does not fit.
             return null;
         }
+    }
+
+    /**
+     * {@code NOT (a op b)} where either side is floating point. Finding NANNOT-1: the opposite
+     * operator is not the IEEE complement once NaN is in play -- {@code NaN > 5} is FALSE and so
+     * is {@code NaN <= 5} -- so a NaN row was in neither {@code d > 5} nor {@code NOT (d > 5)}.
+     * SQL's NOT is the complement wherever the comparison is not UNKNOWN, which over a double is
+     * wherever both sides are present: the total complement of the comparison, restricted to rows
+     * where neither operand is null. A null literal or a bound NULL makes the comparison UNKNOWN
+     * for every row, and its negation with it.
+     */
+    private Predicate negatedFloatingComparison(RexCall call, RexNode left, RexNode right) {
+        List<Predicate> parts = new ArrayList<>(3);
+        parts.add(new Predicate.Not(comparison(call, false)));
+        for (RexNode operand : List.of(left, right)) {
+            Predicate present = present(operand);
+            if (present instanceof Predicate.False) {
+                return present;
+            }
+            if (present != null) {
+                parts.add(present);
+            }
+        }
+        return parts.size() == 1 ? parts.get(0) : new Predicate.And(parts);
+    }
+
+    /**
+     * True where {@code operand} is not null; null when it can never be null (a present literal or
+     * bound value); {@link Predicate.False} when it is always null.
+     */
+    private Predicate present(RexNode operand) {
+        if (operand instanceof RexLiteral literal) {
+            return literal.isNull() ? new Predicate.False() : null;
+        }
+        if (operand instanceof RexDynamicParam param) {
+            return parameters.at(param.getIndex()) == null ? new Predicate.False() : null;
+        }
+        if (operand instanceof RexInputRef ref) {
+            return new Predicate.IsNull(ref.getIndex(), columnName(ref.getIndex()), false);
+        }
+        return new Predicate.IsNullExpression(new ExpressionCompiler(schema).compile(operand), false);
+    }
+
+    private static boolean isFloatingPoint(RexNode node) {
+        return org.apache.calcite.sql.type.SqlTypeName.APPROX_TYPES.contains(
+                node.getType().getSqlTypeName());
     }
 
     private static boolean isDecimal(RexNode node) {

@@ -49,25 +49,36 @@ public record ContinuousQuery(
 
     public ContinuousQuery {
         if (name == null || name.isBlank()) {
-            throw new IllegalArgumentException("a continuous query needs a name: it is what its view is read by");
+            throw malformed("a continuous query needs a name: it is what its view is read by");
         }
         if (sql == null || sql.isBlank()) {
-            throw new IllegalArgumentException("continuous query '" + name + "' has no SQL");
+            throw malformed("continuous query '" + name + "' has no SQL");
         }
         keyColumns = keyColumns == null ? List.of() : List.copyOf(keyColumns);
         if (keyColumns.isEmpty()) {
-            throw new IllegalArgumentException("continuous query '" + name + "' needs at least one key column: a "
-                    + "view with no key is a log, and a point read against it has nothing to look up");
+            throw malformed("continuous query '" + name + "' needs at least one key column: a "
+                    + "view with no key is a log, and a point read against it has nothing to look up. A "
+                    + "global aggregate, which has one row, may be keyed by any of its own columns");
         }
         retention = retention == null ? Optional.empty() : retention;
         sink = sink == null ? Optional.empty() : sink.filter(s -> !s.isBlank());
         if (sink.isPresent() && retention.isPresent()) {
             // The registry writes a sink-bound view with no age limit: a view that forgot a row the
             // sink still holds would retract nothing when that row changed, and the two would part.
-            throw new IllegalArgumentException("continuous query '" + name + "' writes to sink '" + sink.get()
+            throw malformed("continuous query '" + name + "' writes to sink '" + sink.get()
                     + "' and asks for a retention; a query writing to a sink keeps its view for ever, so "
                     + "that the view and the sink cannot disagree about what exists");
         }
+    }
+
+    /**
+     * A declaration this engine cannot register, coded as the statement's own refusal ({@code
+     * PRV-2070}) -- {@code CREATE CONTINUOUS QUERY} without {@code KEYED BY} is refused with it. It
+     * was an uncoded {@code IllegalArgumentException} (UNCODEDAPI-1).
+     */
+    private static com.ash.messaging.pravaha.api.PravahaException malformed(String message) {
+        return new com.ash.messaging.pravaha.api.PravahaException(
+                com.ash.messaging.pravaha.sql.SqlErrors.STATEMENT_MALFORMED, message);
     }
 
     /** Starts a declaration. */

@@ -588,6 +588,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             boolean[] nulls,
             long weight) {
         {
+            // EMITROOM-1: the row is given back to the arena once downstream has taken it. Every
+            // stage below copies what it keeps (the terminal into the sink, a join or top-N into its
+            // own state) before process returns, so nothing reads this row afterwards -- and a
+            // window of a million groups no longer needs a million rows of arena at once. It used to
+            // stop the query (PRV-3001) at ~836 k groups, below the view's own ceiling.
+            long mark = arena.mark();
             long handle = arena.allocate(layout.rowSize(256));
             if (handle == ArenaHandle.NULL) {
                 throw new PravahaException(
@@ -623,6 +629,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                     .commit();
             arena.trimTo(handle, writer.sizeSoFar());
             downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            arena.resetTo(mark);
         }
     }
 

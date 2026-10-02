@@ -86,7 +86,13 @@ public final class FileCheckpointStore implements CheckpointStore {
         try {
             Files.createDirectories(directory);
         } catch (IOException e) {
-            throw new UncheckedIOException("cannot create the checkpoint directory " + directory, e);
+            // Coded (UNCODEDAPI-1): this reached an embedded register() as a bare UncheckedIOException.
+            throw new PravahaException(
+                    StateErrors.CHECKPOINT_DIRECTORY_UNUSABLE,
+                    "cannot create the checkpoint directory " + directory + ": " + e
+                            + ". Point pravaha.checkpoint.directory at a directory this process can create and "
+                            + "write; nothing was registered",
+                    e);
         }
     }
 

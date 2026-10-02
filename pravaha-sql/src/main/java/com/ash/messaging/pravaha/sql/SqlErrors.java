@@ -145,5 +145,14 @@ public final class SqlErrors {
      */
     public static final ErrorCode VIEW_INPUT_UNSUPPORTED = new ErrorCode(2075, "SQL_VIEW_INPUT_UNSUPPORTED");
 
+    /**
+     * A {@code MIN} or {@code MAX}, windowed or not, over an input that can retract: a stream whose
+     * source emits deletes, or an operator below that revises its answers (MINRETRACT-1). The
+     * accumulator keeps the extreme and not the values under it, so the first retraction of the
+     * extreme would stop the query at run time. Refused at registration, naming the aggregate and
+     * what retracts. See {@code RetractedExtremes}.
+     */
+    public static final ErrorCode EXTREME_OVER_RETRACTIONS = new ErrorCode(2076, "SQL_EXTREME_OVER_RETRACTIONS");
+
     private SqlErrors() {}
 }

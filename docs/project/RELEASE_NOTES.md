@@ -208,6 +208,90 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   they themselves said, never past it, never backwards — so the windows the burst has passed close
   `idle-after` after it. The idle-exclusion rule is unchanged otherwise. `WatermarkTrackerTest`;
   proved on the compose stack (`--profile seed`: `spend_per_minute` 10 rows, 10:00 to 10:04).
+- **The negation of a floating-point comparison is its IEEE complement (NANNOT-1).** `NOT (d > 5)`
+  was compiled as `d <= 5`, which is FALSE for `NaN` as `d > 5` is, so a `NaN` row was in neither a
+  predicate nor its negation, and `IS FALSE` / `IS NOT FALSE` over such a comparison dropped and added
+  rows the same way. A negated `DOUBLE`/`REAL` comparison is now the total complement restricted to
+  rows where both sides are present, interpreted and generated alike; a NULL stays out of both.
+  `NegatedFloatingComparisonTest`, QE-014.
+- **A file timestamp past 2262 is refused, not wrapped into 1677 (FARTIME-1).** The filesystem codec
+  multiplied epoch seconds by 10⁹ unchecked, so `3000-01-01T00:00:00Z` was stored as
+  `-4389808147419103232` ns. It now checks the product and refuses the line with `PRV-5040` naming the
+  line, the column and the range (1677-09-21 to 2262-04-11 UTC) — dead-lettered with a queue, a stopped
+  source without one; a `DATE` past 32 bits of days likewise. The Cassandra event-time read is checked
+  the same way (`PRV-5087`). `FilesystemPluginTest`, QE-164.
+- **`MIN` and `MAX` over an input that retracts are refused up front (MINRETRACT-1).** The first
+  retraction of the extreme stopped the query at run time (`PRV-3020`), windowed or not, after it had
+  been accepted over a CDC source or a file with an operation column. Such a query is now refused at
+  registration with the new `PRV-2076`, naming the aggregate and the stream; an embedded `retract(...)`
+  that would reach one is refused `PRV-8102` before any row is delivered, with every query left running.
+  A journalled query of this shape is refused at recovery. `RetractedExtremesTest`,
+  `RetractedExtremeTest`, QE-044.
+- **An alert comparing a masked column is refused when it is created (MASKALERT-1).** `CREATE ALERT …
+  WHERE card = '…'` by an owner for whom `card` is masked answered `ACTIVE`, then the alert showed
+  `following=BROKEN` and never fired — closed, but not the plan-time `PRV-7006` SECURITY.md promises.
+  `CREATE ALERT` now runs the same check the alert runs when it follows, so the person creating it gets
+  `PRV-7006` and nothing is journalled; a mask applied later still marks an existing alert broken with
+  the code. `AlertNarrowingTest`, QE-105.
+- **A window of a million groups is emitted, not stopped for room (EMITROOM-1).** A firing window
+  allocated every result row in the pipeline's 64 MiB arena before the batch ended, so about 836,000
+  groups stopped the query with `PRV-3001 no room to emit a window result`, below the view's 1,000,000
+  ceiling (`PRV-4022`) that names the limit. Each emitted row is now given back to the arena once
+  downstream has copied it — in the windowed and the grouped aggregate — so emission needs one row of
+  arena however many groups fire. `EmissionRoomTest`, QE-144.
+- **The embedded `register(...)` builds on a view (QOQAPI-1).** It resolved the key columns by
+  planning the SQL over the declared streams alone, so `register("down", "SELECT g, SUM(v) AS s FROM up
+  GROUP BY g", "g")` was `PRV-2002 Object 'up' not found` while the same SQL as `CREATE CONTINUOUS
+  QUERY` worked. It now plans as the registration does — streams, lookups and the registered views.
+  `EmbeddedRegisterApiTest`, QE-068.
+- **API failures carry a code and a reason (UNCODEDAPI-1).** A keyless `register(...)` is `PRV-2070`
+  (the statement's own refusal, saying a global aggregate may be keyed by any of its own columns), a key
+  the query does not produce `PRV-2071`, a pushed `Instant` past 2262 `PRV-8102` naming the column, and
+  a checkpoint directory a registration cannot create `PRV-4093` — each was an uncoded
+  `IllegalArgumentException`, `ArithmeticException` or `UncheckedIOException`. A parse the parser
+  abandons without a message (3,000 nested parentheses, a 1.2 MiB `OR` chain) says it nests too deeply
+  instead of `PRV-2001  null`. A `BIGINT` overflow in an expression throws its own exception naming the
+  expression, so a lane failure still says "long overflow" after the JIT has compiled `Math.*Exact`'s
+  throw site and dropped its message. `EmbeddedRegisterApiTest`, `SqlPlannerTest`,
+  `NarrowIntegerOverflowTest`, QE-062/063/085/139/152/166.
+- **`pravaha-engine run --dlq` dead-letters rows that fail evaluation (CLIDLQ-1).** The one-shot
+  runner dead-lettered only records the source could not decode, so a row that divided by zero stopped
+  the run with `--dlq` given, while the server and the embedded engine dead-letter it (`PRV-3027`,
+  DLQPROJ-1). The runner now attaches the same row-failure path to its queue: the row is written with
+  its columns, counted in `N rejected`, and the run finishes; without `--dlq` it still fails the run.
+  `PravahaCliTest`.
+- **A source naming a plugin that is not there stops the node at startup (PLUGINLATE-1).** A binding
+  such as `plugin: redis` started the node `UP` (`sources bound: [t <- redis[key]]`) and was refused
+  `PRV-5090` only at the first registration, though CONNECTORS.md said "refused at startup"; and the
+  refusal said the server jar "carries filesystem alone" right after listing the nine source plugins it
+  carries. A source binding is now looked up when it is bound — at the node's (and the embedded
+  engine's) start — and the message lets the list speak: check the name against it, or put the module on
+  the classpath. CONNECTORS.md, QUICKSTART's YAML comment, the build guide and the console topics no
+  longer say the jar carries `filesystem` alone. `UnknownPluginAtStartupTest`, `PluginSourceFeedsTest`.
+- **A registration refused at recovery stays visible until it is dropped (RECOVERYHEALTH-1).** A
+  journalled query a restart refused — a CDC slot overtaken (`PRV-5115`), a binlog purged (`PRV-5155`),
+  an owner who lost the right (`PRV-8007`) — vanished from `pravaha queries` with one `WARN` line and
+  health `UP`. It is now logged at `ERROR`, listed `FAILED` with its code by `pravaha.list` (the code
+  and reason in the feed fields, `where` = `recovery`), `SHOW CONTINUOUS QUERIES` and
+  `GET /api/v1/queries`, counted by the new gauge `pravaha_registry_recovery_refused`, and turns the
+  `engine` health indicator `DEGRADED` (`refusedAtRecovery`, `firstRefusedAtRecovery`). The journal is
+  unchanged, so the next start tries it again; `DROP CONTINUOUS QUERY <name>` removes the entry and
+  deletes its checkpoints, and registering the name replaces it. `RecoveryRefusalsTest`,
+  `RecoveryRefusalSurfacesTest`.
+- **A Kafka topic deleted under a running query stops its feed (TOPICGONE-1).** The consumer only
+  logs "unknown topic or partition" for a deleted topic, so the query stayed `RUNNING`, its feed
+  `RUNNING` and health `UP` for as long as the topic was absent. A quiet reader now asks the brokers for
+  its topic and, once they have not known it for the new option `topic.missing.timeout` (30 s, at least
+  1 s), stops with the new `PRV-5130`: the feed stops and node health is `DEGRADED`, as for any stopped
+  source (FEED-1). A broker that cannot be asked is not counted. `KafkaSourcePluginTest`,
+  `KafkaSourceBrokerTest` (Testcontainers: a real topic deleted under a reader).
+- **A CDC role without `REPLICATION` gets the prerequisite's code and remedy (CDCPRIVCODE-1).** After
+  `ALTER ROLE … NOREPLICATION`, registering over the table was `PRV-5118 … cannot start the initial
+  snapshot … FATAL: permission denied to start WAL sender` followed by advice about transactions left
+  idle and `max_replication_slots` (and `PRV-5111` when the plugin created the slot). Refused for want
+  of privilege (`42501`) when creating the slot, starting the snapshot or starting the stream, it is now
+  `PRV-5112` naming `ALTER ROLE <role> REPLICATION;` (`GRANT rds_replication TO <role>;` on Amazon RDS
+  or Aurora). `ReplicationPrivilegeRefusalTest` (Testcontainers, PostgreSQL 16).
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

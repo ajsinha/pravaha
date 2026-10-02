@@ -126,6 +126,7 @@ final class InitialSnapshot implements AutoCloseable {
         Connection reading = null;
         Connection replication = null;
         String slot = temporarySlotName(options.slot());
+        boolean replicating = false;
         try {
             reading = PostgresCdcSourcePlugin.connect(options, true);
             try (Statement statement = reading.createStatement()) {
@@ -134,7 +135,9 @@ final class InitialSnapshot implements AutoCloseable {
                 statement.execute("SET idle_in_transaction_session_timeout = 0");
                 statement.execute("SET statement_timeout = '10min'");
             }
+            replicating = true;
             replication = CdcStream.connectForReplication(options);
+            replicating = false;
             long point;
             String exported;
             try (Statement statement = replication.createStatement()) {
@@ -171,6 +174,11 @@ final class InitialSnapshot implements AutoCloseable {
         } catch (SQLException e) {
             closeQuietly(replication);
             closeQuietly(reading);
+            com.ash.messaging.pravaha.api.ConfigurationException privilege =
+                    replicating ? Preflight.replicationRefused(options, e) : null;
+            if (privilege != null) {
+                throw privilege;
+            }
             throw new PravahaException(
                     CdcErrors.SNAPSHOT_FAILED,
                     "plugin '" + options.instanceName() + "' cannot start the initial snapshot of "

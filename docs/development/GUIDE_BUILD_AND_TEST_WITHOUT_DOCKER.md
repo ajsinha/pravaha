@@ -393,11 +393,12 @@ their mocked tests. To exercise them you need Docker — see [Testing](TESTING.m
 The test suites do **not** read an address for an existing store: each starts its own container
 and connects to the port Docker mapped, so they cannot be pointed at a Kafka or PostgreSQL you
 already run, and cannot harm one. What you can point at an existing store is a **running node**: bind
-a source or sink to it in `conf/application.yaml` and register a query, as in step 9. The Kafka,
-JDBC, CDC, Aerospike and Cassandra plugins are separate modules, and the server's executable jar
-carries `filesystem` alone: the plugin has to be on the node's classpath, and naming one that is not
-there stops the node with `PRV-5090` ([Connectors](../guides/CONNECTORS.md)). In home mode `bin/pravaha-server`
-puts `$PRAVAHA_HOME/plugins` on the classpath (`-Dloader.path`); [Running in Docker](../operations/RUNNING_IN_DOCKER.md)
+a source or sink to it in `conf/application.yaml` and register a query, as in step 9. The server's
+executable jar carries every plugin the project builds — Kafka, JDBC, both CDC sources, Aerospike,
+Cassandra, Delta, feedfile and filesystem — and naming a plugin it does not carry stops the node at
+startup with `PRV-5090`, listing those it does ([Connectors](../guides/CONNECTORS.md)). A plugin from
+outside the project goes on the classpath: in home mode `bin/pravaha-server` puts
+`$PRAVAHA_HOME/plugins` there (`-Dloader.path`); [Running in Docker](../operations/RUNNING_IN_DOCKER.md)
 says how, in and out of a container — not exercised in this walkthrough. The options for each
 plugin are documented in `pravaha-server/src/main/resources/application.yaml`. Use a scratch topic,
 database or set: a CDC source creates a replication slot, and sinks write.

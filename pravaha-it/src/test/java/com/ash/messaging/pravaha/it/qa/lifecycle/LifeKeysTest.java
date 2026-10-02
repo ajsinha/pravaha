@@ -20,6 +20,7 @@ import java.util.List;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,7 +34,8 @@ class LifeKeysTest extends LifecycleTestSupport {
     void life029_noKeyColumnsIsRefused() {
         assertThatThrownBy(() -> registry.register("v", S1, List.of(), Principal.ANONYMOUS))
                 .as("a view with no key is a log, and a point read against it has nothing to look up")
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2070")
                 .hasMessageContaining("at least one key column");
 
         // Control: the same SQL with a real key registers in the same run.

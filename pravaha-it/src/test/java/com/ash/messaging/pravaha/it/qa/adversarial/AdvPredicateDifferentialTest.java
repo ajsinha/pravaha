@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * predicate is TRUE for. Run interpreted, then with the code generator installed.
  *
  * <p>Mismatches are classified: one that vanishes when NaN rows are left out and involves a NOT over
- * a floating-point comparison is QE-014's (recorded there); anything else fails this test.
+ * a floating-point comparison was QE-014's (NANNOT-1, fixed) and now fails it too.
  */
 @EnabledIfSystemProperty(named = AdvSupport.SWITCH, matches = "true")
 class AdvPredicateDifferentialTest {
@@ -437,6 +437,8 @@ class AdvPredicateDifferentialTest {
         report("QE-038 interpreted seed=" + SEED, result);
         assertThat(result.registered()).isGreaterThan(PREDICATES / 2);
         assertThat(result.mismatches()).isEmpty();
+        // NANNOT-1, fixed: no NaN row is lost or gained under a NOT over a floating-point comparison.
+        assertThat(result.nanNotMismatches()).isEmpty();
     }
 
     @Test
@@ -447,5 +449,7 @@ class AdvPredicateDifferentialTest {
                 .as("some filters must actually run generated")
                 .isPositive();
         assertThat(result.mismatches()).isEmpty();
+        // NANNOT-1, fixed: no NaN row is lost or gained under a NOT over a floating-point comparison.
+        assertThat(result.nanNotMismatches()).isEmpty();
     }
 }

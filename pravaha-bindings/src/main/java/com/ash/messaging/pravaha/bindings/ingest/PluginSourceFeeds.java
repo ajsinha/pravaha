@@ -238,6 +238,10 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * sources that nothing records.
      */
     public PluginSourceFeeds bind(SourceBinding binding) {
+        // PLUGINLATE-1: a plugin nothing on the classpath answers to is refused here, where the
+        // node binds its sources at startup -- as CONNECTORS.md always said -- and not at the first
+        // registration, after the node had come up UP with a binding that could never feed.
+        discover(binding);
         bindings.put(binding.streamName(), binding);
         return this;
     }
@@ -997,22 +1001,20 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             throw PluginDiscovery.loadFailed("source", binding.plugin(), found);
         }
         List<String> available = found.available();
-        // CFG-4. The list used to be the whole message, and on a shipped server it has ONE entry --
-        // so a well-formed error offered a remedy that was not one, beside documentation naming
-        // seven plugins as though they were all reachable. What the operator actually needs to know
-        // is that "available" means "on this process's classpath", and that the server jar carries
-        // only filesystem: the other plugins are separate modules, and adding one is a packaging
-        // decision rather than a configuration one.
+        // CFG-4 said what "available" means: on THIS process's classpath. PLUGINLATE-1: it also
+        // said the server jar carried filesystem alone, right after listing the nine it carries --
+        // so the list is now the only statement of what is here, and the sentence says what to do
+        // about a name that is not in it.
         throw new PravahaException(
                 IngestErrors.NO_SUCH_PLUGIN,
                 "no source plugin named '" + binding.plugin() + "' is on the classpath, so stream '"
                         + binding.streamName() + "' cannot be fed. Available: "
                         + (available.isEmpty() ? "none -- no source plugin jar is on the classpath" : available)
                         + ". A plugin answers to the name it reports for itself and is found by "
-                        + "ServiceLoader, so it resolves only when its jar is on THIS process's "
-                        + "classpath: the server jar carries filesystem alone, and feedfile, jdbc, delta, "
-                        + "aerospike, cassandra, kafka, postgres-cdc and mysql-cdc are separate modules that have to "
-                        + "be added to it. docs/guides/CONNECTORS.md says which module ships which name.");
+                        + "ServiceLoader on THIS process's classpath, so that list is every source plugin "
+                        + "this process carries. Check the name against it, or put the module that ships '"
+                        + binding.plugin() + "' on the classpath; docs/guides/CONNECTORS.md says which "
+                        + "module ships which name.");
     }
 
     /** A pump of this query's own on {@code reader}, with its dead letters and its source's promise. */

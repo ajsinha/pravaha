@@ -67,7 +67,6 @@ import com.ash.messaging.pravaha.sql.ContinuousStatement;
 import com.ash.messaging.pravaha.sql.ContinuousStatements;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
-import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
 
 /**
  * The standard {@link PravahaEngine}.
@@ -114,7 +113,6 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private volatile QueryRegistry registry;
     private volatile ViewQuery reads;
     private volatile Map<String, RowEncoder> encoders = Map.of();
-    private volatile List<StreamSchema> lookupSchemas = List.of();
     private PluginLookupSources lookups;
     private PluginSinks sinks;
 
@@ -310,7 +308,6 @@ final class DefaultPravahaEngine implements PravahaEngine {
         declaredLookups.values().forEach(lookups::bind);
         List<LookupSourcePlugin> dimensions = lookups.open();
         dimensions.forEach(built::lookingUp);
-        lookupSchemas = dimensions.stream().map(LookupSourcePlugin::schema).toList();
 
         sinks = new PluginSinks();
         declaredSinks.values().forEach(sinks::bind);
@@ -337,8 +334,10 @@ final class DefaultPravahaEngine implements PravahaEngine {
                     built.journalTo(new RegistryJournal(journal));
                     QueryRegistry.Recovery recovery = built.recover(owner -> Optional.of(CALLER));
                     recovery.refused()
-                            .forEach(refusal ->
-                                    LOG.log(System.Logger.Level.WARNING, "registration not recovered -- " + refusal));
+                            .forEach(refusal -> LOG.log(
+                                    System.Logger.Level.ERROR,
+                                    "registration not recovered, kept in "
+                                            + "registry().refusedAtRecovery() until dropped -- " + refusal));
                 });
 
         for (ContinuousQuery query : declaredQueries) {
@@ -618,17 +617,20 @@ final class DefaultPravahaEngine implements PravahaEngine {
      * not resolve there is refused here with the columns it could have been.
      */
     private List<Integer> keyOrdinals(QueryRegistry target, ContinuousQuery query) {
-        StreamSchema output = PreparedContinuousQuery.of(
-                        query.sql(), BoundParameters.none(), List.of(target.streams()), lookupSchemas)
-                .plan()
-                .outputSchema();
+        // QOQAPI-1: planned as the registration will be -- over the streams, the lookup tables and
+        // the registered views -- so a query over another query's view resolves here as it does for
+        // CREATE CONTINUOUS QUERY. Planned over the streams alone, 'up' was "Object not found".
+        StreamSchema output = target.outputSchemaOf(query.sql(), CALLER);
         List<Integer> ordinals = new ArrayList<>();
         for (String column : query.keyColumns()) {
             int ordinal = indexOfIgnoringCase(output, column);
             if (ordinal < 0) {
-                throw new IllegalArgumentException("query '" + query.name() + "' is keyed by '" + column
-                        + "', which it does not produce; its columns are "
-                        + output.fields().stream().map(Field::name).toList());
+                // Coded as KEYED BY's own refusal (UNCODEDAPI-1).
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.sql.SqlErrors.KEY_COLUMN_UNKNOWN,
+                        "query '" + query.name() + "' is keyed by '" + column
+                                + "', which it does not produce; its columns are "
+                                + output.fields().stream().map(Field::name).toList());
             }
             ordinals.add(ordinal);
         }
@@ -743,6 +745,27 @@ final class DefaultPravahaEngine implements PravahaEngine {
         return deliver(stream, rows == null ? List.of() : Arrays.asList(rows), -1L);
     }
 
+    /**
+     * MINRETRACT-1: a retraction no query on the stream can take refuses the call, before any row is
+     * delivered, and every query keeps running. A MIN or MAX keeps the extreme and not the values
+     * under it, so a retraction reaching one used to stop that query for good.
+     */
+    private static void refuseRetractionOfAnExtreme(String stream, String streamName, List<Target> targets) {
+        for (Target target : targets) {
+            java.util.Optional<String> extreme = com.ash.messaging.pravaha.sql.plan.RetractedExtremes.extremeOver(
+                    target.query().plan(), streamName);
+            if (extreme.isPresent()) {
+                throw new PravahaException(
+                        EmbeddedErrors.ROW_REJECTED,
+                        "query '" + target.query().name() + "' computes " + extreme.get() + " over '" + stream
+                                + "', and a MIN or MAX cannot take a retraction: it keeps the extreme, not the "
+                                + "values under it. Nothing in this retract was delivered, and every query on the "
+                                + "stream keeps running. Retract from a stream whose queries use COUNT, SUM or AVG, "
+                                + "or drop the MIN/MAX query first.");
+            }
+        }
+    }
+
     /** Validates every row, then hands each to every running query on the stream at {@code weight}. */
     private int deliver(String stream, List<Object[]> rows, long weight) {
         RowEncoder encoder = encoderFor(stream);
@@ -781,6 +804,9 @@ final class DefaultPravahaEngine implements PravahaEngine {
                                         + "narrower one.");
                     }
                 }
+            }
+            if (weight < 0) {
+                refuseRetractionOfAnExtreme(stream, encoder.schema().name(), targets);
             }
             for (Target target : targets) {
                 long reached = Math.max(

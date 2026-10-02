@@ -81,6 +81,17 @@ public class PravahaMetrics implements AutoCloseable {
         this.node = node;
         this.tenancy = new com.ash.messaging.pravaha.server.tenancy.TenancyMeters(meters, node::registry);
         this.features = new com.ash.messaging.pravaha.server.observe.FeatureMeters(meters, node::alerts);
+        // RECOVERYHEALTH-1: journalled registrations the last restart refused and nobody has dropped
+        // or registered again. Non-zero is a view some client expects and will not find.
+        Gauge.builder(
+                        "pravaha.registry.recovery.refused",
+                        node,
+                        n -> n.registry()
+                                .map(registry ->
+                                        registry.refusedAtRecovery().all().size())
+                                .orElse(0))
+                .description("Journalled registrations refused at recovery, listed FAILED until dropped")
+                .register(meters);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "pravaha-metrics");
             thread.setDaemon(true);

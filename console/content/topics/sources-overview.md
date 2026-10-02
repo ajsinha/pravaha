@@ -94,17 +94,18 @@ into it — a legitimate way to feed an embedded engine. The node says so:
 
 ## How a plugin is found
 
-Each plugin reports its own name and is discovered with Java's `ServiceLoader` — **when a query is
-first registered against the stream, not at startup**. So a binding naming a plugin that is not
-present starts a server cleanly and fails at the registration that needs it, with PRV-5090 and the
-names that *are* available:
+Each plugin reports its own name and is discovered with Java's `ServiceLoader` **when the node
+starts**. A binding naming a plugin that is not present stops the node there, with PRV-5090 and the
+names that *are* available — every source plugin the process carries:
 
 ```text
-PRV-5090  no source plugin named 'jdbc' is on the classpath, so stream 'orders' cannot be fed. Available: [filesystem]
+PRV-5090  no source plugin named 'redis' is on the classpath, so stream 'orders' cannot be fed. Available: [aerospike, cassandra, delta, feedfile, filesystem, jdbc, kafka, mysql-cdc, postgres-cdc]
 ```
 
-Lookups are the exception: they are opened at startup, so a missing lookup plugin or an unreachable
-table stops the node from starting.
+The plugin is configured and its connection opened later, when a query is first registered against
+the stream; a bad option or an unreachable system is PRV-5091 then. Until PLUGINLATE-1 a missing plugin
+was found only at that first registration, after the node had come up `UP`. Lookups are opened at
+startup, so a missing lookup plugin or an unreachable table stops the node from starting.
 
 ### Getting a plugin onto a node
 

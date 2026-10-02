@@ -525,6 +525,59 @@ class PravahaCliTest {
     }
 
     @Test
+    void withADeadLetterFileARowThatFailsEvaluationIsDeadLetteredAndTheRunFinishes(@TempDir Path dir)
+            throws IOException {
+        // CLIDLQ-1: the server and the embedded engine dead-letter a row that divides by zero
+        // (PRV-3027, DLQPROJ-1); the one-shot runner stopped on it with --dlq given.
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "1,alice,500,COMPLETED\n2,bob,0,COMPLETED\n3,carol,900,COMPLETED\n");
+        Path output = dir.resolve("out.csv");
+        Path dlq = dir.resolve("rejects.jsonl");
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT user_id, 1000 / amount AS q FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                output.toString(),
+                "--out-schema",
+                "user_id:STRING,q:INT64",
+                "--dlq",
+                dlq.toString());
+
+        assertThat(code).as(stderr()).isZero();
+        assertThat(Files.readAllLines(output)).containsExactly("alice,2", "carol,1");
+        assertThat(stdout()).contains("1 rejected");
+        List<String> letters = Files.readAllLines(dlq);
+        assertThat(letters).hasSize(1);
+        assertThat(letters.get(0)).contains("PRV-3027").contains("division by zero");
+    }
+
+    @Test
+    void withoutADeadLetterFileARowThatFailsEvaluationStillFailsTheRun(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "1,alice,500,COMPLETED\n2,bob,0,COMPLETED\n");
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT user_id, 1000 / amount AS q FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                dir.resolve("out.csv").toString(),
+                "--out-schema",
+                "user_id:STRING,q:INT64");
+        assertThat(code).isNotZero();
+        assertThat(stderr()).contains("division by zero");
+    }
+
+    @Test
     void theLaneKeepsDrainingAfterARejection(@TempDir Path dir) throws IOException {
         // The reason rows are staged while a queue is attached. On the fast path the plugin decodes
         // straight into a claimed inbox cell, RowInbox.drain "stops at the first cell that is

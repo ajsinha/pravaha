@@ -1638,6 +1638,10 @@ Per continuous query:
 | `pravaha_query_spill_live_bytes{query=}` | How much of that is live state |
 | `pravaha_query_spill_fragmentation{query=}` | `1 - live / held`, 0 to 1. Staying high while `_compactions` is flat means the threshold is set above what this query's churn reaches |
 | `pravaha_query_spill_compactions{query=}` | Compaction passes that emptied at least one slab |
+
+Per node, `pravaha_registry_recovery_refused` counts the journalled registrations the last restart
+refused that nobody has dropped or registered again — each a view a client expects and will not find.
+**Alert on it above zero**; see *Owners are re-checked on replay* (RECOVERYHEALTH-1).
 | `pravaha_query_spill_slabs_released{query=}` | Overflow slabs (files) compaction gave back |
 | `pravaha_query_backpressure_waits_total{query=}` | Episodes in which one of this query's writers found nowhere to put a row. A count of **episodes**, not of rows or polls: a source held off for an hour is one |
 | `pravaha_query_backpressure_wait_seconds_total{query=}` | How long those episodes lasted altogether, counting one still in progress. `rate()` of it against wall clock is the share of time this query could not be fed |
@@ -2116,6 +2120,19 @@ below. Plan restarts accordingly; this is the honest cost, and it is not hidden.
 who registered a query has since lost access, the query does not quietly come back — replay refuses
 it and names it. Recovery reports both lists, and *the refused list is the one to read*: each entry
 is a view some client expects to find and will not.
+
+**A refused registration stays visible until it is dropped (RECOVERYHEALTH-1).** Each one is logged at
+`ERROR` with its code, listed `FAILED` by `pravaha queries`, `SHOW CONTINUOUS QUERIES`,
+`GET /api/v1/queries` and `pravaha.list` (the code and reason in the feed fields, `where` =
+`recovery`; the SQL only to whoever may administer the name), counted by the gauge
+`pravaha_registry_recovery_refused`, and turns the `engine` health indicator `DEGRADED`
+(`refusedAtRecovery`, `firstRefusedAtRecovery`: the code). The journal is unchanged, so the next start
+tries it again — the remedy for a cause that has since gone (an owner's access restored) is a restart.
+`DROP CONTINUOUS QUERY <name>` (or `pravaha drop`) removes the entry from the journal for good and
+deletes its checkpoints, so a later registration under the name starts afresh rather than restoring
+the position that was refused — which is what `PRV-5115` (a slot overtaken) and `PRV-5155` (a binlog
+purged) need. A registration under the name replaces the entry. Until RECOVERYHEALTH-1 such an entry
+vanished from every listing with one `WARN` line and health `UP`.
 
 An owner is resolved the way a caller is identified: the identity store's users first
 (`pravaha.identity.enabled`, ADR-052), then the static token table — each as they are today, with

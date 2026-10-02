@@ -59,9 +59,12 @@ final class RegistrationPlanning {
             String sinkName,
             String action) {
         if (keyColumns == null || keyColumns.isEmpty()) {
-            throw new IllegalArgumentException(
+            // Coded as CREATE CONTINUOUS QUERY's own refusal of a missing KEYED BY (UNCODEDAPI-1).
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.STATEMENT_MALFORMED,
                     "a registration needs at least one key column: a view with no key is a log, and a "
-                            + "point read against it has nothing to look up");
+                            + "point read against it has nothing to look up. A global aggregate, which has "
+                            + "one row, may be keyed by any of its own columns");
         }
         QueryChains chains = registry.chains;
         SourceFeedFactory feeds = registry.feeds();
@@ -78,6 +81,9 @@ final class RegistrationPlanning {
                 sinkName == null ? null : registry.sinks().describe(sinkName);
         com.ash.messaging.pravaha.sql.plan.RepeatedRowsAnalysis.check(
                 plan, feeds::repeatingSource, sink == null ? null : sink.capabilities(), sinkName);
+        // MINRETRACT-1. A MIN or MAX over a stream whose source deletes would stop at its first
+        // retraction of the extreme; refused here, by name, instead of at run time.
+        com.ash.messaging.pravaha.sql.plan.RetractedExtremes.check(plan, feeds::retracts);
 
         if (sink != null) {
             // Before the feed, before the view, before a row can exist. capabilitiesOf configures

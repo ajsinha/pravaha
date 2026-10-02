@@ -346,10 +346,46 @@ public class QueryController {
     public List<ApiDtos.QueryDetail> list(HttpServletRequest http) {
         Principal principal = authorizer.principalOf(http);
         return registry.listing()
-                .map(listing -> listing.list(principal, "http.list").stream()
-                        .map(entry -> detail(listing, principal, entry, "http.list"))
+                .map(listing -> java.util.stream.Stream.concat(
+                                listing.list(principal, "http.list").stream()
+                                        .map(entry -> detail(listing, principal, entry, "http.list")),
+                                listing.refused(principal, "http.list").stream().map(QueryController::refused))
                         .toList())
                 .orElse(List.of());
+    }
+
+    /**
+     * RECOVERYHEALTH-1: a registration recovery refused, listed {@code FAILED} with its code until it
+     * is dropped or registered again. Nothing was planned, so there is no fingerprint, key or view.
+     */
+    private static ApiDtos.QueryDetail refused(QueryListing.RefusedEntry entry) {
+        var refused = entry.refused();
+        ApiDtos.Problem failure = new ApiDtos.Problem(
+                refused.code().isEmpty() ? null : refused.code(),
+                "refused when the node recovered its registrations: " + refused.reason(),
+                refused.code().isEmpty() ? null : com.ash.messaging.pravaha.api.HelpUrls.forCode(refused.code()));
+        return new ApiDtos.QueryDetail(
+                entry.name(),
+                com.ash.messaging.pravaha.registry.QueryState.FAILED.name(),
+                refused.sql(),
+                "",
+                List.of(),
+                List.of(),
+                "",
+                null,
+                -1,
+                true,
+                null,
+                failure,
+                List.of(),
+                new ApiDtos.QueryFeed("STOPPED", "refused at recovery", List.of(), 0, failure),
+                List.of(),
+                "",
+                null,
+                List.of(),
+                List.of(),
+                null,
+                refused.owner().isEmpty() ? null : refused.owner());
     }
 
     /**

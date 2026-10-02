@@ -89,6 +89,12 @@ recompute**, because it came from a client that may never connect again.
   who registered a query has lost access, replay refuses it and names it. Recovery reports two lists
   — recovered and refused — and **the refused list is the one to read**: each entry is a view some
   client expects to find and will not.
+- **A refused registration stays visible until it is dropped.** It is logged at `ERROR`, listed
+  `FAILED` with its code (the queries page, `pravaha queries`, `SHOW CONTINUOUS QUERIES`), counted by
+  `pravaha_registry_recovery_refused`, and the node's health is `DEGRADED`. The journal keeps it, so
+  the next start tries again; `DROP CONTINUOUS QUERY <name>` removes it for good and deletes its
+  checkpoints, so registering the name again starts afresh. Until RECOVERYHEALTH-1 it vanished with
+  one `WARN` line and health `UP`.
 - **The journal records the sink.** A restart re-attaches it; a journalled registration whose sink is
   no longer bound is refused by name rather than recovered writing to nothing.
 - A crash mid-append leaves a truncated final record; replay keeps everything before it, and the

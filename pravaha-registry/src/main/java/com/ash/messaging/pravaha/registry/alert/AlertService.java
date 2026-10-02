@@ -557,6 +557,10 @@ public final class AlertService implements Alerting, AutoCloseable {
                 options.snooze().isZero() ? null : now.plus(options.snooze()),
                 now,
                 principal.id());
+        // MASKALERT-1: a condition or a key on a column masked for the owner is refused here, to the
+        // person creating it (PRV-7006), as SECURITY.md promises -- not accepted ACTIVE and then marked
+        // broken when the alert starts following. The same check runs again whenever it follows.
+        access.narrowingFor(definition, registry.find(view).orElseThrow().view());
         journal(List.of(definition.encode()));
         if (registry.policy() instanceof CatalogPolicy catalog) {
             try {

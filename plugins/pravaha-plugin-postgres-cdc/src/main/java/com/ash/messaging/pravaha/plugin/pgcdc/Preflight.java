@@ -211,6 +211,12 @@ final class Preflight {
                 connection.prepareStatement("SELECT pg_create_logical_replication_slot(?, 'pgoutput')")) {
             statement.setString(1, options.slot());
             statement.execute();
+        } catch (SQLException e) {
+            ConfigurationException privilege = replicationRefused(options, e);
+            if (privilege != null) {
+                throw privilege; // CDCPRIVCODE-1: a role that may not create a replication slot
+            }
+            throw e;
         }
     }
 
@@ -355,6 +361,27 @@ final class Preflight {
     /** A name as SQL needs it written: bare when it is a plain lower-case identifier, quoted otherwise. */
     static String identifier(String name) {
         return name.matches("[a-z_][a-z0-9_$]*") ? name : "\"" + name.replace("\"", "\"\"") + "\"";
+    }
+
+    /**
+     * CDCPRIVCODE-1: {@code PRV-5112} naming {@code ALTER ROLE ... REPLICATION} when a replication
+     * connection was refused for want of privilege ({@code 42501}, "permission denied to start WAL
+     * sender"); null for any other failure. Starting a snapshot or a stream with such a role used to
+     * be {@code PRV-5118} or {@code PRV-5117}, with advice about transactions left idle and {@code
+     * max_replication_slots} -- the PostgreSQL detail was right, and the code and the remedy were not.
+     */
+    static ConfigurationException replicationRefused(CdcOptions options, SQLException e) {
+        if (!INSUFFICIENT_PRIVILEGE.equals(e.getSQLState())) {
+            return null;
+        }
+        String role = identifier(options.user());
+        return new ConfigurationException(
+                CdcErrors.NOT_CAPTURABLE,
+                "plugin '" + options.instanceName() + "': role " + role + " may not start replication: "
+                        + e.getMessage() + ". Logical decoding needs a role with the REPLICATION attribute. Run "
+                        + "ALTER ROLE " + role + " REPLICATION; (on Amazon RDS or Aurora: GRANT rds_replication TO "
+                        + role + ";), then register the query again.",
+                e);
     }
 
     private static ConfigurationException notCapturable(CdcOptions options, String message) {

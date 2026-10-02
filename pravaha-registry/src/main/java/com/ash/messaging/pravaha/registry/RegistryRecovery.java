@@ -48,7 +48,9 @@ final class RegistryRecovery {
         List<QueryRegistry.Recovery.Refusal> refused = new ArrayList<>();
         RegistryJournal.Replayed replayed = journal.replayAll();
         java.util.Map<String, String> renamed = new java.util.HashMap<>();
+        java.util.Map<String, RegistryJournal.Entry> entries = new java.util.HashMap<>(); // RECOVERYHEALTH-1
         for (RegistryJournal.Entry entry : replayed.live()) {
+            entries.put(entry.name(), entry);
             Optional<Principal> owner = principals.apply(entry.owner());
             if (owner.isEmpty()) {
                 refused.add(new QueryRegistry.Recovery.Refusal(
@@ -108,6 +110,8 @@ final class RegistryRecovery {
                     .toList();
             refused.addAll(registry.replacements().recover(pending, principals));
         }
+        // RECOVERYHEALTH-1: kept, so each is listed FAILED with its code until it is dropped or replaced.
+        registry.refusedAtRecovery.record(refused, entries);
         return new QueryRegistry.Recovery(recovered, refused);
     }
 

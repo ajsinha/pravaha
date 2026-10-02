@@ -801,7 +801,9 @@ pravaha-engine run --sql <query> --schema <spec> --in <file> --out <file> --out-
 ```
 
 Runs the query over a delimited file into another. `--out` is **replaced** on each run; `--dlq`
-finishes the run anyway and writes each rejected line there as JSON with its bytes base64-encoded —
+finishes the run anyway and writes each rejected line there as JSON with its bytes base64-encoded, and
+each row that decoded and then failed evaluation (a division by zero, an overflow) as `PRV-3027` with its
+columns (until CLIDLQ-1 such a row still ended the run) —
 without it, one undecodable line ends the run and writes nothing.
 
 ```bash

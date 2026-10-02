@@ -121,6 +121,8 @@ class AdvResourceTest {
             for (String s : seen) {
                 String outcome = s.substring(s.indexOf(": ") + 2);
                 assertThat(outcome).as(s).matches("(OK|PRV-\\d{4}).*");
+                // UNCODEDAPI-1, fixed: a refusal says why -- never "PRV-2001  null".
+                assertThat(outcome).as(s).doesNotContainPattern("PRV-\\d{4}\\s+null\\b");
             }
         }
     }
@@ -325,6 +327,11 @@ class AdvResourceTest {
                             .lines()
                             .findFirst()
                             .orElse(""));
+            // EMITROOM-1, fixed: a window of a million groups is not stopped for want of room to emit
+            // it (PRV-3001 at ~836 k groups). Past the view's ceiling it is the ceiling's own code.
+            assertThat(AdvSupport.state(engine, "grp"))
+                    .doesNotContain("PRV-3001")
+                    .matches("RUNNING|FAILED PRV-4022.*");
         }
     }
 

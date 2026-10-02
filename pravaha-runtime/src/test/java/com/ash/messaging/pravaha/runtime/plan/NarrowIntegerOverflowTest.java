@@ -144,4 +144,26 @@ class NarrowIntegerOverflowTest {
                 .hasMessageContaining("INT overflow");
         assertThat(negative.test(row(-3, (short) 0, (byte) 0, 0))).isTrue();
     }
+
+    @Test
+    void aBigintOverflowSaysWhatOverflowedOnEveryRunNotOnlyBeforeTheJit() {
+        // UNCODEDAPI-1: Math.subtractExact's "long overflow" is dropped once the JIT compiles the
+        // throw site (OmitStackTraceInFastThrow), and the failure read "java.lang.ArithmeticException"
+        // alone. The arithmetic now throws its own exception, naming the expression, every time --
+        // asserted across enough calls for the throw site to be compiled.
+        Expression minus = new Expression.Arithmetic(
+                A, Expression.Operator.SUBTRACT, Expression.Literal.ofLong(1), TypeName.INT64);
+        RowView atMin = row(0, (short) 0, (byte) 0, Long.MIN_VALUE);
+        for (int i = 0; i < 50_000; i++) {
+            try {
+                minus.evaluateLong(atMin);
+                throw new AssertionError("Long.MIN_VALUE - 1 must overflow");
+            } catch (ArithmeticException overflow) {
+                assertThat(overflow.getMessage())
+                        .as("call %d", i)
+                        .contains("long overflow")
+                        .contains("BIGINT overflow");
+            }
+        }
+    }
 }

@@ -368,8 +368,8 @@ rise in `pravaha_query_checkpoint_failures_total`; both name what was refused.
 | `PRV-3024` retracted a row it does not hold | A top-N (`ROW_NUMBER() OVER (...)` filtered to `rn <= N`) holds every row of every partition, and was handed a retraction of a row it holds no copy of. The input then withdraws more than it ever inserted, which has no answer as a set of rows, so the query stops rather than numbering the rest around a row held a negative number of times. The cause is upstream: a source emitting deletes for rows it never emitted, or a replay that started after the insert. Replay the stream from an offset before the row was first written |
 | `PRV-3025` a total left the 64-bit range | A `SUM`, `COUNT` or `AVG` total passed `±9223372036854775807` — of a `BIGINT`, or of a `DECIMAL`'s unscaled value. The message names the aggregate. It used to wrap round and be served as a large negative number (SUMWRAP-1); it is now refused, the query `FAILED` or the read refused. Every total is checked, a retraction and a window's combined slices included; a batch is netted in 128 bits first, so a total that passes the range inside one batch and comes back is answered (TRANSOVF-1). Aggregate a smaller quantity (scale the column down), split the total by a key, or filter out the rows carrying it |
 | `PRV-3026` window too fine | A `HOP` whose rows would each land in, or whose windows would each be combined from, more windows or slices than `pravaha.lane.max-windows-per-row` allows (100,000 by default) is refused at registration. The message names the size, the slide and both counts. Slide by more — a slide that divides the size keeps the slices equal to the windows — or, if the work is intended and the node sized for it, raise the setting. Until FINEHOP-1 `HOP(INTERVAL '0.001' SECOND, INTERVAL '1' DAY)` registered, and one row of it held its lane for good, took gigabytes of heap, and every later push to the stream timed out |
-| `PRV-3027` row evaluation failed | A row decoded and then had no answer — a division by zero, an `INT` or `BIGINT` overflow, a `CAST` of `NaN` to an integer — and, with `pravaha.dlq.directory` set, went to the query's dead-letter queue under this code with its columns as a JSON object; the query kept running. Only a failure before the row reaches state (in a `WHERE`, a projection, a computed column) is dead-lettered; one above an aggregate, window, join or top-N stops the query, as it does with no queue (`PRV-3010` with the cause). Not replayable (`PRV-4092`): correct the record at the source, or guard the expression (`CASE WHEN b = 0 THEN NULL ELSE a / b END`). Until DLQPROJ-1 such a row stopped the query with the queue configured and empty |
-| `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected, or a slab sized for narrower rows than the query produces. The message names the setting to change: `pravaha.lane.arena.slab-bytes`, or `pravaha.lane.batch-size` to make each batch smaller. The rule is `batch-size × widest output row` must fit one slab. A *row* that does not fit an inbox cell is the same code from the ingest side and names `pravaha.lane.inbox.cell-bytes` instead. These are real settings as of ADR-036; until then eleven messages named `arena.slab.size` and `lane.inbox.cell.size`, neither of which existed (PF-3). On a *read* (`SELECT` over pgwire, Flight or HTTP) the arenas are reclaimed every 4,096 rows, so it means one row wider than an empty arena; a large read is `PRV-4024` past 1,000,000 result rows, and a `COUNT(*)` over any size of view answers (BIGREAD-1) |
+| `PRV-3027` row evaluation failed | A row decoded and then had no answer — a division by zero, an `INT` or `BIGINT` overflow, a `CAST` of `NaN` to an integer — and, with `pravaha.dlq.directory` set, went to the query's dead-letter queue under this code with its columns as a JSON object; the query kept running. Only a failure before the row reaches state (in a `WHERE`, a projection, a computed column) is dead-lettered; one above an aggregate, window, join or top-N stops the query, as it does with no queue (`PRV-3010` with the cause). Not replayable (`PRV-4092`): correct the record at the source, or guard the expression (`CASE WHEN b = 0 THEN NULL ELSE a / b END`). Until DLQPROJ-1 such a row stopped the query with the queue configured and empty. `pravaha-engine run --dlq <file>` does the same for a one-shot run, counting such rows as rejected; until CLIDLQ-1 they ended the run |
+| `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected, or a slab sized for narrower rows than the query produces. The message names the setting to change: `pravaha.lane.arena.slab-bytes`, or `pravaha.lane.batch-size` to make each batch smaller. The rule is `batch-size × widest output row` must fit one slab. A *row* that does not fit an inbox cell is the same code from the ingest side and names `pravaha.lane.inbox.cell-bytes` instead. These are real settings as of ADR-036; until then eleven messages named `arena.slab.size` and `lane.inbox.cell.size`, neither of which existed (PF-3). On a *read* (`SELECT` over pgwire, Flight or HTTP) the arenas are reclaimed every 4,096 rows, so it means one row wider than an empty arena; a large read is `PRV-4024` past 1,000,000 result rows, and a `COUNT(*)` over any size of view answers (BIGREAD-1). A window or grouped aggregate emits its groups one row of arena at a time, each given back once downstream has copied it, so a window of a million groups is not this code; until EMITROOM-1 it was, at about 836,000 groups, below the view's own `PRV-4022` ceiling |
 | Too many open files | One bound source costs about one descriptor. The node logs its descriptor ceiling at startup, and a source that fails to open near that ceiling gets a sentence naming `ulimit -n` and `LimitNOFILE`. Two codes still name the wrong thing when descriptors are the real cause: `PRV-5040 FILESYSTEM_DECODE_FAILED` (a decode code for a resource exhaustion) and `PRV-5080 AEROSPIKE_CONNECT_FAILED`, whose every suggested remedy is wrong in that case — the Aerospike client's exception carries no cause, so it cannot be told apart by catching it (SRC-4) |
 | Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
 
@@ -557,6 +557,11 @@ writes one file per commit and rewrites none.
   `GET /schemas/ids/{id}`, which is usually a proxy's error page. The reader stops rather than
   dead-lettering records that are probably fine; it resumes from its checkpoint once the registry is
   back.
+- `PRV-5130` — the topic was deleted under a running query: the brokers have not known it for
+  `topic.missing.timeout` (30 s by default). The feed stops (`pravaha_query_feed_stopped` 1, FEED-1)
+  and node health is `DEGRADED`. Recreate the topic and register the query again — a recreated topic
+  is a new log, which a restore from the old offsets would meet as `PRV-5106`. Until TOPICGONE-1 the
+  consumer only logged "unknown topic or partition" and the query stayed `RUNNING`, health `UP`.
 
 A source that seems stuck with nothing refused is usually `read_committed` waiting behind a producer's
 open transaction — the position cannot pass it until it commits or `transaction.timeout.ms` aborts it.
@@ -574,7 +579,11 @@ refused, or the PostgreSQL driver not on the classpath — the plugin uses the d
 supplies, as `jdbc` does. A role that may not create the publication — it does not own the table,
 or has no `CREATE` on the database — is `PRV-5112`, naming `ALTER TABLE <table> OWNER TO <role>;` or
 `GRANT CREATE ON DATABASE <db> TO <role>;`, or a publication made by a role that may with
-`create.publication: "false"`.
+`create.publication: "false"`. A role without the `REPLICATION` attribute — refused creating the slot,
+starting the initial snapshot or starting the stream ("permission denied to start WAL sender") — is
+`PRV-5112` too, naming `ALTER ROLE <role> REPLICATION;` (on Amazon RDS or Aurora,
+`GRANT rds_replication TO <role>;`). Until CDCPRIVCODE-1 it was `PRV-5118`, with advice about
+transactions left idle, or `PRV-5111`.
 
 **A `postgres-cdc` source with `snapshot.mode: initial` is refused with `PRV-5118`.** The initial
 snapshot could not start or could not be read. At start it is almost always a transaction left open
@@ -602,6 +611,11 @@ the reader retried for ever and the query stayed `RUNNING` with every later chan
 all three the recovery is the same:
 stop the registration, delete its checkpoint directory, drop the slot, register again
 ([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Change data capture: the replication slot*).
+A registration refused at a restart (`PRV-5115`, or `PRV-5155` for a purged MySQL binlog) stays listed
+`FAILED` with its code, logged at `ERROR`, with node health `DEGRADED` and
+`pravaha_registry_recovery_refused` above zero; `DROP CONTINUOUS QUERY <name>` removes it from the
+journal and deletes its checkpoints, after which it registers afresh. Until RECOVERYHEALTH-1 it
+vanished from the listing with one `WARN` line and health `UP`.
 
 **A second query over a `postgres-cdc` or `mysql-cdc` stream is refused with `PRV-8028`.** The
 binding names one replication slot (or replica `server.id`), and another query — named in the
@@ -694,7 +708,7 @@ which is what these now are.
 | `PRV-1012` a reference chain too deep to walk | `${a}` referring to `${b}` referring to `${c}`, nested past 256 levels. A backstop against the stack, not a statement about configuration. **It used to be `PRV-1011` at 32 levels**, so a genuine 34-deep chain with no loop in it was refused as a circular reference that did not exist and the operator went looking for one (E-8). A cycle is still `PRV-1011` and still names the keys in it |
 | `PRV-1023` a duration with no unit | Spring reads a bare number on a duration key as **milliseconds**. `pravaha.checkpoint.interval: 2`, written meaning two seconds, produced 6,409 checkpoints in twenty seconds with nothing in the log naming the interval in force. Write the unit — `2s`, `500ms`, `1m` — or ISO-8601, `PT2S`. The engine's own duration parser has always refused a bare number for this reason; this is the same rule on the Spring side (CFG-15) |
 | `PRV-1026` a bound this value is outside | `pravaha.checkpoint.keep` below 1, or a non-positive `interval` or `timeout`. `keep: 0` used to start a healthy node that then refused **every** registration with "at least one checkpoint must be kept" — once per client, because the bound lived in the checkpointer's constructor and that runs per registration (CFG-16) |
-| `PRV-4093` the checkpoint directory is unusable | `pravaha.checkpoint.directory` names something that exists and is not a directory, a directory this process cannot write to, or a path whose parent does not exist. Pointing it at a CSV file used to log `checkpointing registered queries under .../txnA.csv` and then fail every registration (CFG-7) |
+| `PRV-4093` the checkpoint directory is unusable | `pravaha.checkpoint.directory` names something that exists and is not a directory, a directory this process cannot write to, or a path whose parent does not exist. Pointing it at a CSV file used to log `checkpointing registered queries under .../txnA.csv` and then fail every registration (CFG-7). A registration whose own checkpoint directory cannot be created is refused with this code and nothing is registered; until UNCODEDAPI-1 an embedded `register(...)` threw a bare `UncheckedIOException` |
 | `PRV-4094` a checkpoint is corrupt | A `WARNING` at restore: a checkpoint's contents do not match the CRC32C written with them — a flipped bit on disk, a bad copy, a cut-off tail. It is skipped and the one before it restored, or the sources replayed from the beginning when none is sound; the answer is never the damaged one. Until CKPTSUM-1 a flipped bit was restored and published. A checkpoint from 2.0.0 has no checksum and is restored unverified (logged at `INFO`). If it recurs, check the disk |
 | `PRV-4095` a checkpoint of another output schema | The query's output schema changed since the checkpoint — a stream redeclared with a column of another type — so the checkpoint is not restored and the query rebuilds from its sources; the message (the query's last checkpoint failure) names both schemas. A column the query does not select changes nothing. Until RETYPERESTORE-1 the old values were restored into the new columns |
 | `PRV-8006` the registry journal is unwritable | `pravaha.registry.journal` is a directory, sits in a directory that does not exist, or sits in one this process cannot write to. **The middle one is the commonest typo and used to be invisible**: the directory was created on the first append, so the node journalled perfectly to somewhere nobody meant while the real journal stayed empty. Create the directory, or correct the path (CFG-7) |
@@ -776,7 +790,7 @@ the statement's expected shape.
 
 | Code | What happened | What to do |
 |---|---|---|
-| `PRV-2070` | The text starts as one of the statements — `CREATE CONTINUOUS`, `DROP CONTINUOUS`, `SHOW CONTINUOUS`, `PAUSE`, `RESUME` — and does not have its shape: no `KEYED BY`, a clause given twice, a retention that is not a duration, words after the name. Also: parameters bound to one of these statements, which take none | The message says what was expected, what was found, and the line and column. Compare it with the shape at the end of the message |
+| `PRV-2070` | The text starts as one of the statements — `CREATE CONTINUOUS`, `DROP CONTINUOUS`, `SHOW CONTINUOUS`, `PAUSE`, `RESUME` — and does not have its shape: no `KEYED BY`, a clause given twice, a retention that is not a duration, words after the name. Also: parameters bound to one of these statements, which take none; and, with the same code, an embedded `register(...)` or a registry registration with no key column (until UNCODEDAPI-1 an uncoded `IllegalArgumentException`) — a global aggregate may be keyed by any of its own columns | The message says what was expected, what was found, and the line and column. Compare it with the shape at the end of the message |
 | `PRV-2071` | `KEYED BY` names a column the `SELECT` does not produce, or names one twice | Name the column as the `SELECT` list does — by its alias where it has one (`SUM(amount) AS total` is `total`). The message does not list the columns, because it is raised before the registry has decided whether you may read what the query reads |
 | `PRV-2072` | A clause from the design's grammar that is not built: `EMIT CHANGES WITH (...)`, or a `SERVE AS VIEW` naming a view other than the query | Drop the `EMIT CHANGES WITH` list — every continuous query emits its changes — and say a retention with `RETAIN FOR` or `WITH (retention = ...)`; give the query the name clients read. Refused rather than ignored: an ignored `'allowed.lateness' = '30s'` drops rows somebody asked to be waited for |
 | `PRV-2073` | `RANGE (column)` asks for an ordered index over a column this engine has no total order for: text (needs a collation), `FLOAT` (IEEE 754, and `NaN` is ordered against nothing), `DECIMAL` (`compareTo` disagrees with `equals`, so `1.0` and `1.00` would be one entry and two rows), `BYTES`, `BOOLEAN` | Drop the `RANGE` — the key still works as a key, and point reads and full-key lookups are unaffected — or range-scan a whole-number or temporal column. Refused at registration, against the columns the view will actually have |
@@ -865,6 +879,17 @@ cannot be kept exact over an input that retracts is refused rather than approxim
 
 A downstream whose upstream fails stops following it with `PRV-8004`, naming the upstream, and keeps
 answering at the frontier it reached: its feed is reported stopped, as any source's is.
+
+## `MIN` or `MAX` over a source that deletes is refused (`PRV-2076`)
+
+A `MIN` or `MAX` accumulator keeps the extreme, not the values under it, so a retraction of the extreme
+has no answer. Over a stream whose source emits deletes — `postgres-cdc`, `mysql-cdc`, a file with
+`op.column` — such a query, windowed or not, is refused at registration with `PRV-2076`, naming the
+aggregate and the stream. In the embedded engine, `retract(...)` on a stream a `MIN` or `MAX` query reads
+is refused `PRV-8102` before any row is delivered; every query keeps running. Until MINRETRACT-1 the
+first retraction stopped the query at run time with `PRV-3020`. Compute the extreme over a stream that
+only appends, or use `COUNT`, `SUM` or `AVG`, which retract exactly. A journalled query of this shape
+from an earlier release is refused at recovery and listed `FAILED` with the code; drop it.
 
 ## An alert is refused, silent, or not delivered (`PRV-8040` … `PRV-8047`)
 
@@ -965,6 +990,7 @@ client models the error rather than an empty object.
 | `PRV-2073` | SQL_RANGE_NOT_ORDERED | sql |
 | `PRV-2074` | SQL_INDEX_UNUSABLE | sql |
 | `PRV-2075` | SQL_VIEW_INPUT_UNSUPPORTED | sql |
+| `PRV-2076` | SQL_EXTREME_OVER_RETRACTIONS | sql |
 | `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
 | `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
 | `PRV-3010` | RUNTIME_LANE_FAILED | runtime |
@@ -1079,6 +1105,7 @@ client models the error rather than an empty object.
 | `PRV-5121` | AEROSPIKE_DELETE_STATE_FAILED | plugins |
 | `PRV-5122` | CASSANDRA_DELETE_STATE_FULL | plugins |
 | `PRV-5123` | CASSANDRA_DELETE_STATE_FAILED | plugins |
+| `PRV-5130` | KAFKA_TOPIC_GONE | plugins |
 | `PRV-5140` | ICEBERG_SINK_BAD_CONFIGURATION | plugins |
 | `PRV-5141` | ICEBERG_SINK_TABLE_MISMATCH | plugins |
 | `PRV-5142` | ICEBERG_SINK_WRITE_FAILED | plugins |

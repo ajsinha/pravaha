@@ -90,5 +90,14 @@ public final class KafkaErrors {
      */
     public static final ErrorCode REGISTRY_UNAVAILABLE = new ErrorCode(5109, "KAFKA_REGISTRY_UNAVAILABLE");
 
+    /**
+     * The topic a running {@code kafka} source reads has been deleted: the brokers have not known it
+     * for {@code topic.missing.timeout} (TOPICGONE-1). The client only logs "unknown topic or
+     * partition" and waits, so the query stayed {@code RUNNING} and health {@code UP} for as long as
+     * the topic was absent; the feed now stops with this code (FEED-1), and node health is {@code
+     * DEGRADED}. A topic recreated under the same name is a new log: re-register the query.
+     */
+    public static final ErrorCode TOPIC_GONE = new ErrorCode(5130, "KAFKA_TOPIC_GONE");
+
     private KafkaErrors() {}
 }

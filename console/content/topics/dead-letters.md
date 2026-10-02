@@ -302,7 +302,9 @@ ok  19999 in, 4211 out
   plan 5210 us, execute 81234 us
 ```
 
-(Sample counts and timings.) If the queue itself could not be written, that count goes to stderr --
+(Sample counts and timings.) The reject count includes rows that decoded and then failed evaluation
+(`PRV-3027`), as on a server; until CLIDLQ-1 such a row ended the run even with `--dlq`. If the queue
+itself could not be written, that count goes to stderr --
 a run that reports `ok` while having discarded input is what the queue exists to prevent.
 
 ## Pitfalls

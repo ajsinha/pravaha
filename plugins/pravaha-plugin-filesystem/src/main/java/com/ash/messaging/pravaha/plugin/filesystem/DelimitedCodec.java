@@ -170,7 +170,10 @@ final class DelimitedCodec {
                 java.time.Instant instant = text.endsWith("Z") || text.contains("+") || text.lastIndexOf('-') > 7
                         ? java.time.OffsetDateTime.parse(text).toInstant()
                         : java.time.LocalDateTime.parse(text).toInstant(java.time.ZoneOffset.UTC);
-                yield instant.getEpochSecond() * 1_000_000_000L + instant.getNano();
+                // Checked (FARTIME-1): nanoseconds since the epoch in 64 bits end at 2262-04-11, and
+                // an unchecked product wrapped 3000-01-01 into 1677. setField turns the overflow
+                // into a decode failure naming the line, the column and the range.
+                yield Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
             }
         };
     }
@@ -183,7 +186,7 @@ final class DelimitedCodec {
                 case INT8 -> writer.setByte(ordinal, Byte.parseByte(raw));
                 case INT16 -> writer.setShort(ordinal, Short.parseShort(raw));
                 case INT32 -> writer.setInt(ordinal, Integer.parseInt(raw));
-                case DATE -> writer.setInt(ordinal, (int) temporal(type, raw));
+                case DATE -> writer.setInt(ordinal, Math.toIntExact(temporal(type, raw)));
                 case INT64 -> {
                     long value = Long.parseLong(raw);
                     writer.setLong(ordinal, value);
@@ -226,6 +229,15 @@ final class DelimitedCodec {
                     DECODE_FAILED,
                     "line " + lineNumber + ", column '" + schema.field(ordinal).name() + "' (" + type + "): '" + raw
                             + "' is not a number");
+        } catch (ArithmeticException e) {
+            throw new ConfigurationException(
+                    DECODE_FAILED,
+                    "line " + lineNumber + ", column '" + schema.field(ordinal).name() + "' (" + type + "): '" + raw
+                            + "' is outside the range this engine holds a " + type + " in ("
+                            + (type == TypeName.DATE
+                                    ? "days since 1970 in 32 bits"
+                                    : "nanoseconds since 1970 in 64 bits: 1677-09-21 to 2262-04-11 UTC")
+                            + "); the line is not read rather than stored as a different time");
         }
     }
 

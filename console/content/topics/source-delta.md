@@ -198,9 +198,10 @@ configuration, which this plugin does not manage.
     change size. Append-heavy tables never pay it. Delta's change data feed is the better reader for
     update-heavy tables, and Kernel exposes no public API for it yet.
 
-!!! note "Not in the server jar"
-    The first registration that reads the stream fails with PRV-5090, listing the plugins that are
-    available, until the module is on the node's classpath.
+!!! note "In the server jar"
+    `pravaha-plugin-delta` ships inside the server jar. A process without it on its classpath — an
+    embedded application that did not add the dependency — refuses the binding when it starts, with
+    PRV-5090 listing the plugins that are available.
 
 ## Where next
 

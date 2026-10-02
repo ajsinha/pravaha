@@ -7,7 +7,7 @@ icon: broadcast-pin
 summary: "kafka reads a topic as a stream: one reader per partition, its offsets in the query's checkpoint and never in a consumer group, exactly once. JSON, kafka-sink's changelog, Avro or Protobuf, with a schema registry and no library for any of them."
 badge: SOURCE
 audience: Operators
-keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, avro, protobuf, schema registry, schema.file, schema.reader.file, schema resolution, schema evolution, aliases, nested record, schema.descriptor, schema.registry.url, confluent, karapace, apicurio, descriptor set, DynamicMessage, logical type, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106, PRV-5108, PRV-5109]
+keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, avro, protobuf, schema registry, schema.file, schema.reader.file, schema resolution, schema evolution, aliases, nested record, schema.descriptor, schema.registry.url, confluent, karapace, apicurio, descriptor set, DynamicMessage, logical type, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106, PRV-5108, PRV-5109, PRV-5130, topic.missing.timeout, deleted topic]
 guide: connectors#a-replayable-source-kafka
 related: [sources-overview, sink-kafka, source-postgres-cdc, checkpoints-recovery, zset-weights, dead-letters, connector-security, delivery-guarantees]
 listed_on: sources-overview
@@ -74,6 +74,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | `start.timeout` | no | `30s` | How long opening waits for the brokers, and for a new reader to have queued what the partition already holds |
 | `lag.warn.records` | no | `100000` | Records behind the end of any partition past which the source's health is `DEGRADED` |
 | `partitions.refresh` | no | `30s` | How often the topic's partitions are listed again, so one added while a query runs is read without a restart. At least `1s` (PRV-5100): each refresh is a metadata request |
+| `topic.missing.timeout` | no | `30s` | How long the topic may be unknown to the brokers before a running reader stops with PRV-5130 (TOPICGONE-1). At least `1s` (PRV-5100); the topic is asked for every fifth of it, at most every 5s, while the partition is quiet |
 | `user` / `password` | no | empty | SASL credentials. Both or neither: half a credential is refused |
 | `sasl.mechanism` | no | `PLAIN` when `user` is set | `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`. `PLAIN` without TLS is refused — it sends the password in the clear |
 | `tls.*` | no | off | The shared TLS options — see [connector security](/help/topics/connector-security) |
@@ -616,6 +617,11 @@ the source **refuses** rather than reading on from wherever the log now starts:
   overtakes it.
 - **The topic was deleted and recreated.** The checkpoint's offset is then **past the end** of the
   partition, and the same offsets now mean other records. Also PRV-5106.
+- **The topic was deleted, and nothing recreated it.** A running reader asks the brokers for the topic
+  while its partition is quiet; once they have not known it for `topic.missing.timeout` (30 seconds by
+  default) it stops with [PRV-5130](/help/codes/PRV-5130), the feed stops and node health is
+  `DEGRADED`. Until TOPICGONE-1 the consumer only logged "unknown topic or partition", and the query
+  stayed `RUNNING` with health `UP` for as long as the topic was gone.
 
 The recovery is the same for both, and means starting without the missing records:
 
@@ -683,6 +689,7 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 | [PRV-5107](/help/codes/PRV-5107) | while running | Fetching failed in a way retrying will not fix: an ACL revoked, the topic deleted |
 | [PRV-5108](/help/codes/PRV-5108) | at registration | With `format: avro` or `protobuf`: the writer schema cannot become rows of this stream — a column with no field, a field whose type cannot fill its column, two nested paths matching one column, a writer schema that does not resolve against `schema.reader.file`, a `schema.file` that is not an Avro schema, a `schema.descriptor` that is not a descriptor set or has no such message. A registry's schema is checked when its first record arrives instead, and a mismatch there is a dead letter |
 | [PRV-5109](/help/codes/PRV-5109) | while running | The schema registry could not be read: unreachable after three attempts, the credentials refused, no schema with that id, or an answer that is not `GET /schemas/ids/{id}`'s documented shape. The reader stops and resumes from its checkpoint once the registry is back |
+| [PRV-5130](/help/codes/PRV-5130) | while running | The topic was deleted: the brokers have not known it for `topic.missing.timeout`. The feed stops (FEED-1) and node health is `DEGRADED`. Recreate the topic and register the query again |
 | [PRV-2041](/help/codes/PRV-2041) | at registration | A query over a `format: changelog` stream pointed at an append-only sink |
 
 A source that seems stuck with nothing refused is usually `read_committed` waiting behind a producer's

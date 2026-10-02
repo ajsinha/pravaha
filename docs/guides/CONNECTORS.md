@@ -33,13 +33,14 @@ your-connector.jar
 Drop it on the classpath, name it in configuration, and a query can read from it.
 
 **"On the classpath" means on the running process's classpath, and the shipped `pravaha-server`
-executable jar carries `filesystem` alone.** Every other name in the tables below — `feedfile`,
-`jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc`, `kafka` and their sink counterparts —
-lives in its own module under `plugins/` and has to be added to the classpath of the node that is
-to use it, which is a packaging decision rather than a configuration one. Naming one that is not
-there is refused at startup with `PRV-5090`, and that refusal now says which of the two mistakes it
-is, because "Available: [filesystem]" read beside this document's seven names looked like a
-contradiction rather than an answer (CFG-4). There is **no drop-a-jar-in directory** yet: see
+executable jar carries every plugin module the project builds**: the sources `filesystem`, `feedfile`,
+`jdbc`, `delta`, `kafka`, `postgres-cdc`, `mysql-cdc`, `aerospike` and `cassandra`, with their sink and
+lookup counterparts. A source naming a plugin nothing on the classpath answers to is refused when the
+node starts, with `PRV-5090` listing every source plugin the process does carry — so the list is the
+answer: a misspelt name is in it under its right spelling, and a plugin from outside the project has to
+be put on the classpath first. Until PLUGINLATE-1 the node started `UP` and only the first registration
+was refused, with a message that said the jar carried `filesystem` alone right after listing the nine it
+carries. There is **no drop-a-jar-in directory** yet: see
 [section 8](#8-what-is-missing-from-this-framework-today).
 
 Three kinds, and a connector may be more than one:
@@ -972,6 +973,12 @@ What it deliberately does not do:
   has not yet read, or a checkpoint's offset is past the partition's end (the topic was deleted and
   recreated), the reader refuses with `PRV-5106` rather than reading on from wherever the log now
   starts. `auto.offset.reset` is `none` and cannot be passed through.
+- **A topic deleted under a running query stops its feed.** The consumer only logs "unknown topic or
+  partition" for a deleted topic, so a quiet reader asks the brokers for it (every fifth of
+  `topic.missing.timeout`, at most every 5 s) and, once they have not known it for
+  `topic.missing.timeout` (30 s by default, at least 1 s), stops with `PRV-5130`: the feed stops and
+  node health is `DEGRADED` (FEED-1). Until TOPICGONE-1 the query stayed `RUNNING` and health `UP`
+  for as long as the topic was gone.
 - **A partition added to the topic is read without a restart.** The partition list is read again
   every `partitions.refresh` (30 seconds by default); a new partition's reader starts at its earliest
   offset, whatever `start.from` says, and its offset is checkpointed like any other. Proved against a

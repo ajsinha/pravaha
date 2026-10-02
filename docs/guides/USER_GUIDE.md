@@ -697,7 +697,7 @@ What the calls do:
 |---|---|
 | `declareStream(name, "col:TYPE,...", eventTimeColumn)` / `declareStream(StreamSchema)` | A stream, with the event-time column that lets windows close |
 | `bindSource` / `bindLookup` / `bindSink(name, plugin, options)` | A plugin by the name it reports, with its options — `filesystem` is on the classpath already |
-| `register(name, sql, keyColumns...)` / `register(ContinuousQuery)` | A continuous query; `ContinuousQuery.named(..).retaining(..).writingTo(sink)` for retention or a sink |
+| `register(name, sql, keyColumns...)` / `register(ContinuousQuery)` | A continuous query over streams or other queries' views, as `CREATE CONTINUOUS QUERY` (QOQAPI-1); `ContinuousQuery.named(..).retaining(..).writingTo(sink)` for retention or a sink. No key column is `PRV-2070` |
 | `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) |
 | `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers |
 | `advanceEventTime(stream, instant)` | Closes windows over pushed rows; a bound source's watermark advances on its own |

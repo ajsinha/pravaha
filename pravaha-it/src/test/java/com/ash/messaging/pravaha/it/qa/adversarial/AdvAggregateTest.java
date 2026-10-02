@@ -149,10 +149,11 @@ class AdvAggregateTest {
     }
 
     @Test
-    void qe044_windowedMinGivenARetractionStopsTheQuery() {
-        // CQ §13 lists MIN and MAX as supported in windows; a retraction (a delete from a change feed,
-        // an op=D line) stops the query at run time with PRV-3020 instead of being refused when the
-        // query is registered over a stream that can carry deletes.
+    void qe044_windowedMinRefusesARetractionAndKeepsRunning() {
+        // MINRETRACT-1, fixed: a retraction used to stop the windowed MIN query at run time with
+        // PRV-3020. Over a source that deletes the query is now refused at registration (PRV-2076,
+        // RetractedExtremesTest); over a pushed stream the retract call itself is refused, before
+        // any row is delivered, and the query keeps running.
         try (PravahaEngine engine = windowed(
                 0,
                 "mn",
@@ -162,8 +163,8 @@ class AdvAggregateTest {
                 "k")) {
             engine.push("w", new Object[] {"a", 1L, null, t(1)}, new Object[] {"a", 2L, null, t(2)});
             String outcome = AdvSupport.attempt(() -> engine.retract("w", new Object[] {"a", 1L, null, t(1)}));
-            assertThat(outcome).contains("PRV-3020").contains("MIN cannot handle a retraction");
-            assertThat(AdvSupport.state(engine, "mn")).startsWith("FAILED");
+            assertThat(outcome).startsWith("PRV-8102").contains("'mn'").contains("MIN(v)");
+            assertThat(AdvSupport.state(engine, "mn")).isEqualTo("RUNNING");
         }
     }
 
@@ -325,9 +326,9 @@ class AdvAggregateTest {
         try (PravahaEngine engine = AdvSupport.engine(e -> e.declareStream("src", "id:INT64,v:INT64", null))) {
             String registered = AdvSupport.attempt(() -> engine.register("n", "SELECT COUNT(*) AS c FROM src"));
             System.out.println("NOTE QE-062 register " + registered);
-            if (!"OK".equals(registered)) {
-                return;
-            }
+            // UNCODEDAPI-1, fixed: keyless is the statement's own coded refusal, saying what to key by.
+            assertThat(registered).startsWith("PRV-2070").contains("any of its own columns");
+            engine.register("n", "SELECT COUNT(*) AS c FROM src", "c");
             engine.push("src", new Object[] {1L, 1L}, new Object[] {2L, 2L}, new Object[] {3L, 3L});
             engine.retract("src", new Object[] {1L, 1L}, new Object[] {2L, 2L}, new Object[] {3L, 3L});
             List<String> rows = AdvSupport.rows(engine, "SELECT * FROM n");
@@ -362,6 +363,9 @@ class AdvAggregateTest {
                                 AdvSupport.rows(engine, "SELECT * FROM c").toString());
                     }));
             assertThat(AdvSupport.state(engine, "c")).doesNotStartWith("FAILED");
+            // UNCODEDAPI-1, fixed: an Instant past 2262 is a coded refusal of the push, not an
+            // ArithmeticException.
+            assertThat(tooLate).startsWith("PRV-8102").contains("2262-04-11");
         }
     }
 
