@@ -123,7 +123,7 @@ public class ObservabilityEnvironment implements EnvironmentPostProcessor {
         if (enabled.equals("false")) {
             Set<String> excluded = new LinkedHashSet<>();
             String already = environment.getProperty("spring.autoconfigure.exclude", "");
-            for (String name : already.split(",")) {
+            for (String name : already.split(",", -1)) {
                 if (!name.isBlank()) {
                     excluded.add(name.strip());
                 }

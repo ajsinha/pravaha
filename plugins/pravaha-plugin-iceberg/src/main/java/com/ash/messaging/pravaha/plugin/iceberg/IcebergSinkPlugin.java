@@ -211,7 +211,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
                             + "record it removes by key. It must be the query's --keys.");
         }
         List<String> names = new ArrayList<>();
-        for (String part : keys.split(",")) {
+        for (String part : keys.split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }

@@ -297,4 +297,16 @@ class FeedFileSourcePluginTest {
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("name");
     }
+
+    @Test
+    void aSchemaWithATrailingSeparatorIsRefused() {
+        // SPLITTRAIL-1: String.split dropped trailing empty strings, so "id:INT64," and "id:INT64:"
+        // were read as "id:INT64" while the same slip mid-list was refused.
+        assertThatThrownBy(() -> FeedSchemas.parse("orders", "id:INT64,"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+        assertThatThrownBy(() -> FeedSchemas.parse("orders", "id:INT64:"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+    }
 }

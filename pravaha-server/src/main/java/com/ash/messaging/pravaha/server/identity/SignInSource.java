@@ -75,7 +75,7 @@ public final class SignInSource {
         if (forwardedFor == null || forwardedFor.isBlank() || !isTrusted(peer)) {
             return peer;
         }
-        String[] hops = forwardedFor.split(",");
+        String[] hops = forwardedFor.split(",", -1);
         for (int i = hops.length - 1; i >= 0; i--) {
             String hop = hops[i].strip();
             if (hop.isEmpty() || hop.length() > 64) {

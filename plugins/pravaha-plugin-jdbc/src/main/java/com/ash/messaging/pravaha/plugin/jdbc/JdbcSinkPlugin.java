@@ -195,7 +195,7 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
                             + "--keys.");
         }
         List<String> names = new ArrayList<>();
-        for (String part : keys.split(",")) {
+        for (String part : keys.split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }

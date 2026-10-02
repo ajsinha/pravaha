@@ -99,7 +99,7 @@ class AdvChainTest {
         TreeSet<String> top() {
             TreeSet<String> out = new TreeSet<>();
             for (String row : mid()) {
-                String[] cells = row.split("\\|");
+                String[] cells = row.split("\\|", -1);
                 if (Long.parseLong(cells[1]) > 50) {
                     out.add(cells[0] + "|" + cells[1]);
                 }

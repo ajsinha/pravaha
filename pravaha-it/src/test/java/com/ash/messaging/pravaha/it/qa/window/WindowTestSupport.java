@@ -208,8 +208,8 @@ abstract class WindowTestSupport {
     protected static QueryRegistry registry(
             ViewCatalog views, Path dir, Path data, String schemaSpec, Duration outOfOrderness) {
         StreamSchema.Builder builder = StreamSchema.builder("s0");
-        for (String column : schemaSpec.split(",")) {
-            String[] parts = column.split(":");
+        for (String column : schemaSpec.split(",", -1)) {
+            String[] parts = column.split(":", -1);
             builder.field(parts[0], typeOf(parts[1]));
         }
         StreamSchema s0 =
@@ -519,7 +519,7 @@ abstract class WindowTestSupport {
     protected static long sumOf(List<String> rows, int ordinal) {
         long total = 0;
         for (String row : rows) {
-            total += Long.parseLong(row.split("\\|")[ordinal]);
+            total += Long.parseLong(row.split("\\|", -1)[ordinal]);
         }
         return total;
     }
@@ -528,7 +528,7 @@ abstract class WindowTestSupport {
     protected static long countOf(List<String> rows, long windowStart) {
         long total = 0;
         for (String row : rows) {
-            String[] parts = row.split("\\|");
+            String[] parts = row.split("\\|", -1);
             if (Long.parseLong(parts[0]) == windowStart) {
                 total += Long.parseLong(parts[3]);
             }

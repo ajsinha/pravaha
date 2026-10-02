@@ -989,7 +989,7 @@ public final class RegistryJournal {
         if (encoded == null || encoded.isEmpty()) {
             return values;
         }
-        for (String part : encoded.split(",")) {
+        for (String part : encoded.split(",", -1)) {
             values.add(Integer.parseInt(part.trim()));
         }
         return values;

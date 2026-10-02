@@ -565,7 +565,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 FlightErrors.BAD_HANDLE, "register needs a name, some SQL and key columns");
                     }
                     List<Integer> keys = new ArrayList<>();
-                    for (String ordinal : fields.get(2).split(",")) {
+                    for (String ordinal : fields.get(2).split(",", -1)) {
                         if (!ordinal.isBlank()) {
                             keys.add(Integer.parseInt(ordinal.strip()));
                         }
@@ -875,7 +875,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     /** The key columns a replace action carries, in the comma-separated form register takes. */
     private static List<Integer> keyOrdinals(String field) {
         List<Integer> keys = new ArrayList<>();
-        for (String ordinal : field.split(",")) {
+        for (String ordinal : field.split(",", -1)) {
             if (!ordinal.isBlank()) {
                 keys.add(Integer.parseInt(ordinal.strip()));
             }

@@ -154,7 +154,7 @@ class ObservabilityContractTest {
     /** The metric names on the scrape, without their labels. */
     private Set<String> published() {
         Set<String> names = new TreeSet<>();
-        for (String line : scrape.split("\n")) {
+        for (String line : scrape.lines().toList()) {
             if (line.isBlank() || line.startsWith("#")) {
                 continue;
             }

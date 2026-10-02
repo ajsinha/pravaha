@@ -338,7 +338,7 @@ class DeltaSinkPartitionTest {
     /** The {@code partitionValues} of every {@code add} action in a commit, as the JSON records them. */
     private static List<String> addedPartitionValues(String commit) {
         List<String> values = new java.util.ArrayList<>();
-        for (String line : commit.split("\n")) {
+        for (String line : commit.lines().toList()) {
             if (!line.startsWith("{\"add\"")) {
                 continue;
             }

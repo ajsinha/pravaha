@@ -145,7 +145,7 @@ final class PgSessionSet {
             return true;
         }
         boolean hasPublic = false;
-        for (String entry : trimmed.split(",")) {
+        for (String entry : trimmed.split(",", -1)) {
             String schema = entry.strip();
             if (schema.length() >= 2
                     && (schema.charAt(0) == '\'' || schema.charAt(0) == '"')

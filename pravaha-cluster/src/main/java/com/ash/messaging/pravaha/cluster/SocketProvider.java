@@ -59,7 +59,7 @@ public final class SocketProvider implements CoordinatorProvider {
                                 + "consensus is one more thing for two halves of a cluster to disagree about"));
 
         List<Member> peers = new ArrayList<>();
-        for (String entry : spec.split(",")) {
+        for (String entry : spec.split(",", -1)) {
             String trimmed = entry.strip();
             if (trimmed.isEmpty()) {
                 continue;

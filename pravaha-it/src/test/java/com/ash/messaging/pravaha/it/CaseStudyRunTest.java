@@ -282,7 +282,7 @@ class CaseStudyRunTest {
             String target = null;
             List<Object> parameters = List.of();
             List<String> rows = new ArrayList<>();
-            for (String raw : text.split("\n")) {
+            for (String raw : text.lines().toList()) {
                 String line = raw.strip();
                 if (line.isEmpty() || line.startsWith("#")) {
                     continue;
@@ -330,7 +330,7 @@ class CaseStudyRunTest {
             Properties streams = properties(dir.resolve("schema/streams.properties"));
             Map<String, String> fields = new LinkedHashMap<>();
             for (String key : streams.stringPropertyNames().stream().sorted().toList()) {
-                String[] parts = key.split("\\.");
+                String[] parts = key.split("\\.", -1);
                 if (parts.length == 3 && parts[0].equals("stream") && parts[2].equals("fields")) {
                     fields.put(parts[1], streams.getProperty(key));
                 }
@@ -338,8 +338,8 @@ class CaseStudyRunTest {
             for (Map.Entry<String, String> entry : declarationOrder(dir, fields).entrySet()) {
                 String name = entry.getKey();
                 StreamSchema.Builder builder = StreamSchema.builder(name);
-                for (String field : entry.getValue().split(",")) {
-                    String[] parts = field.strip().split(":");
+                for (String field : entry.getValue().split(",", -1)) {
+                    String[] parts = field.strip().split(":", -1);
                     builder.field(parts[0].strip(), type(parts[1].strip()));
                 }
                 String eventTime = streams.getProperty("stream." + name + ".event-time", "")
@@ -387,7 +387,7 @@ class CaseStudyRunTest {
         private static Map<String, String> declarationOrder(Path dir, Map<String, String> fields) throws IOException {
             Map<String, String> ordered = new LinkedHashMap<>();
             for (String line : Files.readAllLines(dir.resolve("schema/streams.properties"))) {
-                String[] parts = line.split("=", 2)[0].strip().split("\\.");
+                String[] parts = line.split("=", 2)[0].strip().split("\\.", -1);
                 if (parts.length == 3 && parts[2].equals("fields") && fields.containsKey(parts[1])) {
                     ordered.put(parts[1], fields.get(parts[1]));
                 }

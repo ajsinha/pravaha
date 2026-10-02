@@ -390,7 +390,7 @@ class CaseStudySqlTest {
         Map<String, String> eventTimes = new LinkedHashMap<>();
         Properties properties = streamsOf(study);
         for (String key : properties.stringPropertyNames()) {
-            String[] parts = key.split("\\.");
+            String[] parts = key.split("\\.", -1);
             if (parts.length == 3 && parts[0].equals("stream") && parts[2].equals("event-time")) {
                 eventTimes.put(parts[1], properties.getProperty(key).strip());
             }
@@ -406,7 +406,7 @@ class CaseStudySqlTest {
         // the application.yaml the study ships cannot drift apart in wording.
         Map<String, String> eventTimes = eventTimesOf(study);
         for (String key : properties.stringPropertyNames()) {
-            String[] parts = key.split("\\.");
+            String[] parts = key.split("\\.", -1);
             if (parts.length == 3 && parts[0].equals("stream")) {
                 if (parts[2].equals("role")) {
                     roles.put(parts[1], properties.getProperty(key).strip());
@@ -455,8 +455,8 @@ class CaseStudySqlTest {
                     + "window over it can ever close.");
         }
         StreamSchema.Builder builder = StreamSchema.builder(name);
-        for (String field : fields.split(",")) {
-            String[] parts = field.strip().split(":");
+        for (String field : fields.split(",", -1)) {
+            String[] parts = field.strip().split(":", -1);
             String column = parts[0].strip();
             String type = parts[1].strip();
             boolean nullable = type.endsWith("?");

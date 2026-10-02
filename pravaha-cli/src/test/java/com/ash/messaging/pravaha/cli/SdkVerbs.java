@@ -85,7 +85,7 @@ public final class SdkVerbs {
                 }
                 case "register" -> {
                     List<Integer> keys = new ArrayList<>();
-                    for (String ordinal : options.getOrDefault("keys", "0").split(",")) {
+                    for (String ordinal : options.getOrDefault("keys", "0").split(",", -1)) {
                         keys.add(Integer.parseInt(ordinal.strip()));
                     }
                     RegisteredQueryInfo registered = client.register(

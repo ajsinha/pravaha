@@ -201,7 +201,7 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
 
     private static List<String> namesIn(String list) {
         List<String> names = new ArrayList<>();
-        for (String part : list.split(",")) {
+        for (String part : list.split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }

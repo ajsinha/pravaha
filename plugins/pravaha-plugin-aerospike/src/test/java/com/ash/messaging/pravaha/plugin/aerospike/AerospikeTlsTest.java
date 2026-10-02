@@ -143,4 +143,16 @@ final class AerospikeTlsTest {
         assertThat(policy.tlsPolicy).isNotNull();
         assertThat(policy.tlsPolicy.context).isNotNull();
     }
+
+    @Test
+    void aTrailingSeparatorInTheHostListIsRefusedLikeAnyOtherMalformedEntry() {
+        // SPLITTRAIL-1: String.split dropped trailing empty strings, so "h:3000:" read as h:3000 and a
+        // trailing comma vanished, while the same slip in the middle of the list was refused.
+        assertThatThrownBy(() -> AerospikeHosts.parse("10.0.0.1:3000,", ""))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("host:port");
+        assertThatThrownBy(() -> AerospikeHosts.parse("10.0.0.1:3000:", ""))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("host:port");
+    }
 }

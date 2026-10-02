@@ -231,6 +231,18 @@ class DeltaSourcePluginTest {
     }
 
     @Test
+    void anOffsetWithATrailingSeparatorIsRefused() {
+        // SPLITTRAIL-2: String.split dropped trailing empty strings, so this deliberately strict parser
+        // took "...;r=0;" -- a token it never writes -- as the four fields it expects.
+        SourceOffset written = new DeltaOffset(3L, DeltaOffset.Phase.ADDS, 0, 0L).toSourceOffset();
+        assertThat(DeltaOffset.parse(written)).isEqualTo(new DeltaOffset(3L, DeltaOffset.Phase.ADDS, 0, 0L));
+        assertThatThrownBy(() -> DeltaOffset.parse(new SourceOffset(written.token() + ";")))
+                .isInstanceOf(PravahaException.class)
+                .extracting(e -> ((PravahaException) e).errorCode())
+                .isEqualTo(DeltaErrors.MALFORMED_OFFSET);
+    }
+
+    @Test
     void aDirectoryThatIsNotADeltaTableSaysSo(@TempDir Path dir) {
         DeltaSourcePlugin plugin = new DeltaSourcePlugin();
         plugin.configure(new Ctx("delta", Map.of("path", dir.toString())));

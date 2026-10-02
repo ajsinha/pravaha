@@ -93,8 +93,8 @@ class SpillBeyondRamMeasurementIT {
         report.add(String.format(
                 "cap %d MiB (MemoryMax, MemorySwapMax=0), heap %d MiB, RAM tier %d MiB per store, spill directory %s",
                 CAP_MIB, HEAP_MIB, CEILING_MIB, DIR));
-        for (String kind : KINDS.split(",")) {
-            for (String multiple : MULTIPLES.split(",")) {
+        for (String kind : KINDS.split(",", -1)) {
+            for (String multiple : MULTIPLES.split(",", -1)) {
                 long stateBytes = (long) (Double.parseDouble(multiple.trim()) * CAP_MIB * MIB);
                 Map<String, String> capped = run(kind.trim(), stateBytes, true);
                 report.add(kind + " " + multiple.trim() + "x capped: " + capped);
@@ -163,7 +163,7 @@ class SpillBeyondRamMeasurementIT {
             }
             if (line.startsWith("RESULT ")) {
                 result.remove("last_progress");
-                for (String pair : line.substring(7).split(" ")) {
+                for (String pair : line.substring(7).split(" ", -1)) {
                     int eq = pair.indexOf('=');
                     if (eq > 0) {
                         result.put(pair.substring(0, eq), pair.substring(eq + 1));
@@ -237,7 +237,7 @@ class SpillBeyondRamMeasurementIT {
             Process df = new ProcessBuilder("df", "--output=source", DIR.toString()).start();
             String[] lines = new String(df.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
                     .trim()
-                    .split("\n");
+                    .split("\n", -1);
             df.waitFor();
             String source = lines[lines.length - 1].trim().replace("/dev/", "");
             String disk = source.replaceAll("p?\\d+$", "");

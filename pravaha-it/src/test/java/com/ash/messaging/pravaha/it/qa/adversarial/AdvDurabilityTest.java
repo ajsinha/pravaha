@@ -448,7 +448,7 @@ class AdvDurabilityTest {
                         throw new IllegalStateException((difference == null ? "EQUAL" : "DIFFERENT " + difference)
                                 + " | "
                                 + AdvSupport.rows(engine, "SHOW CONTINUOUS QUERIES").stream()
-                                        .map(r -> r.split("\\|")[0] + "=" + r.split("\\|")[1])
+                                        .map(r -> r.split("\\|", -1)[0] + "=" + r.split("\\|", -1)[1])
                                         .toList());
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);

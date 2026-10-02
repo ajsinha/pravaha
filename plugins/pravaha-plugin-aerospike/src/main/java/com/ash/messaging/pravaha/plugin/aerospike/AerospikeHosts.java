@@ -31,10 +31,10 @@ final class AerospikeHosts {
     private AerospikeHosts() {}
 
     static Host[] parse(String spec, String tlsName) {
-        String[] entries = spec.split(",");
+        String[] entries = spec.split(",", -1);
         Host[] hosts = new Host[entries.length];
         for (int i = 0; i < entries.length; i++) {
-            String[] parts = entries[i].strip().split(":");
+            String[] parts = entries[i].strip().split(":", -1);
             if (parts.length != 2) {
                 throw new ConfigurationException(
                         AerospikeErrors.BAD_CONFIGURATION,

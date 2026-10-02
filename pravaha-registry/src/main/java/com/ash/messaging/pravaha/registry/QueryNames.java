@@ -80,7 +80,7 @@ final class QueryNames {
             // was a keyword -- false, and it sends the person who chose it looking for a list they
             // will not find themselves on.
             String reason =
-                    e.getMessage() == null ? e.toString() : e.getMessage().split("\n")[0];
+                    e.getMessage() == null ? e.toString() : e.getMessage().split("\n", -1)[0];
             throw new PravahaException(
                     RegistryErrors.NAME_UNUSABLE,
                     "'" + name + "' cannot appear in a FROM clause, so no query could read the view: " + reason

@@ -156,7 +156,7 @@ public record ReplacementOptions(
             return options;
         }
         Map<String, String> fields = new LinkedHashMap<>();
-        for (String part : encoded.split(";")) {
+        for (String part : encoded.split(";", -1)) {
             int equals = part.indexOf('=');
             if (equals > 0) {
                 fields.put(

@@ -143,8 +143,8 @@ final class CdcSchema {
                 oids.add(column.typeOid());
             }
         } else {
-            for (String entry : options.declaredSchema().split(",")) {
-                String[] parts = entry.strip().split(":");
+            for (String entry : options.declaredSchema().split(",", -1)) {
+                String[] parts = entry.strip().split(":", -1);
                 if (parts.length != 2 || parts[0].isBlank()) {
                     throw CdcOptions.bad(
                             options.instanceName(),

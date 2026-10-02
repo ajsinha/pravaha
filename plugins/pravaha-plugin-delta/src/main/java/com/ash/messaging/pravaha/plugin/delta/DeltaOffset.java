@@ -75,7 +75,7 @@ public record DeltaOffset(long version, Phase phase, int fileIndex, long rowInde
         }
         String token = offset.token();
         try {
-            String[] parts = token.split(";");
+            String[] parts = token.split(";", -1);
             if (parts.length != 4) {
                 throw new IllegalArgumentException("expected four fields");
             }

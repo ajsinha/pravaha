@@ -91,7 +91,7 @@ class StructuredLoggingTest {
         }
         ObjectMapper json = new ObjectMapper();
         List<JsonNode> lines = new ArrayList<>();
-        for (String line : output.getOut().split("\n")) {
+        for (String line : output.getOut().lines().toList()) {
             // Every line the logging system wrote is one JSON object, which a pipeline parses as it comes.
             // Other lines on stdout -- spring-jcl's notice before logging exists, the last words of an
             // earlier test's node still stopping on its own thread -- are not this context's log.

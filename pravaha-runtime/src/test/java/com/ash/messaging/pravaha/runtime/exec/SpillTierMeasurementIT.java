@@ -534,7 +534,7 @@ class SpillTierMeasurementIT {
                     .start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             process.waitFor();
-            return Long.parseLong(out.split("\\s+")[0]) * 1024;
+            return Long.parseLong(out.split("\\s+", -1)[0]) * 1024;
         } catch (IOException | InterruptedException | NumberFormatException e) {
             return -1;
         }

@@ -58,7 +58,7 @@ public record JdbcOffset(long watermark, long key, long emittedAtWatermark) {
         }
         String token = offset.token();
         try {
-            String[] parts = token.split(";");
+            String[] parts = token.split(";", -1);
             if (parts.length != 3
                     || !parts[0].startsWith("w=")
                     || !parts[1].startsWith("k=")

@@ -299,7 +299,7 @@ class QuickstartCommandsTest {
      */
     private static List<String> fragmentsOf(String expected) {
         List<String> fragments = new ArrayList<>();
-        for (String piece : normalise(expected).split("…|\\.\\.\\.")) {
+        for (String piece : normalise(expected).split("…|\\.\\.\\.", -1)) {
             String trimmed = piece.strip();
             if (trimmed.length() > 3) {
                 fragments.add(trimmed);

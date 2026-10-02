@@ -322,7 +322,7 @@ final class DeltaTableFixture {
 
     private String addActionOf(Path log, long version) throws IOException {
         String commit = Files.readString(log.resolve(String.format("%020d.json", version)));
-        for (String line : commit.split("\n")) {
+        for (String line : commit.lines().toList()) {
             if (line.startsWith("{\"add\":{")) {
                 return addActions.computeIfAbsent(field(line, "path"), k -> line);
             }

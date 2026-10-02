@@ -269,7 +269,7 @@ class NpgsqlClientTest {
                         "region_revenue"),
                 180);
         Map<String, String> lines = new LinkedHashMap<>();
-        for (String line : result.output.split("\n")) {
+        for (String line : result.output.lines().toList()) {
             int colon = line.indexOf(": ");
             if (colon < 0 || !(line.startsWith("OK ") || line.startsWith("FAIL ") || line.startsWith("REFUSED "))) {
                 continue;
@@ -305,7 +305,7 @@ class NpgsqlClientTest {
         }
         String path = System.getenv("PATH");
         if (path != null) {
-            for (String dir : path.split(File.pathSeparator)) {
+            for (String dir : path.split(File.pathSeparator, -1)) {
                 Path candidate = Paths.get(dir, "dotnet");
                 if (Files.isExecutable(candidate)) {
                     return candidate;

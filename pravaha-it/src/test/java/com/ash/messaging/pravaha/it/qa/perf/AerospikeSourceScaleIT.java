@@ -418,7 +418,7 @@ class AerospikeSourceScaleIT {
         Node node = admin.getNodes()[0];
         String response = com.aerospike.client.Info.request(null, node, command);
         Map<String, Long> values = new LinkedHashMap<>();
-        for (String pair : response.split(";")) {
+        for (String pair : response.split(";", -1)) {
             int equals = pair.indexOf('=');
             if (equals <= 0) {
                 continue;

@@ -465,4 +465,24 @@ class PgOutputTest {
                 .hasSizeLessThanOrEqualTo(63)
                 .matches("[a-z0-9_]+");
     }
+
+    @Test
+    void aDeclaredSchemaWithATrailingSeparatorIsRefused() {
+        // SPLITTRAIL-1: String.split dropped trailing empty strings, so "id:INT64," and "id:INT64:"
+        // were read as "id:INT64" while the same slip mid-list was refused.
+        List<CdcSchema.Column> columns = List.of(new CdcSchema.Column("id", PgValues.INT8, 'b', true, -1, "bigint"));
+        for (String declared : List.of("id:INT64,", "id:INT64:")) {
+            CdcOptions options = CdcOptions.from(new PgServer.Ctx(
+                    "cdc",
+                    Map.of(
+                            "url", "jdbc:postgresql://db:5432/crm",
+                            "table", "public.customers",
+                            "slot", "crm",
+                            "schema", declared)));
+            assertThatThrownBy(() -> CdcSchema.resolve(options, columns))
+                    .as(declared)
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("name:TYPE");
+        }
+    }
 }

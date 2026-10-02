@@ -351,7 +351,7 @@ final class OpenApiLock {
         }
         String shape = shapeNode.asText();
         if (shape.contains("=")) {
-            for (String each : shape.split("; ")) {
+            for (String each : shape.split("; ", -1)) {
                 int eq = each.indexOf('=');
                 expand(each.substring(eq + 1), each.substring(0, eq) + ":", lock.path("schemas"), out);
             }
