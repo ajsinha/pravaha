@@ -122,6 +122,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   (the Python SDK's `RestClient` takes `headers=`). Policy in SECURITY.md. `IdentityServiceTest`,
   `SignInThrottleTest`, `SignInSourceTest`, `IdentityHttpTest`, console `test_identity`, SDK
   `test_rest`, ADV-SURFACE `test_qi054` now a passing check.
+- **Reads over a view of a million rows answer, or are refused by their own code (BIGREAD-1).** A
+  read ran as one unbounded batch, so nothing reclaimed its arenas: `SELECT *` over a ~1 M-row view
+  was refused `PRV-3001` (the projection's arena) where the documented answer past 1,000,000 result
+  rows is `PRV-4024` / `54000`, and `COUNT(*)` failed with a bare `Index -1 out of bounds for length 64`
+  (`XX000`, no code) from the read's own exhausted arena. A read now ends a batch every 4,096 rows
+  as a lane does — the operators settle and both arenas are reclaimed — so `COUNT(*)` and other
+  aggregates over the whole view answer, `SELECT *` past the ceiling is `PRV-4024`, and a single row
+  too wide for an empty arena is a coded `PRV-3001`. `LargeViewReadTest` (90,000 wide rows and
+  1,000,010 narrow ones; fails without the fix).
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 
