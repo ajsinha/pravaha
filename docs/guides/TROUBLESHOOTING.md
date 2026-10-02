@@ -142,6 +142,7 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-1053` malformed text | A string in a request body that is not well-formed text — today an unpaired UTF-16 surrogate, half of a character, which no UTF-8 encoder can carry: every one substitutes U+FFFD, so the name or the SQL the server would store, log and quote back is not the one that was sent. Refused as **400** in the deserializer, before the body becomes an argument, because a stream registered under such a name is a key no later request can address — not by URL, not in SQL, and over Flight only as `?`. Over Flight the same text is refused with the same code: the Java SDK refuses it before sending, because protobuf and `String.getBytes` would deliver `?` in its place, and the server refuses a control request whose bytes are not UTF-8 rather than decoding them into replacement characters |
 | `PRV-1054` body too large | **413**: a request body larger than the node reads — `pravaha.http.max-anonymous-body` (16KB) on a path open without a credential (sign-in, reset, the API documentation), `pravaha.http.max-request-body` (4MB) everywhere else. Refused on the declared `Content-Length` before a byte is read, or as soon as a chunked body passes the limit, and the connection is closed (HTTPBODY-1). Send less, or raise the setting the message names |
 | `PRV-1055` too many sign-ins | **429** with `Retry-After: 1`: more than `pravaha.http.max-concurrent-sign-ins` (8) sign-ins are in progress at once; each runs a deliberately slow password hash. Retry after a second; a script should sign in once and keep the session, or use an API key |
+| `PRV-1056` malformed request | **400** from the HTTP server itself, before any endpoint: an encoded `/` (`%2F`) or `\\` (`%5C`) or a NUL (`%00`) in the path, a header line past `server.max-http-request-header-size` (8KB), or too many headers. An `ApiError` like every other answer (it was Tomcat's HTML page until TOMCATHTML-1). Fix the request: no view or stream name needs an encoded slash |
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`; on any endpoint, an `?offset=` or `?limit=` that is present and empty or not a number, an empty `?level=` or `?format=` on `/explain`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
@@ -926,6 +927,7 @@ client models the error rather than an empty object.
 | `PRV-1052` | API_UNHANDLED_REQUEST | api |
 | `PRV-1054` | API_BODY_TOO_LARGE | api |
 | `PRV-1055` | API_TOO_MANY_SIGN_INS | api |
+| `PRV-1056` | API_MALFORMED_REQUEST | api |
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |

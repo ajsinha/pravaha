@@ -328,16 +328,18 @@ def test_qi043_malformed_json_is_an_api_error(admin, raw):
 
 
 @needs_http
-@open_defect("QI-046/QI-060: open defect -- an encoded slash or NUL in a path, a 10 KB Authorization "
-                         "header or a 64 KiB header is answered by Tomcat's HTML error page, not an ApiError")
 @pytest.mark.parametrize("path, headers", [
     ("/api/v1/queries/..%2fx", {}),
     ("/api/v1/streams/a%00b", {}),
+    ("/api/v1/queries/..%5c..%5cx", {}),
     ("/api/v1/status", {"X-Big": "a" * 65536}),
+    ("/api/v1/status", {"Authorization": "Bearer " + "a" * 10000}),
 ])
 def test_qi046_every_error_is_an_api_error(admin, path, headers):
+    # TOMCATHTML-1, fixed: what the HTTP server refuses itself is an ApiError, PRV-1056.
     st, h, body = http_call("GET", path, admin, headers=headers)
-    assert st >= 400 and h.get("Content-Type", "").startswith("application/json"), body[:200]
+    assert st == 400 and h.get("Content-Type", "").startswith("application/json"), body[:200]
+    assert json.loads(body)["code"] == "PRV-1056"
 
 
 @needs_http

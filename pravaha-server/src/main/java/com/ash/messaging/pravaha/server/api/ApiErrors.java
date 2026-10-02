@@ -83,6 +83,14 @@ public final class ApiErrors {
     public static final ErrorCode TOO_MANY_SIGN_INS = new ErrorCode(1055, "API_TOO_MANY_SIGN_INS");
 
     /**
+     * A request the HTTP server itself could not read, refused before any endpoint saw it: an encoded
+     * {@code /} or {@code \} or a NUL in the path, a header past {@code
+     * server.max-http-request-header-size}. {@code 400}. TOMCATHTML-1: these were Tomcat's HTML error
+     * page, the one non-2xx answer that was not an {@code ApiError}; see {@link ContainerErrorReport}.
+     */
+    public static final ErrorCode MALFORMED_REQUEST = new ErrorCode(1056, "API_MALFORMED_REQUEST");
+
+    /**
      * A string in a request body is not text: it carries a UTF-16 surrogate with no partner.
      *
      * <p>API-F10. {@code "\ud800"} parses as JSON and decodes to a Java {@code String}, and encodes

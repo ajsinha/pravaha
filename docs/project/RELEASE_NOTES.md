@@ -231,6 +231,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   seconds a subscription checked only that its credential still verified; now it must still verify
   as the same principal, as the PostgreSQL gateway checks (PGREVOKE-1), and any verifier failure ends
   the stream. `SubscriptionRevocationTest`.
+- **Requests the HTTP server refuses itself are ApiErrors (TOMCATHTML-1).** An encoded `/` or `\`
+  or a NUL in the path, an oversized header and too many headers were refused by Tomcat before any
+  servlet ran, with its HTML error page. The host's error-report valve is replaced with one that
+  writes the `ApiError` JSON every other failure has: `400` with new code `PRV-1056`
+  (API_MALFORMED_REQUEST); any other status the container produces alone is `PRV-1052`.
+  `ApiErrorShapeTest` (raw socket).
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
