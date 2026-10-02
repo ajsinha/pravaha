@@ -250,6 +250,8 @@ class EventTimeTest {
     }
 
     @Test
+    // The expected value overflows on purpose: the wrap is the behaviour this test pins (ERRORPRONE-1).
+    @SuppressWarnings("ConstantOverflow")
     void time038_boundedOutOfOrdernessDoesNotSaturateAndCanWrapToTheFarFuture() {
         // TIME-038. maxSeen - d is computed without a guard, so an enormous d against a negative
         // event time wraps past Long.MAX_VALUE into a watermark 292 years in the future -- which

@@ -81,11 +81,9 @@ class KafkaSinkOptionsTest {
 
     @Test
     void aNameThatIsNotATopicNameIsSanitisedForTheDefaultStagingTopic() {
-        KafkaSinkOptions options = options(new HashMap<>(base()) {
-            {
-                put("transactional.id", "spend by user/eu");
-            }
-        });
+        Map<String, String> raw = new HashMap<>(base());
+        raw.put("transactional.id", "spend by user/eu");
+        KafkaSinkOptions options = options(raw);
         assertThat(options.stagingTopic).isEqualTo("pravaha-staging.spend_by_user_eu");
         assertThat(options.commitGroup).isEqualTo("pravaha-sink.spend by user/eu");
     }

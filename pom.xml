@@ -830,20 +830,73 @@
       </properties>
     </profile>
 
-    <!-- Error Prone + NullAway. Opt-in until P0-02b lands it in the default build. -->
+    <!-- Error Prone + NullAway, as a javac plugin over every module: ./mvnw -Pep compile (or verify).
+         Opt-in until P0-02b lands it in the default build. ERRORPRONE-1: this profile used to set a
+         property nothing read, so the analysis it names never ran.
+
+         Error Prone's own ERROR-level checks fail the build; WARNING-level ones are reported. NullAway
+         runs at WARNING: the code base is not annotated with @Nullable throughout, so its findings
+         are a list to work down, not a gate yet. javac runs forked, because Error Prone needs
+         jdk.compiler's internals opened and the default build should not have to open them. Generated
+         sources are not analysed. A module with annotation processors of its own (pravaha-benchmarks:
+         JMH) appends to the processor path rather than replacing it. -->
     <profile>
       <id>ep</id>
       <properties>
         <errorprone.skip>false</errorprone.skip>
       </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <fork>true</fork>
+              <compilerArgs combine.children="append">
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                <!-- javac stops printing at 100 of each per module; every finding is the point here. -->
+                <arg>-Xmaxwarns</arg>
+                <arg>100000</arg>
+                <arg>-Xmaxerrs</arg>
+                <arg>100000</arg>
+                <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -XepExcludedPaths:.*/target/generated-(test-)?sources/.* -Xep:NullAway:WARN -XepOpt:NullAway:AnnotatedPackages=com.ash.messaging.pravaha</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+              </compilerArgs>
+              <annotationProcessorPaths combine.children="append">
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${errorprone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
 
-    <!-- Everything, as CI runs it on main. -->
+    <!-- Everything else, as CI runs it on main: the benchmarks too. Error Prone is its own profile;
+         -Pall,ep for both. -->
     <profile>
       <id>all</id>
       <properties>
         <benchmarks.skip>false</benchmarks.skip>
-        <errorprone.skip>false</errorprone.skip>
       </properties>
     </profile>
   </profiles>

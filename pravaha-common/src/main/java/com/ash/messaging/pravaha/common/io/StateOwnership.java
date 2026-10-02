@@ -295,7 +295,9 @@ public final class StateOwnership implements AutoCloseable {
             // A pid is only meaningful on the host that issued it.
             return false;
         }
-        return ProcessHandle.of(held.pid()).map(ProcessHandle::isAlive).orElse(false) == Boolean.FALSE;
+        // No such process, or one that has exited: gone. (Compared by value, not by the identity of a
+        // boxed Boolean, which held only because Boolean.valueOf caches -- ERRORPRONE-1.)
+        return !ProcessHandle.of(held.pid()).map(ProcessHandle::isAlive).orElse(false);
     }
 
     /** What a marker says, and how long ago it said it. */

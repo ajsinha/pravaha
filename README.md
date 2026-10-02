@@ -357,6 +357,7 @@ Base package `com.ash.messaging.pravaha`. Requires **JDK 25**, for building and 
 ./mvnw clean verify                                  # full build
 ./mvnw -T1C -DskipITs -Dbenchmarks.skip=true test    # fast inner loop
 ./mvnw -Pall verify                                  # everything, as CI runs it
+./mvnw -Pep clean test-compile                       # Error Prone + NullAway (docs/development/TESTING.md)
 tools/verify-clean.sh                                # the gate: offline, no stale jars, + the Python SDK's suite
 ```
 

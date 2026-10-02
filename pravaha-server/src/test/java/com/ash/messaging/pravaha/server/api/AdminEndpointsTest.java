@@ -151,7 +151,9 @@ class AdminEndpointsTest {
 
     @Test
     void readingTheTrailIsItselfOnTheTrailWhetherAllowedOrRefused() {
-        catchThrowableOfType(() -> read(ANALYST, null, null, null, null), PravahaException.class);
+        assertThat(catchThrowableOfType(() -> read(ANALYST, null, null, null, null), PravahaException.class))
+                .as("the analyst is refused")
+                .isNotNull();
         read(ADMIN, "ann", "deny", 5, null);
 
         AdminDtos.AuditPage reads = new AuditController(authorizer, trail)

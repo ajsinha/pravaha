@@ -290,6 +290,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   "deliberately not there" list, long out of date, says how it is built; CLI.md lists `explain-sql`
   and `subscribe --answer`. QUICKSTART re-run verbatim on JDK 25 (25.0.4.1): §2–§8, §7's console
   against `dev,users`, and both snippets (`750`).
+- **`-Pep` runs Error Prone and NullAway (ERRORPRONE-1).** The `ep` and `all` profiles set a property
+  nothing read. `-Pep` now runs Error Prone 2.50.0 as a forked javac plugin over the whole reactor,
+  main and test code, with NullAway 0.14.1 at WARNING; the default build is unchanged and `-Pall`
+  no longer claims to include it (`-Pall,ep`). The ten ERROR-level findings are resolved — nine
+  fixed (a boxed-`Boolean` identity comparison in `StateOwnership`, ignored return values in tests
+  that now assert them, a double-brace map), one suppressed with its reason (a test pinning an
+  overflow); 3,570 warnings remain listed (2,822 NullAway), see TESTING.md. No workflow runs
+  `-Pall` or `-Pep`, so no CI job was added.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
