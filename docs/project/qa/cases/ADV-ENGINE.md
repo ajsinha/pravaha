@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
-IDs `QE-001`–`QE-161`. Written before execution (an exploratory probe pass, recorded in the log as
+IDs `QE-001`–`QE-161`, and `QE-162`–`QE-168` added during execution (last section). Written before execution (an exploratory probe pass, recorded in the log as
 such, preceded the final form of the X and W areas). Execution record:
 [`../logs/ADV-ENGINE.md`](../logs/ADV-ENGINE.md).
 
@@ -230,3 +230,17 @@ Documents cited: **CQ** = `docs/guides/CONTINUOUS_QUERIES.md`, **SEC** = `docs/o
 | QE-159 | HOP with millions of windows per row | `HOP(..., INTERVAL '0.001' SECOND, INTERVAL '1' DAY)` | refused at registration, or bounded; one row must not allocate 86 M windows |
 | QE-160 | Zero / negative window size | `INTERVAL '0' SECOND` | refused with a code |
 | QE-161 | `TUMBLE` 1 ms over a year of event time | rows a year apart, watermark jump | bounded firing work (no 31 G empty windows) |
+
+## Added during execution
+
+Cases that execution of the above suggested, written down before they were run as cases of their own.
+
+| ID | Area | Intent | Inputs / steps | Expected (promise) |
+|---|---|---|---|---|
+| QE-162 | Q / embedded | A push one query cannot apply | three queries on a stream; the first registered fails on the row (`x - 1`, `x = Long.MIN_VALUE`); the caller retries the push it was told failed | all or nothing for the healthy queries: either the row is visible to them after the failure (and a retry is wrong), or it reached none (and a retry is right). `PravahaEngine.push` javadoc: "returns once every running query reading the stream has applied and committed them" |
+| QE-163 | W | `SUM`/`AVG`/`MIN`/`MAX` of a group whose values are all NULL | windowed, on a view read, and in a query over a view | NULL (SQL), never 0 — the engine's own `Expression.Arithmetic` comment: "zeroes where nulls belong … a SUM over those zeroes is a number that looks entirely reasonable" |
+| QE-164 | D / ingest | A CSV `TIMESTAMP` after 2262-04-11 | `3000-01-01T00:00:00Z` through the `filesystem` source | refused (dead letter / decode error with a code), never wrapped into 1677 |
+| QE-165 | R | One window with more groups than its emission buffer holds | 1,000,050 distinct keys in one tumbling window | answered up to the documented 1,000,000-key view ceiling, refused past it by name |
+| QE-166 | X | A runtime arithmetic failure keeps its reason | the same overflow row after JIT warm-up | the query's failure names the overflow |
+| QE-168 | S | Flight SQL `GetTables` under the catalogue | `ana` (granted `SELECT` on `payments`), `eve` (owns her `payments`), the admins | each is listed the views they may read and no other tenant's (SEC "Metadata is data"; ADR-060 names `GetTables` among the lookups resolved in the caller's tenant) |
+| QE-167 | R / embedded | A row wider than the default inbox cell | `pravaha.lane.inbox.cell-bytes: 65536` on an embedded engine; one 600- and one 4,000-character string | accepted once the cell is raised, as the refusal (`raise pravaha.lane.inbox.cell-bytes`) and TROUBLESHOOTING (`PRV-3001`) say |
