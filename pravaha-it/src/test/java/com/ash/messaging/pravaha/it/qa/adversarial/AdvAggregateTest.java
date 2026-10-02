@@ -149,10 +149,11 @@ class AdvAggregateTest {
     }
 
     @Test
-    void qe044_windowedMinGivenARetractionStopsTheQuery() {
-        // CQ §13 lists MIN and MAX as supported in windows; a retraction (a delete from a change feed,
-        // an op=D line) stops the query at run time with PRV-3020 instead of being refused when the
-        // query is registered over a stream that can carry deletes.
+    void qe044_windowedMinRefusesARetractionAndKeepsRunning() {
+        // MINRETRACT-1, fixed: a retraction used to stop the windowed MIN query at run time with
+        // PRV-3020. Over a source that deletes the query is now refused at registration (PRV-2076,
+        // RetractedExtremesTest); over a pushed stream the retract call itself is refused, before
+        // any row is delivered, and the query keeps running.
         try (PravahaEngine engine = windowed(
                 0,
                 "mn",
@@ -162,8 +163,8 @@ class AdvAggregateTest {
                 "k")) {
             engine.push("w", new Object[] {"a", 1L, null, t(1)}, new Object[] {"a", 2L, null, t(2)});
             String outcome = AdvSupport.attempt(() -> engine.retract("w", new Object[] {"a", 1L, null, t(1)}));
-            assertThat(outcome).contains("PRV-3020").contains("MIN cannot handle a retraction");
-            assertThat(AdvSupport.state(engine, "mn")).startsWith("FAILED");
+            assertThat(outcome).startsWith("PRV-8102").contains("'mn'").contains("MIN(v)");
+            assertThat(AdvSupport.state(engine, "mn")).isEqualTo("RUNNING");
         }
     }
 

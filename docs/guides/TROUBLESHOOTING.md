@@ -866,6 +866,17 @@ cannot be kept exact over an input that retracts is refused rather than approxim
 A downstream whose upstream fails stops following it with `PRV-8004`, naming the upstream, and keeps
 answering at the frontier it reached: its feed is reported stopped, as any source's is.
 
+## `MIN` or `MAX` over a source that deletes is refused (`PRV-2076`)
+
+A `MIN` or `MAX` accumulator keeps the extreme, not the values under it, so a retraction of the extreme
+has no answer. Over a stream whose source emits deletes — `postgres-cdc`, `mysql-cdc`, a file with
+`op.column` — such a query, windowed or not, is refused at registration with `PRV-2076`, naming the
+aggregate and the stream. In the embedded engine, `retract(...)` on a stream a `MIN` or `MAX` query reads
+is refused `PRV-8102` before any row is delivered; every query keeps running. Until MINRETRACT-1 the
+first retraction stopped the query at run time with `PRV-3020`. Compute the extreme over a stream that
+only appends, or use `COUNT`, `SUM` or `AVG`, which retract exactly. A journalled query of this shape
+from an earlier release is refused at recovery and listed `FAILED` with the code; drop it.
+
 ## An alert is refused, silent, or not delivered (`PRV-8040` … `PRV-8047`)
 
 An alert follows a view's answer and notifies when a key's row enters it and when it leaves
@@ -965,6 +976,7 @@ client models the error rather than an empty object.
 | `PRV-2073` | SQL_RANGE_NOT_ORDERED | sql |
 | `PRV-2074` | SQL_INDEX_UNUSABLE | sql |
 | `PRV-2075` | SQL_VIEW_INPUT_UNSUPPORTED | sql |
+| `PRV-2076` | SQL_EXTREME_OVER_RETRACTIONS | sql |
 | `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
 | `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
 | `PRV-3010` | RUNTIME_LANE_FAILED | runtime |

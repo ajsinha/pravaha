@@ -220,6 +220,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   line, the column and the range (1677-09-21 to 2262-04-11 UTC) — dead-lettered with a queue, a stopped
   source without one; a `DATE` past 32 bits of days likewise. The Cassandra event-time read is checked
   the same way (`PRV-5087`). `FilesystemPluginTest`, QE-164.
+- **`MIN` and `MAX` over an input that retracts are refused up front (MINRETRACT-1).** The first
+  retraction of the extreme stopped the query at run time (`PRV-3020`), windowed or not, after it had
+  been accepted over a CDC source or a file with an operation column. Such a query is now refused at
+  registration with the new `PRV-2076`, naming the aggregate and the stream; an embedded `retract(...)`
+  that would reach one is refused `PRV-8102` before any row is delivered, with every query left running.
+  A journalled query of this shape is refused at recovery. `RetractedExtremesTest`,
+  `RetractedExtremeTest`, QE-044.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

@@ -78,6 +78,9 @@ final class RegistrationPlanning {
                 sinkName == null ? null : registry.sinks().describe(sinkName);
         com.ash.messaging.pravaha.sql.plan.RepeatedRowsAnalysis.check(
                 plan, feeds::repeatingSource, sink == null ? null : sink.capabilities(), sinkName);
+        // MINRETRACT-1. A MIN or MAX over a stream whose source deletes would stop at its first
+        // retraction of the extreme; refused here, by name, instead of at run time.
+        com.ash.messaging.pravaha.sql.plan.RetractedExtremes.check(plan, feeds::retracts);
 
         if (sink != null) {
             // Before the feed, before the view, before a row can exist. capabilitiesOf configures

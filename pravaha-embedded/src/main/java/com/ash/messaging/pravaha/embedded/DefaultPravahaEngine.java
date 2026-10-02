@@ -743,6 +743,27 @@ final class DefaultPravahaEngine implements PravahaEngine {
         return deliver(stream, rows == null ? List.of() : Arrays.asList(rows), -1L);
     }
 
+    /**
+     * MINRETRACT-1: a retraction no query on the stream can take refuses the call, before any row is
+     * delivered, and every query keeps running. A MIN or MAX keeps the extreme and not the values
+     * under it, so a retraction reaching one used to stop that query for good.
+     */
+    private static void refuseRetractionOfAnExtreme(String stream, String streamName, List<Target> targets) {
+        for (Target target : targets) {
+            java.util.Optional<String> extreme = com.ash.messaging.pravaha.sql.plan.RetractedExtremes.extremeOver(
+                    target.query().plan(), streamName);
+            if (extreme.isPresent()) {
+                throw new PravahaException(
+                        EmbeddedErrors.ROW_REJECTED,
+                        "query '" + target.query().name() + "' computes " + extreme.get() + " over '" + stream
+                                + "', and a MIN or MAX cannot take a retraction: it keeps the extreme, not the "
+                                + "values under it. Nothing in this retract was delivered, and every query on the "
+                                + "stream keeps running. Retract from a stream whose queries use COUNT, SUM or AVG, "
+                                + "or drop the MIN/MAX query first.");
+            }
+        }
+    }
+
     /** Validates every row, then hands each to every running query on the stream at {@code weight}. */
     private int deliver(String stream, List<Object[]> rows, long weight) {
         RowEncoder encoder = encoderFor(stream);
@@ -781,6 +802,9 @@ final class DefaultPravahaEngine implements PravahaEngine {
                                         + "narrower one.");
                     }
                 }
+            }
+            if (weight < 0) {
+                refuseRetractionOfAnExtreme(stream, encoder.schema().name(), targets);
             }
             for (Target target : targets) {
                 long reached = Math.max(

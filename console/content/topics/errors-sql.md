@@ -4,7 +4,7 @@ slug: errors-sql
 category: errors
 order: 30
 icon: code-square
-summary: "PRV-2001 to PRV-2075: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
+summary: "PRV-2001 to PRV-2076: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
 badge: PRV-2XXX
 audience: Analysts, developers
 keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, range, index, create continuous query, insert into, emit mode, retraction, append-only, sink]
@@ -46,6 +46,7 @@ help's example streams: `txn`, `orders`, `shipments`, `trades`, `quotes` and `re
 | PRV-2073 | SQL_RANGE_NOT_ORDERED | `RANGE` over a column with no total order |
 | PRV-2074 | SQL_INDEX_UNUSABLE | `INDEX` over a column this engine keeps no equality index for |
 | PRV-2075 | SQL_VIEW_INPUT_UNSUPPORTED | A query over another query's view uses what cannot be kept exact over it |
+| PRV-2076 | SQL_EXTREME_OVER_RETRACTIONS | A `MIN` or `MAX` over an input that can retract — a source that deletes |
 
 ## Reading the query
 
@@ -586,6 +587,16 @@ and `AVG` — with or without `GROUP BY` — are kept exact over that. A window,
 **Do:** put the window, the join or the extreme in the upstream query, or read the view with a plain
 `SELECT`, which is a bounded read where every aggregate runs. See
 [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#queries-on-queries).
+
+### PRV-2076 — MIN or MAX over a source that deletes
+
+A `MIN` or `MAX` keeps the extreme, not the values under it, so a retraction of the extreme has no
+answer. Over a stream whose source emits deletes — a CDC source, a file with an operation column —
+such a query, windowed or not, is refused when it is registered, naming the aggregate and the stream,
+instead of stopping at its first delete.
+
+**Do:** compute the extreme over a stream that only appends, or use `COUNT`, `SUM` or `AVG`, which
+retract exactly.
 
 ### PRV-2020 on `INSERT` — there is no DML surface
 
