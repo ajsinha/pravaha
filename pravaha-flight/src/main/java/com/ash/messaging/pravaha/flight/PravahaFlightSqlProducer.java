@@ -644,6 +644,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         }
                         listener.onNext(new Result(ControlWire.encode(row.toArray(new String[0]))));
                     }
+                    // RECOVERYHEALTH-1: a registration recovery refused is listed FAILED, its code and
+                    // reason in the feed fields, until it is dropped or registered again.
+                    for (QueryListing.RefusedEntry refused :
+                            new QueryListing(required, policy, audit).refused(principal, "list")) {
+                        listener.onNext(new Result(ControlWire.encode(refused.listRow())));
+                    }
                 }
                 case ControlWire.REPLACE -> {
                     // Blue/green replacement (ADR-046): the same fields a registration takes, plus

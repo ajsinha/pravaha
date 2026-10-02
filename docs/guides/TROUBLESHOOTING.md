@@ -602,6 +602,11 @@ the reader retried for ever and the query stayed `RUNNING` with every later chan
 all three the recovery is the same:
 stop the registration, delete its checkpoint directory, drop the slot, register again
 ([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Change data capture: the replication slot*).
+A registration refused at a restart (`PRV-5115`, or `PRV-5155` for a purged MySQL binlog) stays listed
+`FAILED` with its code, logged at `ERROR`, with node health `DEGRADED` and
+`pravaha_registry_recovery_refused` above zero; `DROP CONTINUOUS QUERY <name>` removes it from the
+journal and deletes its checkpoints, after which it registers afresh. Until RECOVERYHEALTH-1 it
+vanished from the listing with one `WARN` line and health `UP`.
 
 **A second query over a `postgres-cdc` or `mysql-cdc` stream is refused with `PRV-8028`.** The
 binding names one replication slot (or replica `server.id`), and another query — named in the

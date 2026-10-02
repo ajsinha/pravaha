@@ -82,6 +82,17 @@ public class EngineHealthIndicator implements HealthIndicator {
                     .ifPresent(source ->
                             detail.put("firstStoppedFeed", source.stop().code() + " reading " + source.where()));
             degraded[0] = !stopped.isEmpty();
+            // RECOVERYHEALTH-1. A journalled registration the restart refused is a view some client
+            // expects and will not find; it used to leave one WARN line and the node UP. The code
+            // only, as for a stopped feed: which query it was is for the listing to disclose.
+            List<com.ash.messaging.pravaha.registry.RecoveryRefusals.Refused> refused =
+                    registry.refusedAtRecovery().all();
+            detail.put("refusedAtRecovery", refused.size());
+            refused.stream()
+                    .findFirst()
+                    .ifPresent(first ->
+                            detail.put("firstRefusedAtRecovery", first.code().isEmpty() ? "uncoded" : first.code()));
+            degraded[0] = degraded[0] || !refused.isEmpty();
             // B5. How many records this node is holding that it could not decode, and which query
             // has the most. A node whose feeds are all reading and whose queues are filling looks
             // perfectly healthy from everything above, and its views are quietly incomplete --
@@ -134,11 +145,13 @@ public class EngineHealthIndicator implements HealthIndicator {
     }
 
     /**
-     * A node whose every query is served but at least one of whose sources has stopped (FEED-1).
+     * A node whose every query is served but at least one of whose sources has stopped (FEED-1), or a
+     * journalled registration of which was refused when the node recovered (RECOVERYHEALTH-1).
      *
      * <p>Not one of Boot's four. Boot's aggregator ignores a status it has not been told the order of,
      * so the node's own configuration places this one; an application that has not is shown it on this
      * indicator and an unchanged aggregate.
      */
-    public static final Status DEGRADED = new Status("DEGRADED", "a source feed has stopped");
+    public static final Status DEGRADED =
+            new Status("DEGRADED", "a source feed has stopped, or a registration was refused at recovery");
 }

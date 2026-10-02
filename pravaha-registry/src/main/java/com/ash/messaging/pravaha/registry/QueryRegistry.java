@@ -956,6 +956,7 @@ public final class QueryRegistry implements AutoCloseable {
         }
         policy.registered(principal, name); // ADR-059: the catalogue records its owner
         owners.registered(principal, name);
+        refusedAtRecovery.forget(name); // registered again: running, not refused
     }
 
     /** Registration during recovery, of a name within its owner's tenant: nothing is written back to the journal. */
@@ -1283,14 +1284,9 @@ public final class QueryRegistry implements AutoCloseable {
         }
 
         /**
-         * One journalled registration that did not come back.
-         *
-         * <p>A plain {@code String} could not carry a code, so a refused replay was reported as text
-         * an operator could read but nothing else could act on -- and {@code PRV-8007
-         * REGISTRY_REPLAY_UNAUTHORIZED} stayed declared and unreachable because there was nowhere for
-         * it to be raised. This is the structured form: the code, when the refusal has one, is
-         * available to a caller that wants to branch on it, while {@link #toString()} still reads
-         * exactly as the log line and the journal's own history of this refusal always have.
+         * One journalled registration that did not come back: the code, when it has one, for a caller
+         * to branch on ({@code PRV-8007} was unreachable while this was text), and {@link #toString()}
+         * reading as the log line always has. Kept in {@link #refusedAtRecovery()} (RECOVERYHEALTH-1).
          *
          * @param query the name recorded in the journal
          * @param code the coded failure behind the refusal, when there was one -- empty only for a
@@ -1321,6 +1317,13 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public SecurityPolicy policy() {
         return policy;
+    }
+
+    /** Journalled registrations the last recovery refused, until dropped or registered again. */
+    final RecoveryRefusals refusedAtRecovery = new RecoveryRefusals();
+
+    public RecoveryRefusals refusedAtRecovery() {
+        return refusedAtRecovery;
     }
 
     /** Who owns each name, and so who may drop, pause, resume or replace it (every surface asks here). */
@@ -1404,13 +1407,13 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
-     * Removes a name, releasing the computation when it was the last one.
-     *
-     * <p>The refcount is the whole reason sharing is safe to do implicitly. Dropping on the first
-     * name would take the answer away from everybody else who registered the same question and has
-     * no idea anyone else exists.
+     * Removes a name, releasing the computation when it was the last one: the refcount is why sharing
+     * is safe to do implicitly. Dropping on the first name would take the answer from everybody else.
      */
     public synchronized void drop(String name) {
+        if (find(name).isEmpty() && refusedAtRecovery.drop(name, journal, checkpoints, queries())) {
+            return; // RECOVERYHEALTH-1: a registration recovery refused, listed FAILED until dropped
+        }
         RegisteredQuery query = require(name);
         QueryReplacements running = replacements;
         if (running != null && running.isReplacing(name)) {

@@ -1238,8 +1238,8 @@ public class PravahaNode implements SmartLifecycle {
             // refusal has one, is logged alongside the text rather than folded into it, so an
             // operator can grep for PRV-8007 without parsing prose.
             recovery.refused()
-                    .forEach(refusal -> log.warn(
-                            "registration not recovered -- {}{}",
+                    .forEach(refusal -> log.error(
+                            "registration not recovered, listed FAILED until dropped -- {}{}",
                             refusal,
                             refusal.code().map(code -> " [" + code.code() + "]").orElse("")));
         });

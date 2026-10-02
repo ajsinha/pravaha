@@ -268,6 +268,16 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   engine's) start — and the message lets the list speak: check the name against it, or put the module on
   the classpath. CONNECTORS.md, QUICKSTART's YAML comment, the build guide and the console topics no
   longer say the jar carries `filesystem` alone. `UnknownPluginAtStartupTest`, `PluginSourceFeedsTest`.
+- **A registration refused at recovery stays visible until it is dropped (RECOVERYHEALTH-1).** A
+  journalled query a restart refused — a CDC slot overtaken (`PRV-5115`), a binlog purged (`PRV-5155`),
+  an owner who lost the right (`PRV-8007`) — vanished from `pravaha queries` with one `WARN` line and
+  health `UP`. It is now logged at `ERROR`, listed `FAILED` with its code by `pravaha.list` (the code
+  and reason in the feed fields, `where` = `recovery`), `SHOW CONTINUOUS QUERIES` and
+  `GET /api/v1/queries`, counted by the new gauge `pravaha_registry_recovery_refused`, and turns the
+  `engine` health indicator `DEGRADED` (`refusedAtRecovery`, `firstRefusedAtRecovery`). The journal is
+  unchanged, so the next start tries it again; `DROP CONTINUOUS QUERY <name>` removes the entry and
+  deletes its checkpoints, and registering the name replaces it. `RecoveryRefusalsTest`,
+  `RecoveryRefusalSurfacesTest`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

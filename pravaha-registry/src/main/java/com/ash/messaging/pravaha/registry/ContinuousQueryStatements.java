@@ -390,6 +390,12 @@ public final class ContinuousQueryStatements {
                 query.view().retention().toString()
             });
         }
+        // RECOVERYHEALTH-1: a registration recovery refused stays listed, FAILED, until dropped.
+        for (QueryListing.RefusedEntry refused : new QueryListing(registry, policy, audit).refused(principal, "list")) {
+            rows.add(new Object[] {
+                refused.name(), QueryState.FAILED.name(), refused.refused().sql(), "", -1L, "", null, ""
+            });
+        }
         return new ViewQuery.Result(LISTING, rows);
     }
 

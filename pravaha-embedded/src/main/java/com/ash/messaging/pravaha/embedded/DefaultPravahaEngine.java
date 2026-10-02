@@ -334,8 +334,10 @@ final class DefaultPravahaEngine implements PravahaEngine {
                     built.journalTo(new RegistryJournal(journal));
                     QueryRegistry.Recovery recovery = built.recover(owner -> Optional.of(CALLER));
                     recovery.refused()
-                            .forEach(refusal ->
-                                    LOG.log(System.Logger.Level.WARNING, "registration not recovered -- " + refusal));
+                            .forEach(refusal -> LOG.log(
+                                    System.Logger.Level.ERROR,
+                                    "registration not recovered, kept in "
+                                            + "registry().refusedAtRecovery() until dropped -- " + refusal));
                 });
 
         for (ContinuousQuery query : declaredQueries) {
