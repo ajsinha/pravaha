@@ -67,7 +67,6 @@ import com.ash.messaging.pravaha.sql.ContinuousStatement;
 import com.ash.messaging.pravaha.sql.ContinuousStatements;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
-import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
 
 /**
  * The standard {@link PravahaEngine}.
@@ -114,7 +113,6 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private volatile QueryRegistry registry;
     private volatile ViewQuery reads;
     private volatile Map<String, RowEncoder> encoders = Map.of();
-    private volatile List<StreamSchema> lookupSchemas = List.of();
     private PluginLookupSources lookups;
     private PluginSinks sinks;
 
@@ -310,7 +308,6 @@ final class DefaultPravahaEngine implements PravahaEngine {
         declaredLookups.values().forEach(lookups::bind);
         List<LookupSourcePlugin> dimensions = lookups.open();
         dimensions.forEach(built::lookingUp);
-        lookupSchemas = dimensions.stream().map(LookupSourcePlugin::schema).toList();
 
         sinks = new PluginSinks();
         declaredSinks.values().forEach(sinks::bind);
@@ -618,17 +615,20 @@ final class DefaultPravahaEngine implements PravahaEngine {
      * not resolve there is refused here with the columns it could have been.
      */
     private List<Integer> keyOrdinals(QueryRegistry target, ContinuousQuery query) {
-        StreamSchema output = PreparedContinuousQuery.of(
-                        query.sql(), BoundParameters.none(), List.of(target.streams()), lookupSchemas)
-                .plan()
-                .outputSchema();
+        // QOQAPI-1: planned as the registration will be -- over the streams, the lookup tables and
+        // the registered views -- so a query over another query's view resolves here as it does for
+        // CREATE CONTINUOUS QUERY. Planned over the streams alone, 'up' was "Object not found".
+        StreamSchema output = target.outputSchemaOf(query.sql(), CALLER);
         List<Integer> ordinals = new ArrayList<>();
         for (String column : query.keyColumns()) {
             int ordinal = indexOfIgnoringCase(output, column);
             if (ordinal < 0) {
-                throw new IllegalArgumentException("query '" + query.name() + "' is keyed by '" + column
-                        + "', which it does not produce; its columns are "
-                        + output.fields().stream().map(Field::name).toList());
+                // Coded as KEYED BY's own refusal (UNCODEDAPI-1).
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.sql.SqlErrors.KEY_COLUMN_UNKNOWN,
+                        "query '" + query.name() + "' is keyed by '" + column
+                                + "', which it does not produce; its columns are "
+                                + output.fields().stream().map(Field::name).toList());
             }
             ordinals.add(ordinal);
         }

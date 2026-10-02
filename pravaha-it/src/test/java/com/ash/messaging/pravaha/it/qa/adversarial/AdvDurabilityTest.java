@@ -677,6 +677,8 @@ class AdvDurabilityTest {
             assertThat(query.checkpointFailures()).isPositive();
             assertThat(rows).containsExactly("a|1");
             assertThat(register).isNotEqualTo("OK");
+            // UNCODEDAPI-1, fixed: coded, not a bare UncheckedIOException.
+            assertThat(register).startsWith("PRV-4093");
             assertThat(engine.find("q2")).isEmpty();
         }
     }

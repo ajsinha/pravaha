@@ -233,8 +233,14 @@ final class RowEncoder {
             }
             case TIMESTAMP_LTZ -> {
                 if (value instanceof Instant instant) {
-                    yield Math.addExact(
-                            Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
+                    try {
+                        yield Math.addExact(
+                                Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
+                    } catch (ArithmeticException outOfRange) {
+                        // UNCODEDAPI-1: this reached push() as a bare ArithmeticException.
+                        throw rejected("has " + instant + " in column '" + field.name() + "', outside the range a "
+                                + "TIMESTAMP holds (nanoseconds since 1970 in 64 bits: 1677-09-21 to 2262-04-11 UTC)");
+                    }
                 }
                 yield integral(field, value, Long.MIN_VALUE, Long.MAX_VALUE);
             }

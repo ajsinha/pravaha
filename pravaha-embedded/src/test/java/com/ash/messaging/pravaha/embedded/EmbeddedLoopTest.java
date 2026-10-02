@@ -133,7 +133,8 @@ class EmbeddedLoopTest {
                     .hasMessageContaining("txn");
             assertThatThrownBy(() -> engine.push("txn", new Object[] {"u1"})).hasMessageContaining("1 values");
             assertThatThrownBy(() -> engine.register("spend", SPEND, "nope"))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2071")
                     .hasMessageContaining("[n, total]");
         }
     }

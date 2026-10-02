@@ -225,7 +225,8 @@ class AdvChainTest {
     }
 
     @Test
-    void qe068_theEmbeddedRegisterCallCannotBuildOnAView() {
+    void qe068_theEmbeddedRegisterCallBuildsOnAView() {
+        // QOQAPI-1, fixed: register() plans over the registered views as CREATE does.
         try (PravahaEngine engine = chain(Map.of())) {
             String api = AdvSupport.attempt(
                     () -> engine.register("down_api", "SELECT g, SUM(v) AS s FROM up GROUP BY g", "g"));
@@ -234,7 +235,8 @@ class AdvChainTest {
             System.out.println(
                     "NOTE QE-068 register()=" + api.lines().findFirst().orElse("") + " CREATE=" + sql);
             assertThat(sql).isEqualTo("OK");
-            assertThat(api).startsWith("PRV-2002").contains("Object 'up' not found");
+            assertThat(api).isEqualTo("OK");
+            assertThat(engine.registry().readsFrom("down_api")).containsExactly("up");
         }
     }
 

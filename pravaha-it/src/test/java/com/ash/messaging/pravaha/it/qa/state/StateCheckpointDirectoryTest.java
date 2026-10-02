@@ -406,7 +406,8 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
         ViewCatalog viewsB = new ViewCatalog();
         try (QueryRegistry registry = new QueryRegistry(viewsB, TXN_T).checkpointingTo(rootB, slowCfg())) {
             assertThatThrownBy(() -> registry.register("w", WIN_SQL, List.of(0), DANA))
-                    .isInstanceOf(java.io.UncheckedIOException.class)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-4093")
                     .hasMessageContaining("cannot create the checkpoint directory")
                     .hasMessageContaining(rootB.resolve("w").toString());
             assertThat(registry.names()).doesNotContain("w");
@@ -425,7 +426,7 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
                 ViewCatalog viewsC = new ViewCatalog();
                 try (QueryRegistry registry = new QueryRegistry(viewsC, TXN_T).checkpointingTo(rootC, slowCfg())) {
                     assertThatThrownBy(() -> registry.register("w", WIN_SQL, List.of(0), DANA))
-                            .isInstanceOf(java.io.UncheckedIOException.class)
+                            .isInstanceOf(PravahaException.class)
                             .hasMessageContaining("cannot create the checkpoint directory");
                 }
             } finally {

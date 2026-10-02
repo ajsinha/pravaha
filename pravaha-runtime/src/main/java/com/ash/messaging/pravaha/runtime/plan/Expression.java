@@ -652,19 +652,31 @@ public sealed interface Expression {
         public long evaluateLong(RowView row) {
             long l = left.evaluateLong(row);
             long r = right.evaluateLong(row);
-            long result =
-                    switch (operator) {
-                        case ADD -> Math.addExact(l, r);
-                        case SUBTRACT -> Math.subtractExact(l, r);
-                        case MULTIPLY -> Math.multiplyExact(l, r);
-                        // Integer division by zero is an exception in Java and NULL in SQL. Neither
-                        // is obviously right for a stream, and throwing is the one that cannot be
-                        // mistaken for an answer -- the record goes to the dead-letter queue with
-                        // the reason.
-                        case DIVIDE -> r == 0 ? divideByZero() : divideExact(l, r);
-                        // Long.MIN_VALUE % -1 is 0 in Java and in arithmetic alike: no overflow.
-                        case MODULO -> r == 0 ? divideByZero() : l % r;
-                    };
+            long result;
+            try {
+                result = switch (operator) {
+                    case ADD -> Math.addExact(l, r);
+                    case SUBTRACT -> Math.subtractExact(l, r);
+                    case MULTIPLY -> Math.multiplyExact(l, r);
+                    // Integer division by zero is an exception in Java and NULL in SQL. Neither
+                    // is obviously right for a stream, and throwing is the one that cannot be
+                    // mistaken for an answer -- the record goes to the dead-letter queue with
+                    // the reason.
+                    case DIVIDE -> r == 0 ? divideByZero() : divideExact(l, r);
+                    // Long.MIN_VALUE % -1 is 0 in Java and in arithmetic alike: no overflow.
+                    case MODULO -> r == 0 ? divideByZero() : l % r;
+                };
+            } catch (ArithmeticException overflow) {
+                if (operator == Operator.DIVIDE || operator == Operator.MODULO) {
+                    throw overflow;
+                }
+                // UNCODEDAPI-1: Math.*Exact's own "long overflow" is dropped once the JIT compiles
+                // the throw site (OmitStackTraceInFastThrow hands out a preallocated exception with
+                // no message), and a failure read "java.lang.ArithmeticException" and nothing else.
+                // A fresh one, naming the expression, says what overflowed on every run.
+                throw new ArithmeticException("long overflow: BIGINT overflow in " + describe()
+                        + ", outside BIGINT's range; refused rather than wrapped");
+            }
             // NARROWINT-1: the operands are evaluated in 64 bits, so an INT, SMALLINT or TINYINT
             // result past its type's range used to be exact here and wrapped where the projection
             // wrote it -- 2e9 * 2 published as -294967296 while a filter on the same expression

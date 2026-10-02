@@ -137,7 +137,7 @@ SELECT spend FROM merchant_minutes WHERE merchant = ?
 | `declareQuery(ContinuousQuery)` | A query registered at start, after anything the journal recovers |
 | `start()` / `stop()` / `close()` | Lifecycle; `close()` stops if needed, so try-with-resources works. A failed engine is not restarted in place |
 | `state()` | `CREATED`, `STARTING`, `RUNNING`, `STOPPING`, `STOPPED`, … |
-| `register(name, sql, keyColumns…)` / `register(ContinuousQuery)` | A continuous query, or a new name on the computation already answering it |
+| `register(name, sql, keyColumns…)` / `register(ContinuousQuery)` | A continuous query, or a new name on the computation already answering it. Its `FROM` may name a stream or another registered query's view, as `CREATE CONTINUOUS QUERY`'s may (until QOQAPI-1 a view was `PRV-2002 Object not found` here). No key column is `PRV-2070`, a key the query does not produce `PRV-2071` |
 | `query(sql, params…)` | SQL over the views at their committed frontier — and `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY`, `SHOW CONTINUOUS QUERIES` |
 | `query(Class<R>, sql, params…)` | The same, each row read into a record by column name |
 | `subscribe(query, consumer)` / `subscribe(query, SubscriptionOptions, consumer)` | Every commit of a view, as `List<RowChange>`; close the returned `Subscription` to stop |
@@ -157,7 +157,7 @@ is the builder for a query with retention or a sink.
 | `FLOAT64`, `FLOAT32` | any `Number` |
 | `STRING` | a `String` |
 | `BOOLEAN` | a `Boolean` |
-| `TIMESTAMP` | an `Instant`, or epoch **nanoseconds** as a `long` |
+| `TIMESTAMP` | an `Instant` from 1677-09-21 to 2262-04-11 UTC (nanoseconds since 1970 in 64 bits; outside it, PRV-8102), or epoch **nanoseconds** as a `long` |
 | `DATE` | a `LocalDate` |
 | `BYTES` | a `byte[]` |
 | nullable (`?`) | `null` |

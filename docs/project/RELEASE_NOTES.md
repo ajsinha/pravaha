@@ -239,6 +239,21 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   ceiling (`PRV-4022`) that names the limit. Each emitted row is now given back to the arena once
   downstream has copied it — in the windowed and the grouped aggregate — so emission needs one row of
   arena however many groups fire. `EmissionRoomTest`, QE-144.
+- **The embedded `register(...)` builds on a view (QOQAPI-1).** It resolved the key columns by
+  planning the SQL over the declared streams alone, so `register("down", "SELECT g, SUM(v) AS s FROM up
+  GROUP BY g", "g")` was `PRV-2002 Object 'up' not found` while the same SQL as `CREATE CONTINUOUS
+  QUERY` worked. It now plans as the registration does — streams, lookups and the registered views.
+  `EmbeddedRegisterApiTest`, QE-068.
+- **API failures carry a code and a reason (UNCODEDAPI-1).** A keyless `register(...)` is `PRV-2070`
+  (the statement's own refusal, saying a global aggregate may be keyed by any of its own columns), a key
+  the query does not produce `PRV-2071`, a pushed `Instant` past 2262 `PRV-8102` naming the column, and
+  a checkpoint directory a registration cannot create `PRV-4093` — each was an uncoded
+  `IllegalArgumentException`, `ArithmeticException` or `UncheckedIOException`. A parse the parser
+  abandons without a message (3,000 nested parentheses, a 1.2 MiB `OR` chain) says it nests too deeply
+  instead of `PRV-2001  null`. A `BIGINT` overflow in an expression throws its own exception naming the
+  expression, so a lane failure still says "long overflow" after the JIT has compiled `Math.*Exact`'s
+  throw site and dropped its message. `EmbeddedRegisterApiTest`, `SqlPlannerTest`,
+  `NarrowIntegerOverflowTest`, QE-062/063/085/139/152/166.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

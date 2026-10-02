@@ -121,6 +121,8 @@ class AdvResourceTest {
             for (String s : seen) {
                 String outcome = s.substring(s.indexOf(": ") + 2);
                 assertThat(outcome).as(s).matches("(OK|PRV-\\d{4}).*");
+                // UNCODEDAPI-1, fixed: a refusal says why -- never "PRV-2001  null".
+                assertThat(outcome).as(s).doesNotContainPattern("PRV-\\d{4}\\s+null\\b");
             }
         }
     }

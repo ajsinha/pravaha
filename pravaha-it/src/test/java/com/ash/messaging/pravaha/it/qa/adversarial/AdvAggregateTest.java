@@ -326,9 +326,9 @@ class AdvAggregateTest {
         try (PravahaEngine engine = AdvSupport.engine(e -> e.declareStream("src", "id:INT64,v:INT64", null))) {
             String registered = AdvSupport.attempt(() -> engine.register("n", "SELECT COUNT(*) AS c FROM src"));
             System.out.println("NOTE QE-062 register " + registered);
-            if (!"OK".equals(registered)) {
-                return;
-            }
+            // UNCODEDAPI-1, fixed: keyless is the statement's own coded refusal, saying what to key by.
+            assertThat(registered).startsWith("PRV-2070").contains("any of its own columns");
+            engine.register("n", "SELECT COUNT(*) AS c FROM src", "c");
             engine.push("src", new Object[] {1L, 1L}, new Object[] {2L, 2L}, new Object[] {3L, 3L});
             engine.retract("src", new Object[] {1L, 1L}, new Object[] {2L, 2L}, new Object[] {3L, 3L});
             List<String> rows = AdvSupport.rows(engine, "SELECT * FROM n");
@@ -363,6 +363,9 @@ class AdvAggregateTest {
                                 AdvSupport.rows(engine, "SELECT * FROM c").toString());
                     }));
             assertThat(AdvSupport.state(engine, "c")).doesNotStartWith("FAILED");
+            // UNCODEDAPI-1, fixed: an Instant past 2262 is a coded refusal of the push, not an
+            // ArithmeticException.
+            assertThat(tooLate).startsWith("PRV-8102").contains("2262-04-11");
         }
     }
 

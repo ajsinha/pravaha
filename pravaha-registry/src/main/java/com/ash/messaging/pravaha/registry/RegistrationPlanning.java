@@ -59,9 +59,12 @@ final class RegistrationPlanning {
             String sinkName,
             String action) {
         if (keyColumns == null || keyColumns.isEmpty()) {
-            throw new IllegalArgumentException(
+            // Coded as CREATE CONTINUOUS QUERY's own refusal of a missing KEYED BY (UNCODEDAPI-1).
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.STATEMENT_MALFORMED,
                     "a registration needs at least one key column: a view with no key is a log, and a "
-                            + "point read against it has nothing to look up");
+                            + "point read against it has nothing to look up. A global aggregate, which has "
+                            + "one row, may be keyed by any of its own columns");
         }
         QueryChains chains = registry.chains;
         SourceFeedFactory feeds = registry.feeds();

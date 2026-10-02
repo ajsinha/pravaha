@@ -142,7 +142,7 @@ public final class SqlPlanner {
             try {
                 parsed = planner.parse(sql);
             } catch (SqlParseException e) {
-                throw new PravahaException(SqlErrors.PARSE_FAILED, e.getMessage(), e);
+                throw parseFailure(e);
             }
 
             refuseDml(parsed);
@@ -286,13 +286,39 @@ public final class SqlPlanner {
      * @throws PravahaException {@code PRV-2001} when the text will not parse. A syntax error says
      *     nothing about what exists, so reporting it before authorizing discloses nothing.
      */
+    /**
+     * {@code PRV-2001} with Calcite's message, or -- when it has none -- one that says what happened.
+     *
+     * <p>UNCODEDAPI-1: 3,000 nested parentheses and a 1.2 MiB {@code OR} chain were refused as {@code
+     * PRV-2001  null}: the parser gave up without a message, so the refusal said nothing at all.
+     */
+    static PravahaException parseFailure(SqlParseException e) {
+        String message = e.getMessage();
+        if (message != null && !message.isBlank() && !"null".equals(message.strip())) {
+            return new PravahaException(SqlErrors.PARSE_FAILED, message, e);
+        }
+        boolean tooDeep = false;
+        for (Throwable cause = e; cause != null && !tooDeep; cause = cause.getCause()) {
+            tooDeep = cause instanceof StackOverflowError;
+        }
+        return new PravahaException(
+                SqlErrors.PARSE_FAILED,
+                tooDeep
+                        ? "the statement nests too deeply to parse: the parser ran out of stack. Flatten it -- "
+                                + "fewer nested parentheses or CASEs, and an IN list instead of a long OR chain"
+                        : "the statement could not be parsed, and the parser gave no reason ("
+                                + (e.getCause() == null ? e.getClass().getSimpleName() : String.valueOf(e.getCause()))
+                                + "). Check it for unbalanced parentheses or quotes, or make it smaller",
+                e);
+    }
+
     public java.util.Optional<String> referencedTable(String sql) {
         try (Planner planner = Frameworks.getPlanner(frameworkConfig())) {
             SqlNode parsed;
             try {
                 parsed = planner.parse(sql);
             } catch (SqlParseException e) {
-                throw new PravahaException(SqlErrors.PARSE_FAILED, e.getMessage(), e);
+                throw parseFailure(e);
             }
             return tableOf(dropStreamKeyword(parsed));
         }

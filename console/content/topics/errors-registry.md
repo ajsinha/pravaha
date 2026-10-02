@@ -281,9 +281,11 @@ A row was pushed to a stream this engine was never told about. Declare it first 
 ### PRV-8102 — embedded row rejected
 
 A pushed row does not fit its stream: the wrong number of values, a value of the wrong kind for its
-column, or a null in a `NOT NULL` column. The message names the column. Or the row is wider than the
+column, a null in a `NOT NULL` column, or an `Instant` outside 1677-09-21 to 2262-04-11 (until UNCODEDAPI-1 an
+uncoded `ArithmeticException`). The message names the column. Or the row is wider than the
 inbox cell of a query on the stream: the message names the row, its size and the cell. Raise
-`pravaha.lane.inbox.cell-bytes` — an embedded engine reads it as a server does. Nothing in the push is
+`pravaha.lane.inbox.cell-bytes` — an embedded engine reads it as a server does. Or a `retract(...)` would
+reach a query computing `MIN` or `MAX`, which cannot take a retraction (MINRETRACT-1). Nothing in the push is
 delivered and every query keeps running.
 
 ### PRV-8103 — embedded backpressure
