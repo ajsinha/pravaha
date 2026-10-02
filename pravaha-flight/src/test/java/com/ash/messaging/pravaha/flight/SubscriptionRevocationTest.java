@@ -189,12 +189,23 @@ class SubscriptionRevocationTest {
     @Test
     void aCredentialThatNowVerifiesAsSomebodyElseEndsASubscription() throws Exception {
         AtomicBoolean swapped = new AtomicBoolean();
-        TokenVerifier shifting = token -> swapped.get()
-                ? new Principal("mallory", "acme", Set.of("analyst"), Map.of())
-                : new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        java.util.concurrent.CountDownLatch openedAsDana = new java.util.concurrent.CountDownLatch(1);
+        TokenVerifier shifting = token -> {
+            if (swapped.get()) {
+                return new Principal("mallory", "acme", Set.of("analyst"), Map.of());
+            }
+            openedAsDana.countDown();
+            return new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        };
         startWith(shifting, (principal, view) -> AccessDecision.allow());
 
         AtomicReference<String> ended = subscribeUntilItEnds("good-token");
+        // The swap must come after the subscription opened as dana: under a loaded build the
+        // subscribe can start more than half a second late, open as mallory, and then rightly never
+        // end -- the principal it was authorised as has not changed.
+        assertThat(openedAsDana.await(30, TimeUnit.SECONDS))
+                .as("the subscription opened")
+                .isTrue();
         Thread.sleep(500);
         assertThat(ended.get()).as("running as dana").isNull();
 
