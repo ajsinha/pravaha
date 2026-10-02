@@ -296,7 +296,8 @@ final class LaneEquivalence implements AutoCloseable {
     static List<List<Object>> rows(RegisteredQuery query) {
         List<List<Object>> rows = new ArrayList<>();
         for (Object[] row : query.view().scan()) {
-            List<Object> values = List.of(row);
+            // Arrays.asList, not List.of: a SUM over no non-null value is NULL (ALLNULLAGG-1).
+            List<Object> values = java.util.Arrays.asList(row);
             // The first column is a count's n, or a projection's id -- which is never zero.
             if (values.get(0) instanceof Long count && count == 0L) {
                 continue;
