@@ -178,6 +178,11 @@ for row in client.query("SELECT total FROM card_velocity WHERE card_id = ?", ["c
 pravaha query --sql "SELECT total FROM card_velocity WHERE card_id = ?" --params c-1002
 ```
 
+A `DECIMAL` column arrives exactly, at its scale: a `BigDecimal` in Java (`row.getBigDecimal`), a
+`decimal.Decimal` in Python, its digits in the CLI — over Flight from 2.1 (FLIGHTDECIMAL-1), where it
+used to be refused with `PRV-6100`. The full type mapping is
+[CONTINUOUS_QUERIES.md §16](CONTINUOUS_QUERIES.md#16-types).
+
 **Bind values; never build the SQL string.** A bound value is never parsed as SQL — by the time it
 reaches the server the statement is already planned and there is no parser left to reach — and the
 server plans a parameterised statement once however many values you ask about.

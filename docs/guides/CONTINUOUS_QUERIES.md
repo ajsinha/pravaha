@@ -1989,7 +1989,35 @@ added — not over a continuous query.
 ## 16. Types
 
 Supported in expressions: `BOOLEAN`, `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT`, `REAL`, `DOUBLE`,
-`VARCHAR`, `VARBINARY`, `DATE`, `TIME`, `TIMESTAMP`.
+`DECIMAL(p, s)`, `VARCHAR`, `VARBINARY`, `DATE`, `TIME`, `TIMESTAMP`.
+
+**On the wire.** Every SDK, the CLI and the console read over Arrow Flight; the PostgreSQL gateway
+has its own mapping (`numeric` for a `DECIMAL`, exact; the console's help topic *PostgreSQL wire*).
+
+| Column type | Arrow type | Java SDK, `Row.get` |
+|---|---|---|
+| `BOOLEAN` | `bool` | `Boolean` |
+| `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT` | `int8`, `int16`, `int32`, `int64` | `Byte`, `Short`, `Integer`, `Long` |
+| `REAL`, `DOUBLE` | `float32`, `float64` | `Float`, `Double` |
+| `DECIMAL(p, s)` | `decimal128(p, s)` | `BigDecimal` at scale `s`; also `Row.getBigDecimal` |
+| `VARCHAR` | `utf8` | `String` |
+| `VARBINARY` | `binary` | `byte[]` |
+| `DATE` | `date32` | `Integer`, days since 1970-01-01 |
+| `TIME` | `time64[ns]` | `Long`, nanoseconds of the day |
+| `TIMESTAMP` | `timestamp[ns, tz=UTC]` | `Long`, nanoseconds since the epoch |
+
+The Python SDK hands over what pyarrow makes of each Arrow type: `int`, `float`, `str`, `bytes`, and
+for `decimal128` a `decimal.Decimal`.
+
+**`DECIMAL` is exact end to end** (FLIGHTDECIMAL-1, 2.1). The engine holds a decimal as a 128-bit
+unscaled integer, which is what Arrow's `decimal128` is, so a value crosses the wire digit for digit
+at its column's precision and scale: `2.50` in a `DECIMAL(18, 2)` arrives as `2.50`, never `2.5` and
+never a float. A value that would need rounding to fit its column is refused with `PRV-6100` naming
+the column rather than rounded on the way out. The CLI prints a decimal's digits (`0.0000000000`, not
+`0E-10`) and puts it in `--json` as a string, as the console does, so no JSON reader turns it into a
+float. Until 2.1 a `DECIMAL` column was refused over Flight with `PRV-6100` and could be read only
+through the PostgreSQL gateway; a `?` placeholder compared with a `DECIMAL` is still refused
+(`PRV-2021`), so write that value into the SQL.
 
 **Correction, and then a correction to the correction.** A QA round on 2026-09-14 found that
 `VARBINARY` (`BYTES`) and `TIME` were declarable and computed correctly but **crashed when a non-null
@@ -2007,9 +2035,7 @@ name** rather than encoding them, and refuses them *before* sending a `RowDescri
 gets a clean error instead of a truncated result set it might treat as complete. That is a gap in
 that gateway's type mapping, not in the engine — Arrow Flight carries both.
 
-`DECIMAL` is refused on the Arrow Flight wire rather than sent as a floating-point number, because the
-rounding decision belongs to whoever owns the ledger and not to a serialiser; the PostgreSQL gateway
-sends it exactly, as `numeric`. Year–month intervals (`INTERVAL '1'
+Year–month intervals (`INTERVAL '1'
 MONTH`) are refused because a month is not a fixed length of time; day–time intervals work and are
 what windows use.
 

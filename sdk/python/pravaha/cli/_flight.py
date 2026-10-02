@@ -23,6 +23,7 @@ from pravaha.cli._common import (
     csv,
     ints,
 )
+from pravaha.cli._output import as_text
 from pravaha.errors import docs_base_url, help_line
 
 if TYPE_CHECKING:
@@ -56,7 +57,7 @@ def query(ctx: Context) -> int:
     if ctx.arg("tsv"):
         ctx.out.line("\t".join(columns))
         for row in rows:
-            ctx.out.line("\t".join("NULL" if v is None else str(v) for v in row))
+            ctx.out.line("\t".join("NULL" if v is None else as_text(v) for v in row))
     else:
         text = [{c: ("NULL" if v is None else v) for c, v in zip(columns, row)} for row in rows]
         ctx.out.table(text, [(c, c) for c in columns])
@@ -464,7 +465,7 @@ def subscribe(ctx: Context) -> int:
                     ctx.out.line(
                         "\t".join(
                             [weight_text(row.weight)]
-                            + ["NULL" if v is None else str(v) for v in row]
+                            + ["NULL" if v is None else as_text(v) for v in row]
                         )
                     )
                 seen += 1

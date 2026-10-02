@@ -98,24 +98,18 @@ class ErrcFlightTest extends ErrcServerSupport {
     // ------------------------------------------------------------ ERRC-089 -- PRV-6100
 
     @Test
-    void aDecimalColumnIsRefusedWithItsOwnCodeAndTheColumnThatCarriesIt() {
+    void aDecimalColumnIsReadOverFlightRatherThanRefused() {
         // DECIMAL is one of the six types Y-1 (FINDINGS.md) already found cannot be *declared* from
         // any configured surface; it can still be built programmatically (StreamSchema.builder +
-        // Types.decimal), which is the only way to reach ArrowSchemas.arrowTypeOf's default arm.
+        // Types.decimal).
         //
-        // This case found the defect and pinned it; the assertion below is what it looks like fixed.
-        //
-        // getFlightInfoStatement was `ArrowSchemas.toArrow(plan(sql, context))`. `plan(...)` has its
-        // own try/catch and turns a PravahaException into a FlightRuntimeException carrying the
-        // right code; the conversion one line outside it did not. PRV-6100 only happens once
-        // planning has already *succeeded* -- the SQL is fine and only the wire mapping is not -- so
-        // it escaped the gRPC service method uncaught and the client got Arrow's own generic
-        // internal-error text. No code, no column, nothing to act on, for a refusal the engine had
-        // stated precisely.
-        //
-        // Both halves are fixed: the conversion is wrapped the way planning was, and the refusal
-        // names the column, which it did not before. A client told that some type cannot be sent
-        // still has to work out which column carried it, on a schema it may not have written.
+        // This case found the defect and pinned it: PRV-6100 escaped getFlightInfoStatement
+        // uncaught, because the conversion sat one line outside the try/catch planning had, and the
+        // client got Arrow's generic internal-error text. That was fixed by wrapping the
+        // conversion and naming the column. From 2.1 the refusal itself is gone for a DECIMAL
+        // column (FLIGHTDECIMAL-1): it travels as Arrow's Decimal128, so the same query answers.
+        // The wrapped refusal still covers what remains unmappable (a placeholder compared with a
+        // DECIMAL; JavaSdkQueryTest).
         StreamSchema withDecimal = StreamSchema.builder("priced")
                 .field("id", Types.int64())
                 .field("price", Types.decimal(10, 2))
@@ -127,11 +121,10 @@ class ErrcFlightTest extends ErrcServerSupport {
             reg.register("priced_v", "SELECT id, price FROM priced", List.of(0), Principal.ANONYMOUS);
             String u = "grpc://localhost:" + srv.port();
             ErrcServerSupport.CliResult r = cli("query", "--url", u, "--sql", "SELECT id, price FROM priced_v");
-            assertThat(r.code()).isEqualTo(1);
-            assertThat(r.err())
-                    .as("the engine's own refusal reaches the client, naming the code and the column")
-                    .contains("PRV-6100")
-                    .contains("price")
+            assertThat(r.code()).as(r.combined()).isEqualTo(0);
+            assertThat(r.combined())
+                    .contains("0 rows")
+                    .doesNotContain("PRV-6100")
                     .doesNotContain("There was an error servicing your request");
         }
     }

@@ -253,10 +253,10 @@ class FlightSqlMetadataTest {
         List<String> types =
                 rows(client.getXdbcTypeInfo()).stream().map(row -> row.get(0)).toList();
 
-        assertThat(types).contains("BIGINT", "VARCHAR", "DOUBLE", "TIMESTAMP", "TIME", "DATE", "BOOLEAN");
-        // DECIMAL is refused by ArrowSchemas rather than rounded onto a float. Advertising it here
-        // would be the same defect as a documented-but-unreachable feature one layer down.
-        assertThat(types).doesNotContain("DECIMAL", "NUMERIC");
+        assertThat(types).contains("BIGINT", "VARCHAR", "DOUBLE", "TIMESTAMP", "TIME", "DATE", "BOOLEAN", "DECIMAL");
+        // DECIMAL travels as Decimal128 from 2.1 (FLIGHTDECIMAL-1), so it is listed; NUMERIC is not a
+        // name this dialect declares, and advertising it would be a type nobody can reach.
+        assertThat(types).doesNotContain("NUMERIC");
     }
 
     @Test

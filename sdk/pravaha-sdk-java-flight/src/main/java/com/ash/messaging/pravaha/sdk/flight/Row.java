@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -109,6 +110,10 @@ public final class Row {
         if (value instanceof byte[] bytes) {
             return new String(bytes, StandardCharsets.UTF_8);
         }
+        // Plain, never exponent: BigDecimal.toString writes a DECIMAL(18, 8) zero as "0E-8".
+        if (value instanceof BigDecimal decimal) {
+            return decimal.toPlainString();
+        }
         return String.valueOf(value);
     }
 
@@ -147,6 +152,41 @@ public final class Row {
 
     public double getDouble(String column) {
         return getDouble(ordinalOf(column));
+    }
+
+    /**
+     * A {@code DECIMAL} column exactly, at the column's scale, or null (FLIGHTDECIMAL-1).
+     *
+     * <p>The server sends a decimal as Arrow's Decimal128 with the column's precision and scale, so
+     * this is the value the engine holds, digit for digit: {@code 2.50} in a {@code DECIMAL(18, 2)}
+     * arrives as {@code 2.50}, not {@code 2.5}. {@link #get(int)} returns the same object. Reading
+     * it with {@link #getDouble(int)} is allowed and is the rounding the caller chose.
+     *
+     * @throws PravahaClientException if the column is not a decimal or a whole number
+     */
+    public BigDecimal getBigDecimal(int ordinal) {
+        if (isNull(ordinal)) {
+            return null;
+        }
+        Object value = raw(ordinal);
+        return switch (value) {
+            case BigDecimal decimal -> decimal;
+            case Long whole -> BigDecimal.valueOf(whole);
+            case Integer whole -> BigDecimal.valueOf(whole);
+            case Short whole -> BigDecimal.valueOf(whole);
+            case Byte whole -> BigDecimal.valueOf(whole);
+            default ->
+                throw new PravahaClientException(
+                        ClientErrors.READ_FAILED,
+                        "column '" + columns.get(ordinal) + "' is "
+                                + value.getClass().getSimpleName()
+                                + ", not an exact number; read it with get() or getDouble()",
+                        false);
+        };
+    }
+
+    public BigDecimal getBigDecimal(String column) {
+        return getBigDecimal(ordinalOf(column));
     }
 
     /** A column as whatever it is, or null. */

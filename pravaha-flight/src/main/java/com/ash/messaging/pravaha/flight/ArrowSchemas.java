@@ -15,6 +15,9 @@
  */
 package com.ash.messaging.pravaha.flight;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +26,7 @@ import java.util.Map;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.DateDayVector;
+import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
@@ -41,6 +45,7 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 
@@ -53,10 +58,14 @@ import com.ash.messaging.pravaha.api.data.TypeName;
  *
  * <p>Two mappings are worth reading twice. <strong>Timestamps go out as nanoseconds</strong>, which
  * is what the engine holds (ADR-012); downgrading them to microseconds at the boundary would lose
- * precision the engine was careful to keep. And <strong>DECIMAL is refused</strong> rather than
- * mapped to a float: Arrow has a real decimal type, but the engine's two-word form is not yet
- * convertible without a rounding decision, and making that decision silently at the wire is how a
- * ledger acquires a rounding error.
+ * precision the engine was careful to keep. And <strong>DECIMAL goes out as Arrow's own
+ * Decimal128</strong>, with the column's precision and scale, never as a float (FLIGHTDECIMAL-1).
+ * The engine holds a decimal as a 128-bit unscaled integer and Arrow's Decimal128 is exactly that,
+ * so the value crosses the wire digit for digit. It was refused until 2.1, on the grounds that the
+ * conversion needed a rounding decision; it does not, because every value reaching this class is
+ * already at its column's scale. One that is not -- more places than the scale, or more digits than
+ * the precision -- is refused by name rather than rounded, because a serialiser that rounds is how a
+ * ledger acquires an error nobody wrote.
  */
 final class ArrowSchemas {
 
@@ -136,6 +145,11 @@ final class ArrowSchemas {
     }
 
     private static ArrowType arrowTypeOf(com.ash.messaging.pravaha.api.data.Field field) {
+        // Precision and scale belong to the column, not to the type name, so DECIMAL is mapped here
+        // where both are known. Decimal128: DecimalType.MAX_PRECISION is 38, Decimal128's limit.
+        if (field.type() instanceof DecimalType decimal) {
+            return new ArrowType.Decimal(decimal.precision(), decimal.scale(), 128);
+        }
         try {
             return arrowTypeOf(field.type().typeName());
         } catch (PravahaException e) {
@@ -167,10 +181,7 @@ final class ArrowSchemas {
             case TIMESTAMP_LTZ -> new ArrowType.Timestamp(TimeUnit.NANOSECOND, "UTC");
             default ->
                 throw new PravahaException(
-                        FlightErrors.UNSUPPORTED_TYPE,
-                        typeName + " is not something Pravaha puts on the wire yet. DECIMAL in "
-                                + "particular is refused rather than sent as a float, because the rounding "
-                                + "decision belongs to whoever owns the ledger and not to a serialiser.");
+                        FlightErrors.UNSUPPORTED_TYPE, typeName + " is not something Pravaha puts on the wire yet.");
         };
     }
 
@@ -208,10 +219,65 @@ final class ArrowSchemas {
                 case FLOAT32 -> ((Float4Vector) vector).setSafe(index, ((Number) value).floatValue());
                 case FLOAT64 -> ((Float8Vector) vector).setSafe(index, ((Number) value).doubleValue());
                 case BYTES -> ((VarBinaryVector) vector).setSafe(index, (byte[]) value);
+                case DECIMAL ->
+                    ((DecimalVector) vector)
+                            .setSafe(
+                                    index,
+                                    exactly(
+                                            value,
+                                            (DecimalType) schema.field(ordinal).type(),
+                                            schema,
+                                            ordinal));
                 default ->
                     ((VarCharVector) vector)
                             .setSafe(index, String.valueOf(value).getBytes(StandardCharsets.UTF_8));
             }
         }
+    }
+
+    /**
+     * A decimal value at its column's scale, or a refusal naming the column.
+     *
+     * <p>Arrow's {@code DecimalVector} takes a {@code BigDecimal} only at exactly the vector's
+     * scale and within its precision, and throws an unnamed {@code UnsupportedOperationException}
+     * otherwise. A value with fewer places is widened, which is exact ({@code 2.5} is {@code 2.50});
+     * one with more places would have to be rounded, and is refused instead -- the engine stores a
+     * decimal at its column's scale, so reaching that branch means something upstream is wrong, and
+     * the place to say so is here, with the column's name, not in a client's arithmetic.
+     */
+    private static BigDecimal exactly(Object value, DecimalType type, StreamSchema schema, int ordinal) {
+        BigDecimal decimal =
+                switch (value) {
+                    case BigDecimal exact -> exact;
+                    case BigInteger whole -> new BigDecimal(whole);
+                    case Long whole -> BigDecimal.valueOf(whole);
+                    case Integer whole -> BigDecimal.valueOf(whole);
+                    case Short whole -> BigDecimal.valueOf(whole);
+                    case Byte whole -> BigDecimal.valueOf(whole);
+                    default ->
+                        throw new PravahaException(
+                                FlightErrors.UNSUPPORTED_TYPE,
+                                "column '" + schema.field(ordinal).name() + "' is " + type.sqlName() + " and holds a "
+                                        + value.getClass().getSimpleName() + ", which is not an exact decimal; it is "
+                                        + "refused rather than converted through a float");
+                };
+        BigDecimal scaled;
+        try {
+            scaled = decimal.setScale(type.scale(), RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException wouldRound) {
+            throw new PravahaException(
+                    FlightErrors.UNSUPPORTED_TYPE,
+                    "column '" + schema.field(ordinal).name() + "' is " + type.sqlName() + " and holds "
+                            + decimal.toPlainString() + ", which has more places than its scale; it is refused "
+                            + "rather than rounded on the wire",
+                    wouldRound);
+        }
+        if (scaled.precision() > type.precision()) {
+            throw new PravahaException(
+                    FlightErrors.UNSUPPORTED_TYPE,
+                    "column '" + schema.field(ordinal).name() + "' is " + type.sqlName() + " and holds "
+                            + decimal.toPlainString() + ", which has more digits than its precision");
+        }
+        return scaled;
     }
 }

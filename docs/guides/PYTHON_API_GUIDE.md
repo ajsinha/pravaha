@@ -586,6 +586,13 @@ print(client.query("SELECT * FROM spend_per_minute").to_table())
 | `row.weight` | `+1` or `-1` on a subscription's row; `1` on a query's |
 | `row.is_retraction` | `weight < 0` |
 
+A value is what pyarrow makes of its Arrow type ([CONTINUOUS_QUERIES.md §16](CONTINUOUS_QUERIES.md#16-types)).
+A **`DECIMAL(p, s)` column is a `decimal.Decimal` at the column's scale** — `Decimal('2.50')`, never
+`2.5` and never a `float` — on a query, a subscription and `to_table()` (`decimal128(p, s)`) alike
+(FLIGHTDECIMAL-1, 2.1). Until 2.1 such a column was refused over Flight with `PRV-6100`. Print one with
+`format(value, "f")`: `str()` writes a small or zero decimal in exponent form (`0E-10`). The `pravaha`
+CLI does that for you, and puts a decimal in `--json` as a string.
+
 ## 11. Continuous queries
 
 ### `register(name, sql, key_columns, sink=None, retention=None) -> RegisteredQuery` — Flight

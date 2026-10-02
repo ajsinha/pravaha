@@ -382,6 +382,21 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   that now assert them, a double-brace map), one suppressed with its reason (a test pinning an
   overflow); 3,570 warnings remain listed (2,822 NullAway), see TESTING.md. No workflow runs
   `-Pall` or `-Pep`, so no CI job was added.
+- **A `DECIMAL` column is read over Arrow Flight, exactly (FLIGHTDECIMAL-1).** `ArrowSchemas`
+  refused `DECIMAL` with `PRV-6100`, and every SDK, the CLI and the console read over Flight, so a view
+  whose answer carried a decimal could be read only through the PostgreSQL gateway. A `DECIMAL(p, s)`
+  column now goes out as Arrow's `decimal128(p, s)` on every Flight path that writes rows — queries and
+  point reads, changelog and answer-following subscriptions, snapshots — and in `GetTables`' and a
+  statement's schema; `GetXdbcTypeInfo` lists `DECIMAL`. The engine's 128-bit unscaled value is
+  Decimal128's, so nothing is rounded; a value that would have to be rounded to fit its column is
+  refused with `PRV-6100` naming the column. The Java SDK reads a `BigDecimal` at the column's scale
+  (new `Row.getBigDecimal`; `getString` writes plain digits), the Python SDK a `decimal.Decimal`; the
+  `pravaha` CLI prints a decimal's digits (`0.0000000000`, not `0E-10`) in its table and TSV and a
+  string in `--json`, and the console sends one to the browser the same way, live views included. A
+  `?` placeholder compared with a `DECIMAL` is still refused (`PRV-2021`). `FlightDecimalTest`,
+  `JavaSdkDecimalTest`, `FlightSqlMetadataTest`, `ErrcFlightTest`, the Python SDK's
+  `test_a_decimal_column_*` and `test_against_the_engine_a_decimal_prints_its_digits_in_every_form`,
+  the console's `test_a_decimal_column_reaches_the_browser_exactly_and_plain`.
 
 Register: **546 findings — 525 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

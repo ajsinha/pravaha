@@ -35,6 +35,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
@@ -234,9 +235,10 @@ final class FlightSqlMetadata {
     /**
      * The types this server actually puts on the wire.
      *
-     * <p>Exactly the set {@link ArrowSchemas} maps and no more: listing DECIMAL here would advertise
-     * a type the wire refuses, which is the same defect as a documented-but-unreachable feature one
-     * layer down.
+     * <p>Exactly the set {@link ArrowSchemas} maps and no more: listing a type here that the wire
+     * refuses is the same defect as a documented-but-unreachable feature one layer down. DECIMAL is
+     * listed from 2.1, when it began to travel as Arrow's Decimal128 (FLIGHTDECIMAL-1), with the
+     * precision and scale range a column may declare.
      */
     void typeInfo(FlightSql.CommandGetXdbcTypeInfo command, ServerStreamListener listener) {
         try (VectorSchemaRoot root =
@@ -256,7 +258,8 @@ final class FlightSqlMetadata {
                 }
                 textOrNull(root, "literal_prefix", index, type.literalQuote);
                 textOrNull(root, "literal_suffix", index, type.literalQuote);
-                // No type here takes parameters, so the list is absent rather than empty.
+                // Absent rather than empty. DECIMAL takes a precision and a scale, and says so through
+                // fixed_prec_scale and the scale range below rather than through this list.
                 ((ListVector) root.getVector("create_params")).setNull(index);
                 // 1 == NULLABLE. Nullability in Pravaha belongs to the column, not to the type.
                 ((IntVector) root.getVector("nullable")).setSafe(index, 1);
@@ -264,11 +267,16 @@ final class FlightSqlMetadata {
                 // 3 == SEARCHABLE: usable anywhere in a WHERE clause.
                 ((IntVector) root.getVector("searchable")).setSafe(index, 3);
                 bitOrNull(root, "unsigned_attribute", index, type.numeric ? Boolean.FALSE : null);
-                bit(root, "fixed_prec_scale", index, false);
+                bit(root, "fixed_prec_scale", index, type == XdbcType.DECIMAL);
                 bitOrNull(root, "auto_increment", index, type.numeric ? Boolean.FALSE : null);
                 text(root, "local_type_name", index, type.typeName);
-                root.getVector("minimum_scale").setNull(index);
-                root.getVector("maximum_scale").setNull(index);
+                if (type == XdbcType.DECIMAL) {
+                    ((IntVector) root.getVector("minimum_scale")).setSafe(index, 0);
+                    ((IntVector) root.getVector("maximum_scale")).setSafe(index, DecimalType.MAX_PRECISION);
+                } else {
+                    root.getVector("minimum_scale").setNull(index);
+                    root.getVector("maximum_scale").setNull(index);
+                }
                 ((IntVector) root.getVector("sql_data_type")).setSafe(index, type.jdbcType);
                 root.getVector("datetime_subcode").setNull(index);
                 if (type.numeric) {
@@ -565,6 +573,7 @@ final class FlightSqlMetadata {
         SMALLINT("SMALLINT", 5, 5, null, false, true),
         INTEGER("INTEGER", 4, 10, null, false, true),
         BIGINT("BIGINT", -5, 19, null, false, true),
+        DECIMAL("DECIMAL", 3, DecimalType.MAX_PRECISION, null, false, true),
         REAL("REAL", 7, 7, null, false, true),
         DOUBLE("DOUBLE", 8, 15, null, false, true),
         VARCHAR("VARCHAR", 12, -1, "'", true, false),

@@ -288,6 +288,35 @@ def test_to_table_gives_arrow_and_therefore_pandas(client):
     assert sorted(table.column("total").to_pylist()) == [7, 50, 300]
 
 
+def test_a_decimal_column_arrives_as_an_exact_decimal_at_its_scale(client):
+    # FLIGHTDECIMAL-1. A DECIMAL column was refused over Flight (PRV-6100) and readable only
+    # through the PostgreSQL gateway. It travels as Arrow's decimal128 now, and pyarrow hands it
+    # over as decimal.Decimal: never a float, and at the column's scale -- a zero at scale 10 is
+    # still ten places, so the exponent is compared, not only the value.
+    import decimal
+
+    rows = {row["entry_id"]: row for row in client.query("SELECT entry_id, amount, rate FROM ledger")}
+
+    assert sorted(rows) == ["e1", "e2", "e3"]
+    assert rows["e1"]["amount"] == decimal.Decimal("1234567890123456.78")
+    assert rows["e1"]["rate"] == decimal.Decimal("0.0000000001")
+    assert rows["e2"]["amount"] == decimal.Decimal("-0.01")
+    assert rows["e2"]["rate"].as_tuple().exponent == -10 and rows["e2"]["rate"] == 0
+    assert rows["e3"]["amount"].as_tuple().exponent == -2
+    assert rows["e3"]["rate"] is None
+    for row in rows.values():
+        assert isinstance(row["amount"], decimal.Decimal)
+
+
+def test_a_decimal_column_keeps_its_arrow_type_in_a_table(client):
+    import pyarrow as pa
+
+    table = client.query("SELECT entry_id, amount, rate FROM ledger").to_table()
+
+    assert table.schema.field("amount").type == pa.decimal128(18, 2)
+    assert table.schema.field("rate").type == pa.decimal128(38, 10)
+
+
 def test_reading_a_result_twice_is_refused_rather_than_silently_empty(client):
     result = client.query("SELECT user_id FROM user_volume")
     assert len(list(result)) == 3

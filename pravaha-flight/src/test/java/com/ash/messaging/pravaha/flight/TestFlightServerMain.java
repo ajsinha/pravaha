@@ -217,6 +217,26 @@ public final class TestFlightServerMain {
         }
         readings.commit(10);
 
+        // FLIGHTDECIMAL-1: a DECIMAL column, so a client in another language can check that what it
+        // reads is the exact value at the column's scale -- a zero at scale 10 included, which is the
+        // one a client printing with its language's default turns into 0E-10.
+        StreamSchema ledgerSchema = StreamSchema.builder("ledger")
+                .field("entry_id", Types.string())
+                .field("amount", Types.decimal(18, 2))
+                .field("rate", Types.decimal(38, 10).withNullable(true))
+                .build();
+        ServedView ledger = new ServedView("ledger", ledgerSchema, List.of(0), 100);
+        ledger.applyValues(
+                new Object[] {
+                    "e1", new java.math.BigDecimal("1234567890123456.78"), new java.math.BigDecimal("0.0000000001")
+                },
+                1,
+                10);
+        ledger.applyValues(
+                new Object[] {"e2", new java.math.BigDecimal("-0.01"), new java.math.BigDecimal("0E-10")}, 1, 10);
+        ledger.applyValues(new Object[] {"e3", new java.math.BigDecimal("0.00"), null}, 1, 10);
+        ledger.commit(10);
+
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 0;
         boolean authenticated = args.length > 1 && "--authenticated".equals(args[1]);
 
@@ -229,7 +249,8 @@ public final class TestFlightServerMain {
         String tenant = authenticated ? FIXTURE_TENANT : ViewNames.DEFAULT_TENANT;
         ViewCatalog catalog = new ViewCatalog()
                 .registerAs(ViewNames.engineName(tenant, view.name()), view)
-                .registerAs(ViewNames.engineName(tenant, readings.name()), readings);
+                .registerAs(ViewNames.engineName(tenant, readings.name()), readings)
+                .registerAs(ViewNames.engineName(tenant, ledger.name()), ledger);
 
         // A registry, so a client in another language can register a continuous query and subscribe
         // to it -- which is most of what an SDK has to be able to do and none of what a fixture

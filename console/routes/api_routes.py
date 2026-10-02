@@ -20,6 +20,7 @@ import anyio
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from core.service_base import json_default
 from core.services import ServiceError
 from routes.auth_routes import current_user
 from routes.base import Routes, sign_in_first
@@ -27,7 +28,9 @@ from routes.base import Routes, sign_in_first
 logger = logging.getLogger(__name__)
 
 def _sse(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+    # json_default, not str: a live view's DECIMAL column would otherwise reach the browser as
+    # 0E-10 rather than 0.0000000000 (FLIGHTDECIMAL-1).
+    return f"event: {event}\ndata: {json.dumps(data, default=json_default)}\n\n"
 
 
 async def _json_body(request: Request) -> dict:
