@@ -260,8 +260,13 @@ final class KeyedAggregate implements RowProcessor {
                             writer, key.length + i, group.sums[i], group.counts[i], operator.outputSchema());
                     continue;
                 }
+                // SUM, AVG, MIN and MAX of a group with no non-null value are NULL (ALLNULLAGG-1).
                 AggregateSlots.write(
-                        writer, key.length + i, group.valueOf(i, calls.get(i)), outputTypes[key.length + i]);
+                        writer,
+                        key.length + i,
+                        group.valueOf(i, calls.get(i)),
+                        group.isNull(i, calls.get(i)),
+                        outputTypes[key.length + i]);
             }
             writer.weight(1L)
                     .eventTimestampNanos(group.lastTimestamp)
@@ -283,7 +288,7 @@ final class KeyedAggregate implements RowProcessor {
     private final Set<Key> dirty = new java.util.LinkedHashSet<>();
 
     /** What each group last published, which is what its next publication retracts. */
-    private final Map<Key, long[]> published = new java.util.HashMap<>();
+    private final Map<Key, AggregateSlots.Answer> published = new java.util.HashMap<>();
 
     void drivenContinuously() {
         this.continuous = true;
@@ -301,18 +306,21 @@ final class KeyedAggregate implements RowProcessor {
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
         for (Key key : dirty) {
             Group group = groups.get(key);
-            long[] before = published.get(key);
-            long[] now = null;
+            AggregateSlots.Answer before = published.get(key);
+            AggregateSlots.Answer now = null;
             if (group != null && group.rowCount > 0) {
-                now = new long[calls.size()];
-                for (int i = 0; i < now.length; i++) {
-                    now[i] = group.valueOf(i, calls.get(i));
+                long[] values = new long[calls.size()];
+                boolean[] nulls = new boolean[calls.size()];
+                for (int i = 0; i < values.length; i++) {
+                    nulls[i] = group.isNull(i, calls.get(i));
+                    values[i] = nulls[i] ? 0 : group.valueOf(i, calls.get(i));
                 }
+                now = new AggregateSlots.Answer(values, nulls);
             }
             if (group != null && group.rowCount <= 0) {
                 groups.remove(key);
             }
-            if (Arrays.equals(before, now)) {
+            if (java.util.Objects.equals(before, now)) {
                 continue;
             }
             long timestamp = group == null ? 0 : group.lastTimestamp;
@@ -330,7 +338,8 @@ final class KeyedAggregate implements RowProcessor {
         dirty.clear();
     }
 
-    private void writeGroup(Key key, long[] values, long weight, long timestamp, long sequence) {
+    private void writeGroup(Key key, AggregateSlots.Answer answer, long weight, long timestamp, long sequence) {
+        long[] values = answer.values();
         long handle = arena.allocate(layout.rowSize(256));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit a grouped aggregate result");
@@ -341,7 +350,8 @@ final class KeyedAggregate implements RowProcessor {
             writeKey(i, keyValues[i]);
         }
         for (int i = 0; i < values.length; i++) {
-            AggregateSlots.write(writer, keyValues.length + i, values[i], outputTypes[keyValues.length + i]);
+            AggregateSlots.write(
+                    writer, keyValues.length + i, values[i], answer.nulls()[i], outputTypes[keyValues.length + i]);
         }
         writer.weight(weight).eventTimestampNanos(timestamp).sequence(sequence).commit();
         arena.trimTo(handle, writer.sizeSoFar());
@@ -356,7 +366,11 @@ final class KeyedAggregate implements RowProcessor {
         // Between batches there is no excess to carry (TRANSOVF-1); settling makes that a fact.
         settle();
         int calls = operator.aggregates().size();
-        out.writeInt(calls);
+        // When a published answer holds a NULL (ALLNULLAGG-1) the call count is written bitwise
+        // inverted and every published answer carries its null flags after its values. Otherwise
+        // the bytes are what they were, and a checkpoint from before the flags reads as no NULLs.
+        boolean withNulls = published.values().stream().anyMatch(AggregateSlots.Answer::anyNull);
+        out.writeInt(withNulls ? ~calls : calls);
         out.writeInt(groups.size());
         for (Map.Entry<Key, Group> entry : groups.entrySet()) {
             writeKeyValues(out, entry.getKey());
@@ -372,10 +386,11 @@ final class KeyedAggregate implements RowProcessor {
             }
         }
         out.writeInt(published.size());
-        for (Map.Entry<Key, long[]> entry : published.entrySet()) {
+        for (Map.Entry<Key, AggregateSlots.Answer> entry : published.entrySet()) {
             writeKeyValues(out, entry.getKey());
-            for (long value : entry.getValue()) {
-                out.writeLong(value);
+            entry.getValue().writeValues(out);
+            if (withNulls) {
+                entry.getValue().writeNulls(out);
             }
         }
     }
@@ -384,6 +399,10 @@ final class KeyedAggregate implements RowProcessor {
     void readFrom(java.io.DataInput in) throws java.io.IOException {
         int calls = operator.aggregates().size();
         int written = in.readInt();
+        boolean withNulls = written < 0;
+        if (withNulls) {
+            written = ~written;
+        }
         if (written != calls) {
             throw new java.io.IOException("the checkpointed grouped aggregate computes " + written
                     + " values and this one computes " + calls + ": the query changed since the checkpoint was taken");
@@ -410,11 +429,7 @@ final class KeyedAggregate implements RowProcessor {
         int publishedCount = in.readInt();
         for (int p = 0; p < publishedCount; p++) {
             Key key = readKeyValues(in);
-            long[] values = new long[calls];
-            for (int i = 0; i < calls; i++) {
-                values[i] = in.readLong();
-            }
-            published.put(key, values);
+            published.put(key, AggregateSlots.Answer.read(in, calls, withNulls));
         }
         // Every group is looked at again at the next publication: one whose accumulators moved
         // after its last publication and before the cut publishes then, and the rest compare equal.
@@ -714,6 +729,10 @@ final class KeyedAggregate implements RowProcessor {
                         case SUM -> {
                             AggregateTotals.addWeighted(sums, excess, i, partialValue, weight);
                             unsettled |= excess[i] != 0;
+                            // A partial with a total makes the SUM present (ALLNULLAGG-1).
+                            if (!partial.isNull(keyColumns + i)) {
+                                counts[i] = AggregateTotals.add(counts[i], weight);
+                            }
                         }
                         default ->
                             throw new IllegalStateException("accumulatePartial received a "
@@ -738,6 +757,11 @@ final class KeyedAggregate implements RowProcessor {
                 }
             }
             unsettled = false;
+        }
+
+        /** Whether call {@code index}'s answer is NULL: SUM/AVG/MIN/MAX of no non-null value (ALLNULLAGG-1). */
+        boolean isNull(int index, AggregateOperator.AggregateCall call) {
+            return AggregateSlots.isNull(call.kind(), counts[index], seen[index]);
         }
 
         long valueOf(int index, AggregateOperator.AggregateCall call) {

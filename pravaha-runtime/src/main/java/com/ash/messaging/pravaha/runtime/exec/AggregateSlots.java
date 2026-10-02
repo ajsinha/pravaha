@@ -113,6 +113,96 @@ final class AggregateSlots {
     }
 
     /**
+     * Whether call {@code kind}'s answer is SQL NULL (ALLNULLAGG-1): {@code SUM} and {@code AVG} with
+     * no non-null value accumulated, {@code MIN} and {@code MAX} with none seen. {@code COUNT} and
+     * {@code COUNT(DISTINCT)} are never NULL -- a count of nothing is 0. These answers were written
+     * as 0, which a reader cannot tell from a real total of zero.
+     *
+     * @param nonNull how many non-null values {@code SUM}/{@code AVG} have accumulated, net of
+     *     retractions
+     * @param seen whether {@code MIN}/{@code MAX} have met a non-null value
+     */
+    static boolean isNull(AggregateOperator.AggregateCall.Kind kind, long nonNull, boolean seen) {
+        return switch (kind) {
+            case SUM, AVG -> nonNull == 0;
+            case MIN, MAX -> !seen;
+            case COUNT, COUNT_DISTINCT -> false;
+        };
+    }
+
+    /** {@link #write}, or a NULL when {@code isNull}. */
+    static void write(RowWriter writer, int ordinal, long value, boolean isNull, TypeName type) {
+        if (isNull) {
+            writer.setNull(ordinal);
+        } else {
+            write(writer, ordinal, value, type);
+        }
+    }
+
+    /**
+     * One published answer of an unwindowed aggregate: its values, and which are NULL. Compared by
+     * content, since what decides whether a group re-publishes is whether its answer changed --
+     * and 0 becoming NULL is a change.
+     */
+    record Answer(long[] values, boolean[] nulls) {
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Answer answer
+                    && java.util.Arrays.equals(values, answer.values)
+                    && java.util.Arrays.equals(nulls, answer.nulls);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * java.util.Arrays.hashCode(values) + java.util.Arrays.hashCode(nulls);
+        }
+
+        @Override
+        public String toString() {
+            return java.util.Arrays.toString(values) + " nulls " + java.util.Arrays.toString(nulls);
+        }
+
+        boolean anyNull() {
+            for (boolean isNull : nulls) {
+                if (isNull) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** The values only, as a checkpoint written before NULL answers has them. */
+        void writeValues(java.io.DataOutput out) throws java.io.IOException {
+            for (long value : values) {
+                out.writeLong(value);
+            }
+        }
+
+        /** The null flags, which a checkpoint carries after the values when any is set. */
+        void writeNulls(java.io.DataOutput out) throws java.io.IOException {
+            for (boolean isNull : nulls) {
+                out.writeBoolean(isNull);
+            }
+        }
+
+        /** Reads {@code n} values and, when {@code withNulls}, their flags after them. */
+        static Answer read(java.io.DataInput in, int n, boolean withNulls) throws java.io.IOException {
+            long[] values = new long[n];
+            for (int i = 0; i < n; i++) {
+                values[i] = in.readLong();
+            }
+            boolean[] nulls = new boolean[n];
+            if (withNulls) {
+                for (int i = 0; i < n; i++) {
+                    nulls[i] = in.readBoolean();
+                }
+            }
+            return new Answer(values, nulls);
+        }
+    }
+
+    /**
      * {@code AVG} of integers into a {@code DECIMAL} answer column (AVGINT-1): the exact quotient at the
      * column's scale, rounded half away from zero -- PostgreSQL's {@code numeric} division -- or NULL
      * for no rows, as SQL's {@code AVG} of nothing is.

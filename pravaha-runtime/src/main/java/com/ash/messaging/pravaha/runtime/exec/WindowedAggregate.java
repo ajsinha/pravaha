@@ -117,7 +117,25 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * was published simply stops appearing, and there is nothing left to build the retraction from.
      * So the key's own columns and its window's start travel with it.
      */
-    private record Published(Object[] keyValues, long windowStartNanos, long[] values) {}
+    /**
+     * What a window published for one group. {@code nulls} marks the answers that were SQL NULL
+     * (ALLNULLAGG-1); it takes part in deciding whether a correction changed anything.
+     */
+    private record Published(Object[] keyValues, long windowStartNanos, long[] values, boolean[] nulls) {
+
+        boolean sameAnswer(long[] otherValues, boolean[] otherNulls) {
+            return java.util.Arrays.equals(values, otherValues) && java.util.Arrays.equals(nulls, otherNulls);
+        }
+
+        boolean anyNull() {
+            for (boolean isNull : nulls) {
+                if (isNull) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
 
     /**
      * A group, by its values, so two groups cannot become one.
@@ -438,7 +456,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             if (previous != null) {
                 Published before = previous.get(key);
                 if (before != null) {
-                    if (java.util.Arrays.equals(before.values(), result.values())) {
+                    if (before.sameAnswer(result.values(), result.nulls())) {
                         // Unchanged by the correction. Emitting a retraction and an identical
                         // insertion would be two rows that consolidate to nothing, which is
                         // arithmetically harmless and pure noise on the wire.
@@ -447,13 +465,21 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                         }
                         return;
                     }
-                    emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, before.values(), -1L);
+                    emitRow(
+                            result.keyValues(),
+                            result.windowStartNanos(),
+                            windowEnd,
+                            before.values(),
+                            before.nulls(),
+                            -1L);
                 }
             }
             if (current != null) {
-                current.put(key, new Published(result.keyValues(), result.windowStartNanos(), result.values()));
+                current.put(
+                        key,
+                        new Published(result.keyValues(), result.windowStartNanos(), result.values(), result.nulls()));
             }
-            emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, result.values(), 1L);
+            emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, result.values(), result.nulls(), 1L);
         });
 
         // A key that was published and is no longer here has to be withdrawn. It used to be dropped
@@ -465,7 +491,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             for (java.util.Map.Entry<GroupKey, Published> gone : previous.entrySet()) {
                 if (current == null || !current.containsKey(gone.getKey())) {
                     Published row = gone.getValue();
-                    emitRow(row.keyValues(), row.windowStartNanos(), windowEnd, row.values(), -1L);
+                    emitRow(row.keyValues(), row.windowStartNanos(), windowEnd, row.values(), row.nulls(), -1L);
                     withdrawals++;
                 }
             }
@@ -512,10 +538,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 for (int i = 0; i < published.length && i < calls.size(); i++) {
                     values.put(
                             calls.get(i).outputName(),
-                            AggregateSlots.text(
-                                    published[i],
-                                    operator.outputSchema(),
-                                    operator.groupKeys().size() + i));
+                            row.nulls()[i]
+                                    ? "null"
+                                    : AggregateSlots.text(
+                                            published[i],
+                                            operator.outputSchema(),
+                                            operator.groupKeys().size() + i));
                 }
                 into.accept(windowEnd + "|" + keyText(keyValues), values);
             }
@@ -552,7 +580,13 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * withdrawal has no result to take them from: the whole point is that the group is no longer
      * being produced.
      */
-    private void emitRow(Object[] keyValues, long windowStartNanos, long windowEndNanos, long[] values, long weight) {
+    private void emitRow(
+            Object[] keyValues,
+            long windowStartNanos,
+            long windowEndNanos,
+            long[] values,
+            boolean[] nulls,
+            long weight) {
         {
             long handle = arena.allocate(layout.rowSize(256));
             if (handle == ArenaHandle.NULL) {
@@ -576,7 +610,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 }
             }
             for (int i = 0; i < values.length; i++) {
-                AggregateSlots.write(writer, column, values[i], outputTypes[column]);
+                if (nulls[i]) {
+                    writer.setNull(column);
+                } else {
+                    AggregateSlots.write(writer, column, values[i], outputTypes[column]);
+                }
                 column++;
             }
             writer.weight(weight)
@@ -622,9 +660,18 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 // class had in memory, preserved across a restart.
                 out.writeLong(row.windowStartNanos());
                 writeTaggedValues(out, row.keyValues());
-                out.writeInt(row.values().length);
+                // A published answer with a NULL in it (ALLNULLAGG-1) writes its length bitwise
+                // inverted and its null flags after the values. An answer with none is written
+                // exactly as before, and a checkpoint from before the flags reads as all non-null.
+                boolean anyNull = row.anyNull();
+                out.writeInt(anyNull ? ~row.values().length : row.values().length);
                 for (long value : row.values()) {
                     out.writeLong(value);
+                }
+                if (anyNull) {
+                    for (boolean isNull : row.nulls()) {
+                        out.writeBoolean(isNull);
+                    }
                 }
             }
         }
@@ -650,11 +697,19 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             for (int k = 0; k < keys; k++) {
                 long windowStart = in.readLong();
                 Object[] keyValues = readTaggedValues(in);
-                long[] values = new long[in.readInt()];
+                int length = in.readInt();
+                boolean withNulls = length < 0;
+                long[] values = new long[withNulls ? ~length : length];
                 for (int v = 0; v < values.length; v++) {
                     values[v] = in.readLong();
                 }
-                perWindow.put(new GroupKey(keyValues), new Published(keyValues, windowStart, values));
+                boolean[] nulls = new boolean[values.length];
+                if (withNulls) {
+                    for (int v = 0; v < nulls.length; v++) {
+                        nulls[v] = in.readBoolean();
+                    }
+                }
+                perWindow.put(new GroupKey(keyValues), new Published(keyValues, windowStart, values, nulls));
             }
             emitted.put(windowEnd, perWindow);
         }

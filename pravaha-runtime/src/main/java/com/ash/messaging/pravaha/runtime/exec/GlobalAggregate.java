@@ -261,6 +261,11 @@ final class GlobalAggregate implements RowProcessor {
                     case SUM -> {
                         AggregateTotals.addWeighted(sums, excess, i, partialValue, weight);
                         unsettled |= excess[i] != 0;
+                        // A partial with a total makes the SUM present, so it is not NULL
+                        // (ALLNULLAGG-1); a NULL partial -- a source's SUM of only nulls -- does not.
+                        if (!partial.isNull(i)) {
+                            counts[i] = AggregateTotals.add(counts[i], weight);
+                        }
                     }
                     default ->
                         throw new IllegalStateException("processPartial received a " + call.kind()
@@ -319,13 +324,13 @@ final class GlobalAggregate implements RowProcessor {
         if (emittedBefore) {
             writeResult(previous, -1L);
         }
-        long[] current = currentValues();
+        AggregateSlots.Answer current = currentValues();
         writeResult(current, 1L);
         previous = current;
         emittedBefore = true;
     }
 
-    private long[] previous;
+    private AggregateSlots.Answer previous;
     private boolean emittedBefore;
 
     /**
@@ -347,23 +352,31 @@ final class GlobalAggregate implements RowProcessor {
         this.continuous = true;
     }
 
-    private long[] currentValues() {
+    private AggregateSlots.Answer currentValues() {
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
         long[] values = new long[calls.size()];
+        boolean[] nulls = new boolean[calls.size()];
         for (int i = 0; i < calls.size(); i++) {
-            values[i] = valueOf(i, calls.get(i));
+            nulls[i] = isNull(i, calls.get(i));
+            values[i] = nulls[i] ? 0 : valueOf(i, calls.get(i));
         }
-        return values;
+        return new AggregateSlots.Answer(values, nulls);
     }
 
-    private void writeResult(long[] values, long weight) {
+    /** Whether call {@code i}'s answer is NULL: a SUM, AVG, MIN or MAX of no non-null value (ALLNULLAGG-1). */
+    private boolean isNull(int i, AggregateOperator.AggregateCall call) {
+        return AggregateSlots.isNull(call.kind(), counts[i], seen[i]);
+    }
+
+    private void writeResult(AggregateSlots.Answer answer, long weight) {
+        long[] values = answer.values();
         long handle = arena.allocate(layout.rowSize(256));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit the aggregate result");
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         for (int i = 0; i < values.length; i++) {
-            AggregateSlots.write(writer, i, values[i], outputTypes[i]);
+            AggregateSlots.write(writer, i, values[i], answer.nulls()[i], outputTypes[i]);
         }
         writer.weight(weight)
                 .eventTimestampNanos(lastTimestamp)
@@ -423,13 +436,14 @@ final class GlobalAggregate implements RowProcessor {
      * -- but a duplicate that happens to be survivable is still a duplicate.
      *
      * <p>For a bounded read nothing has been published before, so this writes the whole answer
-     * once, including the zero an aggregate over no rows has: there, the absence of rows is the
-     * answer rather than a question not yet answered.
+     * once, including the answer an aggregate over no rows has -- {@code COUNT} 0, {@code SUM},
+     * {@code AVG}, {@code MIN} and {@code MAX} NULL: there, the absence of rows is the answer rather
+     * than a question not yet answered.
      */
     void emit() {
         settle();
         if (continuous) {
-            if (emittedBefore && java.util.Arrays.equals(currentValues(), previous)) {
+            if (emittedBefore && currentValues().equals(previous)) {
                 return;
             }
             emitIncremental();
@@ -447,15 +461,9 @@ final class GlobalAggregate implements RowProcessor {
                 AggregateSlots.writeAverage(writer, i, sums[i], counts[i], operator.outputSchema());
                 continue;
             }
-            long value =
-                    switch (calls.get(i).kind()) {
-                        case COUNT -> counts[i];
-                        case SUM, MIN, MAX -> sums[i];
-                        // Integer division, matching SQL's AVG over an integer column.
-                        case AVG -> counts[i] == 0 ? 0 : sums[i] / counts[i];
-                        case COUNT_DISTINCT -> distincts[i] == null ? 0 : distincts[i].size();
-                    };
-            AggregateSlots.write(writer, i, value, outputTypes[i]);
+            // SQL: SUM, AVG, MIN and MAX over no non-null value -- no rows at all, or only nulls
+            // -- are NULL; COUNT is 0 (ALLNULLAGG-1).
+            AggregateSlots.write(writer, i, valueOf(i, calls.get(i)), isNull(i, calls.get(i)), outputTypes[i]);
         }
         writer.weight(1L)
                 .eventTimestampNanos(lastTimestamp)
@@ -482,7 +490,11 @@ final class GlobalAggregate implements RowProcessor {
         // that a fact rather than an assumption about the caller.
         settle();
         int n = sums.length;
-        out.writeInt(n);
+        // A published answer with a NULL in it (ALLNULLAGG-1) is marked by the count written
+        // bitwise inverted, and its null flags follow its values. Without one the bytes are what they
+        // were, and a checkpoint from before the flags reads as an answer with no NULL.
+        boolean withNulls = emittedBefore && previous.anyNull();
+        out.writeInt(withNulls ? ~n : n);
         out.writeLong(rowCount);
         out.writeLong(lastTimestamp);
         out.writeLong(lastSequence);
@@ -494,8 +506,9 @@ final class GlobalAggregate implements RowProcessor {
         }
         out.writeBoolean(emittedBefore);
         if (emittedBefore) {
-            for (long value : previous) {
-                out.writeLong(value);
+            previous.writeValues(out);
+            if (withNulls) {
+                previous.writeNulls(out);
             }
         }
     }
@@ -508,6 +521,10 @@ final class GlobalAggregate implements RowProcessor {
      */
     void readFrom(java.io.DataInput in) throws java.io.IOException {
         int n = in.readInt();
+        boolean withNulls = n < 0;
+        if (withNulls) {
+            n = ~n;
+        }
         if (n != sums.length) {
             throw new java.io.IOException("the checkpointed aggregate computes " + n + " values and this one computes "
                     + sums.length + ": the query changed since the checkpoint was taken");
@@ -526,10 +543,7 @@ final class GlobalAggregate implements RowProcessor {
         emittedBefore = in.readBoolean();
         previous = null;
         if (emittedBefore) {
-            previous = new long[n];
-            for (int i = 0; i < n; i++) {
-                previous[i] = in.readLong();
-            }
+            previous = AggregateSlots.Answer.read(in, n, withNulls);
         }
     }
 
@@ -635,7 +649,9 @@ final class GlobalAggregate implements RowProcessor {
         for (int i = 0; i < calls.size(); i++) {
             values.put(
                     calls.get(i).outputName(),
-                    AggregateSlots.text(valueOf(i, calls.get(i)), operator.outputSchema(), i));
+                    isNull(i, calls.get(i))
+                            ? "null"
+                            : AggregateSlots.text(valueOf(i, calls.get(i)), operator.outputSchema(), i));
         }
         into.accept("", values);
     }

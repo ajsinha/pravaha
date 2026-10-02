@@ -83,6 +83,10 @@ public final class SlicedAggregateState implements AutoCloseable {
      *     can tell you that some group counted seven, and not which group. That was found by the
      *     first end-to-end query, which failed with "NOT NULL field never written" rather than with
      *     a wrong number -- a better outcome than the alternative.
+     * @param nulls per column, whether the answer is SQL NULL: a {@code SUM}, {@code AVG}, {@code MIN}
+     *     or {@code MAX} of a group none of whose values was non-null (ALLNULLAGG-1). Its {@code
+     *     values} entry is then 0 and means nothing. It used to be published as that 0, which is
+     *     indistinguishable from a real total of zero. Never null; all false when nothing is NULL.
      */
     public record WindowResult(
             long keyHigh,
@@ -91,7 +95,28 @@ public final class SlicedAggregateState implements AutoCloseable {
             long windowStartNanos,
             long windowEndNanos,
             long[] values,
-            long count) {
+            long count,
+            boolean[] nulls) {
+
+        /** A result none of whose answers is NULL. */
+        public WindowResult(
+                long keyHigh,
+                long keyLow,
+                Object[] keyValues,
+                long windowStartNanos,
+                long windowEndNanos,
+                long[] values,
+                long count) {
+            this(
+                    keyHigh,
+                    keyLow,
+                    keyValues,
+                    windowStartNanos,
+                    windowEndNanos,
+                    values,
+                    count,
+                    new boolean[values.length]);
+        }
 
         /**
          * A stable single-word identity for the group, for maps and ordering.
@@ -497,7 +522,16 @@ public final class SlicedAggregateState implements AutoCloseable {
                     return;
                 }
                 long[] values = combined.values.clone();
+                boolean[] nulls = new boolean[kinds.length];
                 for (int i = 0; i < kinds.length; i++) {
+                    // SQL: SUM, AVG, MIN and MAX of a group with no non-null value are NULL, not 0
+                    // (ALLNULLAGG-1). The non-null count is already kept per accumulator, carried
+                    // through every slice merge and every checkpoint, so it only had to be read.
+                    if (isNullWhenEmpty(kinds[i]) && combined.nonNull[i] == 0) {
+                        nulls[i] = true;
+                        values[i] = 0;
+                        continue;
+                    }
                     if (kinds[i] == Kind.AVG) {
                         // Integer division, matching what the keyed and global paths do over an
                         // integer column. Dividing here rather than at the writer keeps every
@@ -519,7 +553,8 @@ public final class SlicedAggregateState implements AutoCloseable {
                         windowStart,
                         windowEndNanos,
                         values,
-                        combined.count));
+                        combined.count,
+                        nulls));
                 emitted[0]++;
             });
             return emitted[0];
@@ -544,6 +579,11 @@ public final class SlicedAggregateState implements AutoCloseable {
                 ? Long.compare(a.keyHigh(), b.keyHigh())
                 : Long.compare(a.keyLow(), b.keyLow()));
         return results;
+    }
+
+    /** Whether an aggregate of this kind over no non-null value is NULL: every kind but the counts. */
+    static boolean isNullWhenEmpty(Kind kind) {
+        return kind == Kind.SUM || kind == Kind.AVG || kind == Kind.MIN || kind == Kind.MAX;
     }
 
     /** Where {@code sliceStart} is in a window's ascending slice starts, or {@code -1}. A window has a handful. */

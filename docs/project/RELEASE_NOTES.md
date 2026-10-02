@@ -16,6 +16,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
   50 findings opened — 46 defects (10 HIGH) and 4 design notes. None is fixed yet.
+- **`SUM`, `AVG`, `MIN` and `MAX` of a group with no non-null value are NULL** (ALLNULLAGG-1), as
+  SQL says — in a window, a continuous query, over a view and on a read. They were published 0,
+  indistinguishable from a real total of zero. `COUNT(col)` is still 0 and `COUNT(*)` counts rows; a
+  retraction that leaves only NULLs makes the answer NULL again, and checkpoints carry it (one
+  written before still restores).
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 
