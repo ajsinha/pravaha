@@ -19,7 +19,7 @@ The documents are in six folders, by who reads them and when:
 | | | Read when |
 |---|---|---|
 | [Quickstart](guides/QUICKSTART.md) | Clone to a running continuous query | First |
-| [Concepts](guides/CONCEPTS.md) | The eight ideas everything follows from | Second, and it is the highest-value page here |
+| [Concepts](guides/CONCEPTS.md) | The ten ideas everything follows from | Second, and it is the highest-value page here |
 | [User guide](guides/USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
 | [Building and testing with Docker](development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker: images, the compose stack, a query end to end, every test suite in containers | When you want it running without installing a JDK or Python |
 | [Running from an IDE](development/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests | When you change the code |
@@ -32,7 +32,7 @@ The documents are in six folders, by who reads them and when:
 | | |
 |---|---|
 | [Quickstart](guides/QUICKSTART.md) | Clone to a running continuous query |
-| [Concepts](guides/CONCEPTS.md) | The eight ideas everything follows from |
+| [Concepts](guides/CONCEPTS.md) | The ten ideas everything follows from |
 | [User guide](guides/USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell |
 | [Streams, queries and SQL](guides/CONTINUOUS_QUERIES.md) | A stream becomes a query becomes a view, with worked examples — and every SQL construct that runs or is refused, checked by a test. The single source of truth for what you write |
 | [The command line](guides/CLI.md) | `pravaha` for a running engine, `pravaha-engine` for SQL with no server |
@@ -52,7 +52,7 @@ The documents are in six folders, by who reads them and when:
 | [Running in Docker](operations/RUNNING_IN_DOCKER.md) | The two images, the `/opt/pravaha` layout path by path, the compose stack and its profiles, ports, ownership, backup, troubleshooting |
 | [Operations](operations/OPERATIONS.md) | Memory, disk, admission, what to watch, what is not solved |
 | [Security](operations/SECURITY.md) | Authentication, authorization, row filters, audit |
-| [Compatibility](operations/COMPATIBILITY.md) | What 2.0 changes (Java 25), what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
+| [Compatibility](operations/COMPATIBILITY.md) | What 2.0 changes (Java 25), which 2.0.1 fixes change an answer, what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
 
 ## Development — changing it
 
@@ -61,7 +61,7 @@ The documents are in six folders, by who reads them and when:
 | [Building and testing with Docker](development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker |
 | [Building and testing without Docker](development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) | The same walkthrough with a local JDK and Python |
 | [Running from an IDE](development/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests |
-| [Testing](development/TESTING.md) | Every test tier — unit, in-process, container-backed plugins, SDK, console, deck, performance — with and without Docker, what skips, measured times, and CI guidance |
+| [Testing](development/TESTING.md) | Every test tier — unit, in-process, container-backed plugins, SDK, console, deck, performance, the opt-in adversarial suites — with and without Docker, what skips, measured times, and CI guidance |
 | [Handover](development/HANDOVER.md) | State of the work, what is done, what is not, what a fresh session will not guess |
 | [What is left](development/REMAINING.md) | The build strategy for every buildable gap, in tranches and slots |
 

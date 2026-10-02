@@ -538,7 +538,7 @@ Rewritten and extended in Wave 7. What exists now:
 | | |
 |---|---|
 | [`docs/README.md`](../README.md) | The index: which page to read when |
-| [`../guides/CONCEPTS.md`](../guides/CONCEPTS.md) | **The highest-value page.** Eight ideas; most surprises are one of them working correctly |
+| [`../guides/CONCEPTS.md`](../guides/CONCEPTS.md) | **The highest-value page.** Ten ideas; most surprises are one of them working correctly |
 | [`../guides/QUICKSTART.md`](../guides/QUICKSTART.md) | Clone to a running continuous query |
 | [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | The whole surface, task by task, three clients |
 | [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) | Bounds, what to watch, and what is not solved |

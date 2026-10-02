@@ -11,7 +11,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-The eight ideas everything else follows from. If you read one page before using Pravaha, this is it —
+The ten ideas everything else follows from. If you read one page before using Pravaha, this is it —
 most surprises people hit are one of these working correctly.
 
 ---

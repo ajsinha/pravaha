@@ -10,7 +10,7 @@ Everything you can do with Pravaha, task by task, in Java, Python and the shell.
 Python? [`PYTHON_API_GUIDE.md`](PYTHON_API_GUIDE.md) is every SDK call and REST endpoint, one by one,
 with what each returns and refuses.
 
-Read [`CONCEPTS.md`](CONCEPTS.md) first if you have not — most surprises are one of those eight ideas
+Read [`CONCEPTS.md`](CONCEPTS.md) first if you have not — most surprises are one of those ten ideas
 working correctly. [`QUICKSTART.md`](QUICKSTART.md) is the ten-minute version of this page.
 
 ---

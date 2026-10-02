@@ -21,6 +21,9 @@
 ---
 
 > **Pravaha 2.0.0** — JDK 25 only ([what 2.0 changes and what 2.x promises](docs/operations/COMPATIBILITY.md)).
+> `develop` is 2.0.1-SNAPSHOT: an adversarial QA of 2.0.0 (2026-10-01, 322 cases) opened 50 findings
+> and three fix waves closed every one by 2026-10-02 — some of them change an answer
+> ([release notes](docs/project/RELEASE_NOTES.md), "Unreleased"; [what 2.0.1 changes](docs/operations/COMPATIBILITY.md#201-fixes-that-change-an-answer)).
 >
 > **Project status: Wave 10 of 11.** One node: an engine that maintains the answers to registered
 > SQL questions as data changes, serves them back by key, writes them to sinks, and survives its own
@@ -31,9 +34,9 @@
 > cluster mode — wave 11 — is on hold by the owner's decision ([ADR-039](docs/design/adr/039-ga-includes-the-known-gaps-and-clustering.md)).
 > Since then: queries on queries, alerts, a governed catalogue with grants, row filters and column
 > masks, a plain-English assistant over any model, BI tools over the PostgreSQL protocol, and
-> observability with dashboards and tracing. What remains before GA is hardening: the scaling gate,
-> the manual accessibility audit and the few open findings (none GA-blocking);
-> [`HANDOVER.md`](docs/development/HANDOVER.md) has the detail. This file says what is true now, and the
+> observability with dashboards and tracing. 1.0.0 (2026-09-30) was the first release with a
+> compatibility promise. What remains is the scaling gate and the manual accessibility audit; no
+> finding is open. [`HANDOVER.md`](docs/development/HANDOVER.md) has the detail. This file says what is true now, and the
 > build checks the parts of it that can be checked.
 
 ## What it is
@@ -94,10 +97,10 @@ corrected by late data arrives as a retraction of the old answer followed by the
 
 - **SQL** — Calcite parses and optimises; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs roughly **10× the interpreted path**. Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/guides/CONTINUOUS_QUERIES.md), checked against the planner by a test
 - **Continuous queries** — Registered with a name and a key; paused, resumed, dropped. Identical questions from one tenant share one computation under many names, matched on the normalised plan, so ten desks asking the same thing cost one read of the source. Each tenant is admitted by quota (queries, view state) and refused by name at the limit ([ADR-050](docs/design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md))
-- **Windows and event time** — Tumbling and hopping (sliding) windows, with slicing; session windows are refused (`PRV-2020`). A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back, and a window publishes when time passes its end
+- **Windows and event time** — Tumbling and hopping (sliding) windows, with slicing, a hop's windows starting on multiples of its slide as SQL's `HOP` does; a hop so fine a row would land in more than `pravaha.lane.max-windows-per-row` windows is refused (`PRV-3026`), and session windows are refused (`PRV-2020`). A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back — and when every partition has gone quiet the watermark catches up to what the ones that spoke said — and a window publishes when time passes its end
 - **Corrections** — Late data within a stream's declared allowed lateness (`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`; zero by default) reopens a closed window as a retraction plus the corrected answer. Every change carries a Z-set weight, through the engine, across the wire and into both SDKs
 - **Joins** — Stream-to-stream, and temporal lookup joins against a JDBC or Aerospike dimension table
-- **Sources** — Filesystem (bounded, or followed like `tail -f`), feedfile directories (CSV, Parquet), Delta Lake (deletion vectors included), JDBC polling, Aerospike scans, Cassandra `token()`-range scans (either retracting deleted and changed rows with `deletes: detect`), **PostgreSQL change data capture** (`postgres-cdc`: logical replication, an insert at +1, a delete as the whole old row at −1, an update as both, whole transactions, exactly once — the slot is confirmed only at checkpoints), **MySQL change data capture** (`mysql-cdc`: the row-based binlog read as a replica, the same weights, whole transactions, exactly once from a binlog file and offset, or a GTID set that survives a failover; changes only, no initial snapshot yet), and **Kafka topics** (`kafka`: one reader per partition, exactly once from the checkpoint's offsets, `read_committed` by default; JSON rows by column name, or `kafka-sink`'s changelog with its retractions). Filters are pushed into JDBC and Aerospike, and into Cassandra on the key (the whole partition key by equality, then clustering restrictions), projections into all three, and a continuous `COUNT`/`SUM` into JDBC as one pre-combined partial per polled page (over a watermark written only on insert: `watermark.moves.on.update: false`). Every source stamps a row with the stream's declared event-time column. One reader per source binding feeds every query bound to it, pushing the OR of their filters, except where a source promises exactly once. Connections to JDBC, PostgreSQL CDC, Aerospike, Cassandra and Kafka can be encrypted ([`CONNECTOR_TLS.md`](docs/guides/CONNECTOR_TLS.md))
+- **Sources** — Filesystem (bounded, or followed like `tail -f`), feedfile directories (CSV, Parquet), Delta Lake (deletion vectors included), JDBC polling, Aerospike scans, Cassandra `token()`-range scans (either retracting deleted and changed rows with `deletes: detect`), **PostgreSQL change data capture** (`postgres-cdc`: logical replication, an insert at +1, a delete as the whole old row at −1, an update as both, whole transactions, exactly once — the slot is confirmed only at checkpoints), **MySQL change data capture** (`mysql-cdc`: the row-based binlog read as a replica, the same weights, whole transactions, exactly once from a binlog file and offset, or a GTID set that survives a failover; changes only, no initial snapshot yet), and **Kafka topics** (`kafka`: one reader per partition, exactly once from the checkpoint's offsets, `read_committed` by default; JSON rows by column name, or `kafka-sink`'s changelog with its retractions). Filters are pushed into JDBC and Aerospike, and into Cassandra on the key (the whole partition key by equality, then clustering restrictions), projections into all three, and a continuous `COUNT`/`SUM` into JDBC as one pre-combined partial per polled page (over a watermark written only on insert: `watermark.moves.on.update: false`). Every source stamps a row with the stream's declared event-time column. One reader per source binding feeds every query bound to it, pushing the OR of their filters — Kafka and files read once through included, shared at an exact position ([ADR-054](docs/design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)); a JDBC, CDC or Delta source, or a followed file, keeps a reader per query. A source that goes away under a running query — a file deleted, a Kafka topic deleted (`PRV-5130`), a CDC slot dropped (`PRV-5117`) — stops its feed by code and turns node health `DEGRADED` rather than going quiet. Connections to JDBC, PostgreSQL CDC, Aerospike, Cassandra and Kafka can be encrypted ([`CONNECTOR_TLS.md`](docs/guides/CONNECTOR_TLS.md))
 - **Serving** — The maintained view is read by key or scanned with SQL, and subscribed to per commit — or from a snapshot: the view at a commit, then every commit after it, with none lost between (`subscribeFromSnapshot`, `snapshot=True`, `pravaha subscribe --snapshot`). Over **Arrow Flight SQL** (Java SDK, Python SDK, CLI, console), and over the **PostgreSQL wire protocol** (`pravaha.pgwire.enabled`, off by default) so `psql`, DBeaver, Grafana, **Power BI** (Import and DirectQuery, through its own PostgreSQL connector) and any Postgres driver can read a view — simple and extended protocol, text and binary results, `\d`, TLS
 - **Sinks** — A registration can also name a sink (`pravaha register --sink`), and every commit of its view is written there, retractions included. Refused at registration, before the sink opens: a query that revises its answer against an append-only sink (`PRV-2041`), any sink but an upsert over a source that repeats rows (`PRV-2042`), and a sink whose configured columns or key differ from the query's (`PRV-8010`). Shipped: `filesystem` (append-only), `aerospike-sink` (upsert and delete by key), `jdbc-sink` (a table in any JDBC database: upsert and delete by key, or append), `kafka-sink` (a Kafka topic: keyed upserts in JSON, Avro or Protobuf — keys too — with a tombstone for a retraction, schema ids checked against a registry, or an explicit changelog) `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change with its weight; one Delta commit per checkpoint, on Delta Kernel and not Spark) and `iceberg-sink` (an Apache Iceberg table on the local filesystem, kept equal to the view by key through equality deletes, or a changelog; one Iceberg snapshot per checkpoint, on iceberg-core and not Spark). Delivery is stated per sink at registration: a transactional sink such as `jdbc-sink`, `kafka-sink`, `delta-sink` or `iceberg-sink` is prepared at each checkpoint's cut and committed once the checkpoint is durable — exactly once; an idempotent upsert sink such as `aerospike-sink` is effectively once; a plain append sink such as `filesystem` is at least once
 - **State** — Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, `COUNT(DISTINCT)`'s values included. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling
@@ -111,9 +114,9 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **BI tools** — Power BI and other PostgreSQL clients read views through the gateway (Import and DirectQuery), signed in with an API key or session token, under the same grants, filters and masks
 - **Time-travel debugger** — A query is forked from one of its retained checkpoints into a second copy that reads the same sources from the offsets that checkpoint recorded — with **every sink disabled**, its view in no catalogue and its lanes its own, so the live query, its view and its subscribers see nothing. It is stepped by hand: one row, N rows, to the next commit, to a watermark, or until a column of the view crosses a value. Each step reports the rows that entered with their weights, **every operator's rows in and out**, the view's changes, and where event time stands — which is what tells a filter that rejected the row apart from an aggregate that produced a zero delta. An operator's state is readable, bounded and paged, without emitting or evicting anything. Two sessions over one checkpoint given the same steps report identically. The session exports as a **self-contained JUnit test** whose expectation is rehearsed at export time rather than asserted, so the incident becomes a regression test that compiles and passes. `pravaha debug`, Flight actions, `/api/v1/debug/*`, both SDKs, and the console's **Debugger** screen at `/queries/{name}/debug` ([ADR-048](docs/design/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md))
 - **Recovery** — Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink
-- **Survival** — A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query
+- **Survival** — A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`) — nor two engines in one JVM. A standby takes over when the claim goes stale and reports what the takeover cost. Every checkpoint carries a CRC32C, and a damaged one is skipped for the one before it (`PRV-4094`); damage in the middle of the registry journal refuses the start (`PRV-8005`); a registration refused at recovery stays listed `FAILED` with its code and health `DEGRADED`. Input that cannot be decoded, and a row whose evaluation fails before state (a division by zero, an overflow, `PRV-3027`), go to a dead-letter queue instead of ending the query
 - **Many queries on one node** — A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query** on a lane of its own, and every component reports its own bytes. With lane sharing on, **1,000 queries over one source run on 8 lanes, and each row is written into them 8 times instead of 1,000**
-- **Security** — Authentication through one verifier for every transport, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit, and a node that refuses to start open unless told to. The engine keeps its own users, passwords (Argon2id), API keys (shown once, scoped, expiring, rotatable) and sessions ([ADR-052](docs/design/adr/052-the-engine-is-the-identity-authority.md)); the console signs each person in against it and holds no credential of its own, and the CLI has `pravaha login`, `user`, `key` and `session`. The build refuses a secret written into shipped configuration
+- **Security** — Authentication through one verifier for every transport, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit, and a node that refuses to start open unless told to. The engine keeps its own users, passwords (Argon2id), API keys (shown once, scoped, expiring, rotatable) and sessions ([ADR-052](docs/design/adr/052-the-engine-is-the-identity-authority.md)); failed sign-ins bar the address they came from and every refusal answers alike, so lockout neither names users nor locks them out at will; revoking a credential ends the PostgreSQL connections and Flight subscriptions it opened at their next statement; what an unauthenticated client can make a node hold — connections, messages, request bodies, sign-ins in flight — is bounded by configuration. The console signs each person in against the engine, keeps the session in its own process behind an opaque cookie and sends CSP and frame headers, and the CLI has `pravaha login`, `user`, `key` and `session`. The build refuses a secret written into shipped configuration
 - **Embedding** — `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method, a `@PravahaTest` slice for testing it, and an actuator endpoint and health contribution when Actuator is present. See [the user guide](docs/guides/USER_GUIDE.md)
 
 ## What is not built, or not finished
@@ -146,11 +149,14 @@ in [`LIMITS.md`](docs/guides/LIMITS.md). What is left is below.
 - The eight-lane scaling target: measured at 28–42 % of linear against 90 %, on a laptop, with no
   reference hardware (below).
 - The manual WCAG 2.2 AA audit, which is a person's task.
-- The [findings register](docs/project/qa/FINDINGS.md) holds open findings, none GA-blocking.
+- The [findings register](docs/project/qa/FINDINGS.md) holds no open finding (544, 525 fixed, on
+  2026-10-02); the adversarial QA's reproductions are kept as opt-in suites
+  ([TESTING](docs/development/TESTING.md#the-adversarial-suites)).
 
 **Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.
 
-- `MIN` and `MAX` cannot be retracted incrementally, so they are never pre-combined at a source.
+- `MIN` and `MAX` cannot be retracted incrementally, so they are never pre-combined at a source,
+  and over a source that retracts they are refused at registration (`PRV-2076`).
   An Aerospike partial aggregate would need UDFs installed on the customer's cluster.
 - Transactional sinks stage each checkpoint and apply it once the checkpoint is durable. Kafka and
   Delta have no prepare that a restarted writer could commit. End-to-end delivery is still capped by
@@ -318,7 +324,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Deployment](docs/operations/DEPLOYMENT.md) | The container image and the Helm chart: volumes, ports, environment, probes, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Troubleshooting](docs/guides/TROUBLESHOOTING.md) | Every `PRV-` code |
 | [Security](docs/operations/SECURITY.md) | Authentication, authorization, row filters, audit |
-| [Compatibility](docs/operations/COMPATIBILITY.md) | What 2.0 changes (Java 25), what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
+| [Compatibility](docs/operations/COMPATIBILITY.md) | What 2.0 changes (Java 25), which 2.0.1 fixes change an answer, what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
 | [Known limits](docs/guides/LIMITS.md) | What is not built, whether it could be, and what is a boundary |
 
 | How and why | |
@@ -338,9 +344,11 @@ Parts of this documentation are checked by the build rather than by memory: the 
 `CONTINUOUS_QUERIES.md` and the case studies is planned against the real engine; the code table in
 `TROUBLESHOOTING.md` must match the declared error codes in both directions; the quickstart's
 serverless commands are run and their output compared; every module must be described, every cited
-ADR must exist, and this file's badge, status line and roadmap must agree; every lane setting and
-per-query gauge must be named in `OPERATIONS.md`; and the findings register's header must match its
-entries. Prose accuracy beyond that is not checkable, which is why the status sections above are kept
+ADR must exist, and this file's badge, status line and roadmap must agree; every relative link and
+anchor in every markdown file must resolve; every lane setting and per-query gauge must be named in
+`OPERATIONS.md`; the dialect guide's claims and the documented limits are run against the engine;
+the console's help topics are checked against the code; and the findings register's header must
+match its entries. Prose accuracy beyond that is not checkable, which is why the status sections above are kept
 short.
 
 ## Building
@@ -356,7 +364,8 @@ Base package `com.ash.messaging.pravaha`. Requires **JDK 25**, for building and 
 ```bash
 ./mvnw clean verify                                  # full build
 ./mvnw -T1C -DskipITs -Dbenchmarks.skip=true test    # fast inner loop
-./mvnw -Pall verify                                  # everything, as CI runs it
+./mvnw -Pit verify                                   # + container-backed tests (Docker), as the nightly workflow runs it
+./mvnw -Pall verify                                  # + the benchmarks module
 ./mvnw -Pep clean test-compile                       # Error Prone + NullAway (docs/development/TESTING.md)
 tools/verify-clean.sh                                # the gate: offline, no stale jars, + the Python SDK's suite
 ```
@@ -412,7 +421,7 @@ hold: the membership, lease and handoff libraries exist and no node uses them. "
 performance gate passed.
 
 Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
-release is `v2.0.0`, one node on JDK 25, with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+release is `v2.0.0`, one node on JDK 25 (`develop` carries 2.0.1's fixes), with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
 packs the server and console images and their YAML files into one files-only bundle for a QA host,
 everything under `/opt/pravaha` ([Deployment](docs/operations/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/design/system_design.md#31-delivery-roadmap)
 
