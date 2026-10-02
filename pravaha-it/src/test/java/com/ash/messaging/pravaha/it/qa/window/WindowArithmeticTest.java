@@ -267,22 +267,23 @@ class WindowArithmeticTest {
 
     @Test
     void win071_theWindowCountForARowIsTheFloorDifference() {
-        // WIN-071. count(t) = floor((t + S) / D) - floor(t / D). Two cells of this grid are the
-        // ones FINDINGS W-5 corrects: at size 10s slide 3s a row at t=0 is in three windows and a
-        // row at t=2s is in four, so no constant is right.
+        // WIN-071. Windows start on multiples of the slide (HOPALIGN-1, as SQL's HOP), so count(t) =
+        // floor(t / D) - floor((t - S) / D). Two cells of this grid are the ones FINDINGS W-5
+        // corrects: at size 10s slide 3s a row at t=0 is in four windows and a row at t=2s is in
+        // three, so no constant is right.
         List<CountCase> cases = List.of(
                 new CountCase(20 * SECOND, 10 * SECOND, 5 * SECOND, 2),
                 new CountCase(20 * SECOND, 5 * SECOND, 5 * SECOND, 4),
-                new CountCase(10 * SECOND, 3 * SECOND, 0, 3),
-                new CountCase(10 * SECOND, 3 * SECOND, 2 * SECOND, 4),
-                new CountCase(7 * SECOND, 2 * SECOND, 0, 3),
-                new CountCase(7 * SECOND, 2 * SECOND, SECOND, 4),
+                new CountCase(10 * SECOND, 3 * SECOND, 0, 4),
+                new CountCase(10 * SECOND, 3 * SECOND, 2 * SECOND, 3),
+                new CountCase(7 * SECOND, 2 * SECOND, 0, 4),
+                new CountCase(7 * SECOND, 2 * SECOND, SECOND, 3),
                 new CountCase(10 * SECOND, 10 * SECOND, 0, 1),
                 new CountCase(10 * SECOND, 10 * SECOND, 7 * SECOND, 1),
                 new CountCase(20 * SECOND, 10 * SECOND, -1, 2));
         for (CountCase c : cases) {
             SlicedWindows windows = new SlicedWindows(WindowSpec.hopping(c.size(), c.slide()));
-            long expected = Math.floorDiv(c.t() + c.size(), c.slide()) - Math.floorDiv(c.t(), c.slide());
+            long expected = Math.floorDiv(c.t(), c.slide()) - Math.floorDiv(c.t() - c.size(), c.slide());
             assertThat(windows.windowEndsContaining(c.t()))
                     .as("size=%d slide=%d t=%d", c.size(), c.slide(), c.t())
                     .hasSize(c.windows())
@@ -412,17 +413,18 @@ class WindowArithmeticTest {
 
     @Test
     void win152And153_theHopBoundaryLosesOneEndAcrossOneNanosecond() {
-        // WIN-152 and WIN-153. Under HOP(3s slide, 10s size) a row at 2.999999999 is in four
-        // windows and a row at 3.000000000 is in three: the end at 3s is lost across a single
-        // nanosecond, which is the shape of every off-by-one in a windowing engine.
+        // WIN-152 and WIN-153. Under HOP(3s slide, 10s size) a row at 2.999999999 is in three
+        // windows and a row at 3.000000000 is in four: the window starting at 3s is gained across a
+        // single nanosecond, which is the shape of every off-by-one in a windowing engine. Windows
+        // start on multiples of the slide (HOPALIGN-1); their ends fall at 1s past one.
         SlicedWindows hop20 = new SlicedWindows(WindowSpec.hopping(20 * SECOND, 10 * SECOND));
         assertThat(hop20.windowEndsContaining(10 * SECOND - 1)).containsExactly(10 * SECOND, 20 * SECOND);
         assertThat(hop20.windowEndsContaining(10 * SECOND)).containsExactly(20 * SECOND, 30 * SECOND);
 
         SlicedWindows hop3 = new SlicedWindows(WindowSpec.hopping(10 * SECOND, 3 * SECOND));
-        assertThat(hop3.windowEndsContaining(3 * SECOND - 1))
-                .containsExactly(3 * SECOND, 6 * SECOND, 9 * SECOND, 12 * SECOND);
-        assertThat(hop3.windowEndsContaining(3 * SECOND)).containsExactly(6 * SECOND, 9 * SECOND, 12 * SECOND);
+        assertThat(hop3.windowEndsContaining(3 * SECOND - 1)).containsExactly(4 * SECOND, 7 * SECOND, 10 * SECOND);
+        assertThat(hop3.windowEndsContaining(3 * SECOND))
+                .containsExactly(4 * SECOND, 7 * SECOND, 10 * SECOND, 13 * SECOND);
     }
 
     @Test

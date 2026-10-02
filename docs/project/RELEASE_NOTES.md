@@ -112,6 +112,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   several `NaN` payloads publishes fewer, merged groups. **Upgrade:** a 2.0.0 checkpoint holding a
   `-0.0` or a non-standard `NaN` as a key or distinct value is not restored — restored, it would stay a
   group apart — and that query rebuilds from its sources; any other checkpoint restores as before.
+- **HOP windows start on multiples of the slide, as SQL's HOP does** (HOPALIGN-1). A hop whose size is
+  not a multiple of its slide aligned its window *ends* to the slide: `HOP(10 s slide, 25 s size)` put a
+  row at 12 s in `[-5, 20)` and `[5, 30)` where SQL (Calcite, Flink) says `[-10, 15)`, `[0, 25)` and
+  `[10, 35)`, and the firing disagreed with the state's discard about a row's last window. Windows now
+  start at `k × slide`. **Answers change** for such hops only — a `TUMBLE`, and a `HOP` whose size is a
+  multiple of its slide, have exactly the windows they had. **Upgrade:** a checkpoint of such a hop
+  restores (its slices are unchanged), and windows still open fire on the new boundaries; windows the
+  view already holds keep their old boundaries until retention removes them.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the

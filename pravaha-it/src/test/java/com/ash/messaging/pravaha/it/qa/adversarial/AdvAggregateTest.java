@@ -25,7 +25,6 @@ import java.util.Random;
 import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -379,23 +378,13 @@ class AdvAggregateTest {
     }
 
     @Test
-    @Disabled("QE-065: HOP(slide 10 s, size 25 s) aligns window ENDS to the slide, so windows start at -5 s and 5 s; "
-            + "SQL's HOP (Calcite's HopEnumerator, Flink) aligns window_start to multiples of the slide")
     void qe065_hopWindowsStartOnMultiplesOfTheSlide() {
-        // t=12 lies in [-10,15), [0,25) and [10,35).
+        // HOPALIGN-1, fixed: t=12 lies in [-10,15), [0,25) and [10,35), as SQL's HOP says.
         assertThat(hop25At12())
                 .containsExactly(
                         (BASE - 10) * 1_000_000_000L + "|" + (BASE + 15) * 1_000_000_000L + "|1",
                         (BASE) * 1_000_000_000L + "|" + (BASE + 25) * 1_000_000_000L + "|1",
                         (BASE + 10) * 1_000_000_000L + "|" + (BASE + 35) * 1_000_000_000L + "|1");
-    }
-
-    @Test
-    void qe065_observed_hopWindowsAreAlignedByTheirEnd() {
-        assertThat(hop25At12())
-                .containsExactly(
-                        (BASE - 5) * 1_000_000_000L + "|" + (BASE + 20) * 1_000_000_000L + "|1",
-                        (BASE + 5) * 1_000_000_000L + "|" + (BASE + 30) * 1_000_000_000L + "|1");
     }
 
     // ------------------------------------------------------------------ top-N

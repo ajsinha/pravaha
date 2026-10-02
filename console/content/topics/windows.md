@@ -224,7 +224,7 @@ lists the details that trip people up. The sections above have the concept;
 | | Tumbling | Hopping |
 |---|---|---|
 | Function | `TUMBLE(TABLE s, DESCRIPTOR(t), size)` | `HOP(TABLE s, DESCRIPTOR(t), slide, size)` |
-| Windows | fixed width, non-overlapping | fixed width, overlapping, one starting every `slide` |
+| Windows | fixed width, non-overlapping | fixed width, overlapping, one starting on every multiple of `slide` (as SQL's `HOP`; a size that is not a multiple of the slide included, since HOPALIGN-1) |
 | A row belongs to | exactly one window | `size / slide` windows |
 | Typical use | "per minute", "per hour" totals | "the last five minutes, updated every ten seconds" |
 
