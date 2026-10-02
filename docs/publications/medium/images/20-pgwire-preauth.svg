@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+  <title>Sixteen megabytes before a password: the PostgreSQL gateway before and after PGPREAUTH-1</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 13px; }
+    .ok { font-size: 13.5px; fill: #1B6B3A; font-weight: 600; }
+    .bad { font-size: 13.5px; fill: #CC2200; font-weight: 600; }
+    .axis { font-size: 12px; fill: #4A5058; }
+  </style>
+  <defs>
+    <marker id="ai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="500" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Sixteen megabytes before a password</text>
+  <text x="40" y="68" class="small">The PostgreSQL gateway of 2.0.0, a 1 GiB container with the image's defaults, and a client that never signs in.</text>
+
+  <!-- Before -->
+  <rect x="24" y="88" width="370" height="232" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="42" y="114" class="head">2.0.0: allocate what the client declares</text>
+  <text x="42" y="142" class="mono">→ StartupMessage</text>
+  <text x="42" y="164" class="mono">→ 'p'  length = 16 MiB</text>
+  <text x="42" y="186" class="mono">  server: new byte[16 MiB]</text>
+  <text x="42" y="208" class="mono">  ... the client sends nothing</text>
+  <text x="42" y="238" class="body">No cap on connections; a 10 s deadline</text>
+  <text x="42" y="258" class="body">per socket, each holding its 16 MiB.</text>
+  <text x="42" y="290" class="bad">60 sockets: OutOfMemoryError,</text>
+  <text x="42" y="308" class="bad">JVM terminated, container exit 3</text>
+
+  <!-- After -->
+  <rect x="406" y="88" width="370" height="232" rx="10" fill="#FFFFFF" stroke="#1B6B3A" stroke-width="1.5"/>
+  <text x="424" y="114" class="head">Now: bound it before holding it</text>
+  <text x="424" y="142" class="body">Before sign-in a message is at most 16 KiB,</text>
+  <text x="424" y="162" class="body">refused on its declared length (PRV-6217)</text>
+  <text x="424" y="186" class="body">Every message allocated as its bytes arrive</text>
+  <text x="424" y="210" class="body">One 10 s handshake deadline, not renewable</text>
+  <text x="424" y="234" class="body">100 connections, 32 unauthenticated:</text>
+  <text x="424" y="254" class="body">past them FATAL 53300 (PRV-6216)</text>
+  <text x="424" y="290" class="ok">60 and 300 sockets: heap ≤ 272 MiB,</text>
+  <text x="424" y="308" class="ok">node UP</text>
+
+  <!-- Heap bars -->
+  <rect x="24" y="336" width="752" height="146" rx="10" fill="#F6E6E9"/>
+  <text x="42" y="362" class="head">Heap, as replayed</text>
+  <text x="190" y="362" class="small">a full bar is the heap limit: half of the 1 GiB container</text>
+  <text x="42" y="394" class="small">2.0.0, 60 sockets</text>
+  <rect x="230" y="382" width="480" height="18" rx="3" fill="#A51C30"/>
+  <text x="718" y="396" class="bad">OOM</text>
+  <text x="42" y="426" class="small">Fixed, 300 sockets</text>
+  <rect x="230" y="414" width="255" height="18" rx="3" fill="#1B6B3A"/>
+  <text x="493" y="428" class="ok">at most 272 MiB, node UP</text>
+  <text x="42" y="458" class="small">HTTP, 3 x 30 sign-ins</text>
+  <rect x="230" y="446" width="259" height="18" rx="3" fill="#1B6B3A"/>
+  <text x="497" y="460" class="ok">at most 276 MiB (HTTPBODY-1)</text>
+</svg>

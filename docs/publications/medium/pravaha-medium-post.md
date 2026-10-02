@@ -1,6 +1,6 @@
-# Keeping the Answer: Inside Pravaha 1.0, a Continuous-SQL Engine in Java 21
+# Keeping the Answer: Inside Pravaha 2.0, a Continuous-SQL Engine in Java 25
 
-### Register a SQL question once and the engine keeps its answer current as the data changes. Pravaha 1.0.0 is out: here are the design decisions behind it, what each one costs, the alternatives we turned down, and what the first release with a compatibility promise adds.
+### Register a SQL question once and the engine keeps its answer current as the data changes. Here are the design decisions behind Pravaha, what each one costs, the alternatives we turned down, and what happened when we attacked our own 2.0 release to see what broke.
 
 *By Ashutosh Sinha*
 
@@ -12,9 +12,11 @@ A buyer wants to know which stock lines have fallen to their reorder point. A su
 
 I built Pravaha for that situation. You register the SQL question once, the engine keeps the answer up to date as rows arrive, change and disappear, and anyone who wants the answer reads it by key or subscribes to its changes.
 
-**Pravaha 1.0.0 was released on 30 September 2026.** It's the first release with a compatibility promise: what a 1.0 client, statement, configuration or data directory relies on keeps working through every 1.x. It's a **one-node** release. Clustering is on hold and isn't in it, and I'll say where that shows. Since the last release, the engine has learned to build answers on other answers, to tell somebody when a row enters an answer and when it leaves, to govern who sees which rows and columns of an answer that is still being computed, to serve Power BI and psql as if it were PostgreSQL, and to run in or out of Docker from one directory you own.
+**Pravaha 2.0.0 was released on 1 October 2026,** a day after 1.0.0, the first release with a compatibility promise. 2.0 breaks exactly two things: it runs on **Java 25 and nothing older**, and it removes a 1.x setting that 1.0 had already announced would go. Everything else 1.0 promised is kept. It's still a **one-node** release. Clustering is on hold and isn't in it, and I'll say where that shows.
 
-This post walks through the design first: the ideas, the decisions, what each cost, and the alternatives rejected. Then it covers what's new in 1.0 with worked examples, and three case studies end to end. The project keeps an architectural decision record (ADR) for each choice, and I quote them freely. Every number comes from the repository's own documentation and test records, and where something is not built or not proven, I say so.
+The same day, we turned on our own release. Two adversarial test passes, 322 cases written to break a documented promise, ran against 2.0.0 and found **46 defects, ten of them severe**, in a build with 4,832 green tests. All of them are fixed. I think that story is worth more than a feature list, so it gets its own section below, with the numbers, two worked examples and what it taught us.
+
+This post walks through the design first: the ideas, the decisions, what each cost, and the alternatives rejected. Then it covers what 1.0 added, what 2.0 changed and what attacking it found, and three case studies end to end. The project keeps an architectural decision record (ADR) for each choice, and I quote them freely. Every number comes from the repository's own documentation and test records, and where something is not built or not proven, I say so.
 
 ---
 
@@ -304,7 +306,7 @@ ADR-052 made **the engine the identity authority.** Every credential, whether a 
 - **Passwords**: Argon2id (m=64 MiB, t=3, p=4), slow on purpose, so a stolen file doesn't yield passwords.
 - **API keys**: `prv_<env>_<keyid>_<secret>`, so a QA key is never accepted by production. The 192-bit secret is shown **once**, expiry is mandatory (90 days by default, 365 at most), and a key's roles can narrow its holder's but never widen them.
 - **Sessions**: SHA-256, because 256 random bits gain nothing from a slow hash that would cost every request.
-- **Policy**: 12 characters from 3 of 4 classes, not one of the last 5; 5 failed logins in 15 minutes lock the account for 30. The store is an append-only, fsync'd journal, with no database to run.
+- **Policy**: 12 characters from 3 of 4 classes, not one of the last 5. Five failed sign-ins from one address in 15 minutes bar *that address* from the account for 30 minutes, and fifty from any addresses lock the account; an unknown name, a wrong password and a barred sign-in all get the same answer. (In 2.0.0, five failures locked the account outright, and a locked account answered differently from an unknown name, which told anyone which users existed. The adversarial QA below found it.) The store is an append-only, fsync'd journal, with no database to run.
 
 The console now signs each person in against the engine and calls it with *their* session. The CLI has `pravaha login`, `user`, `key` and `session`.
 
@@ -371,9 +373,9 @@ for batch in client.subscribe("trade_feed", snapshot=True, reconnect=True):
 
 ---
 
-## What's new in 1.0
+## What 1.0 added, and 2.0 keeps
 
-Everything above was true of the engine a release ago. What follows is what 1.0 adds, each with the smallest example that shows it working.
+Everything above was true of the engine before 1.0. What follows is what 1.0 added, each with the smallest example that shows it working. All of it carries into 2.0 unchanged.
 
 ### Answers built on answers
 
@@ -506,20 +508,78 @@ The client SDKs are built and shipped apart from the server: the Java Flight SDK
 
 `pravaha ask` turns a description in plain English into a `CREATE CONTINUOUS QUERY` through any model: hosted APIs, any OpenAI-compatible server, Ollama or a plugin, switched while the console runs. The design keeps the model away from every guarantee above (ADR-058). The model drafts. **The engine judges**, validating and explaining the draft with registration's own preparation, and allowing up to three repair turns, none of which may change what the query reads. **A person registers it**, only after confirming. No row is ever sent to a model. There's an evaluation harness over a golden set generated from the case studies, and I'm not quoting a score for any model. It's the one feature marked experimental in 1.0, which means it may still change in a minor release.
 
-### How 1.0 was tested, and what testing found
+### How it is tested, and what testing found before 2.0
 
-The tiers, with the counts the repository records for 29 and 30 September: 4,688 Java tests in the gate (0 failures, 211 skipped, the container-backed ones among them); 960 in-process integration tests on real nodes; the connector plugins against real Kafka, PostgreSQL, MySQL, Aerospike and Cassandra through Testcontainers; 426 Python SDK tests; 1,937 console tests with the browser suites, and zero accessibility violations on every page in every theme; and the four standalone SDK clients. The findings register holds **482 findings: 464 fixed, 9 closed by design, 9 superseded, none open.**
+The tiers, with the counts the repository records: on Java 25 on 1 October, the whole reactor ran **4,832 tests, 0 failures, 12 skipped**, and the Python SDK's 426 passed against a node on 25. Counted on Java 21 at 1.0: 960 in-process integration tests on real nodes; the connector plugins against real Kafka, PostgreSQL, MySQL, Aerospike and Cassandra through Testcontainers; 1,937 console tests with the browser suites, and zero accessibility violations on every page in every theme; and the four standalone SDK clients. At 1.0.0 the findings register held 482 findings, none open. Today it holds **544: 525 fixed, 10 closed by design, 9 superseded, none open.** Static analysis came late: Error Prone and NullAway now run over the whole build on request, with no error-level finding left and 3,570 warnings listed as a backlog, mostly nullness annotations the code doesn't carry yet. It isn't a gate yet.
 
-What testing found is more interesting than the counts, because each defect was invisible from where the previous tests stood:
+What testing found before 2.0 is more interesting than the counts, because each defect was invisible from where the previous tests stood:
 
 - **A broker test that hadn't run since a fix** found a keyed Kafka sink seeing a replaced key as a tombstone and then the value, so every consumer saw the key deleted.
 - **psycopg against a running stack** found the gateway refusing `BEGIN`.
 - **A Maven client outside the build** found the two Netty lines.
 - **The research paper** found gaps in its own evidence. Writing it meant checking every claim against a test, and the claims with no test were filed as findings. Closing them reproduced a served-view defect (a key could show the row just retracted) with a property test that fails five runs out of five on the old code, and turned up a property test whose name no test runner matched, so it had never run in a build.
 
-### What 1.x promises
+### What 2.x promises
 
-From 1.0.0 the project follows semantic versioning. Stable through 1.x: the SQL dialect (a statement 1.0 accepts, every 1.x accepts and answers the same); the Java and Python SDKs' public names; every path and field of the HTTP API, held by a checked-in lock of the OpenAPI document; the Flight SQL verbs and their result columns; what psql, pgjdbc, Npgsql and psycopg may send; the `PRV` error codes, never reused; the command lines and exit codes; the configuration keys; the metric names; the `/opt/pravaha` layout; and state on disk, which any later 1.x reads. Experimental: the assistant, and anything a page marks as a preview. Going back to an older build isn't promised, and the upgrade from 0.2 is one-way once a view outside the default tenant has been recovered under its per-tenant name. Back up `data/` first.
+From 1.0.0 the project follows semantic versioning. Stable through 2.x: **Java 25 as the minimum**; the SQL dialect (a statement 1.0 accepts, every 1.x and 2.x accepts and answers the same); the Java and Python SDKs' public names; every path and field of the HTTP API, held by a checked-in lock of the OpenAPI document; the Flight SQL verbs and their result columns; what psql, pgjdbc, Npgsql and psycopg may send; the `PRV` error codes, never reused; the command lines and exit codes; the configuration keys; the metric names; the `/opt/pravaha` layout; and state on disk, which a 2.x node reads from any 1.x or 2.x. Experimental: the assistant, and anything a page marks as a preview. Going back to an older build isn't promised, and the upgrade from 0.2 is one-way once a view outside the default tenant has been recovered under its per-tenant name. Back up `data/` first.
+
+One clause of the promise matters more than it used to: a patch release changes nothing a client relies on, *except where the old behaviour was the defect.* Some of the fixes below change answers. Each one is marked in the release notes, with what it does to a checkpoint taken before it.
+
+---
+
+## 2.0: Java 25, and an attack on our own release
+
+### Java 25 through and through
+
+1.x ran on Java 21 and supported 25. In 2.0, Java 25 is the only JDK Pravaha is built, tested, run and released on, and every module (the public API, the embedded engine, the Spring Boot starter and the Java SDKs included) is compiled to Java 25 class files (ADR-061). The work 25 needed had already been done in 1.x: Hadoop 3.4.3 for the removal of the Security Manager (JEP 486), and two launcher options for the warnings on `sun.misc.Unsafe` and native access (JEPs 498 and 472). 2.0 removed the 21 path rather than adding a 25 one, and with it the launchers' version gate, the image's second tag and half the CI matrix.
+
+The cost falls on embedders, and the ADR says so. An application that embeds the engine, compiles a plugin, or calls it through a Java SDK has to run on 25. The Spring Boot starter needs **Boot 3.4 or later**, because Boot 3.2 and 3.3 can't read Java 25 class files ("Unsupported class file major version 69", measured, not guessed). The wire protocols didn't change, so a 1.x Java client keeps talking to a 2.0 node while an application moves. The other break: `pravaha.security.administer: legacy-read`, which let anyone who could read a view unfiltered also drop it, is gone, and a node that still sets it refuses to start with `PRV-7004` and says what to grant instead.
+
+### How Pravaha was attacked by its own QA
+
+Our test tiers are written by the people who wrote the code, and they test what we meant. On the day 2.0.0 shipped we ran something different: two adversarial passes against the release, on Java 25, with no product code changed. Every case was written to **break a documented promise and named the promise it attacked.** A case passed when the engine did what its documentation said, even if the tester would have designed it differently. A failure needed a reproduction. The cases were written before they were run, and kept beside a log of every execution with its evidence. (The log is honest about one exception: an exploratory probe ran before the expression and window cases took their final form, and what it turned up is what those cases were written to pin.)
+
+The engine pass drove the embedded engine directly, a child JVM fed by a followed file and killed with `SIGKILL` at random moments, and a real node with four users in two tenants. Its verdicts on answers came from **oracles written for the round**: plain Java that evaluates predicates with SQL's three-valued logic, does arithmetic in `BigInteger` and `BigDecimal`, and recomputes every aggregate from the rows that survive. The engine was compared with an independent statement of what SQL says, not with another of its own code paths. The surface pass went at a node built from a fresh clone and the shipped images in a 1 GiB container, through psql, psycopg, pgjdbc, pyarrow, the CLI, the console, the compose stack, the Helm chart and the connectors under failure.
+
+![A flow in two rows. Top: 322 cases written first, each naming the promise it tries to break; run with every verdict logged, 244 passed and 66 failed, 12 blocked or not run; 46 defects (10 high, 17 medium, 19 low) and 4 design notes, each defect with a failing test. Bottom: Wave 1, the ten high; Wave 2, the seventeen medium; Wave 3, the nineteen low and the four notes; the register at 544 findings with none open. Beneath, what held against the oracle: 420 seeded window runs, 40 seeds of 150 chained steps, 19 SIGKILLs with nothing lost or doubled, 9,800 random predicates agreeing interpreted and generated, and masks, row filters and tenant walls.](images/18-qa-waves.png)
+*From cases to fixes in two days. The register is back to none open, and every reproduction stays in the build, switched on.*
+
+**What held** is the part I care about most, because it's the part the design is about. 420 seeded window runs, comparing about 11,000 watermark advances, matched the oracle, late data and corrections included. Forty seeds of 150 chained operations over queries on queries matched on every step. Nineteen `SIGKILL`s at random points never lost or doubled an effect. 9,800 random predicates gave the same rows interpreted and through generated code, apart from one defect. Masks and row filters held on every read path tried, tenants couldn't tell another tenant's view names from names nobody holds, and every attempt to escalate a grant or take ownership was refused.
+
+**What broke** fell into four classes, and none of them broke an exact seam:
+
+- **The edges of the value domain.** An aggregate of nothing, an integer at its range, `-0.0` next to `0.0`, a hop whose size isn't a multiple of its slide.
+- **Bookkeeping around recovery.** A checkpoint with no checksum, a journal damaged in the middle, the state of a shared computation's second name, a replication slot dropped while the query ran.
+- **What a stranger or a setting could exhaust.** The heap, before anyone had signed in; a lane, with a one-millisecond hop over a day.
+- **Credentials.** A revoked key that kept reading on an open PostgreSQL connection; lockout that named real users.
+
+### Worked example: a SUM of nothing
+
+Here's the one that bothered me most, because it's so ordinary. Group refunds by region, where every EU refund so far is `NULL`:
+
+![Rows in: EU NULL twice, US 5 and US −5. 2.0.0 published EU refunds 0, n 0, rows 2 and US refunds 0, n 2, rows 2: two different facts with one indistinguishable 0. Now, as SQL says: EU refunds NULL, US 0. Beneath, a +1 of EU 7 makes EU's refunds 7, and its −1 leaves only NULLs, so refunds is NULL again, not 0.](images/19-all-null-sum.png)
+*"Nobody has refunded anything we know of" and "refunds netted to zero" are different answers. 2.0.0 gave both as 0.*
+
+2.0.0 published `SUM`, `AVG`, `MIN` and `MAX` of a group with no non-null value as **0**, in a window, a continuous query, over a view and on a read (ALLNULLAGG-1). SQL says `NULL`, and a reader can't tell a 0 that means "nothing" from a 0 that means "it came to zero". Now they're `NULL`; `COUNT(col)` is still 0 and `COUNT(*)` still counts rows. The fix was small because the accumulators already counted non-null values; nobody had asked that count the right question. The part that needed care is the part a maintained answer always needs: a retraction that leaves only `NULL`s has to make the answer `NULL` again, and a checkpoint has to carry that (one written by 2.0.0 still restores).
+
+Its neighbours were found the same way. `INT`, `SMALLINT` and `TINYINT` arithmetic published wrapped values: `2e9 * 2` came out as `-294967296` while `WHERE i * 2 > 0` kept the row. It's now an overflow, as a `BIGINT` one already was. A `GROUP BY` on a `DOUBLE` grouped by bits, so `-0.0` and `0.0` were two groups and two `NaN`s two more, and a view keyed by the value showed five rows in as counts summing to four; either zero is now one group, and every `NaN` one. `HOP(10 s slide, 25 s size)` put a row at 12 s into windows starting at −5 s and 5 s, where SQL (Calcite, Flink) says −10 s, 0 s and 10 s; windows now start on multiples of the slide. **These change answers**, and the release notes mark each one. A tumbling window, and a hop whose size is a multiple of its slide, have exactly the windows they had.
+
+### Worked example: sixteen megabytes before a password
+
+The PostgreSQL wire protocol sends a length before each message. 2.0.0's gateway believed it:
+
+![Left, 2.0.0: a client sends a startup message and then a password message declaring 16 MiB; the server allocates 16 MiB at once and the client sends nothing. No cap on connections and a 10-second deadline per socket: 60 sockets ended the JVM with an OutOfMemoryError, container exit 3. Right, now: before sign-in a message is at most 16 KiB and refused on its declared length (PRV-6217); every message allocated as its bytes arrive; one 10-second handshake deadline that a trickle can't renew; 100 connections, 32 unauthenticated, past them FATAL 53300 (PRV-6216). Beneath, heap bars against the heap limit: 2.0.0 with 60 sockets runs out; fixed, 300 sockets stay at or under 272 MiB; 3 bursts of 30 HTTP sign-ins stay at or under 276 MiB.](images/20-pgwire-preauth.png)
+*The cheapest attack on a long-lived node isn't a wrong answer. It's an allocation made for someone who never signs in.*
+
+A client that sent a startup packet and then a password message *declaring* 16 MiB got 16 MiB allocated on the spot, before a byte of it arrived, from a pool with no connection cap. **Sixty silent sockets ended the shipped 2.0.0 image in a 1 GiB container** (`OutOfMemoryError`, exit 3; PGPREAUTH-1). The HTTP API had the same shape: it read a request body whole, before authentication, up to its JSON parser's 20-million-character limit, and thirty concurrent 19 MB anonymous sign-ins did the same thing (HTTPBODY-1). Now a message before sign-in is at most 16 KiB and refused on its declared length, every message is allocated as its bytes arrive, the handshake has one deadline a trickling client can't renew, and connections are capped before a thread is spent on them. An HTTP body over 16 KB on an open path, or 4 MB anywhere, is refused before it's read. Replayed in the same 1 GiB container, the heap stayed **at or under 272 MiB for 60 and 300 such sockets**, and at or under 276 MiB for three bursts of thirty oversized sign-ins, with the node `UP`. Those are single replays on one configuration, so they bound this attack; they aren't a throughput figure.
+
+The same pass found the gateway checking a password once, at sign-in: a revoked API key, a signed-out session or a disabled user **kept reading on an open connection** (PGREVOKE-1). The credential is now verified again before every statement, and the connection ends with `FATAL 28000` when it no longer verifies. Flight subscriptions already re-checked every two seconds; fixing this found that they didn't check the credential still belonged to the *same* user, and now they do.
+
+### Three waves, and what they taught us
+
+The fixes went in three waves: the ten severe defects, then the seventeen medium, then the nineteen low with the four design notes, each fix landing with the test that reproduced it switched on. Three more defects turned up while fixing and were fixed too. Two fixes were deliberately narrower than the obvious one, and the register says why. The registry journal didn't get a per-record checksum, because a 2.0.0 node would read one as a torn tail; damage in the middle of the journal now refuses the start and names the byte offsets instead of silently dropping every later registration. `MIN` and `MAX` over a source that deletes aren't made retractable, because that needs a multiset of values per slice and new checkpoint state; they're refused when you register them (`PRV-2076`), where 2.0.0 accepted them and stopped on the first deletion.
+
+Two lessons, one comfortable and one not. The comfortable one: the exact-seam guarantees that are the point of this design survived an attack written to break them. What broke was the territory around them that no theorem covers, and a proof about exact seams is no defence against a wrapped integer. The uncomfortable one: a release with one open finding in a register of 492 and a green build of 4,832 tests still had 46 defects in it. "None open" describes what has been looked for. Some things weren't looked for this time, and the log says so: a genuinely full disk (that needed root), TLS, Power BI Desktop, and Npgsql, the .NET driver Power BI uses, because there's no .NET on the machine the round ran on.
 
 ---
 
@@ -678,20 +738,20 @@ The first minute has one payment, not two, because `p-003` was declined. Widen t
 
 **The requirement is about 1,000 rows per second** (ADR-042), because Pravaha maintains answers to registered questions rather than moving bulk data. The design's original figures, 1.2 M rows/s per lane for one profile and ≥ 90% scaling from one lane to eight, are **kept, unchanged, as gate criteria**. The ADR explains why restating a bar against the real requirement differs from moving a gate to fit a result: the number moves in public, and both figures stay on record.
 
-On 2026-09-20, the gates were measured on the development machine, a 12-core heterogeneous laptop that was running other work at the time. There's no reference hardware, and there won't be. Per-lane throughput for both profiles was **reached**. **The scaling criterion was not**: 28–42% of linear at eight lanes against a target of 90%, recorded as measured, and 30–31% when re-taken on 2026-09-29 at load 3.1–5.2. None of those numbers is quoted as the engine's capability. Also measured: the lane machinery runs at about **21 M rows/s**, and **12 of Nexmark's 23 published queries** run as of 2026-09-26. The eleven that don't are missing SQL, not missing speed. The head-to-head against Flink hasn't been run.
+On 2026-09-20, the gates were measured on the development machine, a 12-core heterogeneous laptop that was running other work at the time. There's no reference hardware, and there won't be. Per-lane throughput for both profiles was **reached**. **The scaling criterion was not**: 28–42% of linear at eight lanes against a target of 90%, recorded as measured, and 30–31% when re-taken on 2026-09-29 at load 3.1–5.2. None of those numbers is quoted as the engine's capability, and all of them were taken on Java 21, before 2.0; none has been re-taken on 25 yet. Also measured: the lane machinery runs at about **21 M rows/s**, and **12 of Nexmark's 23 published queries** run as of 2026-09-26. The eleven that don't are missing SQL, not missing speed. The head-to-head against Flink hasn't been run.
 
 One correction is worth telling. Per-operator metrics were quoted as costing 8% of a narrow query's throughput. That figure had been taken with a code-coverage agent attached, and so had the first scaling runs. Every timing harness now refuses to report a number under one, and taken again the metrics cost **about 12%**. The published figure changed because the method did.
 
 **What isn't built, or isn't finished:**
 
-- **Multi-node execution.** Membership, fenced partition leases and rebalance/handoff exist as libraries, and no node uses them. A node **refuses to start in `PARTITIONED` mode** (`PRV-9002`) rather than pretend. Cluster mode, the last wave of the plan, is on hold by the owner's decision and isn't in 1.0. When it comes, it's meant to arrive as a 1.x addition that a single node doesn't have to adopt. Pravaha 1.0 is one node.
+- **Multi-node execution.** Membership, fenced partition leases and rebalance/handoff exist as libraries, and no node uses them. A node **refuses to start in `PARTITIONED` mode** (`PRV-9002`) rather than pretend. Cluster mode, the last wave of the plan, is on hold by the owner's decision and isn't in 2.0. When it comes, it's meant to arrive as a 2.x addition that a single node doesn't have to adopt. Pravaha 2.0 is one node.
 - **MFA and single sign-on**, dropped by decision.
 - **`mysql-cdc`** has no initial snapshot and no TLS (GTID positions that survive a failover are built). **`iceberg-sink`** writes local-filesystem tables only. **One reader per ordered source** doesn't yet cover Delta or JDBC, and a CDC binding has one consumer.
 - **Over a view**, windows, joins, `MIN`, `MAX` and `COUNT(DISTINCT)` are refused, and a member of a chain can't be replaced. **Alerts** have webhook and log channels only. **The catalogue** has no lineage, column-level tags or contracts yet.
 - **Session windows** are refused (`PRV-2020`).
 - The manual **WCAG 2.2 AA audit** of the console, which is a person's task.
 
-**What are boundaries rather than gaps:** `MIN` and `MAX` can't be retracted incrementally, so they're never pre-combined at a source. A `TRUNCATE` names no rows to retract, so it's refused rather than guessed at. The Aerospike source caps anything read from it at at-least-once end to end, whatever the engine does. RocksDB, `lz4` and a native-image build are out by decision.
+**What are boundaries rather than gaps:** `MIN` and `MAX` can't be retracted incrementally, so they're never pre-combined at a source, and over a source that deletes they're refused at registration. A `TRUNCATE` names no rows to retract, so it's refused rather than guessed at. The Aerospike source caps anything read from it at at-least-once end to end, whatever the engine does. RocksDB, `lz4` and a native-image build are out by decision.
 
 ---
 
@@ -701,6 +761,8 @@ If one habit runs through this project, it's **refusing instead of guessing.** A
 
 The other habit is **writing the trade-off down next to the decision.** A shared lane shares its fate. A rollback window costs a running computation. An index is an allocation. A hand-written CDC decoder costs decoder work and one database instead of seven. None of these is hidden in a footnote; each one sits in the ADR that made the choice, next to the alternatives that lost.
 
-The goal was never an engine that does everything. It's an engine that keeps the answer to a question you asked once, tells you exactly how far that answer can be trusted, and says plainly what it doesn't do yet. With 1.0, it also promises not to change those answers under you.
+The third habit is the newest: **attacking the release as if someone else had written it.** The adversarial round found an empty group published as zero, a wrapped integer, a checkpoint with no checksum and a heap a stranger could fill, in a build whose own tests were all green. Each is fixed, and each now has a test that would fail if it came back.
 
-*Pravaha is proprietary software by Ashutosh Sinha. The design documents, decision records and case studies quoted here are in the project's repository. The design is also written up as a research paper, "Continuous Queries as Maintained Answers", whose second edition covers 1.0.*
+The goal was never an engine that does everything. It's an engine that keeps the answer to a question you asked once, tells you exactly how far that answer can be trusted, and says plainly what it doesn't do yet. Since 1.0 it also promises not to change those answers under you, and when a fix has to change one because the old answer was wrong, it says so.
+
+*Pravaha is proprietary software by Ashutosh Sinha. The design documents, decision records, case studies and QA records quoted here are in the project's repository. The design is also written up as a research paper, "Continuous Queries as Maintained Answers", whose third edition covers 2.x and the adversarial round.*
