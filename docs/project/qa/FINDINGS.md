@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **544 findings carrying a
-status — 525 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **546 findings carrying a
+status — 525 FIXED, 2 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 2 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 2 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7657,3 +7657,16 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 ### CLIDLQ-1 (LOW) — `pravaha run --dlq` does not dead-letter rows that fail evaluation
 
 > **Status:** FIXED — pravaha-engine run --dlq attaches the row-failure sink, so an evaluation failure is dead-lettered PRV-3027 and counted as rejected; without --dlq the run still fails; PravahaCliTest.
+
+## Found sweeping documentation rot after the fix waves (2026-10-02), 2 findings
+
+### FLIGHTDECIMAL-1 (LOW) — a view with a DECIMAL column cannot be read over Arrow Flight
+
+> **Status:** OPEN — `ArrowSchemas` refuses DECIMAL, and the SDKs, the CLI and the console all read over Flight, so a view whose answer carries a DECIMAL column can only be read through the PostgreSQL gateway, although the dialect documents exact DECIMAL arithmetic and SUM over DECIMAL. The docs now say so in one sentence; mapping DECIMAL to Arrow's decimal type would remove the gap.
+> **Disposition:** POST-GA — readable over pgwire, refused by name over Flight rather than answered wrong.
+
+### SSOMODE-1 (LOW) — `pravaha.identity.mode` accepts `sso` and `hybrid` though no identity provider can be configured
+
+> **Status:** OPEN — the values are accepted and the node signs in with passwords regardless, which the no-leniency rule says should be a refusal at start naming the setting; the docs now say no provider can be configured.
+> **Disposition:** POST-GA — no behaviour is wrong today, only a setting that promises more than it does.
+

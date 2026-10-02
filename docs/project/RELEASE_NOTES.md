@@ -383,7 +383,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   overflow); 3,570 warnings remain listed (2,822 NullAway), see TESTING.md. No workflow runs
   `-Pall` or `-Pep`, so no CI job was added.
 
-Register: **544 findings — 525 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **546 findings — 525 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 

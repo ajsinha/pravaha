@@ -32,8 +32,8 @@ pointing at an old path.
 11, cluster mode, is on hold. **1.0.0** (2026-09-30) was the first release with a compatibility
 promise and **2.0.0** (2026-10-01) moved the baseline to JDK 25 (ADR-061). The adversarial QA of
 2.0.0 (2026-10-01, 322 cases) opened 46 findings, four design notes among them, and three more were
-found while fixing; Waves 1 to 3 (2026-10-01/02) fixed every one, so the register holds **544
-findings, 525 fixed, 0 open** ([the QA summary](../project/qa/SUMMARY.md)). Those fixes are 2.0.1's
+found while fixing; Waves 1 to 3 (2026-10-01/02) fixed every one, and the documentation sweep that followed opened two POST-GA findings (FLIGHTDECIMAL-1,
+SSOMODE-1), so the register holds **546 findings, 525 fixed, 2 open** ([the QA summary](../project/qa/SUMMARY.md)). Those fixes are 2.0.1's
 content and several change answers or refuse what 2.0.0 accepted — NULL aggregates of all-NULL
 groups, overflow instead of wrap on narrow integers and casts, `NaN`/`-0.0` grouping, `HOP` windows
 aligned to the slide, `MIN`/`MAX` over retracting inputs refused (`PRV-2076`), rows that fail
