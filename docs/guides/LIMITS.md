@@ -169,6 +169,40 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
   **A decision:** nothing at run time makes 86 million windows a row cheap; the bound is per node and can be raised.
 
+- **What a node holds for a client, and for a request.** Every surface bounds what an unknown or
+  slow peer can make it hold, before it reads the bytes (2.0.1, from the adversarial QA):
+
+  | Surface | Bound | Default | Past it |
+  |---|---|---|---|
+  | PostgreSQL gateway | connections; still in their handshake; per credential | `pravaha.pgwire.limits.max-connections` 100, `max-unauthenticated` 32, `max-connections-per-principal` 0 (no smaller share) | `FATAL 53300`, `PRV-6216`, before a thread is spent |
+  | PostgreSQL gateway | a message before sign-in; after it | 16 KiB (fixed); `max-message-size` 1MB | `54000`, `PRV-6217`, on the declared length |
+  | PostgreSQL gateway | the handshake; an idle signed-in connection | `authentication-timeout` 10s (one deadline a trickle cannot renew); `idle-timeout` off | `57P05`, `PRV-6219` (idle) |
+  | HTTP API | a request body on an open path (sign-in, reset, the API document); anywhere else | `pravaha.http.max-anonymous-body` 16KB; `max-request-body` 4MB | `413`, `PRV-1054`, on the declared length or as a chunked body passes it |
+  | HTTP API | sign-ins hashing a password at once | `pravaha.http.max-concurrent-sign-ins` 8 | `429`, `PRV-1055`, `Retry-After` |
+  | Identity | failed sign-ins | five from one address in 15 minutes bar that address from the account for 30; fifty from anywhere lock the account for 30 (`pravaha.identity.lockout.*`) | `401 PRV-7010`, the same answer as a wrong password ([`../operations/SECURITY.md`](../operations/SECURITY.md)) |
+  | A read of a view | result rows; work per batch | 1,000,000 rows; a batch ends every 4,096 rows so its arenas are reclaimed | `PRV-4024` / `54000`; a single row too wide for an empty arena is `PRV-3001` |
+  | An embedded push | a row wider than the query's inbox cell | `pravaha.lane.inbox.cell-bytes` | `PRV-8102`, before any of the push is delivered |
+  | Event time | a `TIMESTAMP` is nanoseconds in 64 bits | 1677-09-21 to 2262-04-11 UTC | a file line past it is `PRV-5040` (dead-lettered with a queue), a Cassandra event time `PRV-5087`, an embedded push `PRV-8102` |
+
+  An out-of-range pgwire limit stops the node (`PRV-6220`). The exact keys and their reasons are in
+  [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) and
+  [`../operations/SECURITY.md`](../operations/SECURITY.md).
+
+  **A decision:** each bound is configuration, and a refusal by code rather than a node out of heap.
+
+- **A stream declared over HTTP lasts until the node restarts.** `POST /api/v1/streams`
+  (`pravaha streams declare`) declares a stream a registration can plan over at once (DECLSTREAM-1),
+  but the declaration, and so a query over it, lasts until the node restarts. Declare a stream that must survive in
+  `pravaha.streams.<name>`.
+
+  **Buildable:** journalling declarations with the registry.
+
+- **The console's sign-in lives in the console process.** Since COOKIETOKEN-1 the cookie holds an
+  opaque id and the engine's session token stays in the console's memory, so restarting the console
+  signs everybody out of it, and several console instances behind one address need sticky sessions.
+
+  **A decision:** a cookie that carries no usable credential is worth the restart.
+
 - **Pushdown past what the stores can say exactly.** Projection is pushed into JDBC, Aerospike and
   Cassandra, and a continuous `COUNT`/`SUM` into JDBC as one partial per polled page — but only
   there: Aerospike would need Lua UDFs on the cluster and Cassandra re-reads its whole table each
@@ -180,7 +214,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   (`feed.description` on `GET /api/v1/queries/{name}`), including what Cassandra was asked for
   ([ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
 
-  **A boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally, an Aerospike partial needs UDFs installed on the cluster, and a Cassandra filter off the key needs `ALLOW FILTERING`.
+  **A boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally — over a stream whose source retracts they are refused at registration, `PRV-2076` (MINRETRACT-1) — an Aerospike partial needs UDFs installed on the cluster, and a Cassandra filter off the key needs `ALLOW FILTERING`.
 
 - **Transactional sinks cost a second write.** `jdbc-sink`, `kafka-sink` and `delta-sink` are
   transactional, and none uses its store's own two-phase commit: `jdbc-sink` stages each

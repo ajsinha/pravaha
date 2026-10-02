@@ -107,7 +107,9 @@ ok  2 in, 2 out
 ```
 
 The counts are of rows the engine saw, so a rejected line is *not* counted in — two in, two out,
-one rejected, from a three-line file.
+one rejected, from a three-line file. A row that decodes and then fails evaluation — a division by
+zero, an overflow — goes to the same file with its columns, coded `PRV-3027`, and is counted in
+`rejected` too; without `--dlq` it fails the run.
 
 ## 3. See a query the engine refuses
 

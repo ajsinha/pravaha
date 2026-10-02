@@ -45,12 +45,55 @@ Everything else this page calls stable is unchanged from 1.x: the SQL, the wire 
 HTTP API, the error codes, every other configuration key, the metrics and the container layout. A
 2.0 node reads the state any 1.x node wrote.
 
+## 2.0.1: fixes that change an answer
+
+2.0.1 is a patch: it fixes the 50 findings of the adversarial QA of 2.0.0 and adds no feature. A
+patch "changes nothing a client can rely on, except where the old behaviour was the defect" (above),
+and these are the places where it was — each a wrong answer, or a refusal that came too late, that a
+client could have come to depend on. The release notes' "Unreleased" section has every one with its
+finding; read it before upgrading a node whose queries touch any of these.
+
+| What 2.0.0 did | What 2.0.1 does | Finding |
+|---|---|---|
+| `SUM`, `AVG`, `MIN`, `MAX` of a group with no non-null value published `0` | NULL, as SQL says; `COUNT(col)` is still 0 | ALLNULLAGG-1 |
+| An `INT`, `SMALLINT` or `TINYINT` result outside its range, and a narrowing integer `CAST`, wrapped | An overflow: the query stops naming the value, or the row is dead-lettered | NARROWINT-1 |
+| `CAST` of `NaN`, `±Infinity` or an out-of-range `DOUBLE` to an integer was `0` or a clamped extreme; `BIGINT` minimum `/ -1` wrapped; an integer literal outside `BIGINT` compiled as its low 64 bits | An overflow; the literal is refused `PRV-2021` at registration | NARROWCAST-1, DIVMIN-1 |
+| A row that failed evaluation stopped the query, dead-letter queue or not | With `pravaha.dlq.directory` set it is dead-lettered (`PRV-3027`) and the query keeps running; every query gets a `<query>.dlq` | DLQPROJ-1, CLIDLQ-1 |
+| `-0.0` and `0.0`, and two `NaN` payloads, were separate groups | One group each; fewer, merged groups are published | NANGROUP-1 |
+| `NOT (d > 5)` dropped a `NaN` row from both a predicate and its negation | The IEEE complement keeps it in the negation | NANNOT-1 |
+| A `HOP` whose size is not a multiple of its slide aligned window ends to the slide | Windows start on multiples of the slide, as SQL's `HOP`; `TUMBLE` and other hops unchanged | HOPALIGN-1 |
+| A hop finer than a lane could serve registered and wedged its lane | Refused at registration, `PRV-3026` (`pravaha.lane.max-windows-per-row`) | FINEHOP-1 |
+| `MIN`/`MAX` over a retracting source registered and stopped at the first retraction (`PRV-3020`) | Refused at registration, `PRV-2076` | MINRETRACT-1 |
+| A file timestamp past 2262 was stored as a time in 1677 | Refused, `PRV-5040` | FARTIME-1 |
+| The `users` profile left the `permissive` policy in force | It sets `authenticated`; a home that imported `permissive` under it refuses to start with `PRV-7034` until the policy is set explicitly | PERMISSIVEUSERS-1 |
+| A locked account answered `423 PRV-7011` | Every refused sign-in answers `401 PRV-7010`; failures bar the address, not the account | LOCKENUM-1 |
+| pgwire refused `COPY`, cursors and `LISTEN` as `42000 PRV-2001`, and `SELECT 1` and `SHOW search_path` as errors | `0A000 PRV-6201` by name; the probes are answered | PGCOPY-1, PGVALIDATE-1 |
+| Requests Tomcat refused itself (encoded `/`, oversized headers) were HTML | An `ApiError`, `400 PRV-1056` | TOMCATHTML-1 |
+| A running query over a deleted Kafka topic or a dropped CDC slot stayed `RUNNING` and health `UP` | The feed stops (`PRV-5130`, `PRV-5117`) and health is `DEGRADED` | TOPICGONE-1, CDCSLOT-1 |
+
+**State on disk.** A 2.0.1 node reads every 2.0.0 checkpoint and journal, with three deliberate
+exceptions that make the query rebuild from its sources rather than restore a wrong answer: a
+checkpoint holding a `-0.0` or a non-standard `NaN` as a key or distinct value (NANGROUP-1), one
+whose output schema differs from the query's (`PRV-4095`, RETYPERESTORE-1; a 2.0.0 checkpoint records
+no schema and restores as before), and a checkpoint whose checksum does not match (`PRV-4094`,
+CKPTSUM-1; a 2.0.0 checkpoint has none and is restored, logged as unverified). Going back: the
+checksum is a tail after an unchanged body, so 2.0.0 reads a 2.0.1 checkpoint; a journal holding the
+new `M` record (SHAREDLOSS-1) is not promised to an older build. Damage in the middle of a journal,
+which 2.0.0 read past silently, now refuses the start with `PRV-8005` (JOURNALMID-1).
+
+**New refusals that are configuration.** `pravaha.pgwire.limits.*`, `pravaha.http.*` and
+`pravaha.identity.lockout.*` bound what a client can make a node hold; their defaults are generous
+for one node, and a deployment past them meets `PRV-6216`, `PRV-1054` or `PRV-1055` by name
+([OPERATIONS.md](OPERATIONS.md#connections-and-request-bodies)). The console's cookie no longer
+carries the engine token, so a console restart signs everyone out of it and several console
+instances need sticky sessions.
+
 ## Stable in 2.x
 
 | Surface | What stays compatible | Where it is defined |
 |---|---|---|
 | Java | JDK 25 is the minimum through 2.x, for building, running, embedding and the Java SDKs; every module's classes target Java 25. The container images run on `eclipse-temurin:25-jre`. (1.x: JDK 21 minimum, 25 supported.) | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
-| The SQL dialect | Every statement, function and clause [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) documents keeps its meaning; a statement accepted by 1.0 is accepted by every 1.x and 2.x and answers the same. New syntax and functions may be added. | [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) |
+| The SQL dialect | Every statement, function and clause [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) documents keeps its meaning; a statement accepted by 1.0 is accepted by every 1.x and 2.x and answers the same, except where the answer was a defect — 2.0.1's are listed above. New syntax and functions may be added. | [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) |
 | The Java SDK | Public types and methods of `pravaha-api`, `pravaha-sdk-java` and `pravaha-sdk-java-flight` are not removed or changed incompatibly; methods may be added. | the javadoc jars; `sdk/pravaha-sdk-java/README.md` |
 | The Python SDK | The public names in `pravaha` (everything not starting with `_`), excluding `pravaha.assist` — see below. | [../guides/PYTHON_API_GUIDE.md](../guides/PYTHON_API_GUIDE.md) |
 | The HTTP API | Every path and field under `/api/v1`; fields may be added, never removed or retyped. | the checked-in OpenAPI lock (OPENAPILOCK-1) |

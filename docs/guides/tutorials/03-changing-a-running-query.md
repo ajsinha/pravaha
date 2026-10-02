@@ -179,7 +179,7 @@ keeps its version.
 A backfill that cannot finish makes the replacement `FAILED`. The name goes on answering the version
 it answered; the candidate is released; `failure_code` and `failure` say why.
 
-> **Version note.** This step shows **0.1.2**, the build on QA hosts today, where one cause is easy to
+> **Version note.** This step shows **0.1.2**, the QA build it was recorded on, where one cause is easy to
 > meet. From **0.1.3** it is fixed (REPL-2): the same replacement reaches `CAUGHT_UP`, and after the
 > cutover the view holds every good row exactly once. On 0.1.3 and later, read this step for what
 > `FAILED` means and what to do; the remaining causes are in the table below.

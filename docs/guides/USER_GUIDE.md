@@ -501,10 +501,14 @@ client.query_plan("card_velocity"); client.describe_view("card_velocity"); clien
 They answer by the listing's rules: a name your policy denies is refused whether or not it exists, and
 a query reading a stream you may not read answers exactly as a name that was never registered.
 
-### The records a query could not decode
+### The records a query could not decode, or could not evaluate
 
 With `pravaha.dlq.directory` set, a record a source cannot decode is kept rather than stopping the
-source. Those records are readable, and one can be put back:
+source, and — since 2.0.1 (DLQPROJ-1) — so is a row whose evaluation fails before it reaches state: a
+division by zero, an overflow or a cast with no answer in a `WHERE`, a projection or a computed
+column. Such a row is queued coded `PRV-3027` with its columns as a JSON object, and the query keeps
+running; a failure above an aggregate, window, join or top-N still stops it. Those records are
+readable, and a decoding failure can be put back:
 
 ```bash
 pravaha dlq list   --name card_velocity              # newest first, with the queue's totals
@@ -526,7 +530,8 @@ client.replay_dead_letter("card_velocity", letter_id)
 through the same decoder that refused them and the row is applied to the state the query has now;
 nothing is re-read and no earlier answer is recomputed. A record that fails to decode again returns
 to the queue as a new entry rather than being retried, and a replay that could not be correct is
-refused with `PRV-4092` saying why. Where the source will send the record again, correcting it at
+refused with `PRV-4092` saying why — which is always the answer for a `PRV-3027` row: it was decoded
+and evaluated already, and replaying it would fail the same way. Fix the data or the query. Where the source will send the record again, correcting it at
 the source is better: it then arrives in order.
 
 The bytes are a row of the source, so they are authorized like one: a caller reading the view through

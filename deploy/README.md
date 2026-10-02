@@ -21,7 +21,7 @@ helm/       the Kubernetes chart
   pravaha/            one node, as a StatefulSet. Values documented one line each in values.yaml
   pravaha/ci/         scenario values: everything on, the standby, and a node with nothing
   pravaha/files/      pravaha-rules.yaml, a copy of observability/'s, for prometheusRule.enabled
-  test.sh             helm lint + template + assertions, six of them refusals. Needs helm
+  test.sh             22 checks: helm lint + template, eight refusals, HELMNAME-1 names. Needs helm
 
 observability/  watching a node: import, load, point at the node
   grafana/            four dashboards -- node overview, query drill-down, alerts and catalogue,
@@ -32,7 +32,7 @@ observability/  watching a node: import, load, point at the node
 release/    versioning, and as much of a release as this repository can run
   dist.sh             the engine as a distribution: a PRAVAHA_HOME when unpacked (distribution/)
   version.sh          print the reactor's version. One reader, so three cannot disagree
-  set-version.sh      set or --check it across 37 poms, 2 wheels and the chart
+  set-version.sh      set or --check it across 40 poms, 2 wheels and the chart
   release.sh          the procedure, --dry-run first. Publishes NOTHING, and says why
   test.sh             8 checks on a throwaway copy of the tree. Never edits this one
 

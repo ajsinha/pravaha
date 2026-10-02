@@ -437,6 +437,20 @@ threads, so there is no request thread pool to exhaust, and the engine's lanes, 
 platform threads of their own — and `max-swallow-size` (64KB) is how much of a refused body Tomcat
 reads and discards before it closes the connection.
 
+**Failed sign-ins** are bounded by `pravaha.identity.lockout.*` (LOCKENUM-1): `failures` (5) from one
+address within `window` (15m) bar that address from the account for `duration` (30m); ten times
+`failures` from any addresses lock the account for `duration`; every refusal answers `401 PRV-7010`
+alike. `trusted-proxies` (addresses or CIDR blocks; none by default, `172.16.0.0/12` in the compose
+stack) names the proxies — the console, a load balancer — whose `X-Forwarded-For` is believed; a
+malformed entry stops the node (`PRV-7004`). The policy and its reasons are in
+[`SECURITY.md`](SECURITY.md).
+
+**Credentials are re-checked on open connections.** The PostgreSQL gateway verifies a connection's
+credential again before every statement and ends it `FATAL 28000` (`PRV-6218`) once the key is
+revoked, the session signed out or the user disabled (PGREVOKE-1); a Flight subscription re-verifies
+every two seconds and ends when the credential no longer verifies as the same principal
+(FLIGHTPRINCIPAL-1).
+
 **Sizing.** Worst case before authentication is about `max-unauthenticated` × 16 KiB on the PostgreSQL
 port and `max-connections` × 16 KB on the HTTP sign-in path — a few megabytes. After authentication,
 `max-connections` × `max-message-size` and in-flight HTTP requests × `max-request-body` are what a
@@ -936,6 +950,11 @@ keeps its last watermark forever, so the minimum stays pinned to it and every wi
 stops closing. Nothing errors. It presents as a hang.
 
 Idle exclusion drops a silent partition out of the minimum, and lets it rejoin the moment it speaks.
+**When every partition is idle** — a burst into one partition of three, then nothing — the watermark
+catches up to the lowest watermark among the partitions that delivered rows: what they said, never
+past it and never backwards, so the windows the burst has passed close `idle-after` after it. Until
+SEEDWINDOW-1 (2.0.1) it stayed where it was, which for a partition set that had never all spoken was
+nowhere, and the windows never closed.
 
 | Getting it wrong | What happens |
 |---|---|
@@ -1169,9 +1188,16 @@ restore reads what compaction left, which for `format: json` is the latest value
 and waits behind a transaction that is still open — so a producer that hangs mid-transaction holds
 the source's position until `transaction.timeout.ms` aborts it, which shows here as lag.
 
-**Threads.** One consumer and one fetch thread per partition per registration, since an exactly-once
-source is never shared between queries: ten queries over a 12-partition topic are 120 consumers.
-`buffer.records` (10 000 per partition) bounds what each holds decoded in memory.
+**Threads.** One consumer and one fetch thread per partition per binding, shared by every query over
+it ([ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): ten queries over a
+12-partition topic are 12 consumers, plus a short-lived catch-up reader for a query registered behind
+the others. `buffer.records` (10 000 per partition) bounds what each holds decoded in memory.
+
+**A deleted topic.** A quiet reader asks the brokers for its topic, and once they have not known it
+for the binding's `topic.missing.timeout` (30 s by default, at least 1 s) the feed stops with
+`PRV-5130` and node health turns `DEGRADED`, as for any stopped source (below). A broker that cannot
+be asked is not counted. Until TOPICGONE-1 (2.0.1) the query stayed `RUNNING` and health `UP` for as
+long as the topic was gone.
 
 ## One engine, and what the server still lacks
 
@@ -1931,7 +1957,8 @@ stopped moving. What does:
 | The console | The query page's **Source** row, a mark in the lists, a critical finding on Operations with the code linked to its help |
 
 The code is the source's own when it has one — `PRV-5040` for a file it could not decode, `PRV-5107`
-for a Kafka read — and `PRV-5092` when the feed stopped for a
+for a Kafka read, `PRV-5130` for a Kafka topic deleted under the reader, `PRV-5117` for a PostgreSQL
+replication slot dropped, lost or recreated under the reader (CDCSLOT-1) — and `PRV-5092` when the feed stopped for a
 reason that was not the source's (an uncoded exception, a commit that threw). A reader shared by
 several queries (SRC-3) stops all of them at once, and each reports the same stop with `shared`.
 A binding's option values are struck out of the message before it is recorded, as a sink's are.
