@@ -37,6 +37,17 @@ final class CassandraTestContainer {
     /** The keyspace every test creates, with replication factor 1 -- there is one node. */
     static final String KEYSPACE = "pravaha_test";
 
+    /**
+     * For the tests' own admin sessions: the driver's 2 s request timeout is shorter than a CREATE
+     * TABLE in a container takes when the whole build is running alongside it.
+     */
+    static final com.datastax.oss.driver.api.core.config.DriverConfigLoader ADMIN_CONFIG =
+            com.datastax.oss.driver.api.core.config.DriverConfigLoader.programmaticBuilder()
+                    .withDuration(
+                            com.datastax.oss.driver.api.core.config.DefaultDriverOption.REQUEST_TIMEOUT,
+                            java.time.Duration.ofSeconds(30))
+                    .build();
+
     private CassandraTestContainer() {}
 
     static CassandraContainer create() {

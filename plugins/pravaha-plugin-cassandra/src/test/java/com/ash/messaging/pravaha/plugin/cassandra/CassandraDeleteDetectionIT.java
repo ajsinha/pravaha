@@ -104,6 +104,7 @@ class CassandraDeleteDetectionIT {
         admin = CqlSession.builder()
                 .addContactPoint(cassandra.getContactPoint())
                 .withLocalDatacenter(localDatacenter)
+                .withConfigLoader(CassandraTestContainer.ADMIN_CONFIG)
                 .build();
         admin.execute("CREATE KEYSPACE IF NOT EXISTS " + CassandraTestContainer.KEYSPACE
                 + " WITH replication = {'class':'SimpleStrategy','replication_factor':1}");
