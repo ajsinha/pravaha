@@ -100,6 +100,16 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
     /** Written and read by the fetch thread alone: commit callbacks run inside its poll. */
     private long retryCommitAt;
 
+    /** TOPICGONE-1: how long the topic may be unknown before the reader stops (PRV-5130). */
+    private final Duration topicMissingTimeout;
+
+    /** Fetch thread only: when the topic is next asked for, and since when it has been missing (or -1). */
+    private long nextTopicCheck;
+
+    private long topicMissingSince = -1;
+
+    private static final Duration TOPIC_CHECK_WAIT = Duration.ofSeconds(2);
+
     KafkaPartitionReader(
             KafkaSourceOptions options, TopicPartition partition, Consumer<byte[], byte[]> consumer, long start) {
         this.partition = partition;
@@ -107,6 +117,7 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
         this.decoder = options.newDecoder();
         this.skipTombstones = options.skipTombstones;
         this.commitsForMonitoring = !options.monitoringGroup.isEmpty();
+        this.topicMissingTimeout = options.topicMissingTimeout;
         this.consumer = consumer;
         this.queue = new ArrayBlockingQueue<>(options.bufferRecords);
         this.position = start;
@@ -297,6 +308,9 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
                     queuedTo = next;
                 }
                 fetched = next;
+                if (records.isEmpty()) {
+                    checkTopicStillExists();
+                }
                 if (records.isEmpty() && consumerPaused) {
                     Thread.sleep(FETCH_WAIT.toMillis());
                 }
@@ -347,6 +361,49 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
             } catch (RuntimeException ignored) {
                 // Closing; the reader is finished either way.
             }
+        }
+    }
+
+    /**
+     * TOPICGONE-1: whether the topic this reader is assigned to still exists, asked every fifth of
+     * {@code topic.missing.timeout} (at most every 5s) while the partition is quiet -- a metadata
+     * request each time. A deleted topic is not an error the consumer raises -- it logs "unknown topic
+     * or partition" and polls on -- so the feed stayed {@code RUNNING} and node health {@code UP} for as
+     * long as the topic was absent. Past {@code topic.missing.timeout} the reader stops with {@code
+     * PRV-5130}, which stops the feed (FEED-1). A broker that cannot be asked is not evidence either
+     * way, and is not counted.
+     */
+    private void checkTopicStillExists() {
+        long now = System.nanoTime();
+        if (now < nextTopicCheck) {
+            return;
+        }
+        nextTopicCheck = now + Math.min(Duration.ofSeconds(5).toNanos(), topicMissingTimeout.toNanos() / 5);
+        boolean exists;
+        try {
+            List<org.apache.kafka.common.PartitionInfo> infos =
+                    consumer.partitionsFor(partition.topic(), TOPIC_CHECK_WAIT);
+            if (infos == null) {
+                return;
+            }
+            exists = infos.stream().anyMatch(info -> info.partition() == partition.partition());
+        } catch (KafkaException unanswered) {
+            return;
+        }
+        if (exists) {
+            topicMissingSince = -1;
+            return;
+        }
+        if (topicMissingSince < 0) {
+            topicMissingSince = now;
+        }
+        if (now - topicMissingSince >= topicMissingTimeout.toNanos()) {
+            throw new PravahaException(
+                    KafkaErrors.TOPIC_GONE,
+                    partition + " has not existed for " + topicMissingTimeout.toSeconds()
+                            + "s (topic.missing.timeout): "
+                            + "the topic was deleted. The source stops rather than wait for a topic of the same name, "
+                            + "which would be a new log. Recreate the topic and re-register the query.");
         }
     }
 

@@ -278,6 +278,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   unchanged, so the next start tries it again; `DROP CONTINUOUS QUERY <name>` removes the entry and
   deletes its checkpoints, and registering the name replaces it. `RecoveryRefusalsTest`,
   `RecoveryRefusalSurfacesTest`.
+- **A Kafka topic deleted under a running query stops its feed (TOPICGONE-1).** The consumer only
+  logs "unknown topic or partition" for a deleted topic, so the query stayed `RUNNING`, its feed
+  `RUNNING` and health `UP` for as long as the topic was absent. A quiet reader now asks the brokers for
+  its topic and, once they have not known it for the new option `topic.missing.timeout` (30 s, at least
+  1 s), stops with the new `PRV-5130`: the feed stops and node health is `DEGRADED`, as for any stopped
+  source (FEED-1). A broker that cannot be asked is not counted. `KafkaSourcePluginTest`,
+  `KafkaSourceBrokerTest` (Testcontainers: a real topic deleted under a reader).
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

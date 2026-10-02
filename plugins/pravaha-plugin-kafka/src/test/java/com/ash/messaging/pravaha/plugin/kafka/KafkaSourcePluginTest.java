@@ -385,6 +385,37 @@ class KafkaSourcePluginTest {
     }
 
     @Test
+    void aTopicDeletedUnderARunningReaderStopsItWithTheTopicsOwnCode() {
+        // TOPICGONE-1: the consumer only logs "unknown topic or partition" for a deleted topic, so the
+        // feed stayed RUNNING and health UP. Past topic.missing.timeout the reader stops, PRV-5130.
+        topic.append(0, "k", "{\"user_id\":\"u0\",\"amount\":0}");
+        plugin = open(Map.of("topic.missing.timeout", "1s"));
+        try (Collected rows = new Collected(plugin.schema());
+                PartitionReader reader = plugin.createReader(partition(0), null)) {
+            awaitRows(reader, rows, 1);
+            topic.drop();
+            assertThatThrownBy(() -> {
+                        long deadline =
+                                System.nanoTime() + Duration.ofSeconds(10).toNanos();
+                        while (System.nanoTime() < deadline) {
+                            reader.poll(rows, 64);
+                            Thread.sleep(5);
+                        }
+                    })
+                    .hasMessageContaining("PRV-5130")
+                    .hasMessageContaining("topic.missing.timeout");
+            assertThat(plugin.health().state()).isEqualTo(HealthStatus.State.UNHEALTHY);
+        }
+    }
+
+    @Test
+    void theTopicMissingTimeoutIsNeverShorterThanASecond() {
+        assertThatThrownBy(() -> configured(Map.of("topic.missing.timeout", "500ms")))
+                .hasMessageContaining("PRV-5100")
+                .hasMessageContaining("topic.missing.timeout");
+    }
+
+    @Test
     void aCheckpointFromAnotherTopicOrPartitionIsRefused() {
         plugin = open(Map.of());
 

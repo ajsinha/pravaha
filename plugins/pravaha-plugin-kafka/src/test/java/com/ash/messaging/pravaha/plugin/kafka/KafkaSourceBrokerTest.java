@@ -225,6 +225,34 @@ class KafkaSourceBrokerTest {
     }
 
     @Test
+    void aTopicDeletedUnderARunningReaderStopsItRatherThanWaiting() throws Exception {
+        // TOPICGONE-1, against a real broker: after the delete the consumer only logs "unknown topic
+        // or partition", and the query stayed RUNNING with health UP until the topic came back.
+        String topic = KafkaBroker.topic("gone", 1, false);
+        KafkaBroker.send(topic, 0, "k", row("u0", 0));
+        KafkaSourcePlugin plugin = open(topic, Map.of("topic.missing.timeout", "2s"));
+        try (Collected rows = new Collected(plugin.schema());
+                PartitionReader reader = plugin.createReader(partition(0), null)) {
+            awaitRows(reader, rows, 1);
+            try (Admin admin = Admin.create(Map.of("bootstrap.servers", KafkaBroker.bootstrap()))) {
+                admin.deleteTopics(List.of(topic)).all().get(30, TimeUnit.SECONDS);
+            }
+            assertThatThrownBy(() -> {
+                        long deadline =
+                                System.nanoTime() + Duration.ofSeconds(60).toNanos();
+                        while (System.nanoTime() < deadline) {
+                            reader.poll(rows, 64);
+                            sleep(20);
+                        }
+                    })
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-5130")
+                    .hasMessageContaining(topic);
+            assertThat(plugin.health().state()).isEqualTo(HealthStatus.State.UNHEALTHY);
+        }
+    }
+
+    @Test
     void healthIsLagAgainstTheBrokersEndOffsets() {
         String topic = KafkaBroker.topic("health", 2, false);
         for (int i = 0; i < 4; i++) {

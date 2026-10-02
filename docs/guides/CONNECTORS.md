@@ -973,6 +973,12 @@ What it deliberately does not do:
   has not yet read, or a checkpoint's offset is past the partition's end (the topic was deleted and
   recreated), the reader refuses with `PRV-5106` rather than reading on from wherever the log now
   starts. `auto.offset.reset` is `none` and cannot be passed through.
+- **A topic deleted under a running query stops its feed.** The consumer only logs "unknown topic or
+  partition" for a deleted topic, so a quiet reader asks the brokers for it (every fifth of
+  `topic.missing.timeout`, at most every 5 s) and, once they have not known it for
+  `topic.missing.timeout` (30 s by default, at least 1 s), stops with `PRV-5130`: the feed stops and
+  node health is `DEGRADED` (FEED-1). Until TOPICGONE-1 the query stayed `RUNNING` and health `UP`
+  for as long as the topic was gone.
 - **A partition added to the topic is read without a restart.** The partition list is read again
   every `partitions.refresh` (30 seconds by default); a new partition's reader starts at its earliest
   offset, whatever `start.from` says, and its offset is checkpointed like any other. Proved against a

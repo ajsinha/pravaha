@@ -109,6 +109,13 @@ final class KafkaSourceOptions {
      */
     final Duration partitionsRefresh;
 
+    /**
+     * How long the topic may be unknown to the brokers before a reader stops with {@code PRV-5130}
+     * (TOPICGONE-1). A delete and a recreate inside it are not seen as a gap here -- a recreated
+     * topic's offsets are then {@code PRV-5106}'s -- and a broker that cannot be asked is not counted.
+     */
+    final Duration topicMissingTimeout;
+
     /** Security and pass-through properties. */
     private final Map<String, Object> shared;
 
@@ -218,6 +225,11 @@ final class KafkaSourceOptions {
         if (partitionsRefresh.compareTo(Duration.ofSeconds(1)) < 0) {
             throw refusal("partitions.refresh must be at least 1s: each refresh asks the brokers for the topic's "
                     + "metadata, got '" + context.get("partitions.refresh", "") + "'");
+        }
+        this.topicMissingTimeout = duration(context, "topic.missing.timeout", Duration.ofSeconds(30));
+        if (topicMissingTimeout.compareTo(Duration.ofSeconds(1)) < 0) {
+            throw refusal("topic.missing.timeout must be at least 1s: the topic is asked for every few seconds, got '"
+                    + context.get("topic.missing.timeout", "") + "'");
         }
 
         Map<String, Object> merged = new LinkedHashMap<>(passThrough(context));

@@ -557,6 +557,11 @@ writes one file per commit and rewrites none.
   `GET /schemas/ids/{id}`, which is usually a proxy's error page. The reader stops rather than
   dead-lettering records that are probably fine; it resumes from its checkpoint once the registry is
   back.
+- `PRV-5130` — the topic was deleted under a running query: the brokers have not known it for
+  `topic.missing.timeout` (30 s by default). The feed stops (`pravaha_query_feed_stopped` 1, FEED-1)
+  and node health is `DEGRADED`. Recreate the topic and register the query again — a recreated topic
+  is a new log, which a restore from the old offsets would meet as `PRV-5106`. Until TOPICGONE-1 the
+  consumer only logged "unknown topic or partition" and the query stayed `RUNNING`, health `UP`.
 
 A source that seems stuck with nothing refused is usually `read_committed` waiting behind a producer's
 open transaction — the position cannot pass it until it commits or `transaction.timeout.ms` aborts it.
@@ -1096,6 +1101,7 @@ client models the error rather than an empty object.
 | `PRV-5121` | AEROSPIKE_DELETE_STATE_FAILED | plugins |
 | `PRV-5122` | CASSANDRA_DELETE_STATE_FULL | plugins |
 | `PRV-5123` | CASSANDRA_DELETE_STATE_FAILED | plugins |
+| `PRV-5130` | KAFKA_TOPIC_GONE | plugins |
 | `PRV-5140` | ICEBERG_SINK_BAD_CONFIGURATION | plugins |
 | `PRV-5141` | ICEBERG_SINK_TABLE_MISMATCH | plugins |
 | `PRV-5142` | ICEBERG_SINK_WRITE_FAILED | plugins |

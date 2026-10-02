@@ -40,7 +40,7 @@ a support conversation should have to start with.
 | PRV-5080 – PRV-5084 | `aerospike`, `aerospike-lookup`, `aerospike-sink` |
 | PRV-5085 – PRV-5089 | `cassandra` |
 | PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
-| PRV-5100 – PRV-5109 | `kafka` (source) and `kafka-sink` |
+| PRV-5100 – PRV-5109, PRV-5130 | `kafka` (source) and `kafka-sink` (5100 – 5109 was full) |
 | PRV-5110 – PRV-5118 | `postgres-cdc` |
 | PRV-5120 – PRV-5121 | `aerospike` with `deletes: detect` (5080 – 5084 was full) |
 | PRV-5122 – PRV-5123 | `cassandra` with `deletes: detect` (5085 – 5089 was full) |
@@ -466,7 +466,7 @@ query's first commit, so nothing is half-written.
 ## Kafka: kafka-sink and the kafka source
 
 One plugin, one block of codes. PRV-5100 and PRV-5101 are either direction's; PRV-5102 and PRV-5103
-are the sink's, PRV-5104 to PRV-5109 the source's. Every option, the staging topic and the sink's
+are the sink's, PRV-5104 to PRV-5109 and PRV-5130 the source's. Every option, the staging topic and the sink's
 guarantee are on [the Kafka sink](/help/topics/sink-kafka); the source's offsets, formats and
 recoveries on [the Kafka source](/help/topics/source-kafka).
 
@@ -600,6 +600,15 @@ resumes from the checkpoint's offsets with nothing lost.
 
 **On `kafka-sink`** the registry is asked only at registration, to check `schema.id` and
 `key.schema.id`: the same causes refuse the registration, and nothing is written until it answers.
+
+### PRV-5130 — Kafka: topic gone
+
+The topic a running `kafka` source reads was deleted: the brokers have not known it for
+`topic.missing.timeout` (30 seconds by default). The consumer itself only logs "unknown topic or
+partition" and waits, which left the query `RUNNING` and the node `UP` for as long as the topic was
+absent (TOPICGONE-1); the reader now stops, the feed stops (FEED-1) and node health is `DEGRADED`.
+A topic recreated under the same name is a new log whose offsets mean other records: recreate it and
+register the query again.
 
 ## postgres-cdc
 
