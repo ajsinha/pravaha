@@ -7,9 +7,20 @@
 # keeps its published password, pravaha-dev-admin; without it, the node refuses to start on that
 # password (PRV-7019). Every caller now presents a credential: people sign in to the console, and the
 # CLI and the SDKs use an API key issued from the console's Account page.
+#
+# PERMISSIVEUSERS-1: and what a signed-in person may do follows from who they are. The node's default
+# policy, `permissive`, lets every caller read every view, drop or pause any query and read the audit
+# trail -- harmless when every caller is the one developer, and wrong once there are users. So this
+# profile sets `authenticated`: a signed-in caller reads views and registers queries; drop, pause,
+# resume and replace are for a view's owner, a principal granted MODIFY/MANAGE, or the `admin` role;
+# the audit trail is for `pravaha.security.audit-readers` (default [admin]); each tenant sees itself.
+# A home whose catalogue imported `permissive` under an earlier version refuses to start with
+# PRV-7034 (two authorities): set pravaha.security.policy: permissive to keep what it imported, or
+# pravaha.catalog.authority: catalog to let the catalogue alone decide.
 pravaha:
   security:
     authentication: token
+    policy: authenticated
   identity:
     enabled: true
     store: data/identity/identity.journal

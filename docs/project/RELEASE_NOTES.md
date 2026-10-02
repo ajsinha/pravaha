@@ -272,6 +272,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   "the view's rows" and prints the changelog — on a keyed view, every version of a key; the help and
   the start-up note say so and point at `--answer`, and CLI.md documents `--answer` and the caveat.
   `test_cli_flight.py`.
+- **The `users` profile runs the `authenticated` policy (PERMISSIVEUSERS-1).** `dev,users`, the
+  profile every guide starts the console's engine with, left the default `permissive` policy in
+  force: any signed-in user could pause any view, read the audit trail and see every tenant's use.
+  `application-users.yaml` now sets `pravaha.security.policy: authenticated` — reads and
+  registrations for every signed-in user, administration by ownership, grants or `admin`, the trail
+  for `admin`. The guides and SECURITY.md say what `dev` and `users` each grant. **Upgrade note:** a
+  home whose catalogue imported `permissive` under this profile refuses to start with `PRV-7034`; set
+  `pravaha.security.policy: permissive` to keep it, or `pravaha.catalog.authority: catalog`.
+  `UsersProfileTest`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

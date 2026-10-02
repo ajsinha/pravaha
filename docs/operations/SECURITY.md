@@ -700,6 +700,18 @@ outside the dev profile refuses to start while the default is still its password
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
 still work beside all this, logged as deprecated.
 
+**The shipped profiles, and what each grants (PERMISSIVEUSERS-1).** `dev` sets
+`pravaha.security.allow-anonymous: true` and lets `admin` keep its published password: alone it serves
+every view to every caller under the default `permissive` policy — one developer on loopback, never
+anywhere reachable. `users` (`--spring.profiles.active=dev,users`, the profile the guides run the
+console with) turns on this store and token authentication **and sets `policy: authenticated`**: a
+signed-in user reads views and registers queries; drop, pause, resume and replace go by ownership,
+grants or the `admin` role; the audit trail is for `pravaha.security.audit-readers` (default
+`[admin]`); `GET /api/v1/tenants` shows each user their own tenant. Until 2.0.1 it left `permissive` in
+force, so every signed-in user could pause any view and read the trail. A home whose catalogue imported
+`permissive` under that profile refuses the new one with `PRV-7034`: set `pravaha.security.policy:
+permissive` to keep what was imported, or `pravaha.catalog.authority: catalog`.
+
 **Failed sign-ins and lockout (LOCKENUM-1).** The policy, and why each half is what it is:
 
 - *A lock is never announced to someone who has not signed in.* An unknown name, a wrong password, a
