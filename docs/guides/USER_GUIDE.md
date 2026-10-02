@@ -703,8 +703,8 @@ What the calls do:
 | `declareStream(name, "col:TYPE,...", eventTimeColumn)` / `declareStream(StreamSchema)` | A stream, with the event-time column that lets windows close |
 | `bindSource` / `bindLookup` / `bindSink(name, plugin, options)` | A plugin by the name it reports, with its options — `filesystem` is on the classpath already |
 | `register(name, sql, keyColumns...)` / `register(ContinuousQuery)` | A continuous query over streams or other queries' views, as `CREATE CONTINUOUS QUERY` (QOQAPI-1); `ContinuousQuery.named(..).retaining(..).writingTo(sink)` for retention or a sink. No key column is `PRV-2070` |
-| `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) |
-| `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers |
+| `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) — a value of the wrong type, an `Instant` past 2262, a row wider than a query's inbox cell (`pravaha.lane.inbox.cell-bytes`, CELLBYTES-1). Each query takes the push independently: if one cannot (its lane has stopped) the others commit it and the call throws `PRV-8105` naming which queries have the rows — **do not retry that push**; when no query took it, the failure is reported as it is and a retry is right (PUSHPARTIAL-1) |
+| `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers. A retraction that would reach a `MIN` or `MAX` is refused `PRV-8102` before any row is delivered (MINRETRACT-1) |
 | `advanceEventTime(stream, instant)` | Closes windows over pushed rows; a bound source's watermark advances on its own |
 | `trackEventTime(stream, allowedLateness)` | Opt-in, before `start()`, stream by stream: after each `push` the stream's event time moves to the greatest event time pushed so far less `allowedLateness`, so windows over pushed rows close without `advanceEventTime`. Forward only — an older row or a retraction never moves it back — and `advanceEventTime` still works beside it. The stream needs an event-time column (`TIMESTAMP`, or `BIGINT` nanoseconds), or `start()` is refused `PRV-8104`. Off by default: event time is the host's to declare |
 | `query(sql, params...)` / `query(Class, sql, params...)` | SQL over the views, as rows or as records |
@@ -735,7 +735,10 @@ An embedded engine has no authentication or policy: every call runs as the anony
 the assumption that your application has already decided who may call it. Run the server when that
 is not true. One known limit: an unwindowed `GROUP BY` per key is refused as unbounded state
 (`PRV-2050`, as everywhere). A global aggregate's running total is carried across a restart by its
-checkpoint, as every other operator's state is (CKPT-2).
+checkpoint, as every other operator's state is (CKPT-2). The journal and checkpoint directories are
+claimed by the engine that opens them: a second engine in the same JVM pointed at them — with the
+default node id, `pravaha-embedded`, that is easy to do in tests — is refused `PRV-4003` rather than
+run beside the first (SAMEPIDCLAIM-1). Give each engine its own directories, or close one first.
 
 ## 10. Embed it in a Spring Boot application
 
