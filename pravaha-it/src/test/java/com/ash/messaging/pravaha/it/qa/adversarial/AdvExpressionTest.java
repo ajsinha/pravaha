@@ -138,44 +138,66 @@ class AdvExpressionTest {
     }
 
     @Test
-    @Disabled("QE-007: CAST(BIGINT AS INT) out of range truncates: Long.MIN_VALUE -> 0, Long.MAX_VALUE -> -1")
     void qe007_narrowingCastOutOfRangeIsNeverTruncated() {
+        // NARROWINT-1 range-checks an integer narrowing CAST: Long.MIN/MAX are an INT overflow.
         Outcome outcome = run("SELECT id, CAST(a AS INT) AS x FROM s");
         assertThat(outcome.published("1|0")).as(outcome.toString()).isFalse();
         assertThat(outcome.published("2|-1")).as(outcome.toString()).isFalse();
+        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("INT overflow");
     }
 
     @Test
-    @Disabled("QE-008: CAST(INT AS SMALLINT) out of range truncates: 2e9 -> -27648")
     void qe008_narrowingCastToSmallintIsNeverTruncated() {
-        assertThat(run("SELECT id, CAST(i AS SMALLINT) AS x FROM s").published("1|-27648"))
-                .isFalse();
+        Outcome outcome = run("SELECT id, CAST(i AS SMALLINT) AS x FROM s");
+        assertThat(outcome.published("1|-27648")).as(outcome.toString()).isFalse();
+        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("SMALLINT overflow");
     }
 
     @Test
-    @Disabled("QE-009: CAST(DOUBLE AS BIGINT) turns NaN into 0 and +Inf/1e300 into Long.MAX_VALUE silently")
     void qe009_castOfNanOrInfinityToBigintIsNeverAnInteger() {
+        // NARROWCAST-1, fixed: NaN, the infinities and 1e300 have no BIGINT value.
         Outcome outcome = run("SELECT id, CAST(d AS BIGINT) AS x FROM s");
         assertThat(outcome.published("1|0")).as("NaN -> 0: " + outcome).isFalse();
         assertThat(outcome.published("5|9223372036854775807"))
                 .as("+Inf -> MAX: " + outcome)
                 .isFalse();
+        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("BIGINT overflow");
+        for (Object[] row : new Object[][] {ROWS[3], ROWS[4]}) {
+            Outcome one = run("SELECT id, CAST(d AS BIGINT) AS x FROM s", row);
+            assertThat(one.state()).as(one.toString()).startsWith("FAILED PRV-8003");
+            assertThat(one.rows()).as(one.toString()).isEmpty();
+        }
+        // A filter on the cast meets the same refusal: NaN is not kept by `= 0`.
+        Outcome filtered = run("SELECT id FROM s WHERE CAST(d AS BIGINT) = 0", ROWS[0]);
+        assertThat(filtered.rows()).as(filtered.toString()).isEmpty();
+        assertThat(filtered.state()).as(filtered.toString()).startsWith("FAILED PRV-8003");
+        // In range, the cast truncates towards zero as before.
+        Outcome inRange = run("SELECT id, CAST(d AS BIGINT) AS x FROM s", ROWS[5], ROWS[6]);
+        assertThat(inRange.state()).isEqualTo("RUNNING");
+        assertThat(inRange.rows()).containsExactly("6|-5", "7|2");
     }
 
     @Test
-    @Disabled("QE-010: Long.MIN_VALUE / -1 is published as Long.MIN_VALUE; + - * use *Exact, / does not")
+    void qe009_aBigintLiteralPastTheRangeIsRefusedAtRegistration() {
+        Outcome outcome = run("SELECT id, CAST(9223372036854775808 AS BIGINT) AS x FROM s");
+        assertThat(outcome.published("1|-9223372036854775808"))
+                .as(outcome.toString())
+                .isFalse();
+        assertThat(outcome.refused() + " " + outcome.state()).contains("PRV-");
+    }
+
+    @Test
     void qe010_longMinDividedByMinusOneIsNeverPublished() {
+        // DIVMIN-1, fixed: Long.MIN_VALUE / -1 is a BIGINT overflow like + - * past 64 bits.
         Outcome outcome = run("SELECT id, a / b AS x FROM s", ROWS[0]);
         assertThat(outcome.published("1|-9223372036854775808"))
                 .as(outcome.toString())
                 .isFalse();
-    }
-
-    @Test
-    void qe010_observed_longMinDividedByMinusOneIsPublished() {
-        Outcome outcome = run("SELECT id, a / b AS x FROM s", ROWS[0]);
-        assertThat(outcome.state()).isEqualTo("RUNNING");
-        assertThat(outcome.rows()).containsExactly("1|-9223372036854775808");
+        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("BIGINT overflow");
+        // The remainder has an answer.
+        Outcome modulo = run("SELECT id, a % b AS x FROM s", ROWS[0]);
+        assertThat(modulo.state()).as(modulo.toString()).isEqualTo("RUNNING");
+        assertThat(modulo.rows()).containsExactly("1|0");
     }
 
     @Test

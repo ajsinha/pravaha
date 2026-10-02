@@ -60,6 +60,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   expression, value and range), and a filter on the expression meets the same overflow as its
   projection. `2e9 * 2` was published `-294967296` while `WHERE i * 2 > 0` kept the row.
   `CAST(i AS BIGINT) * 2` asks for the 64-bit answer.
+- **A cast or a quotient with no answer of its type is an overflow** (NARROWCAST-1, DIVMIN-1).
+  `CAST(d AS BIGINT)` (or `INT`, `SMALLINT`, `TINYINT`) of `NaN`, `±Infinity` or a value past the
+  target's range, a finite `DOUBLE` past `REAL` cast to `REAL`, and `-9223372036854775808 / -1` are
+  handled as any other overflow (the query stops naming the expression and value, or the row is
+  dead-lettered as DLQPROJ-1 describes). They were published as `0`, `±9223372036854775807` and
+  `-9223372036854775808`, and `WHERE CAST(d AS BIGINT) = 0` kept NaN rows. An integer literal outside
+  `BIGINT` is refused `PRV-2021` at registration instead of compiled as its low 64 bits. A query that
+  ran over such values now stops on them: filter them out (`WHERE d BETWEEN ...`) or keep them `DOUBLE`.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the
