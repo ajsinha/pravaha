@@ -90,6 +90,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   process holds are now kept in-process too: the second engine is refused `PRV-4003` (`another engine
   in this process holds the state`), and a close deletes only the marker that claim wrote. One engine
   naming a directory twice (a journal in its checkpoint directory) is still one claim.
+- **A checkpoint carries a checksum** (CKPTSUM-1). Only the header, counts and trailer were checked, so
+  a single flipped bit in a window's state was restored and published, for ever (8–10 of 16 flips in
+  QE-080). Every checkpoint now ends with a CRC32C of its contents, checked before anything in it is
+  read; one that does not match is skipped with `PRV-4094` (new) and the one before it restored, as a
+  truncated one is. **Compatibility:** a 2.0.0 checkpoint has no checksum and is restored as before,
+  logged as unverified; the checksum is a tail after an unchanged body, so 2.0.0 still reads a 2.0.1
+  checkpoint on a rollback.
+- **A checkpoint of another output schema is not restored** (RETYPERESTORE-1). A query re-registered
+  over a stream whose selected column changed type (`v BIGINT` to `VARCHAR`) got the old `Long`s
+  restored into its new `VARCHAR` column. A checkpoint now records the output schema, and one of
+  another schema is not restored: the query rebuilds from its sources, its last checkpoint failure
+  saying `PRV-4095` (new) with both schemas. A 2.0.0 checkpoint records none and is restored as before.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the

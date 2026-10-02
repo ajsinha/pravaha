@@ -2382,6 +2382,13 @@ Node upgrades are a stop and start — there is no clustering to roll through. W
 Kubernetes, step by step, and why `terminationGracePeriodSeconds` is 60 rather than the default 30,
 is in [`DEPLOYMENT.md`](DEPLOYMENT.md), "Upgrading a node".
 
+**A checkpoint is checked before it is believed.** Since 2.0.1 every checkpoint ends with a CRC32C
+of its contents; one that does not match is skipped (`PRV-4094`, logged at `WARNING`) for the one
+before it, as a truncated one is (CKPTSUM-1). It also records the query's output schema, and one of
+another schema is not restored — the query rebuilds from its sources, `PRV-4095` (RETYPERESTORE-1). A
+checkpoint from 2.0.0 has neither: it is restored as before, logged as unverified. The checksum is a
+tail after an unchanged body, so 2.0.0 still reads a 2.0.1 checkpoint if a node is rolled back.
+
 **A checkpoint written by an older engine may be refused.** Formats inside a checkpoint carry a
 version and a different one is refused with `PRV-4002`, never guessed at. The served view's snapshot
 went to version 2 when it began keeping every value's exact type (VIEW-2); a checkpoint whose view is

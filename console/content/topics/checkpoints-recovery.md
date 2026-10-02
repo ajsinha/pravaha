@@ -219,6 +219,12 @@ not know. Restore both to the same paths under the same `pravaha.node.id`.
     guessed at. That query then resumes from the start of its sources — reprocessing, never a double
     count. See [Upgrades](/help/topics/upgrades).
 
+!!! note "A damaged checkpoint, or one of another schema, is never restored"
+    Each checkpoint carries a checksum; one whose bytes do not match is skipped with PRV-4094 and the
+    one before it is restored (CKPTSUM-1). Each records its query's output schema; a restart whose query
+    now produces another rebuilds from its sources, PRV-4095 (RETYPERESTORE-1). Checkpoints written
+    before 2.0.1 have neither and are restored as before, the first logged as unverified.
+
 !!! note "A checkpoint that cannot be restored is restored not at all"
     A checkpoint comes back in parts — each lane's operators, then the view, then what it recorded
     for sinks — and any part can refuse. The parts already back are put back to empty before the

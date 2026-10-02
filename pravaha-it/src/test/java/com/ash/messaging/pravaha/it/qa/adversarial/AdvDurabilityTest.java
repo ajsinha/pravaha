@@ -364,15 +364,10 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-080: checkpoints carry no checksum; a single flipped bit in a window checkpoint is restored as "
-            + "state and the view publishes a corrupted window boundary for ever")
     void qe080_aFlippedBitInACheckpointIsNeverRestoredAsAnAnswer(@TempDir Path dir) throws Exception {
+        // CKPTSUM-1, fixed: a checkpoint carries a CRC32C; a flipped bit is skipped (PRV-4094) and the
+        // restore falls back, so every flip converges to the same answer.
         assertThat(bitFlips(dir)).isEmpty();
-    }
-
-    @Test
-    void qe080_observed(@TempDir Path dir) throws Exception {
-        assertThat(bitFlips(dir)).isNotEmpty();
     }
 
     static List<String> bitFlips(Path dir) throws Exception {
@@ -733,17 +728,12 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-088: a checkpoint taken when column v was BIGINT is restored into the view after v became STRING; "
-            + "the view's VARCHAR column then holds a Long beside Strings")
     void qe088_aCheckpointOfAnotherOutputSchemaIsNotRestored(@TempDir Path dir) throws Exception {
-        assertThat(retyped(dir)).doesNotContain("1=Long");
-    }
-
-    @Test
-    void qe088_observed(@TempDir Path dir) throws Exception {
+        // RETYPERESTORE-1, fixed: the checkpoint records the output schema; one of another schema is
+        // rebuilt from (PRV-4095), so the VARCHAR column never holds the old Long.
         List<String> seen = retyped(dir);
-        System.out.println("NOTE QE-088 " + seen);
-        assertThat(seen).contains("1=Long", "2=String");
+        assertThat(seen).doesNotContain("1=Long");
+        assertThat(seen).contains("2=String");
         assertThat(seen.get(0)).contains("v VARCHAR");
     }
 

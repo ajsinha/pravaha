@@ -301,6 +301,16 @@ class StateDurabilityTest extends StateTestSupport {
                 new java.io.RandomAccessFile(dir.resolve("checkpoint-2.bin").toFile(), "rw")) {
             raf.seek(4);
             raf.writeInt(2);
+            // CKPTSUM-1: a checkpoint a newer engine wrote carries a checksum that matches it, so the
+            // patched file is given one -- otherwise it is skipped as damaged before its version is read.
+            long body = raf.length() - 12;
+            byte[] bytes = new byte[(int) body];
+            raf.seek(0);
+            raf.readFully(bytes);
+            java.util.zip.CRC32C crc = new java.util.zip.CRC32C();
+            crc.update(bytes);
+            raf.seek(body + 4);
+            raf.writeLong(crc.getValue());
         }
 
         // E-1. This refusal was an uncoded IllegalStateException until PRV-4002 STATE_UNREADABLE was
