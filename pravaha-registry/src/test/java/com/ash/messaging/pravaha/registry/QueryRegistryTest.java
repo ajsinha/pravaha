@@ -309,7 +309,8 @@ class QueryRegistryTest {
     @Test
     void aRegistrationNeedsAKey() {
         assertThatThrownBy(() -> registry.register("q", "SELECT user_id FROM txn", List.of(), DANA))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2070")
                 .hasMessageContaining("log");
     }
 
