@@ -1,0 +1,137 @@
+### QI-001 psql 18
+         List of relations
+ Schema |  Name   | Type  |  Owner  
+--------+---------+-------+---------
+ public | by_user | table | pravaha
+(1 row)
+
+              Table "public.by_user"
+ Column  |  Type  | Collation | Nullable | Default 
+---------+--------+-----------+----------+---------
+ user_id | text   |           | not null | 
+ amount  | bigint |           | not null | 
+
+ user_id | amount 
+---------+--------
+ alice   |    250
+(1 row)
+
+exit=0
+--- \dt
+           List of tables
+ Schema |  Name   | Type  |  Owner  
+--------+---------+-------+---------
+ public | by_user | table | pravaha
+(1 row)
+
+exit=0
+--- \dn
+ERROR:  PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT n.nspname AS "Name", pg_catalog.pg_get_userbyid(n.nspowner) AS "Owner" FROM pg_catalog.pg_namespace n WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' ORDER BY 1. PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own metadata calls, Npgsql's type loading and GetSchema, and Power BI's navigator send -- table and column listing, chiefly -- and refuses anything else by name rather than approximate a PostgreSQL function or jo
+DETAIL:  PGWIRE_UNSUPPORTED_CATALOG_QUERY
+exit=1
+--- \l
+ERROR:  PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT d.datname as "Name", pg_catalog.pg_get_userbyid(d.datdba) as "Owner", pg_catalog.pg_encoding_to_char(d.encoding) as "Encoding", 'libc' AS "Locale Provider", d.datcollate as "Collate", d.datctyp.... PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own metadata calls, Npgsql's type loading and GetSchema, and Power BI's navigator send -- table and column listing, chiefly -- and refuses anything else by name rather than approximate a Postg
+DETAIL:  PGWIRE_UNSUPPORTED_CATALOG_QUERY
+exit=1
+--- \conninfo
+      Connection Information
+      Parameter       |   Value   
+----------------------+-----------
+ Database             | pravaha
+ Client User          | admin
+ Host                 | 127.0.0.1
+ Server Port          | 26432
+ Options              | 
+ Protocol Version     | 3.0
+ Password Used        | true
+ GSSAPI Authenticated | false
+ Backend PID          | 1980911
+exit=0
+--- \du
+ERROR:  PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT r.rolname, r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb, r.rolcanlogin, r.rolconnlimit, r.rolvaliduntil , r.rolreplication FROM pg_catalog.pg_roles r WHERE r.rolname !~ '^pg_' ORDER.... PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own metadata calls, Npgsql's type loading and GetSchema, and Power BI's navigator send -- table and column listing, chiefly -- and refuses anything else by name rather than approximate a Postg
+DETAIL:  PGWIRE_UNSUPPORTED_CATALOG_QUERY
+exit=1
+--- \df
+ERROR:  PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT n.nspname as "Schema", p.proname as "Name", pg_catalog.pg_get_function_result(p.oid) as "Result data type", pg_catalog.pg_get_function_arguments(p.oid) as "Argument data types", CASE WHEN p.pro.... PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own metadata calls, Npgsql's type loading and GetSchema, and Power BI's navigator send -- table and column listing, chiefly -- and refuses anything else by name rather than approximate a Postg
+DETAIL:  PGWIRE_UNSUPPORTED_CATALOG_QUERY
+exit=1
+--- \dv
+           List of views
+ Schema |  Name   | Type  |  Owner  
+--------+---------+-------+---------
+ public | by_user | table | pravaha
+(1 row)
+
+exit=0
+### QI-002 password / session / key
+psql: error: connection to server at "127.0.0.1", port 26432 failed: FATAL:  PRV-7001  the credential was rejected
+exit=2
+ EXPR$0 
+--------
+      1
+(1 row)
+
+exit=0
+ EXPR$0 
+--------
+      1
+(1 row)
+
+exit=0
+### QI-005 user name differs
+NOTICE:  connected as 'ann', not 'dana': the credential determines the principal, not the user name in the startup packet
+ERROR:  PRV-2020  the planner produced a LogicalValues, which Pravaha cannot execute yet. Supported: scan, filter, project, compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY TUMBLE(...) forms), inner equi-joins between streams, and lookup joins against a dimension table. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+DETAIL:  SQL_UNSUPPORTED_OPERATOR
+exit=1
+### QI-006 sslmode
+psql: error: connection to server at "127.0.0.1", port 26432 failed: server does not support SSL, but SSL was required
+exit=2
+ERROR:  PRV-2020  the planner produced a LogicalValues, which Pravaha cannot execute yet. Supported: scan, filter, project, compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY TUMBLE(...) forms), inner equi-joins between streams, and lookup joins against a dimension table. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+DETAIL:  SQL_UNSUPPORTED_OPERATOR
+exit=1
+### QI-007 gssencmode
+psql: error: GSSAPI encryption required but no credential cache
+exit=2
+ERROR:  PRV-2020  the planner produced a LogicalValues, which Pravaha cannot execute yet. Supported: scan, filter, project, compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY TUMBLE(...) forms), inner equi-joins between streams, and lookup joins against a dimension table. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+DETAIL:  SQL_UNSUPPORTED_OPERATOR
+exit=1
+### QI-021 writes
+--- INSERT INTO by_user VALUES ('x',1)
+ERROR:  42000: PRV-2020  INSERT is not built: this engine answers questions and maintains views, and it has no DML surface -- there is nothing here whose rows a statement may edit in place. A continuous query names where its output goes beside its own name and key, not instead of them: CREATE CONTINUOUS QUERY <name> KEYED BY (<column>, ...) WRITING TO <sink> AS <select>. The same thing is said by WITH (sink = '<sink>'), by `pravaha register --sink <sink>`, and by the fourth field of the pravaha.register Flight action. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what
+DETAIL:  SQL_UNSUPPORTED_OPERATOR
+exit=1
+--- CREATE TABLE t(a int)
+ERROR:  42000: PRV-2001  Incorrect syntax near the keyword 'CREATE' at line 1, column 1.
+Was expecting one of:
+    "ABS" ...
+    "ALTER" ...
+exit=1
+--- DELETE FROM by_user
+ERROR:  42000: PRV-2020  DELETE is not built: this engine answers questions and maintains views, and it has no DML surface -- there is nothing here whose rows a statement may edit in place. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+DETAIL:  SQL_UNSUPPORTED_OPERATOR
+exit=1
+--- UPDATE by_user SET amount=1
+ERROR:  42000: PRV-2020  UPDATE is not built: this engine answers questions and maintains views, and it has no DML surface -- there is nothing here whose rows a statement may edit in place. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+DETAIL:  SQL_UNSUPPORTED_OPERATOR
+exit=1
+--- SELECT STREAM user_id FROM txn
+ERROR:  42P01: PRV-4023  'txn' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.
+DETAIL:  SERVING_NO_SUCH_VIEW
+exit=1
+--- CREATE ALERT a ON by_user NOTIFY log
+ERROR:  25006: PRV-6211  the PostgreSQL gateway is read-only: it does not register, drop, pause, resume or list continuous queries, or show or change the catalogue's grants (ADR-059). Send the statement over Flight SQL instead -- an SDK's query(), `pravaha query --sql`, or the console's workbench -- where it runs as your principal.
+DETAIL:  PGWIRE_READ_ONLY
+exit=1
+--- DROP TABLE by_user
+ERROR:  42000: PRV-2001  Incorrect syntax near the keyword 'DROP' at line 1, column 1.
+Was expecting one of:
+    "ABS" ...
+    "ALTER" ...
+exit=1
+--- COPY by_user TO STDOUT
+ERROR:  42000: PRV-2001  Non-query expression encountered in illegal context
+DETAIL:  SQL_PARSE_FAILED
+exit=1
+### QI-032 injection via bound param (psql \bind)
+ERROR:  PRV-2001  Lexical error at line 1, column 42.  Encountered: "\\" (92), after : ""
+DETAIL:  SQL_PARSE_FAILED

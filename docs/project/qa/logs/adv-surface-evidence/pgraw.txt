@@ -1,0 +1,11 @@
+c008: ['E[0A000] PRV-6203  this server speaks PostgreSQL protocol 3.0; the client asked for 2.0. Protocol 2 clients predate PostgreSQL 7.4 and are not supported. <', 'E[0A000] PRV-6203  this server speaks PostgreSQL protocol 3.0; the client asked for 4.0. Protocol 2 clients predate PostgreSQL 7.4 and are not supported. <']  | node=200
+c009: ['E[08P01] PRV-6202  a startup packet declared 10001 bytes; the protocol allows 8 to 10000. This is not a PostgreSQL client, or not a PostgreSQL port. <', 'E[08P01] PRV-6202  a startup packet declared 2147483647 bytes; the protocol allows 8 to 10000. This is not a PostgreSQL client, or not a PostgreSQL port. <', 'E[08P01] PRV-6202  a startup packet declared 7 bytes; the protocol allows 8 to 10000. This is not a PostgreSQL client, or not a PostgreSQL port. <']  | node=200
+c010: N[08P01] PRV-6202  the client sent more than 4 encryption requests without ever sending a startup packet  | node=200
+c014: ["E[08P01] PRV-6202  a 'Q' message declared 3 bytes; this server accepts 4 to 16777216 <", "E[08P01] PRV-6202  a 'Q' message declared 0 bytes; this server accepts 4 to 16777216 <", "E[08P01] PRV-6202  a 'Q' message declared -1 bytes; this server accepts 4 to 16777216 <"]  | node=200
+c015: E[0A000] PRV-6201  message type 'z' is not supported by this server. Not implemented by this server. This gateway serves SELECT, over the simple or the extended query pr Z(I)  | node=200
+c016: E[34000] PRV-6208  the unnamed portal does not exist. It was never Bound on this connection, or has been Closed. Z(I) || after: T D C Z(I)  | node=200
+c017: 1 E[42000] PRV-2061  this statement has 1 placeholder and 2 values were bound Z(I) || after: T D C Z(I)  | node=200
+c018: 1 Z(I) || second: 1 Z(I)  | node=200
+c022: <  | node=200
+c013: T C Z(I) (21.0s)  | node=200
+c011: threads before=89 with 50 silent=138 after deadline=138; closed by server=50/50  | node=200

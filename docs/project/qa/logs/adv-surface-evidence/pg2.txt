@@ -1,0 +1,51 @@
+### keepalive / validation shapes (autocommit)
+'': OK (None, None, None)
+';': OK (None, None, None)
+'-- ping': OK (None, None, None)
+'SELECT 1': SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2020  the planner produced a LogicalValues, which Pravaha cannot execute yet. Supported: scan, filter, project, compute, aggregate, windowing (both the TABLE(TUMBLE(...)) and GROUP BY TUMBLE(...) forms), inner equi-joins between streams, and look
+'select 1 from by_user limit 1': OK ('SELECT 1', ['EXPR$0'], [(1,)])
+'SELECT version()': OK ('SELECT 1', ['version'], [("PostgreSQL 9.4.26 (Pravaha) -- Pravaha's PostgreSQL wire gateway",)])
+'SELECT current_schema()': OK ('SELECT 1', ['current_schema'], [('public',)])
+'SHOW server_version': OK ('SHOW', ['server_version'], [('9.4.26 (Pravaha)',)])
+'SHOW TRANSACTION ISOLATION LEVEL': OK ('SHOW', ['transaction_isolation'], [('read committed',)])
+"SET application_name='x'": OK ('SET', None, None)
+'SELECT pg_backend_pid()': OK ('SELECT 1', ['pg_backend_pid'], [('1980911',)])
+'SELECT * FROM pg_settings': UndefinedTable sqlstate=42P01 PRV-4023  'pg_settings' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.
+'SELECT * FROM pg_catalog.pg_type LIMIT 3': FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT * FROM pg_catalog.pg_type LIMIT 3. PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own metadata 
+'SELECT table_name FROM information_schema.tables': FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT table_name FROM information_schema.tables. PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own m
+"SELECT column_name, data_type FROM information_schema.columns WHERE table_name='by_user'": FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT column_name, data_type FROM information_schema.columns WHERE table_name='by_user'. PgCatalogShim answers the specific query shapes psql (at the server_version this g
+'SELECT count(*) FROM by_user': OK ('SELECT 1', ['EXPR$0'], [(1,)])
+'DECLARE c CURSOR FOR SELECT * FROM by_user': SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2001  Incorrect syntax near the keyword 'DECLARE' at line 1, column 1.
+'FETCH 1 FROM c': SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2001  Incorrect syntax near the keyword 'FETCH' at line 1, column 1.
+'SET statement_timeout = 5000': FeatureNotSupported sqlstate=0A000 PRV-6204  SET statement_timeout is not one of the settings this gateway accepts (extra_float_digits, application_name, client_min_messages, client_encoding, DateStyle). This server has no per-session state for a SET to change, so a parameter is only 
+'SET search_path TO public': FeatureNotSupported sqlstate=0A000 PRV-6204  SET search_path is not one of the settings this gateway accepts (extra_float_digits, application_name, client_min_messages, client_encoding, DateStyle). This server has no per-session state for a SET to change, so a parameter is only ever a
+'SHOW search_path': SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2001  Incorrect syntax near the keyword 'SHOW' at line 1, column 1.
+'SELECT now()': SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2002  No match found for function signature now(). Pravaha evaluates + - * / %, ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, SUBSTRING, ||, DATE_FORMAT, REGEXP_EXTRACT and SPLIT_INDEX, and the aggregates COUNT, SUM, MIN, MAX and AVG; e
+"SET TIME ZONE 'UTC'": SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2001  Incorrect syntax near the keyword 'TIME' at line 1, column 5.
+"SELECT 'a'::text": SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2001  Encountered ":" at line 1, column 11.
+### QI-019 failed block, default (non-autocommit) mode
+bad stmt: SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2002  Column 'nope' not found in any table. This server has 2 stream(s) declared; their names are not listed here because that would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read
+next in failed block: InFailedSqlTransaction sqlstate=25P02 PRV-6212  current transaction is aborted, commands ignored until end of transaction block. An earlier statement in this block failed; send ROLLBACK (or ROLLBACK TO a savepoint) to go on.
+status: OK '3'
+rollback: OK None
+read after rollback: OK [('alice', 250)]
+### QI-020 COMMIT inside a failed block
+begin: OK 'BEGIN'
+bad: SyntaxErrorOrAccessRuleViolation sqlstate=42000 PRV-2002  Column 'nope' not found in any table. This server has 2 stream(s) declared; their names are not listed here because that would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read
+commit tag: OK 'ROLLBACK'
+status after: OK '0'
+### QI-032 bound injection
+injection: OK []
+bound ok: OK [('alice', 250)]
+binary bound: ProtocolViolation sqlstate=08P01 PRV-6202  a binary parameter declared 2 bytes; this server expected 8
+### QI-025 client_encoding
+client_encoding=LATIN1: OK ('utf-8', [('alice',)])
+client_encoding=SQL_ASCII: OK ('utf-8', [('alice',)])
+client_encoding=UTF8: OK ('utf-8', [('alice',)])
+### QI-030 catalogue as bob / carl (other tenant)
+bob tables: FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT table_name FROM information_schema.tables. PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own m
+bob pg_class: FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','v'). PgCatalogShim answers the specific query shap
+bob read by_user: OK [('alice', 250)]
+carl tables: FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT table_name FROM information_schema.tables. PgCatalogShim answers the specific query shapes psql (at the server_version this gateway announces), a JDBC driver's own m
+carl pg_class: FeatureNotSupported sqlstate=0A000 PRV-6205  this looks like a pg_catalog query this gateway does not recognise: SELECT relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','v'). PgCatalogShim answers the specific query shap
+carl read by_user: UndefinedTable sqlstate=42P01 PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one.

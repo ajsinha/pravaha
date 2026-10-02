@@ -1,0 +1,11 @@
+ Container pravaha-qa-pravaha-server-1 Stopped 
+mysql-bin.000007	197	No
+07c49a5e-bdff-11f1-9ef7-9ee431a9b92a:1-17
+ Container pravaha-qa-pravaha-server-1 Started 
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  0        -
+spend_per_minute  RUNNING  93ae117f9e65  0        -
+PRV-4023  'payments_live' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.
+  look PRV-4023 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+UP
+2026-10-02T01:22:31.283Z  WARN 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : registration not recovered -- payments_live: PRV-5155  plugin 'payments' cannot resume from gtid=07c49a5e-bdff-11f1-9ef7-9ee431a9b92a:1-15;binlog=mysql-bin.000005:197: mysql:3306 has purged transactions 07c49a5e-bdff-11f1-9ef7-9ee431a9b92a:16-17 that come after it. The changes in between are gone, so the checkpoint cannot be resumed exactly. Raise binlog_expire_logs_seconds above the longest outage, then drop the registration and its checkpoint and register again. [PRV-5155]

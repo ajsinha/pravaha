@@ -1,0 +1,265 @@
+### QI-080 exit codes
+$ pravaha nosuchcommand
+  exit=2
+  stdout: 
+  stderr: argument <command>: invalid choice: 'nosuchcommand' (choose from query, register, queries, pause, resume, drop, replace, replacements, cutover, rollback, abandon, finish, throttle, pause-backfill, resume-backfill, subscribe, dlq, debug, status, health, version, metrics, plugins, sinks, streams, view
+$ pravaha register --name x
+  exit=2
+  stdout: 
+  stderr: --sql or --sql-file is required|
+$ pravaha --url grpc://127.0.0.1:1 queries
+  exit=3
+  stdout: 
+  stderr: PRV-1040  failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:1: Failed to connect to remote host: Connection refused (talking to grpc://127.0.0.1:1 -- pass --url if that is not the node you meant)|
+$ pravaha --http http://127.0.0.1:1 status
+  exit=3
+  stdout: 
+  stderr: PRV-1040  the engine's HTTP API at http://127.0.0.1:1 did not answer: [Errno 111] Connection refused (talking to http://127.0.0.1:1 -- pass --http if that is not the node you meant)|
+$ pravaha query --sql SELECT * FROM nope
+  exit=1
+  stdout: 
+  stderr: PRV-4023  'nope' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.|  look PRV-4023 up in the console's help under Errors, or in
+$ env PRAVAHA_INSECURE_TOKEN= pravaha --token abc queries
+  exit=2
+  stdout: 
+  stderr: PRV-1031  refusing to send a token over a plaintext connection to grpc://127.0.0.1:29490; use grpc+tls://, remove the token, or pass allow_insecure_token=True if the connection is loopback or TLS ends at a local sidecar|
+$ env PRAVAHA_INSECURE_TOKEN= pravaha --token abc status
+  exit=2
+  stdout: 
+  stderr: PRV-1031  refusing to send a token over plaintext HTTP to http://127.0.0.1:28480; use https://, remove the token, or pass allow_insecure_token=True for a loopback engine|
+$ pravaha --http http://127.0.0.1:1 health
+  exit=3
+  stdout: 
+  stderr: PRV-1040  the engine's HTTP API at http://127.0.0.1:1 did not answer: [Errno 111] Connection refused (talking to http://127.0.0.1:1 -- pass --http if that is not the node you meant)|
+### QI-087 health
+$ pravaha health
+  exit=0
+  stdout: UP|
+  stderr: 
+### QI-081 --json
+$ pravaha --json queries
+  exit=0
+  stdout: [|  {|    "name": "by_user",|    "state": "RUNNING",|    "sql": "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED'",|    "fingerprint": "6800f1454919",|    "rows_in": 1,|    "key_columns": [|      0|    ],|    "sink": null,|    "retention": "forever",|    "feed": "RUNNING",|    "feed_stop":
+  stderr: 
+$ pravaha --json query --sql SELECT bad FROM by_user
+  exit=1
+  stdout: 
+  stderr: {"error": {"code": "PRV-2002", "message": "PRV-2002  Column 'bad' not found in any table. This server has 6 stream(s) declared; their names are not listed here because that would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.", "exi
+$ pravaha --json status
+  exit=0
+  stdout: {|  "instanceId": "pravaha-node-01",|  "version": "2.0.1-SNAPSHOT",|  "engineState": "RUNNING",|  "uptimeSeconds": 282,|  "registeredQueries": 3,|  "plugins": [],|  "streams": 3,|  "stoppedFeeds": 0,|  "flight": "0.0.0.0:29490"|}|
+  stderr: 
+$ pravaha --json nosuchcommand
+  exit=2
+  stdout: 
+  stderr: {"error": {"code": null, "message": "argument <command>: invalid choice: 'nosuchcommand' (choose from query, register, queries, pause, resume, drop, replace, replacements, cutover, rollback, abandon, finish, throttle, pause-backfill, resume-backfill, subscribe, dlq, debug, status, health, version, m
+### QI-082 options before/after
+$ pravaha queries --url grpc://127.0.0.1:29490
+  exit=0
+  stdout: NAME     STATE    FINGERPRINT   ROWS IN  SINK|by_user  RUNNING  6800f1454919  1        -|uni      RUNNING  5312e0f595fb  1        -|allrows  RUNNING  a8f9062e8ed7  1        -|
+  stderr: 
+$ pravaha --url grpc://127.0.0.1:29490 queries
+  exit=0
+  stdout: NAME     STATE    FINGERPRINT   ROWS IN  SINK|by_user  RUNNING  6800f1454919  1        -|uni      RUNNING  5312e0f595fb  1        -|allrows  RUNNING  a8f9062e8ed7  1        -|
+  stderr: 
+### QI-083 destructive without --yes
+$ pravaha drop --name uni
+  exit=0
+  stdout: would drop uni  state=RUNNING  fingerprint=5312e0f595fb|  it is the computation's last name, so the computation and its view go too|
+  stderr: nothing was dropped; run `pravaha drop --name uni --yes` to drop it|
+$ pravaha key revoke 8fe4a9ce3338
+  exit=0
+  stdout: would revoke 8fe4a9ce3338: it stops working at once, and cannot be restored|
+  stderr: nothing was changed; run `pravaha key revoke 8fe4a9ce3338 --yes` to do it|
+$ pravaha user disable ann
+  exit=0
+  stdout: would disable ann: they can no longer sign in, and every session of theirs ends|
+  stderr: nothing was changed; run `pravaha user disable ann --yes` to do it|
+$ pravaha lanes rebalance
+  exit=0
+  stdout: mode auto, room for 61 more on lanes of their own|nothing to move|
+  stderr: 
+$ pravaha revoke SELECT by_user --role reader
+  exit=0
+  stdout: would revoke SELECT on by_user from ROLE reader: it takes effect at their next read, and ends their open subscriptions|
+  stderr: nothing was changed; run `pravaha revoke SELECT by_user --role reader --yes` to do it|
+$ pravaha policy drop nopolicy
+  exit=0
+  stdout: would drop nopolicy; the engine refuses while it is still bound anywhere|
+  stderr: nothing was changed; run `pravaha policy drop nopolicy --yes` to do it|
+$ pravaha alert drop noalert
+  exit=0
+  stdout: would drop the alert noalert, with the state of every key and its notification history|
+  stderr: nothing was changed; run `pravaha alert drop noalert --yes` to do it|
+$ pravaha queries
+  exit=0
+  stdout: NAME     STATE    FINGERPRINT   ROWS IN  SINK|by_user  RUNNING  6800f1454919  1        -|uni      RUNNING  5312e0f595fb  1        -|allrows  RUNNING  a8f9062e8ed7  1        -|
+  stderr: 
+### QI-086 offline commands asked of pravaha
+$ pravaha validate --sql SELECT a FROM t --schema a:INT64
+  exit=2
+  stdout: 
+  stderr: --schema plans against a stream you describe, with no server: that is `pravaha-engine validate`, the offline Java tool. `pravaha validate` plans against a running node, which already knows its streams -- drop --schema to use it|
+$ pravaha run --sql SELECT a FROM t --schema a:INT64
+  exit=2
+  stdout: 
+  stderr: `run` executes SQL over a file with no server; it is `pravaha-engine run` now, the offline Java tool (bin/pravaha-engine). Its flags are unchanged.|
+### QI-088 hostile inputs
+$ pravaha query --sql-file /nonexistent.sql
+  exit=2
+  stdout: 
+  stderr: cannot read /nonexistent.sql: No such file or directory|
+$ pravaha register --name z --sql SELECT user_id, amount FROM txn --keys a
+  exit=2
+  stdout: 
+  stderr: --keys takes comma-separated numbers, got 'a'|
+$ pravaha --timeout -1 queries
+  exit=2
+  stdout: 
+  stderr: PRV-1031  request_timeout_seconds must be positive, got -1.0|
+$ pravaha --timeout abc queries
+  exit=2
+  stdout: 
+  stderr: argument --timeout: invalid float value: 'abc'|(pravaha --help lists the flags)|
+$ pravaha subscribe --view by_user --limit 0
+Terminated                 "$@" > $Q/o.txt 2> $Q/e.txt
+  exit=143
+  stdout: 
+  stderr: subscribing to by_user; changes print as they are committed. Ctrl-C to stop.|
+$ pravaha subscribe --view by_user --limit -5
+Terminated                 "$@" > $Q/o.txt 2> $Q/e.txt
+  exit=143
+  stdout: 
+  stderr: subscribing to by_user; changes print as they are committed. Ctrl-C to stop.|
+$ pravaha query --sql SELECT * FROM by_user WHERE user_id = ? --params a,b
+  exit=2
+  stdout: 
+  stderr: this statement has 1 placeholder and 2 values were given|
+$ pravaha query --sql SELECT * FROM by_user WHERE user_id = ? --params it's
+  exit=0
+  stdout: user_id  amount|
+  stderr: 0 rows|
+$ pravaha query --sql SELECT * FROM by_user WHERE user_id = ?
+  exit=1
+  stdout: 
+  stderr: PRV-2060  this statement uses ?1 but only 0 values were bound. Placeholders are positional and every one must be given a value, including the ones bound to NULL|  look PRV-2060 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md|
+$ pravaha subscribe --view by_user --overflow NOPE --limit 1
+  exit=2
+  stdout: 
+  stderr: argument --overflow: invalid choice: 'NOPE' (choose from CONFLATE, DROP_OLDEST, FAIL)|(pravaha subscribe --help lists the flags)|
+$ pravaha --url http://127.0.0.1:29490 queries
+  exit=0
+  stdout: NAME     STATE    FINGERPRINT   ROWS IN  SINK|by_user  RUNNING  6800f1454919  1        -|uni      RUNNING  5312e0f595fb  1        -|allrows  RUNNING  a8f9062e8ed7  1        -|
+  stderr: 
+$ pravaha --url notaurl queries
+  exit=3
+  stdout: 
+  stderr: PRV-1040  errors resolving notaurl:19090: [field:hostname lookup error:address lookup failed for notaurl:19090: DNS server refused query] (talking to notaurl -- pass --url if that is not the node you meant)|
+### QI-089 version
+$ pravaha version
+  exit=0
+  stdout: pravaha 2.0.1|server  2.0.1-SNAPSHOT  (http://127.0.0.1:28480)|
+  stderr: 
+$ pravaha version --client
+  exit=0
+  stdout: pravaha 2.0.1|
+  stderr: 
+### QI-099 subscribe --json --limit
+$ pravaha --json subscribe --view by_user --snapshot --limit 2
+  exit=0
+  stdout: {"type": "change", "weight": 1, "row": {"user_id": "alice", "amount": 500}}|{"type": "change", "weight": 1, "row": {"user_id": "alice", "amount": 250}}|{"type": "change", "weight": 1, "row": {"user_id": "carol", "amount": 900}}|{"type": "change", "weight": 1, "row": {"user_id": "<img src=x onerror=a
+  stderr: subscribing to by_user; the view's rows print first, then changes print as they are committed. Ctrl-C to stop.|
+### QI-101 docs link
+$ env PRAVAHA_DOCS_BASE_URL=https://docs.example pravaha query --sql SELECT * FROM nope
+  exit=1
+  stdout: 
+  stderr: PRV-4023  'nope' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.|  https://docs.example/PRV-4023|
+### QI-085 config dir precedence
+$ env -u PRAVAHA_CONFIG_DIR XDG_CONFIG_HOME=/home/ashutosh/.cache/pravaha-qi/xdg pravaha whoami
+  exit=1
+  stdout: 
+  stderr: PRV-7001  this server requires a credential; send it as 'Authorization: Bearer <token>'|  look PRV-7001 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md|
+$ env PRAVAHA_CONFIG_DIR=/home/ashutosh/.cache/pravaha-qi/cli-config XDG_CONFIG_HOME=/home/ashutosh/.cache/pravaha-qi/xdg pravaha whoami
+  exit=0
+  stdout: user              admin|principal         admin|tenant            public|roles             admin,operator|via               session|name              Administrator|email             -|password expires  2026-12-31T00:46:37.229546014Z|token from        file|
+  stderr: 
+### PRAVAHA_CLI_TRACE
+$ env PRAVAHA_CLI_TRACE=1 pravaha --url grpc://127.0.0.1:1 queries
+  exit=3
+  stdout: 
+  stderr: PRV-1040  failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:1: Failed to connect to remote host: Connection refused (talking to grpc://127.0.0.1:1 -- pass --url if that is not the node you meant)|Traceback (most recent call last):|  File "/home/ashutosh/.cache/pravaha-qi/venv/l
+### QI-201 help vs CLI.md
+positional arguments:
+  <command>
+    query               Ask a question and print the rows.
+    register            Register a continuous query. It runs until dropped.
+    queries             List the continuous queries the node runs.
+    pause               Stop a query without releasing it; its view keeps
+                        answering.
+    resume              Start a paused query again.
+    drop                Remove a query's name; the computation goes with its
+                        last name.
+    replace             Start a blue/green replacement of a running query.
+    replacements        How replacements are getting on.
+    cutover             Move the name to the new version.
+    rollback            Put the replaced version back while it is retained.
+    abandon             End a replacement that has not cut over.
+    finish              Confirm a cutover: the replaced version is released;
+                        no rollback after.
+    throttle            Set the backfill's rate, up to its ceiling.
+    pause-backfill      Stop the backfill reading, keeping what it has read.
+    resume-backfill     Start the backfill reading again.
+    subscribe           Print a view's committed changes as they happen.
+    dlq                 Dead letters: the records a query's feed could not
+                        decode.
+    debug               Fork a query from a checkpoint and step it (ADR-048).
+    status              The node: version, engine state, plugins.
+    health              The node's health; exit 1 unless UP or DEGRADED.
+    version             The CLI's version and the node's.
+    metrics             The node's Prometheus metrics, raw.
+    plugins             Every plugin the node can load.
+    sinks               The sinks the node binds.
+    streams             List, describe or declare streams.
+    views               List views, or describe one.
+    describe            One registered query in full, including its lane.
+    plan                The plan a registered query runs, with operator
+                        metrics.
+    validate            Plan SQL against the node without running it.
+    explain             The plan the node would run for SQL.
+    run                 Offline: moved to `pravaha-engine run`.
+    lanes               Where every query runs, and an administrator's
+                        rebalance.
+    audit               The node's recorded authorization decisions, newest
+                        first.
+    tenants             Admission quotas and each tenant's use.
+    permissions         What this principal may do.
+    login               Sign in and print (or --save) a session token.
+    logout              End this session and delete the saved token.
+    whoami              Who the engine says you are.
+    password            Change your password, or redeem a reset token.
+    user                Administer users (admin role).
+    key                 API keys: shown once, scoped to a subset of your
+                        roles.
+    session             Sessions: yours, or everyone's (admin).
+    ask                 Draft a continuous query from a description (asks a
+                        model; the engine judges it).
+    explain-sql         A query in plain English, grounded in the engine's
+                        plan (asks a model).
+    why                 What a refusal means and what to change (asks a model;
+                        the engine checks any rewrite).
+    assist              The assistant's models, profiles and providers.
+    catalog             The catalogue: objects, namespaces, owners, tags.
+    grant               Grant privileges on an object to a role or user
+                        (MANAGE).
+    revoke              Revoke privileges on an object from a role or user
+                        (MANAGE).
+    grants              Grants on an object, or to a role or user.
+    access              Why a user may (or may not) do something to an object.
+    policy              Row filters and column masks: define, bind, unbind,
+                        drop.
+    alerts              Alerts: what is firing, and pause, snooze or
+                        acknowledge one.
+    alert               Create or drop an alert (a CREATE ALERT statement,
+                        over Flight).
+
+options:

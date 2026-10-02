@@ -1,0 +1,55 @@
+pravaha-server:1.0.0 ready after 5s
+pravaha 1.0.0
+server  1.0.0  (http://127.0.0.1:28486)
+created carl
+created dana
+registered v_default  state=RUNNING  fingerprint=6800f1454919
+a query with the same fingerprint is the same computation, shared
+a_big: ACTIVE -- watches v_default and notifies [ops-log]
+created public.ns1, owned by USER admin
+granted SELECT on public.default.v_default to ROLE reader
+dana key: prv_dev_<masked>
+registered v_acme  state=RUNNING  fingerprint=f64a81da9985
+a query with the same fingerprint is the same computation, shared
+===== state as 1.0.0 sees it
+--- queries (admin)
+NAME                 STATE    FINGERPRINT   ROWS IN  SINK
+v_default            RUNNING  6800f1454919  3        -
+acme.default.v_acme  RUNNING  f64a81da9985  3        -
+--- v_default
+1 row
+user_id  amount
+alice    250
+--- users
+USERNAME  ROLES            STATUS  TENANT  LAST LOGIN
+admin     operator,admin   active  public  2026-10-02T01:31:02.767584435Z
+carl      operator,reader  active  acme    2026-10-02T01:30:50.286604728Z
+dana      reader           active  public  2026-10-02T01:30:49.698982800Z
+--- alerts
+NAME   VIEW       STATE   FIRING  PENDING  SEVERITY  CHANNELS  PROBLEM
+a_big  v_default  ACTIVE  1       0        warning   ops-log   -
+--- grants on v_default
+OBJECT                    PRIVILEGE  TO    GRANTEE  BY
+public.default.v_default  SELECT     ROLE  reader   admin
+--- namespaces
+NAME            OWNER       TAGS  DESCRIPTION
+node.notifiers  ROLE admin  -     -
+public.default  ROLE admin  -     -
+public.ns1      USER admin  -     made by 1.0.0
+acme.default    ROLE admin  -     -
+--- carl (tenant acme)
+carl token: prv_s_
+NAME    STATE    FINGERPRINT   ROWS IN  SINK
+v_acme  RUNNING  f64a81da9985  3        -
+user_id  amount
+alice    250
+bob      50
+2 rows
+--- dana's API key
+user              dana
+principal         dana
+tenant            public
+n
+1
+1 row
+2026-10-02T01:30:45.191Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : checkpointing registered queries under /opt/pravaha/data/checkpoints every PT5S, keeping the

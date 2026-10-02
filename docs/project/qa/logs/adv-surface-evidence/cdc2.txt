@@ -1,0 +1,22 @@
+### QI-172 drop the slot (loop until the drop wins)
+NOTICE:  dropped=t after 0 tries
+DO
+INSERT 0 1
+4 rows
+id  name      tier
+2   globex    silver
+1   acme      platinum
+4   umbrella  silver
+5   hooli     gold
+state        RUNNING
+feed         RUNNING
+2026-10-02T01:17:54.964Z  INFO 1 --- [pravaha] [ql-cdc-payments] c.g.shyiko.mysql.binlog.BinaryLogClient  : Database version: 8.0.46 (major=8, minor=0, mariadb=false)
+2026-10-02T01:17:54.967Z  INFO 1 --- [pravaha] [ql-cdc-payments] c.g.shyiko.mysql.binlog.BinaryLogClient  : Connected to mysql:3306 at 07c49a5e-bdff-11f1-9ef7-9ee431a9b92a:1-10 (sid:6401, cid:13)
+### QI-173 publication altered to drop the table
+pravaha_customers
+ALTER PUBLICATION
+INSERT 0 1
+0 rows
+id  name
+state        RUNNING
+feed         RUNNING

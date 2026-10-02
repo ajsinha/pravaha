@@ -1,0 +1,53 @@
+### §7 log lines
+.m.pravaha.common.io.SensitiveFiles   : the data directory /home/ashutosh/.cache/pravaha-qi/guide-home/data/identity was rwxrwxr-x, readable or writable beyond its owner; narrowed to rwx------. It holds data rather than c
+.m.pravaha.server.PravahaNode         : authentication is on and Flight is serving plaintext, so credentials travel in the clear; set pravaha.flight.tls.certificate and .key unless something in front of this node is termi
+.m.pravaha.server.PravahaNode         : identity: the user 'admin' still has the default password; change it before anyone else can reach this node
+.m.pravaha.common.io.SensitiveFiles   : the data directory /home/ashutosh/.cache/pravaha-qi/guide-home/data/checkpoints was rwxrwxr-x, readable or writable beyond its owner; narrowed to rwx------. It holds data rather tha
+.m.pravaha.server.PravahaNode         : checkpointing registered queries under /home/ashutosh/.cache/pravaha-qi/guide-home/data/checkpoints every PT5S, keeping the newest 3, timing out at PT30S
+.m.pravaha.common.io.SensitiveFiles   : the data directory /home/ashutosh/.cache/pravaha-qi/guide-home/data/registry was rwxrwxr-x, readable or writable beyond its owner; narrowed to rwx------. It holds data rather than c
+.m.pravaha.server.PravahaNode         : Flight SQL listening on 0.0.0.0:39090 (pravaha.flight.host, pravaha.flight.port)
+.m.pravaha.server.PravahaNode         : PostgreSQL wire protocol listening on 127.0.0.1:36432 -- NO TLS, the credential crosses the wire in the clear; set pravaha.pgwire.tls.certificate and .key, or use loopback or a term
+.m.p.server.PravahaServerApplication  : Started PravahaServerApplication in 3.452 seconds (process running for 3.842)
+.core.events.SpringDocAppInitializer  : SpringDoc /api/v1/openapi.json endpoint is enabled by default. To disable it in production, set the property 'springdoc.api-docs.enabled=false'
+.core.events.SpringDocAppInitializer  : SpringDoc /api/docs endpoint is enabled by default. To disable it in production, set the property 'springdoc.swagger-ui.enabled=false'
+### §8 console
+INFO:     Uvicorn running on http://127.0.0.1:37070 (Press CTRL+C to quit)
+{"reachable":false,"url":"grpc://localhost:39090","queries":0,"error":"PRV-1041  PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'"}
+### §9 CLI
+signed in as admin; the session token is saved to /home/ashutosh/.cache/pravaha-qi/cli-guide/token (mode 0600), expires 2026-10-02T13:34:05.345854578Z
+a query with the same fingerprint is the same computation, shared
+registered by_user  state=RUNNING  fingerprint=6800f1454919
+NAME     STATE    FINGERPRINT   ROWS IN  SINK
+by_user  RUNNING  6800f1454919  3        -
+1 row
+user_id  amount
+alice    250
+2 rows
+user_id  amount
+alice    250
+carol    900
+1 row
+amount
+900
+### §9 SDK snippet (token path = PRAVAHA_CONFIG_DIR/token instead of ~/.config/pravaha/token)
+Row({'user_id': 'alice', 'amount': 250})
+Row({'user_id': 'carol', 'amount': 900})
+### §9 psycopg snippet
+('alice', 250)
+('carol', 900)
+ user_id | amount 
+---------+--------
+ alice   |    250
+ carol   |    900
+(2 rows)
+
+### §10 restart
+.m.pravaha.server.PravahaNode         : registry recovered 1 of 1 queries from /home/ashutosh/.cache/pravaha-qi/guide-home/data/registry/registry.journal
+.m.p.server.PravahaServerApplication  : Started PravahaServerApplication in 3.463 seconds (process running for 3.941)
+NAME     STATE    FINGERPRINT   ROWS IN  SINK
+by_user  RUNNING  6800f1454919  5        -
+3 rows
+user_id  amount
+alice    250
+carol    900
+bob      75

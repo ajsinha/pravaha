@@ -1,0 +1,47 @@
+partition 0 end offset: orders:0:12
+partition 1 end offset: orders:1:0
+partition 2 end offset: orders:2:0
+Per-operator numbers are not published on this node: pravaha.metrics.operators is off, so the counters were never built into this query's stages. Set it and re-register the query. The query's own tota
+ID  OPERATOR           STATEFUL  ROWS IN  ROWS OUT  STATE BYTES  TIME  DETAIL
+n0  WindowedAggregate  yes       -        -         -            -     WindowedAggregate(TUMBLING 60000ms, keys=[0, 1, 2], [COUNT(*)->orders, SUM(amount)->spend])
+n1  Project            no        -        -         -            -     Project[window_start, window_end, customer, amount]
+n2  WindowAssign       no        -        -         -            -     WindowAssign(TUMBLING size=60000ms slide=60000ms on event_time)
+n3  Project            no        -        -         -            -     Project[order_id, customer, amount, event_time]
+n4  Scan               no        -        -         -            -     Scan(orders)
+edges  n1->n0  n2->n1  n3->n2  n4->n3
+ Container pravaha-qa-pravaha-server-1 Removing 
+ Container pravaha-qa-pravaha-server-1 Removed 
+ Container pravaha-qa-kafka-1 Healthy 
+ Container pravaha-qa-pravaha-server-1 Healthy 
+server.PravahaNode         : registry recovered 2 of 2 queries from /opt/pravaha/data/registry.journal
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  0        -
+spend_per_minute  RUNNING  93ae117f9e65  0        -
+3 rows
+customer  orders  spend
+acme      5       1502
+globex    4       834
+initech   3       309
+0 rows
+window_start  customer  spend
+12 rows
+window_start               customer  spend
+2026-09-29 10:00:00+00:00  acme      120
+2026-09-29 10:00:00+00:00  globex    75
+2026-09-29 10:01:00+00:00  initech   42
+2026-09-29 10:01:00+00:00  acme      300
+2026-09-29 10:02:00+00:00  globex    510
+2026-09-29 10:02:00+00:00  acme      18
+2026-09-29 10:03:00+00:00  globex    99
+2026-09-29 10:03:00+00:00  initech   260
+2026-09-29 10:04:00+00:00  acme      1000
+2026-09-29 10:04:00+00:00  initech   7
+2026-09-29 10:05:00+00:00  globex    150
+2026-09-29 10:05:00+00:00  acme      64
+pravaha_query_watermark_lag_seconds{application="pravaha",node="pravaha-stack-01",query="orders_live"} 227368.852
+pravaha_query_watermark_lag_seconds{application="pravaha",node="pravaha-stack-01",query="spend_per_minute"} 227368.852
+pravaha_query_watermark_partitions_idle{application="pravaha",node="pravaha-stack-01",query="orders_live"} 2.0
+pravaha_query_watermark_partitions_idle{application="pravaha",node="pravaha-stack-01",query="spend_per_minute"} 2.0
+audit.jsonl
+pravaha-console.log
+pravaha-server.log

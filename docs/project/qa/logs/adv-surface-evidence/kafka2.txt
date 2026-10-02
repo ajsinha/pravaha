@@ -1,0 +1,23 @@
+1 row
+n
+60
+1 row
+n
+475
+Created topic orders.
+orders:0:15
+orders:1:15
+orders:2:0
+rows 5000..5029 in the view (expect 30):
+1 row
+n
+0
+orders#0 STOPPED: PRV-5106  PRV-5106  offset 214 of orders-0 is no longer in the log: retention deleted records this source had not yet read (Truncated partitions detected with divergent offsets {}). They are lost to every reader. Reading on from the log's start would hide that, so the source stops; raise the topic's retention.ms, and re-register the query to start again.
+orders#1 STOPPED: PRV-5106  PRV-5106  offset 222 of orders-1 is no longer in the log: retention deleted records this source had not yet read (Truncated partitions detected with divergent offsets {}). They are lost to every reader. Reading on from the log's start would hide that, so the source stops; raise the topic's retention.ms, and re-register the query to start again.
+state        RUNNING
+feed         STOPPED
+2026-10-02T01:25:11.922Z  INFO 1 --- [pravaha] [-kafka-orders-4] org.apache.kafka.clients.Metadata        : [Consumer clientId=pravaha-orders-orders-4, groupId=null] Resetting the last seen epoch of partition orders-1 to 0 since the associated topicId changed from null to KlCmgHclTImAn-n_NsxzCg
+2026-10-02T01:25:11.922Z  INFO 1 --- [pravaha] [-kafka-orders-4] org.apache.kafka.clients.Metadata        : [Consumer clientId=pravaha-orders-orders-4, groupId=null] Resetting the last seen epoch of partition orders-2 to 0 since the associated topicId changed from null to KlCmgHclTImAn-n_NsxzCg
+2026-10-02T01:25:11.922Z  INFO 1 --- [pravaha] [-kafka-orders-4] org.apache.kafka.clients.Metadata        : [Consumer clientId=pravaha-orders-orders-4, groupId=null] Resetting the last seen epoch of partition orders-0 to 0 since the associated topicId changed from null to KlCmgHclTImAn-n_NsxzCg
+	auto.offset.reset = none
+	internal.throw.on.fetch.stable.offset.unsupported = false

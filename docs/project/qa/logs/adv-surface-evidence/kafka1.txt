@@ -1,0 +1,40 @@
+before: {'n': 13}
+### QI-176 broker restart mid-stream
+[2026-10-02 01:23:11,528] WARN [Producer clientId=console-producer] Connection to node -1 (localhost/127.0.0.1:9092) could not be established. Broker may not be available. (org.apache.kafka.clients.NetworkClient)
+[2026-10-02 01:23:11,528] WARN [Producer clientId=console-producer] Bootstrap broker localhost:9092 (id: -1 rack: null) disconnected (org.apache.kafka.clients.NetworkClient)
+[2026-10-02 01:23:11,631] WARN [Producer clientId=console-producer] Connection to node -1 (localhost/127.0.0.1:9092) could not be established. Broker may not be available. (org.apache.kafka.clients.NetworkClient)
+after restart (expect 12 + 200 + 200 [+1 if 1200 landed] ): {'n': 414}
+state        RUNNING
+feed         RUNNING
+### QI-178 partitions 3 -> 6
+after partition growth (expect +60): {'n': 434}
+1 row
+n
+20
+pravaha_query_watermark_partitions{application="pravaha",node="pravaha-stack-01",query="orders_live"} 3.0
+### QI-179 JSON drift
+1 row
+order_id  customer        amount
+3003      ok-after-drift  3
+ID                                    WHEN                      CODE  STREAM  OFFSET        BYTES  STATE  REASON
+c8c560f2-4d6b-4079-adbe-e38230af3aa4  2026-10-02T01:24:01.299Z  -     orders  orders/5@20   15     NEW    the value is not valid JSON: Unrecognized token 'not': was expecting (JSON String, Number, Array, Object or token 'null', 'true' or 'false')
+2e75414c-a8ef-4e3a-a358-3f4d86f76c4e  2026-10-02T01:24:01.283Z  -     orders  orders/4@0    96     NEW    column 'amount' is INT64 and its value is a string that does not parse as one
+c2cd3482-df7b-4f6d-a6cd-9bfb29923454  2026-10-02T01:24:01.268Z  -     orders  orders/3@20   100    NEW    column 'order_id' is INT64 and its value is a string that does not parse as one
+49051c57-9d16-40b9-abc1-6a0dde6ff42b  2026-10-02T01:23:59.142Z  -     orders  orders/0@212  78     NEW    column 'amount' is missing or null, and is declared NOT NULL
+
+4 dead letters (2440 bytes); retention 268435456 bytes
+state        RUNNING
+feed         RUNNING
+### QI-177 topic deleted mid-stream
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  422      -
+spend_per_minute  RUNNING  93ae117f9e65  422      -
+state        RUNNING
+feed         RUNNING
+UP
+2026-10-02T01:24:43.397Z  WARN 1 --- [pravaha] [-kafka-orders-4] o.a.k.c.c.internals.FetchCollector       : [Consumer clientId=pravaha-orders-orders-4, groupId=null] Received unknown topic or partition error in fetch for partition orders-4
+2026-10-02T01:24:43.397Z  WARN 1 --- [pravaha] [-kafka-orders-3] o.a.k.c.c.internals.FetchCollector       : [Consumer clientId=pravaha-orders-orders-3, groupId=null] Received unknown topic or partition error in fetch for partition orders-3
+2026-10-02T01:24:43.397Z  WARN 1 --- [pravaha] [-kafka-orders-1] o.a.k.c.c.internals.FetchCollector       : [Consumer clientId=pravaha-orders-orders-1, groupId=null] Received unknown topic or partition error in fetch for partition orders-1
+2026-10-02T01:24:43.397Z  WARN 1 --- [pravaha] [-kafka-orders-5] o.a.k.c.c.internals.FetchCollector       : [Consumer clientId=pravaha-orders-orders-5, groupId=null] Received unknown topic or partition error in fetch for partition orders-5
+2026-10-02T01:24:43.397Z  WARN 1 --- [pravaha] [-kafka-orders-0] o.a.k.c.c.internals.FetchCollector       : [Consumer clientId=pravaha-orders-orders-0, groupId=null] Received unknown topic or partition error in fetch for partition orders-0
+2026-10-02T01:24:43.397Z  WARN 1 --- [pravaha] [-kafka-orders-2] o.a.k.c.c.internals.FetchCollector       : [Consumer clientId=pravaha-orders-orders-2, groupId=null] Received unknown topic or partition error in fetch for partition orders-2

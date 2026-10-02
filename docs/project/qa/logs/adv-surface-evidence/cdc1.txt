@@ -1,0 +1,38 @@
+### QI-154 doc walkthrough
+a query with the same fingerprint is the same computation, shared
+registered customers_live  state=RUNNING  fingerprint=268d31a9f5cd
+a query with the same fingerprint is the same computation, shared
+registered payments_live  state=RUNNING  fingerprint=2408ac96215a
+UPDATE 1
+INSERT 0 1
+DELETE 1
+3 rows
+id  name      tier
+2   globex    silver
+1   acme      platinum
+4   umbrella  silver
+2 rows
+id  customer  amount
+1   acme      500
+2   globex    300
+### QI-172 replication slot dropped while running
+pravaha_customers|t|103
+t
+ERROR:  replication slot "pravaha_customers" is active for PID 154
+INSERT 0 1
+pravaha_customers|t
+4 rows
+id  name      tier
+2   globex    silver
+1   acme      platinum
+4   umbrella  silver
+5   hooli     gold
+state        RUNNING
+feed         RUNNING
+execution    interpreted: Project[id, name, tier] <- Scan(customers) -- not generated: PRV-3101  cannot generate a projection of STRING yet (column 'name'). The interpreted path handles it; this stage falls back. The interpreted path runs this correc
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  1        -
+spend_per_minute  RUNNING  93ae117f9e65  1        -
+customers_live    RUNNING  268d31a9f5cd  8        -
+payments_live     RUNNING  2408ac96215a  4        -
+2026-10-02T01:15:21.092Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : sources bound: [orders <- kafka[schema, topic, format, start.from, event.time, bootstrap.servers], customers <- postgres-cdc[table, schema, password, snapshot.mode, user, url], payments <- mys

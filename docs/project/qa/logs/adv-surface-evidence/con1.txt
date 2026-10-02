@@ -1,0 +1,61 @@
+### QI-110 every route anonymously
+200 /  49059b
+200 /about  127218b
+200 /about/competitive  136060b
+303 /account -> /login?next=/account 0b
+303 /account/password -> /login?next=/account/password 0b
+303 /admin -> /login?next=/admin 0b
+303 /admin/access -> /login?next=/admin/access 0b
+303 /admin/audit -> /login?next=/admin/audit 0b
+303 /admin/grants -> /login?next=/admin/grants 0b
+303 /admin/keys -> /login?next=/admin/keys 0b
+303 /admin/lanes -> /login?next=/admin/lanes 0b
+303 /admin/policies -> /login?next=/admin/policies 0b
+303 /admin/sessions -> /login?next=/admin/sessions 0b
+303 /admin/tenants -> /login?next=/admin/tenants 0b
+303 /admin/users -> /login?next=/admin/users 0b
+303 /alerts -> /login?next=/alerts 0b
+303 /alerts/x -> /login?next=/alerts/x 0b
+303 /catalog -> /login?next=/catalog 0b
+303 /catalog/objects/by_user -> /login?next=/catalog/objects/by_user 0b
+303 /catalog/streams/txn -> /login?next=/catalog/streams/txn 0b
+404 /_components  35647b
+200 /health  251b
+200 /health/live  18b
+503 /health/ready  213b
+200 /help  132349b
+200 /help/case-studies  42903b
+200 /help/codes  84932b
+200 /help/codes/PRV-7001  52756b
+200 /help/guides  49070b
+200 /help/search?q=x  36375b
+404 /help/pgwire  35658b
+303 /home -> /login?next=/home 0b
+200 /login  34824b
+404 /metrics  22b
+303 /operations -> /login?next=/operations 0b
+303 /overview -> /login?next=/overview 0b
+303 /plugins -> /login?next=/plugins 0b
+303 /queries -> /login?next=/queries 0b
+303 /queries/by_user -> /login?next=/queries/by_user 0b
+303 /queries/by_user/dead-letters -> /login?next=/queries/by_user/dead-letters 0b
+303 /queries/by_user/debug -> /login?next=/queries/by_user/debug 0b
+303 /queries/by_user/replacement -> /login?next=/queries/by_user/replacement 0b
+303 /start -> /login?next=/start 0b
+200 /tutorials  40671b
+303 /views -> /login?next=/views 0b
+303 /views/by_user -> /login?next=/views/by_user 0b
+303 /workbench -> /login?next=/workbench 0b
+200 /api/v1/health  181b
+### QI-111 console api anonymously
+401 /api/v1/queries {"error":"sign in to the console first","status":401}
+404 /api/v1/views {"detail":"Not Found"}
+404 /api/v1/status {"detail":"Not Found"}
+404 /api/v1/overview {"detail":"Not Found"}
+404 /api/v1/users {"detail":"Not Found"}
+404 /api/v1/audit {"detail":"Not Found"}
+### QI-114/116 cookie flags and fixation
+login status 303 /home set-cookie: pravaha_console=eyJ0b2tlbiI6ICJwcnZfc19B ... path=/; Max-Age=43200; httponly; samesite=lax
+cookie changed on sign-in: True
+cookie payload keys: ['token', 'user', 'expires', 'must_change', 'roles', 'tenant', 'default_admin_password', 'csrf']
+engine token readable in cookie: True

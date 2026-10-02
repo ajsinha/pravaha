@@ -1,0 +1,7 @@
+targets: [('pravaha', 'up', '')]
+rule groups: 3 rules: 15
+rule health: {'ok'} []
+metrics referenced by rules but never scraped: {'pravaha_alert_notifications_total': ['PravahaNotificationDeliveryFailing'], 'pravaha_catalog_access_decisions_total': ['PravahaCatalogDenialsSpike'], 'pravaha_console_assist_requests_total': ['PravahaAssistantAllModelsFailing']}
+metrics referenced by dashboards but never scraped: {'pravaha_alert_delivery_seconds_sum': ['pravaha-alerts-catalogue.json'], 'pravaha_alert_notifications_total': ['pravaha-alerts-catalogue.json'], 'pravaha_catalog_decision_cache_lookups_total': ['pravaha-alerts-catalogue.json'], 'pravaha_alert_transitions_total': ['pravaha-alerts-catalogue.json'], 'pravaha_catalog_changes_total': ['pravaha-alerts-catalogue.json'], 'pravaha_alert_notification_retries_total': ['pravaha-alerts-catalogue.json'], 'pravaha_catalog_access_decisions_total': ['pravaha-alerts-catalogue.json'], 'pravaha_alert_delivery_s
+grafana dashboards: [('Pravaha · Alerts and catalogue', 'Pravaha'), ('Pravaha · Assistant', 'Pravaha'), ('Pravaha · Node overview', 'Pravaha'), ('Pravaha · Query drill-down', 'Pravaha')]
+jvm_info: ['25.0.4.1+1-LTS']
