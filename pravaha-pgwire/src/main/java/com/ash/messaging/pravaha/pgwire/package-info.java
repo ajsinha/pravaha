@@ -44,7 +44,11 @@
  *       result rather than a real cursor; see that class's own note). A result is materialised whole
  *       by {@code ViewQuery} and bounded by {@code ViewQuery.MAX_RESULT_ROWS}; {@code DECLARE} would
  *       promise streaming that the layer underneath does not do.
- *   <li><strong>{@code COPY}</strong>, in either direction. Refused as unsupported.
+ *   <li><strong>{@code COPY}</strong>, in either direction, and {@code LISTEN}/{@code NOTIFY} and
+ *       {@code SELECT STREAM}: refused by name, {@code PRV-6201} {@code 0A000}, as cursors are
+ *       ({@link com.ash.messaging.pravaha.pgwire.PgWireErrors#refuseUnsupportedStatement}).
+ *       A {@code SELECT} with no {@code FROM} -- the probe a connection pool validates with -- is
+ *       answered, not refused: see {@link com.ash.messaging.pravaha.pgwire.PgConstantSelect}.
  *   <li><strong>{@code CancelRequest}.</strong> {@code BackendKeyData} is sent because clients
  *       expect it, and a cancel arriving on a second connection is read and ignored. A query is
  *       bounded by the read deadline instead.

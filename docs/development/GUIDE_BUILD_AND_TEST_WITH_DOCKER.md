@@ -93,7 +93,7 @@ offline Java CLI:
 
 ```text
 $ docker run --rm --entrypoint bin/pravaha-engine pravaha/pravaha-server:local version
-pravaha-engine 1.0.1-SNAPSHOT
+pravaha-engine 2.0.1-SNAPSHOT
 ```
 
 **Route B — a JDK 25 on the host too.** Build the jar yourself and put the release image over it
@@ -103,7 +103,7 @@ pravaha-engine 1.0.1-SNAPSHOT
 $ ./mvnw -pl pravaha-server -am package -DskipTests
 $ deploy/docker/build.sh --tag pravaha/pravaha-server:local
 build.sh: pravaha/pravaha-server:local
-  jar      pravaha-server-1.0.1-SNAPSHOT-app.jar (176M)
+  jar      pravaha-server-2.0.1-SNAPSHOT-app.jar (176M)
   revision <the short commit>
   java     25 (eclipse-temurin:25-jre)
 ...
@@ -202,7 +202,7 @@ pravaha-server    Up 7 seconds (healthy)    127.0.0.1:18080->18080/tcp, 127.0.0.
 $ curl -s http://127.0.0.1:18080/actuator/health/readiness
 {"status":"UP"}
 $ curl -s http://127.0.0.1:17070/health/ready
-{"status":"ready","engine":{"reachable":true,"url":"grpc://pravaha-server:19090","queries":2}}
+{"status":"ready","engine":{"reachable":true,"url":"grpc://pravaha-server:19090","status":"UP"}}
 ```
 
 The engine logs where it keeps things — every path is under `/opt/pravaha`:

@@ -180,6 +180,33 @@ refuses "spilling with nowhere to spill" "gone when the pod is" \
   --set spill.enabled=true --set persistence.enabled=false
 refuses "a PDB with minAvailable on one replica" "block for ever" \
   --set podDisruptionBudget.enabled=true --set podDisruptionBudget.minAvailable=1
+refuses "an empty image repository" "image.repository is empty" --set image.repository=""
+refuses "a blank image repository" "image.repository is empty" --set image.repository="  "
+
+# ------------------------------------------------------------------ names (HELMNAME-1)
+
+# Every metadata.name and serviceName a long fullnameOverride produces is a valid DNS label (at most
+# 63), each StatefulSet's at most 52 (its pods' controller-revision-hash label is the name plus 11),
+# and the suffixes survive the truncation.
+long="$(printf 'a%.0s' $(seq 1 78))"
+n="$(render pravaha --set fullnameOverride="$long" --set standby.enabled=true --set nodeId=n1 \
+      --set persistence.existingClaim=shared)"
+names="$(grep -E '^  name: |^  serviceName: ' <<<"$n" | awk '{print $2}' | tr -d '"')"
+[[ -n "$names" ]] || fail "no names rendered"
+while read -r name; do
+  (( ${#name} <= 63 )) || fail "a rendered name is ${#name} characters, past Kubernetes' 63: $name"
+  [[ "$name" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || fail "a rendered name is not a DNS label: $name"
+done <<<"$names"
+has "$n" '-headless$' "the headless Service lost its suffix"
+has "$n" '-standby$' "the standby lost its suffix"
+for sts in $(awk '/^kind: StatefulSet/{getline; getline; print $2}' <<<"$n"); do
+  (( ${#sts} <= 52 )) || fail "a StatefulSet is named ${#sts} characters; its pods' revision label would pass 63: $sts"
+done
+t="$(render pravaha --set fullnameOverride="$long" --show-only templates/tests/test-probes.yaml)"
+probe="$(awk '/^  name: /{print $2; exit}' <<<"$t")"
+(( ${#probe} <= 63 )) && [[ "$probe" == *-test-probes ]] \
+  || fail "the test pod is named '$probe' (${#probe} characters)"
+ok "a 78-character fullnameOverride renders names Kubernetes accepts, suffixes kept"
 
 echo
 echo "test.sh: $pass checks PASSED"

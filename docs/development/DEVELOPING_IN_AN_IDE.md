@@ -57,8 +57,10 @@ What each setting is for:
   container image set them for the same reason.
 - **`--spring.profiles.active=dev,users`**: `dev` is the local acknowledgement that the server may run
   open and that `admin` may keep its published password (`pravaha-dev-admin`); `users` turns on the
-  engine's own users, which the console signs people in against (ADR-052). Drop `users` to run the
-  engine alone with no credentials at all.
+  engine's own users, which the console signs people in against (ADR-052), and the `authenticated`
+  policy — each user administers only their own queries, and only `admin` reads the audit trail
+  (PERMISSIVEUSERS-1). Drop `users` to run the engine alone with no credentials at all: then `dev`
+  serves everything to everybody.
   Without a security choice the engine refuses to start (`PRV-7004`). The `dev` profile sets
   `pravaha.security.allow-anonymous: true` and nothing else. Never use it anywhere reachable.
 - **The module is `pravaha-server`**, because it depends on every connector. Kafka, Delta, JDBC,

@@ -61,6 +61,14 @@ final class PgShow {
     }
 
     /**
+     * Name resolution, which pools and BI tools ask about (PGVALIDATE-1): every view is a table in
+     * schema {@code public} and no other schema exists, so PostgreSQL's default path is exactly how
+     * this server resolves names. {@link PgSessionSet} accepts a {@code SET search_path} that keeps
+     * that resolution and refuses one that would change it.
+     */
+    static final String SEARCH_PATH = "\"$user\", public";
+
+    /**
      * The {@code ParameterStatus} values every session is told at connect, in the order they are
      * sent. Each is a promise {@link PgTypes} keeps -- see {@code PgWireConnection.ready}.
      */
@@ -88,6 +96,7 @@ final class PgShow {
                 : m.group(1).replace("\"", "");
         Map<String, String> known = new LinkedHashMap<>(announced(serverVersion));
         known.putAll(TRANSACTION_SETTINGS);
+        known.put("search_path", SEARCH_PATH);
         for (Map.Entry<String, String> entry : known.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(asked)) {
                 // PostgreSQL names the column after the setting's own spelling -- `SHOW datestyle`

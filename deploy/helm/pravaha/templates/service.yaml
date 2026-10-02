@@ -46,7 +46,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "pravaha.fullname" . }}-headless
+  name: {{ include "pravaha.suffixed" (dict "root" . "suffix" "-headless") }}
   labels:
     {{- include "pravaha.labels" . | nindent 4 }}
 spec:

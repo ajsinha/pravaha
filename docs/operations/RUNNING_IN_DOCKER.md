@@ -180,13 +180,13 @@ Every engine setting has an environment spelling by Spring's relaxed binding
 | `PRAVAHA_JAVA_OPTS` | engine | `-XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError` | JVM flags, appended after the launcher's; replaces the default wholesale |
 | `PRAVAHA_UMASK` | engine | `077` | the umask the node runs with; `027` lets a group read `logs/` |
 | `PRAVAHA_NODE_ID` | engine | `pravaha-node-01` | the node's identity, which its state directories are claimed under |
-| `SPRING_PROFILES_ACTIVE` | engine | — | `dev` for an open first run; `dev,users` for users with the published admin password |
+| `SPRING_PROFILES_ACTIVE` | engine | — | `dev` for an open first run (every view to every caller); `dev,users` for users with the published admin password, under the `authenticated` policy (each user administers their own queries; `admin` reads the audit trail) |
 | `SPRING_CONFIG_ADDITIONAL_LOCATION` | engine | — | replaces the launcher's two locations; name `optional:classpath:/pravaha-home.yaml` first to keep the layout (the Helm chart does) |
 | `LOGGING_FILE_NAME` | engine | `/opt/pravaha/logs/pravaha-server.log` | empty: log to stdout only (the chart does, Kubernetes collects stdout) |
 | `PRAVAHA_FLIGHT_PORT`, `SERVER_PORT`, `PRAVAHA_PGWIRE_ENABLED` | engine | `19090`, `18080`, `false` | the ports inside the container |
 | `USE_SYSTEM_CA_CERTS` | engine | — | imports `/certificates/*.crt` into the JVM's trust store at start (the base image's entrypoint) |
 | `PRAVAHA_ENGINE`, `PRAVAHA_ENGINE_HTTP` | console | `grpc://localhost:19090`, `http://localhost:18080` | where the engine is |
-| `CONSOLE_SESSION_SECRET` | console | generated at start | signs the session cookie; without it every restart signs everybody out |
+| `CONSOLE_SESSION_SECRET` | console | generated at start | signs the session cookie (an opaque id; the engine token stays in the console's memory, so a console restart signs everybody out of the console) |
 | `CONSOLE_LOG_FILE` | console | `/opt/pravaha/logs/pravaha-console.log` | the rotated log file; empty for stderr only |
 | `CONSOLE_LOG_FORMAT`, `LOG_LEVEL` | console | `text`, `INFO` | `json` for Loki or Elasticsearch |
 | `PRAVAHA_CONFIG_DIR` | console | `/opt/pravaha/data/console` | the assistant's configuration, ledger and log (and the CLI's saved token) |
@@ -419,7 +419,7 @@ opens to its rows. Checked here by signing in over HTTP and reading the pages:
 POST /login -> 200 /operations
 GET /views -> 200 (orders_live listed: True, spend_per_minute listed: True)
 GET /views/spend_per_minute -> 200
-GET /health/ready -> 200 {"status":"ready","engine":{"reachable":true,"url":"grpc://pravaha-server:19090","queries":2}}
+GET /health/ready -> 200 {"status":"ready","engine":{"reachable":true,"url":"grpc://pravaha-server:19090","status":"UP"}}
 ```
 
 Change the password at the first sign-in (**Account**), then delete `secrets/initial-admin-password`:

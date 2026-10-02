@@ -76,6 +76,24 @@ tools/worktree-build.sh -o -q install -DskipTests   # a linked git worktree
 78 s for the whole reactor from an empty `target/` (warm `~/.m2`). `-DskipTests` still compiles
 the test classes, which the Python SDK's live-server fixture needs (`pravaha-flight/target/test-classes`).
 
+### Static analysis: Error Prone and NullAway (`-Pep`)
+
+```bash
+./mvnw -Pep clean test-compile        # or: tools/worktree-build.sh -Pep clean test-compile
+```
+
+Runs [Error Prone](https://errorprone.info) 2.50 as a javac plugin over every module, main and test
+code, with NullAway (`AnnotatedPackages=com.ash.messaging.pravaha`); generated sources are left
+out. An Error Prone check at ERROR level fails the build; everything else is printed as a
+warning. NullAway runs at WARNING: the code is not `@Nullable`-annotated throughout, so its findings
+are a list to work down rather than a gate. javac is forked with `jdk.compiler`'s internals opened,
+so the default build is unchanged. Not part of the default build or of `-Pall` (`-Pall,ep` for
+both); no workflow runs it yet. On 2026-10-02 (ERRORPRONE-1) the reactor had **no ERROR-level
+finding** — nine were fixed, one suppressed with its reason — and 3,570 warnings: 2,822 from
+NullAway, about 600 from Error Prone's WARNING checks (`StringSplitter` 100, `ArrayRecordComponent`
+61, `NotJavadoc` 52, `MissingOverride` 42, `UnusedVariable` 39, …), and 148 from javac's own
+`-Xlint` (`try`, `deprecation`), which the default build prints too.
+
 ### Which Maven to call: stale jars (MAVENRACE-1)
 
 `./mvnw -pl <module> test` resolves the module's Pravaha dependencies from `~/.m2`, not from the

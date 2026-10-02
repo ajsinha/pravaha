@@ -142,6 +142,7 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-1053` malformed text | A string in a request body that is not well-formed text — today an unpaired UTF-16 surrogate, half of a character, which no UTF-8 encoder can carry: every one substitutes U+FFFD, so the name or the SQL the server would store, log and quote back is not the one that was sent. Refused as **400** in the deserializer, before the body becomes an argument, because a stream registered under such a name is a key no later request can address — not by URL, not in SQL, and over Flight only as `?`. Over Flight the same text is refused with the same code: the Java SDK refuses it before sending, because protobuf and `String.getBytes` would deliver `?` in its place, and the server refuses a control request whose bytes are not UTF-8 rather than decoding them into replacement characters |
 | `PRV-1054` body too large | **413**: a request body larger than the node reads — `pravaha.http.max-anonymous-body` (16KB) on a path open without a credential (sign-in, reset, the API documentation), `pravaha.http.max-request-body` (4MB) everywhere else. Refused on the declared `Content-Length` before a byte is read, or as soon as a chunked body passes the limit, and the connection is closed (HTTPBODY-1). Send less, or raise the setting the message names |
 | `PRV-1055` too many sign-ins | **429** with `Retry-After: 1`: more than `pravaha.http.max-concurrent-sign-ins` (8) sign-ins are in progress at once; each runs a deliberately slow password hash. Retry after a second; a script should sign in once and keep the session, or use an API key |
+| `PRV-1056` malformed request | **400** from the HTTP server itself, before any endpoint: an encoded `/` (`%2F`) or `\\` (`%5C`) or a NUL (`%00`) in the path, a header line past `server.max-http-request-header-size` (8KB), or too many headers. An `ApiError` like every other answer (it was Tomcat's HTML page until TOMCATHTML-1). Fix the request: no view or stream name needs an encoded slash |
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`; on any endpoint, an `?offset=` or `?limit=` that is present and empty or not a number, an empty `?level=` or `?format=` on `/explain`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
@@ -685,6 +686,12 @@ fresh snapshot. If it keeps happening, the consumer is doing too much in its cal
 batch to a queue of your own and return. The status is `RESOURCE_EXHAUSTED`, which retrying
 clients already treat as retryable.
 
+**`DoGet` is refused with `PRV-6106` (`INVALID_ARGUMENT`), or a call with `PRV-6101`
+(`UNIMPLEMENTED`) "with a path descriptor is not supported".** The ticket was not one this server
+issued — use the ticket in the endpoint `GetFlightInfo` returned, or an SDK's `subscribe()` — or the
+client sent a path descriptor where Flight SQL wants a command: send the query as a Flight SQL
+statement (an SDK's `query()`, `pravaha query --sql`).
+
 **A snapshot subscription is refused with `PRV-6102` "this is not a subscription ticket".** The
 server predates snapshot subscriptions (SUB-1). Upgrade it, or use a plain subscription, which is
 gapful: see "Is the subscription attached?" above.
@@ -945,6 +952,7 @@ client models the error rather than an empty object.
 | `PRV-1052` | API_UNHANDLED_REQUEST | api |
 | `PRV-1054` | API_BODY_TOO_LARGE | api |
 | `PRV-1055` | API_TOO_MANY_SIGN_INS | api |
+| `PRV-1056` | API_MALFORMED_REQUEST | api |
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |
@@ -1125,6 +1133,7 @@ client models the error rather than an empty object.
 | `PRV-6103` | FLIGHT_PARAMETERS_TOO_LARGE | gateway |
 | `PRV-6104` | FLIGHT_TLS_UNREADABLE | gateway |
 | `PRV-6105` | FLIGHT_SUBSCRIBER_BEHIND | gateway |
+| `PRV-6106` | FLIGHT_UNREADABLE_TICKET | gateway |
 | `PRV-6200` | PGWIRE_UNSUPPORTED_TYPE | gateway |
 | `PRV-6201` | PGWIRE_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6202` | PGWIRE_PROTOCOL_VIOLATION | gateway |

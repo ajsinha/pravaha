@@ -5,8 +5,9 @@ Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
 Nothing here authenticates anybody. The engine does (ADR-052): a password, a key and a session
-are checked there and nowhere else. What the console keeps is the engine's session token, in a
-signed, HttpOnly, SameSite=Lax cookie, and what this module does with it is carry it:
+are checked there and nowhere else. What the console keeps is the engine's session token -- in its
+own memory, under an opaque id that a signed, HttpOnly, SameSite=Lax cookie carries
+(``routes.session_vault``, COOKIETOKEN-1) -- and what this module does with it is carry it:
 
 - :class:`SchemeSessions` -- the session cookie, marked ``Secure`` whenever the request reached
   the console over https (directly, or through a proxy uvicorn is told to trust), and not
@@ -32,6 +33,7 @@ from starlette.responses import JSONResponse, RedirectResponse
 
 from core import credential
 from routes.base import ui_text
+from routes.session_vault import SIGNED_OUT
 
 #: The methods that change something, and so must carry the session's CSRF token.
 UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -106,6 +108,14 @@ class IdentityMiddleware:
 
         async def guarded(message):
             nonlocal replaced
+            if (message["type"] == "http.response.start" and scope.get(SIGNED_OUT)
+                    and _to_sign_in(message)):
+                # LOGOUTREPLAY-1: this cookie's session was signed out (routes.session_vault), so the
+                # person left; a page that wants a signed-in person sends them where signing out
+                # does -- the landing page -- not to a sign-in form.
+                replaced = True
+                await RedirectResponse("/", status_code=303)(scope, receive, send)
+                return
             if message["type"] == "http.response.start" and (held.expired or held.must_change):
                 # The route has answered, but with a page drawn around a refusal of the session
                 # itself. The answer that helps is the way back, so it replaces that page.
@@ -126,6 +136,16 @@ class IdentityMiddleware:
             await self.app(scope, receive, guarded)
         finally:
             credential.unbind(handle)
+
+
+def _to_sign_in(message) -> bool:
+    """Whether a response start is a redirect to the sign-in form."""
+    if message.get("status") not in (302, 303, 307):
+        return False
+    for name, value in message.get("headers") or []:
+        if name.lower() == b"location":
+            return value.startswith(b"/login")
+    return False
 
 
 def _is_api(scope) -> bool:

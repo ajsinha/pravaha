@@ -274,15 +274,31 @@ def test_qi019_a_failed_statement_aborts_the_block_until_rollback(admin):
 
 
 @needs_pgwire
-@open_defect("QI-021: open defect -- COPY is PRV-2001 42000 'Non-query expression', where the pgwire "
-                         "help topic promises PRV-6201 0A000")
-def test_qi021_copy_is_refused_as_documented(admin):
+@pytest.mark.parametrize("statement", ["COPY {view} TO STDOUT", "DECLARE c CURSOR FOR SELECT * FROM {view}",
+                                       "SELECT STREAM * FROM {view}"])
+def test_qi021_copy_is_refused_as_documented(admin, statement):
+    # PGCOPY-1, fixed: COPY, cursors and SELECT STREAM are refused by name, PRV-6201 0A000.
     psycopg = pytest.importorskip("psycopg")
     view = any_view(admin)
     with pg_connect(admin) as conn:
         with pytest.raises(psycopg.Error) as refused:
-            conn.execute(f"COPY {view} TO STDOUT")
-    assert refused.value.sqlstate == "0A000" and "PRV-6201" in str(refused.value)
+            conn.execute(statement.format(view=view))
+        assert refused.value.sqlstate == "0A000" and "PRV-6201" in str(refused.value)
+        conn.execute(f"SELECT * FROM {view}").fetchall()
+
+
+@needs_pgwire
+def test_qi029_connection_validation_probes_are_answered(admin):
+    # PGVALIDATE-1, fixed: the probes pools and BI tools validate a connection with.
+    with pg_connect(admin) as conn:
+        assert conn.execute("SELECT 1").fetchone() == (1,)
+        assert conn.execute("SELECT 'a'::text").fetchone() == ("a",)
+        assert conn.execute("SELECT now()").fetchone()[0] is not None
+        assert conn.execute("SHOW search_path").fetchone() == ('"$user", public',)
+        conn.execute("SET search_path TO public")
+        cur = conn.execute("SELECT 1 AS ok, current_user")
+        assert [d.name for d in cur.description] == ["ok", "current_user"]
+        assert cur.fetchone() == (1, "admin")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -312,16 +328,19 @@ def test_qi043_malformed_json_is_an_api_error(admin, raw):
 
 
 @needs_http
-@open_defect("QI-046/QI-060: open defect -- an encoded slash or NUL in a path, a 10 KB Authorization "
-                         "header or a 64 KiB header is answered by Tomcat's HTML error page, not an ApiError")
 @pytest.mark.parametrize("path, headers", [
     ("/api/v1/queries/..%2fx", {}),
     ("/api/v1/streams/a%00b", {}),
+    ("/api/v1/queries/..%5c..%5cx", {}),
     ("/api/v1/status", {"X-Big": "a" * 65536}),
+    ("/api/v1/status", {"Authorization": "Bearer " + "a" * 10000}),
 ])
 def test_qi046_every_error_is_an_api_error(admin, path, headers):
-    st, h, body = http_call("GET", path, admin, headers=headers)
-    assert st >= 400 and h.get("Content-Type", "").startswith("application/json"), body[:200]
+    # TOMCATHTML-1, fixed: what the HTTP server refuses itself is an ApiError, PRV-1056.
+    # The oversized Authorization case brings its own header; the admin token would replace it.
+    st, h, body = http_call("GET", path, None if "Authorization" in headers else admin, headers=headers)
+    assert st == 400 and h.get("Content-Type", "").startswith("application/json"), body[:200]
+    assert json.loads(body)["code"] == "PRV-1056"
 
 
 @needs_http
@@ -412,15 +431,28 @@ def test_qi059_a_declared_stream_can_be_registered_over(admin):
 
 
 @needs_flight
-@open_defect("QI-071: open defect -- a ticket the server cannot parse is INTERNAL 'There was an error "
-                         "servicing your request', not INVALID_ARGUMENT with a PRV code")
-def test_qi071_a_garbage_ticket_is_invalid_argument(admin):
+@pytest.mark.parametrize("ticket", [b"\x00\xff garbage", b"NOPE:x", b"LIST"])
+def test_qi071_a_garbage_ticket_is_invalid_argument(admin, ticket):
+    # FLIGHTTICKET-1, fixed: INVALID_ARGUMENT with PRV-6106, not INTERNAL without a code.
     flight = pytest.importorskip("pyarrow.flight")
     client = flight.FlightClient(FLIGHT)
     options = flight.FlightCallOptions(headers=[(b"authorization", ("Bearer " + admin).encode())])
-    with pytest.raises(flight.FlightError) as refused:
-        client.do_get(flight.Ticket(b"\x00\xff garbage"), options).read_all()
+    with pytest.raises(Exception) as refused:
+        client.do_get(flight.Ticket(ticket), options).read_all()
     assert not isinstance(refused.value, flight.FlightInternalError)
+    assert "PRV-6106" in str(refused.value)
+
+
+@needs_flight
+def test_qi077_a_path_descriptor_is_unimplemented_with_a_code(admin):
+    # FLIGHTTICKET-1, fixed: Flight SQL speaks command descriptors; a path one is UNIMPLEMENTED PRV-6101.
+    flight = pytest.importorskip("pyarrow.flight")
+    client = flight.FlightClient(FLIGHT)
+    options = flight.FlightCallOptions(headers=[(b"authorization", ("Bearer " + admin).encode())])
+    with pytest.raises(Exception) as refused:
+        client.get_flight_info(flight.FlightDescriptor.for_path(any_view(admin)), options)
+    assert not isinstance(refused.value, flight.FlightInternalError)
+    assert "PRV-6101" in str(refused.value)
 
 
 @needs_flight

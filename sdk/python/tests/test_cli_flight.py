@@ -260,6 +260,38 @@ def test_subscribe_as_json_lines_and_with_a_limit(engine):
     assert run(engine, "subscribe", "--view", "spend", "--filter", "oops")[0] == EXIT_USAGE
 
 
+@pytest.mark.parametrize("limit", ["0", "-5"])
+def test_subscribe_refuses_a_limit_that_would_never_stop(engine, limit):
+    """SNAPDOC-1: 0 and -5 were accepted and meant "follow for ever"; leaving --limit off does that."""
+    code, out, err = run(engine, "subscribe", "--view", "spend", "--limit", limit)
+    assert code == EXIT_USAGE and out == ""
+    assert "at least 1" in err and "leave it off" in err
+
+
+def test_subscribe_limit_ends_at_the_end_of_the_commit_that_reaches_it(engine):
+    """SNAPDOC-1: --limit counts rows, and a commit is never cut in half -- as the help now says."""
+    code, out, err = run(engine, "subscribe", "--view", "spend", "--snapshot", "--limit", "1")
+    assert code == EXIT_OK
+    assert out.splitlines() == ["WEIGHT\tuser_id", "+1\tu1", "-- snapshot at frontier 5, 1 row"]
+    assert "until 1 row (at the end of that commit)" in err
+
+
+def test_subscribe_snapshot_says_it_is_the_changelog_unless_answer_is_asked_for(engine):
+    """SNAPDOC-1: on a keyed view the changelog's snapshot is every version of a key, not a read."""
+    _, _, err = run(engine, "subscribe", "--view", "spend", "--snapshot")
+    assert "changelog prints first" in err and "--answer" in err
+    _, _, err = run(engine, "subscribe", "--view", "spend", "--snapshot", "--answer")
+    assert "the rows a read returns print first" in err
+
+
+def test_subscribe_help_says_what_the_flags_do():
+    out, err = io.StringIO(), io.StringIO()
+    assert main(["subscribe", "--help"], stdout=out, stderr=err) == EXIT_OK
+    text = " ".join((out.getvalue() + err.getvalue()).split())
+    assert "at the end of the commit or snapshot that reaches N" in text
+    assert "its changelog (on a keyed view that upserts, every version of a key)" in text
+
+
 def test_dead_letters_list_show_and_replay(engine):
     code, out, _ = run(engine, "dlq", "list", "--name", "spend")
     assert code == EXIT_OK

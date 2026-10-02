@@ -20,7 +20,7 @@
      Bootstrap 5.3.8 and Bootstrap Icons build MAYA vendors. -->
 <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
 <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
-<script>
+<script nonce="{{ csp_nonce }}">
 /* Inline and first: the theme has to be on <html> before the stylesheet paints, or somebody
    who chose dark sees a white flash on every navigation. MAYA applies it from app.js, after the
    paint, because its CSP forbids inline script; this is the part that cannot wait. The menu
@@ -81,7 +81,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
 <script src="/static/js/states.js"></script>
 {# The islands are ES modules with no bundler: this map is the whole "build". Every entry
    is a vendored file under /static/vendor, so nothing resolves off this server. #}
-<script type="importmap">
+<script type="importmap" nonce="{{ csp_nonce }}">
 {"imports": {
   "preact": "/static/vendor/preact/preact.module.js",
   "preact/hooks": "/static/vendor/preact/hooks.module.js",

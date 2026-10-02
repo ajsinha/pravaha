@@ -90,7 +90,7 @@ class ZooKeeperPartitionLeaseCoordinatorTest {
 
     @Test
     void acquiringAnAlreadyHeldPartitionFails() {
-        leases.acquire(2, A).orElseThrow();
+        assertThat(leases.acquire(2, A)).isPresent();
 
         assertThat(leases.acquire(2, B)).isEmpty();
     }

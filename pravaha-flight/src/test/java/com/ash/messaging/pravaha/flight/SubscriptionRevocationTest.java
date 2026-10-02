@@ -180,6 +180,32 @@ class SubscriptionRevocationTest {
         assertThat(ended.get()).contains(SecurityErrors.UNAUTHENTICATED.code());
     }
 
+    /**
+     * FLIGHTPRINCIPAL-1: a credential that still verifies, but now as a different principal, is not
+     * the credential the subscription was authorised with -- the same rule the PostgreSQL gateway
+     * applies (PGREVOKE-1). Only the id changes here: the policy allows everyone, so nothing but the
+     * principal comparison can end the stream.
+     */
+    @Test
+    void aCredentialThatNowVerifiesAsSomebodyElseEndsASubscription() throws Exception {
+        AtomicBoolean swapped = new AtomicBoolean();
+        TokenVerifier shifting = token -> swapped.get()
+                ? new Principal("mallory", "acme", Set.of("analyst"), Map.of())
+                : new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        startWith(shifting, (principal, view) -> AccessDecision.allow());
+
+        AtomicReference<String> ended = subscribeUntilItEnds("good-token");
+        Thread.sleep(500);
+        assertThat(ended.get()).as("running as dana").isNull();
+
+        swapped.set(true);
+
+        assertThat(endedWithin(ended, 30))
+                .as("a credential now standing for somebody else ends the stream")
+                .isTrue();
+        assertThat(ended.get()).contains(SecurityErrors.UNAUTHENTICATED.code());
+    }
+
     @Test
     void withdrawingAccessInThePolicyEndsASubscriptionThatIsAlreadyRunning() throws Exception {
         AtomicBoolean allowed = new AtomicBoolean(true);

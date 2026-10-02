@@ -700,6 +700,18 @@ outside the dev profile refuses to start while the default is still its password
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
 still work beside all this, logged as deprecated.
 
+**The shipped profiles, and what each grants (PERMISSIVEUSERS-1).** `dev` sets
+`pravaha.security.allow-anonymous: true` and lets `admin` keep its published password: alone it serves
+every view to every caller under the default `permissive` policy — one developer on loopback, never
+anywhere reachable. `users` (`--spring.profiles.active=dev,users`, the profile the guides run the
+console with) turns on this store and token authentication **and sets `policy: authenticated`**: a
+signed-in user reads views and registers queries; drop, pause, resume and replace go by ownership,
+grants or the `admin` role; the audit trail is for `pravaha.security.audit-readers` (default
+`[admin]`); `GET /api/v1/tenants` shows each user their own tenant. Until 2.0.1 it left `permissive` in
+force, so every signed-in user could pause any view and read the trail. A home whose catalogue imported
+`permissive` under that profile refuses the new one with `PRV-7034`: set `pravaha.security.policy:
+permissive` to keep what was imported, or `pravaha.catalog.authority: catalog`.
+
 **Failed sign-ins and lockout (LOCKENUM-1).** The policy, and why each half is what it is:
 
 - *A lock is never announced to someone who has not signed in.* An unknown name, a wrong password, a
@@ -741,7 +753,9 @@ An owner neither the store nor the token table knows is refused `PRV-8007`.
 
 The console holds **no credential of its own**. A person signs in with their user name and password.
 The console passes them to the engine's `POST /api/v1/auth/login` and keeps only the session token it
-gets back, in its signed cookie. It sends that token on every call, over REST and Flight, so the engine
+gets back — in the console process, under an opaque id; the browser's cookie carries the id and never
+the token (COOKIETOKEN-1), so a copied cookie is not a credential for Flight, HTTP or the PostgreSQL
+gateway. It sends that token on every call, over REST and Flight, so the engine
 authorizes and audits each action as that person, with their roles. The engine is the only place a
 credential is checked. Role checks in the console only decide what it shows; the engine decides what
 anyone may do.
@@ -749,10 +763,14 @@ anyone may do.
 | Surface | Signed in? |
 |---|---|
 | Landing, about, help, tutorials, health probes | No — an operator needs the console to load during an incident |
-| Everything that reads or changes the engine | **Yes**, as the person; a session that ends sends them to sign in again |
+| Everything that reads or changes the engine | **Yes**, as the person; a session the engine ends (expiry, revocation) sends them to sign in again; a cookie whose session was signed out — a copy presented after sign-out — reads as signed out and goes to the landing page (LOGOUTREPLAY-1) |
 | Account: password, API keys, sessions | **Yes**, their own |
 | Admin: users, keys, sessions, access, audit | **Yes**, and the engine refuses anyone without `admin` |
 
 Every form and state-changing request carries a per-session CSRF token. The console's session cookie
 is HttpOnly and SameSite=Lax, and Secure when served over https (`console.secure_cookies` for a proxy
-that terminates TLS).
+that terminates TLS). It is signed with `console.session_secret` and holds no credential: the engine
+session token, and a key or reset secret the engine has just issued (shown once), stay in the console's
+memory under the cookie's opaque id. A console restart therefore signs everyone out of the console
+(their engine sessions expire on their own), and several console instances behind one address need
+sticky sessions.

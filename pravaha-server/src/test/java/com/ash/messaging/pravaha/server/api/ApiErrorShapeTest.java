@@ -18,9 +18,12 @@ package com.ash.messaging.pravaha.server.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -54,6 +57,9 @@ class ApiErrorShapeTest {
 
     @Autowired
     private TestRestTemplate http;
+
+    @LocalServerPort
+    private int port;
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -126,5 +132,56 @@ class ApiErrorShapeTest {
         assertThat(body.path("code").asText())
                 .as("a handled refusal keeps its own code rather than the fall-through's")
                 .isNotEqualTo("PRV-1052");
+    }
+
+    /**
+     * TOMCATHTML-1: requests the container refuses before any servlet runs. These never reach
+     * {@code ApiErrorController}; they were Tomcat's HTML page. Sent over a raw socket because an
+     * HTTP client normalises or refuses to send exactly these bytes.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"/api/v1/queries/..%2f..%2fetc%2fpasswd", "/api/v1/streams/a%00b", "/api/v1/queries/..%5c..%5cx"
+            })
+    void aPathTheContainerRefusesIsAnApiError_TOMCATHTML1(String path) throws Exception {
+        assertContainerRefusalIsAnApiError("GET " + path + " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+    }
+
+    @Test
+    void anOversizedHeaderIsAnApiError_TOMCATHTML1() throws Exception {
+        assertContainerRefusalIsAnApiError("GET /api/v1/status HTTP/1.1\r\nHost: x\r\nX-Big: " + "a".repeat(65_536)
+                + "\r\nConnection: close\r\n\r\n");
+    }
+
+    @Test
+    void tooManyHeadersIsAnApiError_TOMCATHTML1() throws Exception {
+        StringBuilder request = new StringBuilder("GET /api/v1/status HTTP/1.1\r\nHost: x\r\n");
+        for (int i = 0; i < 500; i++) {
+            request.append("X-H").append(i).append(": v\r\n");
+        }
+        assertContainerRefusalIsAnApiError(
+                request.append("Connection: close\r\n\r\n").toString());
+    }
+
+    private void assertContainerRefusalIsAnApiError(String rawRequest) throws Exception {
+        String reply;
+        try (java.net.Socket socket = new java.net.Socket("127.0.0.1", port)) {
+            socket.setSoTimeout(10_000);
+            socket.getOutputStream().write(rawRequest.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+            socket.getOutputStream().flush();
+            reply = new String(socket.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        assertThat(reply).startsWith("HTTP/1.1 400");
+        int split = reply.indexOf("\r\n\r\n");
+        String head = reply.substring(0, split).toLowerCase(java.util.Locale.ROOT);
+        String content = reply.substring(split + 4);
+        if (head.contains("transfer-encoding: chunked")) {
+            content = content.substring(content.indexOf("\r\n") + 2, content.lastIndexOf('}') + 1);
+        }
+        assertThat(head).contains("content-type: application/json");
+        assertThat(content).doesNotContain("<html").doesNotContain("Apache Tomcat");
+        JsonNode body = json.readTree(content);
+        assertIsApiError(body);
+        assertThat(body.path("code").asText()).isEqualTo("PRV-1056");
     }
 }

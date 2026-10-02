@@ -54,7 +54,7 @@ class InMemoryPartitionLeaseCoordinatorTest {
     @Test
     void acquiringAnAlreadyHeldPartitionFails() {
         InMemoryPartitionLeaseCoordinator leases = new InMemoryPartitionLeaseCoordinator();
-        leases.acquire(5, A).orElseThrow();
+        assertThat(leases.acquire(5, A)).isPresent();
 
         // Not this method's job to displace a's genuine hold -- see transfer().
         assertThat(leases.acquire(5, B)).isEmpty();
@@ -87,7 +87,7 @@ class InMemoryPartitionLeaseCoordinatorTest {
     void transferFailsWhenTheFromLeaseIsAlreadyStale() {
         InMemoryPartitionLeaseCoordinator leases = new InMemoryPartitionLeaseCoordinator();
         PartitionLease aOwnsIt = leases.acquire(5, A).orElseThrow();
-        leases.transfer(aOwnsIt, B).orElseThrow(); // b now holds it; aOwnsIt is stale
+        assertThat(leases.transfer(aOwnsIt, B)).isPresent(); // b now holds it; aOwnsIt is stale
 
         Member c = new Member("c", "host-c", 9072);
         // A second transfer attempt built from the same, now-stale premise must not succeed --

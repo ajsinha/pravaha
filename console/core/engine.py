@@ -239,8 +239,11 @@ def _translated(exc: Exception) -> Exception:
 
 def _refused_credential(exc: Exception) -> bool:
     """Whether the engine answered by refusing the caller's credential (or its absence)."""
-    code = credential.code_of(exc)
-    if code in credential.EXPIRED_CODES or code in {"PRV-7002", credential.MUST_CHANGE_CODE}:
+    # Every code, not the first: "PRV-1041 PRV-7001 ..." is the engine refusing the credential,
+    # wrapped by the SDK, and reading it as unreachable made the console never ready in front of
+    # an engine that wants one (CONSOLEREADY-1).
+    named = credential.codes_of(exc)
+    if named & (credential.EXPIRED_CODES | {"PRV-7002", credential.MUST_CHANGE_CODE}):
         return True
     status = getattr(exc, "status", None)
     return status in (401, 403) or credential._unauthenticated(exc)
@@ -338,6 +341,27 @@ class Engine:
         finally:
             if held is not None and marks is not None:
                 held.expired, held.must_change = marks
+
+    def readiness(self) -> dict:
+        """Whether the engine can serve, asked without anybody's credential (CONSOLEREADY-1).
+
+        The console holds no credential of its own, so a probe that needed one could never say
+        "ready" in front of an engine that requires one. With the engine's HTTP surface
+        configured (``engine.http_url``) this asks its health endpoint, which answers anonymous
+        callers: ``UP`` or ``DEGRADED`` (every view still served) is ready, ``DOWN`` or
+        ``OUT_OF_SERVICE`` is reachable and not ready. Without it, the Flight probe
+        :meth:`health` makes, where a refusal of the (absent) credential is an answer too.
+        """
+        if not self._http:
+            raw = self.health()
+            return {**raw, "ready": bool(raw.get("reachable"))}
+        try:
+            answer = self._rest(lambda client: client.http_api.health())
+        except Exception as exc:  # noqa: BLE001 -- reported, as health() reports it
+            return {"reachable": False, "ready": False, "url": self._url, "error": str(exc)}
+        status = str(answer.get("status") or "UNKNOWN")
+        return {"reachable": True, "ready": status in ("UP", "DEGRADED"), "url": self._url,
+                "status": status}
 
     def queries(self) -> list[QueryRow]:
         with self._client() as client:

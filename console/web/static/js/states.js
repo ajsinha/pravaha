@@ -11,9 +11,10 @@
  * screens through the macros in templates/_states.html, which write the same
  * markup again for a page that has no script yet. One look, three callers.
  *
- * An action -- retry, clear the filter -- is either an inline handler (a string,
- * for the classic scripts) or `true`, which marks the button with
- * data-state-action for the caller to wire (lib.js does, for the islands).
+ * An action -- retry, clear the filter -- is either the name of a global function (a string
+ * such as "queriesReload()", for the classic scripts, called through data-state-call) or
+ * `true`, which marks the button with data-state-action for the caller to wire (lib.js does,
+ * for the islands).
  */
 (function () {
   "use strict";
@@ -22,10 +23,21 @@
   var t = window.PravahaApi.t;
 
   function button(kind, handler, label, extra) {
+    /* A string handler names a global function ("queriesReload()"), called by the one listener
+       below: an inline onclick is what the console's Content-Security-Policy refuses
+       (CONSOLEHDR-1), so the name travels as data instead. */
     var wired = handler === true ? ' data-state-action="' + kind + '"'
-      : ' onclick="' + esc(handler) + '"';
+      : ' data-state-call="' + esc(handler) + '"';
     return '<button type="button" class="btn btn-sm ' + extra + '"' + wired + ">" + esc(label) + "</button>";
   }
+
+  var CALL = /^(?:window\.)?([A-Za-z_$][\w$]*)\(\)$/;
+  document.addEventListener("click", function (event) {
+    var target = event.target && event.target.closest ? event.target.closest("[data-state-call]") : null;
+    if (!target) return;
+    var named = CALL.exec(target.getAttribute("data-state-call") || "");
+    if (named && typeof window[named[1]] === "function") { window[named[1]](); }
+  });
 
   var States = {
     /* Loading, first time: a skeleton the shape of the answer, never a spinner

@@ -259,14 +259,18 @@ def build_parser() -> _Parser:
     p.add_argument("--filter", action="append", metavar="COL=VAL[,COL=VAL]",
                    help="equality filters applied on the server; repeatable")
     p.add_argument("--snapshot", action="store_true",
-                   help="print the view's rows first, then every commit after them, none missed")
+                   help="print what the view holds first, then every commit after it, none missed: "
+                        "its changelog (on a keyed view that upserts, every version of a key), or "
+                        "with --answer the rows a read returns")
     p.add_argument("--answer", action="store_true",
                    help="how the view's answer moves (rows leaving -1, entering +1), not its changelog")
     p.add_argument("--reconnect", action="store_true",
                    help="reopen the stream after a restart instead of ending")
     p.add_argument("--reconnect-timeout", type=float, metavar="SECONDS",
                    help="give up after this long without a stream (default 300; 0 never)")
-    p.add_argument("--limit", type=int, default=0, metavar="N", help="stop after N rows")
+    p.add_argument("--limit", type=int, metavar="N",
+                   help="stop once N rows (N >= 1) have printed, at the end of the commit or snapshot "
+                        "that reaches N: a commit is never cut in half")
     p.add_argument("--buffer-rows", type=int, metavar="N", help="the server's buffer for you")
     p.add_argument("--overflow", choices=["CONFLATE", "DROP_OLDEST", "FAIL"], type=str.upper,
                    help="what the server does when you fall behind")

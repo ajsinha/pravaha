@@ -756,7 +756,7 @@ def test_every_vendored_library_carries_its_licence_and_is_in_the_notices():
 
 def test_the_import_map_resolves_only_to_files_this_console_serves():
     base = (CONSOLE_ROOT / "web" / "templates" / "base.html").read_text(encoding="utf-8")
-    block = re.search(r'<script type="importmap">\s*(\{.*?\})\s*</script>', base, re.DOTALL)
+    block = re.search(r'<script type="importmap"[^>]*>\s*(\{.*?\})\s*</script>', base, re.DOTALL)
     assert block
     for target in json.loads(block.group(1))["imports"].values():
         assert target.startswith("/static/")

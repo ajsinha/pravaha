@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **544 findings carrying a
-status — 499 FIXED, 26 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 26 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 20 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+status — 525 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7378,8 +7378,7 @@ the lead.
 
 ### ERRORPRONE-1 (LOW) — Error Prone and NullAway never run in any build
 
-> **Status:** OPEN — found while validating JDK 25: the `ep` and `all` profiles set `errorprone.skip=false`, but nothing consumes the property; no pom passes `-Xplugin:ErrorProne` to javac, and the root pom's own comment says "opt-in until P0-02b". The static analysis the profiles name is not performed.
-> **Disposition:** POST-GA — tooling, not product behaviour: wiring it in means triaging whatever it reports across the reactor.
+> **Status:** FIXED — the ep profile runs Error Prone 2.50.0 and NullAway 0.14.1 as a forked javac plugin; all ten ERROR-level findings resolved (nine fixed, one suppressed with a reason); 3,570 warnings remain and are reported in TESTING.md (2,822 NullAway); the default build is unchanged and -Pall no longer claims to include it.
 
 ## Found moving the Docker images to JDK 25 (2026-10-01), 5 findings
 
@@ -7469,32 +7468,25 @@ Cases and evidence: [cases/ADV-ENGINE.md](cases/ADV-ENGINE.md), [logs/ADV-ENGINE
 > **Status:** FIXED — with a dead-letter directory, an evaluation failure before state (WHERE, projection, computed column: divide by zero and every overflow) is dead-lettered PRV-3027 and the query runs on; a failure above state still stops it; push-only queries get the queue; PRV-3027 is not replayable (PRV-4092); RowGuardTest, EmbeddedRowDeadLetterTest, DeadLetterSurfacesTest, QE-012.
 
 ### NANNOT-1 (LOW) — the negation of a DOUBLE comparison is not its IEEE complement
-> **Status:** OPEN — `PredicateCompiler.negate` turns `NOT (d > 5)` into `d <= 5`, false for NaN, so a NaN row is in neither `d > 5` nor `NOT (d > 5)`; `IS FALSE` and `IS NOT FALSE` over such a comparison go wrong the same way (rows dropped and added). TY-3 chose IEEE 754, under which `NaN > 5` is FALSE and its negation TRUE. 26–33 of 1,500 random predicates per seed differ only on NaN rows for this reason, interpreted and generated alike. Reproduction: `AdvExpressionTest#qe014_notOfAComparisonKeepsANanRowAsIeeeSays` (disabled).
-> **Disposition:** POST-GA — negate a floating-point comparison as `NOT(cmp) AND col IS NOT NULL`, not the opposite operator.
+> **Status:** FIXED — a negated floating-point comparison is NOT(comparison) restricted to present operands, its IEEE complement, on the interpreted and generated paths; NegatedFloatingComparisonTest, QE-014, AdvPredicateDifferentialTest (no NaN-under-NOT mismatch).
 
 ### FARTIME-1 (LOW) — a CSV timestamp after 2262 wraps into 1677
-> **Status:** OPEN — `DelimitedCodec.temporal` computes `getEpochSecond() * 1_000_000_000L + getNano()` unchecked; `3000-01-01T00:00:00Z` is stored as `-4389808147419103232` ns. Reproduction: `AdvDurabilityTest#qe164_aTimestampPastTheNanosecondRangeIsRefusedNotWrapped` (disabled) / `#qe164_observed`.
-> **Disposition:** POST-GA — `Math.multiplyExact`/`addExact` and a decode error with the line.
+> **Status:** FIXED — nanosecond arithmetic is checked: a CSV timestamp or DATE outside 1677–2262 is a decode failure PRV-5040 naming line, column and range (dead-lettered, or stops the source without a queue); Cassandra's event-time read is checked too (PRV-5087); FilesystemPluginTest, QE-164.
 
 ### MINRETRACT-1 (LOW) — windowed MIN/MAX stop the query on the first retraction
-> **Status:** OPEN — documented only in LIMITS' pushdown paragraph and LIFE-126's path; CQ §13 marks `MIN`/`MAX` ✅ in windows and nothing refuses them over a stream that can carry deletes (an `op.column` file, `postgres-cdc`). Reproduction: `AdvAggregateTest#qe044_windowedMinGivenARetractionStopsTheQuery` (passes as observed).
-> **Disposition:** NOTE — say it in CQ §13, or refuse at registration when a source can retract (as `PRV-2042` does for repeating sources).
+> **Status:** FIXED — MIN/MAX over an input that can retract is refused at registration PRV-2076 (retraction support was declined: it needs a per-slice value multiset and new checkpoint state); an embedded retract that would reach a MIN/MAX query is refused PRV-8102 with nothing delivered; a journalled MIN/MAX over CDC is now refused at recovery (visible through RECOVERYHEALTH-1); RetractedExtremesTest, RetractedExtremeTest, QE-044.
 
 ### MASKALERT-1 (LOW) — an alert comparing a masked column is accepted, then broken
-> **Status:** OPEN — `ana` (card masked): `CREATE ALERT raw_guess ON payments WHERE card = '4111-1111' NOTIFY ops_log` answers `ACTIVE`; the alert then shows `following=BROKEN` and never fires (fails closed). SECURITY.md lists "an alert's WHERE" among the plan-time `PRV-7006` refusals. Reproduction: `AdvSecurityTest#qe105_anAlertComparingAMaskedColumnIsRefusedWhenCreated` (disabled) / `#qe105_observed`.
-> **Disposition:** POST-GA — run `AlertAccess.narrowingFor` in `create` so the refusal reaches the person creating it.
+> **Status:** FIXED — CREATE ALERT applies the creator's narrowing before journalling, so an alert on a masked column is refused PRV-7006 and nothing is kept, as SECURITY.md promises; a mask applied later still marks an existing alert broken; AlertNarrowingTest, QE-105.
 
 ### EMITROOM-1 (LOW) — a window of ~836 k groups stops its query below the view ceiling
-> **Status:** OPEN — 800,000 groups in one tumbling window are answered; 1,000,050 stop the query at the 836,416th emitted group with `PRV-3001 no room to emit a window result`, not the view's `PRV-4022` ceiling (1,000,000) that names the limit. Reproduction: `AdvResourceTest#qe144_145_146_aMillionGroupsKeysAndDistinctValues` (observed).
-> **Disposition:** NOTE — size the emission buffer to the view ceiling, or refuse with the ceiling's own code and message.
+> **Status:** FIXED — windowed and keyed aggregates rewind the arena after each emitted row, so emission needs one row of room; past the view's ceiling the refusal is PRV-4022, not PRV-3001; EmissionRoomTest, QE-144.
 
 ### QOQAPI-1 (LOW) — the embedded register call cannot build on a view
-> **Status:** OPEN — `engine.register("down", "SELECT g, SUM(v) AS s FROM up GROUP BY g", "g")` → `PRV-2002 Object 'up' not found`; the same SQL as `CREATE CONTINUOUS QUERY` works. Reproduction: `AdvChainTest#qe068_theEmbeddedRegisterCallCannotBuildOnAView`.
-> **Disposition:** POST-GA — route `register` through the path the statement uses.
+> **Status:** FIXED — the embedded engine's register plans key ordinals against the caller's view of the registry, so it builds on views as the server does; EmbeddedRegisterApiTest, QE-068.
 
 ### UNCODEDAPI-1 (LOW) — failures without a code, or without a message
-> **Status:** OPEN — `PravahaEngine.register(name, sql)` with no key → `IllegalArgumentException`; `push` of an `Instant` past 2262 → `ArithmeticException: long overflow`; `register` when the checkpoint directory cannot be created → `UncheckedIOException`; 3,000 nested parentheses and a 1.2 MiB `OR` chain → `PRV-2001  null` (the second after 30.5 s of planning); and a lane failure from `Math.subtractExact` reads `java.lang.ArithmeticException` with no "long overflow" once the JIT has compiled it (OmitStackTraceInFastThrow). Reproductions: `AdvAggregateTest#qe062_…`, `#qe063_064_…`, `AdvDurabilityTest#qe084_085_…`, `AdvResourceTest#qe139_…`, `AdvChainTest#qe162_observed`.
-> **Disposition:** POST-GA.
+> **Status:** FIXED — a keyless registration is PRV-2070, an unknown key column PRV-2071, a pushed Instant past 2262 PRV-8102, an uncreatable checkpoint directory PRV-4093, a message-less parse failure 'nests too deeply', and a BIGINT overflow names its expression even after JIT; SqlPlannerTest, NarrowIntegerOverflowTest, EmbeddedRegisterApiTest, QE-062/063/085/139/152/166.
 ```
 
 ### Design concerns recorded as NOTE (behaving as documented)
@@ -7588,83 +7580,67 @@ Cases and evidence: [cases/ADV-SURFACE.md](cases/ADV-SURFACE.md), [logs/ADV-SURF
 
 ### PGCOPY-1 (LOW) — `COPY` is refused with the wrong code
 
-> **Status:** OPEN — `COPY by_user TO STDOUT` → `42000 PRV-2001 Non-query expression encountered in illegal context`; `DECLARE`/`FETCH` → `42000 PRV-2001 Incorrect syntax`. The pgwire topic's refusal table promises `PRV-6201` / `0A000` for both. Also: `SELECT STREAM …` is `PRV-4023` (no such view), not the documented `PRV-6211` for continuous-query statements. Repro: QI-021, `test_qi021_*`.
-> **Disposition:** POST-GA
+> **Status:** FIXED — COPY, cursors, SELECT STREAM, LISTEN and NOTIFY are refused by name on both protocols with PRV-6201 / 0A000, as the pgwire topic promises; PgProbeAndRefusalTest.
 
 ### TOMCATHTML-1 (LOW) — some errors are Tomcat HTML pages, not ApiErrors
 
-> **Status:** OPEN — `GET /api/v1/queries/..%2f..%2fetc%2fpasswd`, `/api/v1/streams/a%00b`, `/api/v1/queries/..%5c..%5cx`, a 10 000-character `Authorization` header, a 64 KiB header, and 500 headers are all answered `400` with Tomcat's `<!doctype html>… HTTP Status 400 – Bad Request` page. application.yaml: "every non-2xx response is an ApiError". Nothing leaks (no version, no stack). Repro: QI-046, `test_qi046_*`.
-> **Disposition:** POST-GA
+> **Status:** FIXED — the host's error valve writes ApiError JSON: PRV-1056 for a 400 Tomcat refuses before any servlet (encoded / or \, NUL, oversized headers), PRV-1052 otherwise; ApiErrorShapeTest (raw sockets).
 
 ### FLIGHTTICKET-1 (LOW) — malformed Flight requests are INTERNAL without a code
 
-> **Status:** OPEN — `do_get(Ticket(b"\x00\xff garbage"))`, `Ticket(b"NOPE:x")`, `Ticket(b"LIST")`, `get_flight_info(for_path("by_user"))`, and `do_put` with a path descriptor → `FlightInternalError: There was an error servicing your request` (gRPC 13), no PRV code; an empty or 1 MiB ticket is `INVALID_ARGUMENT`. COMPATIBILITY.md: an unknown verb is "refused by name". Repro: QI-071, QI-077, `test_qi071_*`.
-> **Disposition:** POST-GA
+> **Status:** FIXED — an unreadable Flight ticket is INVALID_ARGUMENT PRV-6106 and a path descriptor UNIMPLEMENTED PRV-6101, instead of INTERNAL; FlightMalformedRequestTest.
 
 ### CONSOLEHDR-1 (LOW) — the console can be framed
 
-> **Status:** OPEN — no response from the console carries `Content-Security-Policy`, `X-Frame-Options` or `frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`. Its forms are CSRF-protected and its cookie is `SameSite=Lax`, but a signed-in operator can be shown the console inside another site's frame (clickjacking the pause/drop/revoke buttons). Repro: QI-124.
-> **Disposition:** POST-GA
+> **Status:** FIXED — every console response carries a nonce-based CSP with frame-ancestors 'none', X-Frame-Options DENY, nosniff, Referrer-Policy same-origin and Permissions-Policy (HSTS over https); inline handlers became listeners; the browser harness fails any test on a CSP violation; test_security_headers.py, all browser suites (1,374).
 
 ### LOGOUTREPLAY-1 (LOW) — a signed-out cookie still renders as signed in
 
-> **Status:** OPEN — the console's session is a signed (not server-side) cookie holding the engine session token (readable: base64 JSON with `token`, `user`, `roles`, `csrf`). After `POST /logout` a copy of the cookie still opens `/queries` with the signed-in chrome ("admin", Sign out) and `PRV-1041 PRV-7001 this server requires a credential` instead of the documented "a session that ends sends them to sign in again". No data is exposed — the engine refuses the ended token. Repro: QI-117.
-> **Disposition:** POST-GA
+> **Status:** FIXED — the console reads every code in an SDK-wrapped refusal; a cookie whose session was signed out is cleared and sent to the landing page, while a session the engine ended still goes to /login?expired=1; test_identity.py.
 
 ### PLUGINLATE-1 (LOW) — an unknown plugin is not refused at startup, and the refusal contradicts itself
 
-> **Status:** OPEN — a source with `plugin: redis` starts the node (`sources bound: [t <- redis[key]]`, health UP); `PRV-5090 no source plugin named 'redis' …` arrives only at `register`. CONNECTORS.md and GUIDE_WITHOUT_DOCKER §11 say "refused at startup with PRV-5090". The message then says "the server jar carries filesystem alone, and feedfile, jdbc, …" right after `Available: [aerospike, cassandra, delta, feedfile, filesystem, jdbc, kafka, mysql-cdc, postgres-cdc]`: the 2.0 server jar bundles ten plugin modules, and CONNECTORS.md, QUICKSTART's YAML comment and the guide still say filesystem only. Repro: QI-143.
-> **Disposition:** POST-GA
+> **Status:** FIXED — a source plugin is looked up when bound, so the server and the embedded engine refuse an unknown one at start PRV-5090, and the message lists what is available without the false 'filesystem alone' claim; UnknownPluginAtStartupTest, PluginSourceFeedsTest, BrokenPluginDiscoveryTest.
 
 ### HELMNAME-1 (LOW) — the chart renders names Kubernetes refuses
 
-> **Status:** OPEN — `helm template qi deploy/helm/pravaha --set fullnameOverride=<78 a's>` truncates the base to 63 characters and appends `-headless` (72) and `-test-probes`: an invalid Service name, rendered without complaint; `--set image.repository=""` renders `image: ":2.0.1-SNAPSHOT"`. The chart's own `fail` guards (replicas, TLS secret, standby, spill, PDB) are good. Repro: QI-160.
-> **Disposition:** POST-GA
+> **Status:** FIXED — the chart's base name is cut to 52 so the StatefulSet revision label fits 63, suffixes are kept, and an empty image.repository fails the render with a message; deploy/helm/test.sh (22 checks).
 
 ### CDCPRIVCODE-1 (LOW) — a role without REPLICATION gets the wrong code and the wrong advice
 
-> **Status:** OPEN — `ALTER ROLE pravaha_cdc NOREPLICATION`, then register over `customers`: `PRV-5118 … cannot start the initial snapshot … FATAL: permission denied to start WAL sender … Only roles with the REPLICATION attribute may …` followed by advice about transactions left idle and `max_replication_slots`. The PostgreSQL detail is right; the code (PRV-5112 is the prerequisite code, PGCDCPRIV-1) and the remedy are not. Repro: QI-170.
-> **Disposition:** POST-GA
+> **Status:** FIXED — a 42501 on the replication path (slot creation, snapshot, stream start) is PRV-5112 naming ALTER ROLE <role> REPLICATION (and rds_replication for RDS/Aurora); ReplicationPrivilegeRefusalTest (Testcontainers).
 
 ### TOPICGONE-1 (LOW) — a deleted Kafka topic is not a stopped feed
 
-> **Status:** OPEN — after `kafka-topics --delete --topic orders` the queries over it stayed `RUNNING`, `feed RUNNING`, health `UP` for as long as the topic was absent, with only the Kafka client's `unknown topic or partition` WARNs. Once the topic was recreated the source correctly stopped with `PRV-5106 offset 214 of orders-0 is no longer in the log` and health went `DEGRADED`. Repro: QI-177.
-> **Disposition:** POST-GA
+> **Status:** FIXED — a quiet Kafka reader checks its topic every fifth of topic.missing.timeout (default 30 s); past it the feed stops PRV-5130 (FEED-1) and the node is DEGRADED; an unreachable broker is not counted; KafkaSourcePluginTest, KafkaSourceBrokerTest (a real topic deleted under a reader).
 
 ### SNAPDOC-1 (LOW) — `pravaha subscribe` flags do not do what their help says
 
-> **Status:** OPEN — `--limit N` is "stop after N rows" in `--help` but counts commits (`--limit 2` printed a 1 009-row snapshot); `--limit 0` and `--limit -5` are accepted and never end. `--snapshot` is "print the view's rows first", but on a keyed view it prints the changelog Z-set — `alice 500` and `alice 250` both at `+1`, `u7 7` at `+200` — while a read shows one row per key (KEYEDWT-1 documents this for the SDK and the `--answer` flag exists, but CLI.md lists neither `--answer` nor the caveat). Repro: QI-088, QI-099.
-> **Disposition:** POST-GA
+> **Status:** FIXED — the behaviour of --limit (stop at the end of the commit that reaches it) was right and the help now says so; --limit of 0 or less is a usage error (exit 2); --snapshot's help says it prints the changelog and points to --answer; test_cli_flight.py, CLI.md.
 
 ### CONSOLEREADY-1 (LOW) — the console is never "ready" in front of an authenticating engine
 
-> **Status:** OPEN — `/health/ready` answers `503 {"status":"not-ready","engine":{"reachable":false,…"PRV-7001 this server requires a credential"}}` whenever the engine wants a credential, because the console holds none of its own (by design). That includes the compose stack, where RUNNING_IN_DOCKER and GUIDE_WITH_DOCKER §6 show `200 {"status":"ready","engine":{"reachable":true,…"queries":2}}`. The image's healthcheck uses `/health/live`, so compose is unaffected; an orchestrator probing `/health/ready` never routes to the console. Repro: QI-147.
-> **Disposition:** POST-GA
+> **Status:** FIXED — readiness asks the engine's anonymous /actuator/health when engine.http_url is set (UP or DEGRADED is ready), and reads wrapped codes; test_readiness.py; both Docker guides show the new response.
 
 ### STALEDOC-1 (LOW) — guides out of step with 2.0
 
-> **Status:** OPEN — (a) GUIDE_WITHOUT_DOCKER §3 lists `pravaha-server-0.2.1-SNAPSHOT-app.jar` (it is `2.0.1-SNAPSHOT`); GUIDE_WITH_DOCKER §3 shows `pravaha-engine 1.0.1-SNAPSHOT` / `pravaha-server-1.0.1-SNAPSHOT-app.jar`. (b) QUICKSTART "What is not built" says the Kafka plugin and the Spring Boot starter are not built and clustering is deferred; `plugins/pravaha-plugin-kafka` and `pravaha-spring-boot-starter` build and ship, and COMPATIBILITY.md documents the starter's Boot 3.4+ requirement. (c) QUICKSTART §4's `pravaha-server --spring.config.additional-location=file:./application.yaml &` (no profile) refuses to start with PRV-7004; the YAML shown has no security block. (d) QUICKSTART §7 `make install` fails on Ubuntu without `python3.X-venv` (the workaround is only in GUIDE_WITHOUT_DOCKER). (e) CLI.md's command map lacks `explain-sql` and `subscribe --answer`. (f) QUICKSTART's Java and Python snippets register then query at once; the Java one printed nothing (the view had not filled yet). Repro: QI-190, QI-193, QI-195, QI-197, QI-200, QI-201.
-> **Disposition:** POST-GA
+> **Status:** FIXED — every stale item in the log and its neighbours (jar names, versions, the 'not built' table, the PRV-7004 command, python3-venv, explain-sql and --answer in CLI.md) corrected; QUICKSTART re-run verbatim on JDK 25.0.4.1, §2–§8 and the console.
 
 ### PGVALIDATE-1 (LOW) — `SELECT 1` is not answered by the gateway
 
-> **Status:** OPEN — a design concern rather than a defect: `SELECT 1`, `SELECT now()`, `SELECT 'a'::text`, `SHOW search_path` and `SET search_path` are refused (PRV-2020 LogicalValues, PRV-2002, PRV-2001, PRV-6204). Empty queries, `;`, `-- ping` and pgjdbc `isValid()` work, so most pools are fine, but `SELECT 1` is the default validation query of HikariCP's `connectionTestQuery`, DBeaver's "Test connection", SQLAlchemy's pre-ping on some dialects and Grafana's health check. `COUNT(*)` columns are named `EXPR$0`. Also pgjdbc `getSchemas()` and `getPrimaryKeys()` are PRV-6205 (DBeaver's navigator calls the first). Behaviour matches "refuses anything else by name". Cases QI-029, QI-031.
-> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
+> **Status:** FIXED — a SELECT with no FROM is answered (literals, casts, now() to the microsecond, current_user, version()), as are SHOW search_path and a SET search_path that keeps public, with PostgreSQL's column names and types, so pools' validation queries work; PgProbeAndRefusalTest, test_adv_surface against a node.
 
 ### PERMISSIVEUSERS-1 (LOW) — `dev,users`, the documented console profile, makes every user an administrator of every view
 
-> **Status:** OPEN — a design concern rather than a defect: with `dev,users` and the catalogue on, `permissive` is imported whole: user `bob` (role `guest`) paused admin's `by_user`, read the audit endpoint and saw every tenant's counts. SECURITY.md documents exactly this; the guides present `dev,users` as the way to run the console without saying so. Cases QI-042, QI-050.
-> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
+> **Status:** FIXED — the users profile runs the authenticated policy, and SECURITY.md, QUICKSTART, the IDE and build guides and the Docker table say what dev and users each grant; a home whose catalogue imported permissive refuses to start PRV-7034, with the setting to fix it documented; UsersProfileTest.
 
 ### RECOVERYHEALTH-1 (LOW) — a registration refused at recovery leaves the node UP and the query gone
 
-> **Status:** OPEN — a design concern rather than a defect: PRV-5115 (Postgres slot overtaken) and PRV-5155 (MySQL binlog purged) were detected correctly at restart, but each refused registration simply vanished from `pravaha queries`, with one WARN line and health `UP`. OPERATIONS.md documents "the refused list is the one to read"; a metric or a DEGRADED health for refused recoveries would make it visible. Cases QI-172, QI-174.
-> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
+> **Status:** FIXED — decided as a defect: a registration refused at recovery stays listed FAILED (pravaha.list, SHOW CONTINUOUS QUERIES, GET /api/v1/queries) with its code and reason, node health is DEGRADED, a gauge counts them and the log is ERROR; the journal is unchanged, DROP clears it and re-registering the name replaces it; RecoveryRefusalsTest, RecoveryRefusalSurfacesTest.
 
 ### COOKIETOKEN-1 (LOW) — the console cookie carries a usable engine bearer token
 
-> **Status:** OPEN — a design concern rather than a defect: the signed cookie's payload is readable base64 JSON including the engine session token (`prv_s_…`), which works directly against Flight, HTTP and pgwire. HttpOnly and SameSite=Lax limit theft to the same channels a session id has; encrypting the cookie or keeping the token server-side would keep a leaked cookie from becoming a credential for the other doors. Case QI-114.
-> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
+> **Status:** FIXED — the engine token, and any just-issued key or reset secret, live in a server-side session vault under an opaque id; the cookie carries only the id. A console restart signs everyone out, and several console instances need sticky sessions (documented); test_identity.py.
 
 Smaller observations, recorded in the cases rather than registered: `PATCH /api/v1/users/{u}` ignores unknown fields with 200 (`{"enabled": false}` does nothing); `POST /api/v1/queries/validate` accepts `{"sql": 5}` and `"str"` as SQL; anonymous `/api/v1/openapi.json` and `/actuator/info` (version); a 16 MiB simple query takes 21 s to refuse; doubled codes in `pravaha-engine` messages (`PRV-1028  stream 't', column 'a': PRV-1028 …`); `ConfigurationException:` class names inside PRV-5091 messages; Java-SDK clients print JEP 498 `sun.misc.Unsafe` warnings unless they add the launcher's two options; the compose Prometheus never scrapes the console, so the Assistant dashboard and the `pravaha-console` rule group are always empty there; Kafka dead letters show `CODE -`; every `pravaha register` prints "a query with the same fingerprint is the same computation, shared" even when nothing is shared; sink failure text (PRV-8009) carries the failed row's values to every reader of the query listing.
 
@@ -7674,12 +7650,10 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 ### FLIGHTPRINCIPAL-1 (LOW) — a Flight subscription's re-verification does not compare the principal
 
-> **Status:** OPEN — found while fixing PGREVOKE-1: Flight subscriptions re-verify their credential every 2 s (`REAUTHORIZE_EVERY`), but `credentialStillValid` checks only that the credential still verifies, not that it still verifies as the same principal; the gateway's check (PGREVOKE-1) compares both.
-> **Disposition:** POST-GA — needs a credential that changes principal while staying valid, which the identity store does not produce today.
+> **Status:** FIXED — a subscription's two-second re-verification compares the principal id and treats a verifier failure as closed; SubscriptionRevocationTest.
 
 ## Found fixing Wave 2 of the adversarial QA (2026-10-02), 1 finding
 
 ### CLIDLQ-1 (LOW) — `pravaha run --dlq` does not dead-letter rows that fail evaluation
 
-> **Status:** OPEN — found while fixing DLQPROJ-1: the server and the embedded engine dead-letter an evaluation failure before state (PRV-3027), but the CLI's `QueryRunner` behind `pravaha-engine run --dlq` still dead-letters only records the source could not decode, so the same row stops a one-shot run.
-> **Disposition:** POST-GA — the one-shot runner, not a running node; the documented server path is fixed.
+> **Status:** FIXED — pravaha-engine run --dlq attaches the row-failure sink, so an evaluation failure is dead-lettered PRV-3027 and counted as rejected; without --dlq the run still fails; PravahaCliTest.

@@ -244,13 +244,15 @@ help". Collapsing them produces support calls where nobody can tell which happen
 
 The console holds no identity of its own (ADR-052). You sign in with your own username and password;
 the console sends them to the engine's `POST /api/v1/auth/login`, keeps only the session token the
-engine answers with -- in its signed, HttpOnly session cookie -- and sends that token on every
+engine answers with -- in the console's memory, under an opaque id its signed, HttpOnly session
+cookie carries, so the cookie itself is never a credential -- and sends that token on every
 Flight and HTTP call it makes for you. So everything you do through the console, the engine sees
 as you: it is authorised by your roles and recorded under your name in the
 [audit trail](/help/topics/audit). The console checks no password, key or session itself.
 
 A session ends after 30 minutes idle or 12 hours, when you sign out, or when your password changes;
-the console then sends you back to sign in (`PRV-7016`). Five failed sign-ins from one address in
+the console then sends you back to sign in (`PRV-7016`). A copy of the cookie presented after you
+signed out is signed out too: it lands on the home page, not on a signed-in screen. Five failed sign-ins from one address in
 15 minutes bar that address from the account for 30 minutes; you can still sign in from elsewhere.
 The refusal is the same `PRV-7010` whether the username was wrong, the password was wrong, or the
 sign-in was barred -- a lock is never announced to someone who has not signed in, because saying

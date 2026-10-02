@@ -37,7 +37,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 
 | Setting | Environment variable | Default | What it does |
 |---|---|---|---|
-| `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie, which holds the signed-in person's engine session. Set it where sessions should survive a restart. |
+| `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* (generated at start) | Signs the session cookie. The cookie carries an opaque id; the engine session token it stands for stays in the console's memory (COOKIETOKEN-1), so a restart signs everybody out of the console whatever this is. Set it so cookies stay verifiable across instances that share sticky sessions. |
 | `console.secure_cookies` | `CONSOLE_SECURE_COOKIES` | `false` | Marks the session cookie `Secure` always. Without it the cookie is `Secure` exactly when the request reached the console over https; set it behind a proxy that terminates TLS without saying so. |
 | `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
 | `server.port` | `CONSOLE_PORT` | `17070` | |

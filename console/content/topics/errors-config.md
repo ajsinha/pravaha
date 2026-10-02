@@ -4,7 +4,7 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1055: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1056: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
 keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
@@ -24,7 +24,7 @@ They are grouped here by who raises them:
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1044 | The Java and Python SDKs | Constructing a client, or talking to the node |
-| PRV-1050 – PRV-1055 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, or a sign-in past the node's concurrency |
+| PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
     The server reads `application.yaml` through Spring Boot's binder, which reports a value it cannot
@@ -382,6 +382,17 @@ password hash, so the number at once is bounded rather than left to whoever is s
 
 **Do:** retry after the second the header names; a script signing in in a loop should sign in once and
 keep the session, or use an API key.
+
+### PRV-1056 — API_MALFORMED_REQUEST
+
+`400`. The HTTP server could not read the request and refused it before any endpoint saw it: an
+encoded `/` (`%2F`) or `\` (`%5C`), a NUL (`%00`) or another character a path may not carry, a header
+line larger than `server.max-http-request-header-size` (8KB by default), or more headers than the
+server takes. The answer is an `ApiError` like every other; before TOMCATHTML-1 it was the HTTP
+server's own HTML page.
+
+**Do:** send the name unencoded in the path only if it has no `/` (a view or stream name never
+needs one), and keep headers small — a bearer token is far below the limit.
 
 ## Where next
 

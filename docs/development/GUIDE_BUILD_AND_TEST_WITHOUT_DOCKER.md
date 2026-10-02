@@ -82,8 +82,8 @@ built from an empty `target/` in **78 s** (`-o`, offline, in a linked worktree t
 get:
 
 ```
-pravaha-server/target/pravaha-server-0.2.1-SNAPSHOT-app.jar     # the node, run by bin/pravaha-server
-pravaha-cli/target/pravaha-cli-0.2.1-SNAPSHOT-cli.jar           # pravaha-engine, run by bin/pravaha-engine
+pravaha-server/target/pravaha-server-2.0.1-SNAPSHOT-app.jar     # the node, run by bin/pravaha-server
+pravaha-cli/target/pravaha-cli-2.0.1-SNAPSHOT-cli.jar           # pravaha-engine, run by bin/pravaha-engine
 ```
 
 `-DskipTests` still compiles test classes, which step 5 needs.
@@ -234,8 +234,7 @@ PRAVAHA_JAVA_OPTS="-Djava.io.tmpdir=$PRAVAHA_HOME/tmp" \
   --spring.config.additional-location=file:./conf/application.yaml > logs/server.log 2>&1 &
 ```
 
-`dev` acknowledges a local, loopback deployment; `users` turns on sign-in against the node's own
-user store, which the console requires. In `logs/server.log`:
+`dev` acknowledges a local, loopback deployment: alone, it serves every view to callers with no credential (`allow-anonymous`) and lets `admin` keep its published password. `users` turns on sign-in against the node's own user store, which the console requires, and the `authenticated` policy: a signed-in user reads views and registers queries, drops, pauses or replaces only their own (or what a grant or the `admin` role allows), and only `admin` reads the audit trail and every tenant's use (PERMISSIVEUSERS-1). In `logs/server.log`:
 
 ```
 checkpointing registered queries under …/data/checkpoints every PT5S, keeping the newest 3, timing out at PT30S

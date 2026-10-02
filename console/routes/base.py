@@ -117,6 +117,15 @@ def _session_value(request: Request | None, key: str):
         return None
 
 
+def _nonce(request: Request | None) -> str:
+    if request is None:
+        return ""
+    try:
+        return str(getattr(request.state, "csp_nonce", "") or "")
+    except Exception:  # noqa: BLE001 -- a request built without state
+        return ""
+
+
 def _correlation(request: Request | None) -> str:
     """The id api.js generated for this call, or ``"-"`` for a caller that sent none.
 
@@ -312,6 +321,9 @@ class Routes:
             "is_admin": signed_in and "admin" in session_roles(request),
             # The synchronizer token every form carries and api.js sends (routes.web_security).
             "csrf_token": _session_value(request, "csrf") or "",
+            # The nonce this response's Content-Security-Policy allows inline scripts by
+            # (routes.security_headers): the theme snippet, the import map, a page's own module.
+            "csp_nonce": _nonce(request),
             "role": role_of(request, c.get("ui.default_role", "operator")),
             "roles": ROLES,
             # Asset versions are part of the page, so a cached module can never run against

@@ -337,9 +337,12 @@ class PublicRoutes(Routes):
 
         @self.app.get("/health/ready", tags=["health"])
         def ready():
-            """Can this console do its job, which means: can it reach the engine."""
-            engine = self.ctx["services"].health.health()
+            """Can this console do its job, which means: can it reach an engine that is ready.
+
+            Asked without a credential -- the console holds none of its own -- so an engine that
+            requires one is still seen as ready (CONSOLEREADY-1)."""
+            engine = self.ctx["services"].health.readiness()
+            ready = bool(engine.pop("ready", False))
             return JSONResponse(
-                {"status": "ready" if engine.reachable else "not-ready",
-                 "engine": engine.as_dict()},
-                status_code=200 if engine.reachable else 503)
+                {"status": "ready" if ready else "not-ready", "engine": engine},
+                status_code=200 if ready else 503)

@@ -50,6 +50,15 @@ FIXED_CLOCK_S = FIXED_CLOCK_MS / 1000
 
 #: Runs before any page script: a pinned clock that still advances (timers, debounces and
 #: the palette's own waits keep working), and no animation or transition anywhere.
+#: Reports every Content-Security-Policy refusal on the page as a console error the page fixture
+#: collects (CONSOLEHDR-1).
+CSP_WATCH = """
+document.addEventListener('securitypolicyviolation', (e) => {
+  console.error('CSP violation: ' + e.violatedDirective + ' ' + (e.blockedURI || 'inline') + ' at '
+    + (e.sourceFile || '') + ':' + (e.lineNumber || 0));
+});
+"""
+
 DETERMINISM = """
 (() => {
   const base = __BASE__, started = performance.now(), Real = Date;
@@ -419,8 +428,14 @@ def own_console(**kwargs) -> Iterator[Console]:
 def page(chrome: Browser) -> Iterator[Page]:
     tab = chrome.new_page()
     tab.before_every_document(DETERMINISM)
+    tab.before_every_document(CSP_WATCH)
     try:
         yield tab
+        # CONSOLEHDR-1: whatever the test did, nothing on any page it opened was refused by the
+        # console's Content-Security-Policy -- a refused inline script is a feature that silently
+        # stops working, which is the regression the policy could otherwise introduce unseen.
+        refused = [line for line in tab.console if "CSP violation" in line]
+        assert refused == [], refused
     finally:
         tab.close()
 

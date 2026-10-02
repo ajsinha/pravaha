@@ -8,17 +8,37 @@ Proprietary and confidential; see the LICENSE file in the root of this repositor
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/*
+The release's base name, at most 52 characters (HELMNAME-1). Not 63: the node is a StatefulSet, and
+Kubernetes labels every pod of a StatefulSet controller-revision-hash=<name>-<10-character hash>,
+a label value that may not pass 63 -- so a StatefulSet named longer than 52 is accepted and then
+cannot create a pod. Every name the chart derives from this one adds its suffix through
+"pravaha.suffixed", which keeps the suffix and shortens the base.
+*/}}
 {{- define "pravaha.fullname" -}}
 {{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- .Values.fullnameOverride | trunc 52 | trimSuffix "-" -}}
 {{- else -}}
 {{- $name := default .Chart.Name .Values.nameOverride -}}
 {{- if contains $name .Release.Name -}}
-{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- .Release.Name | trunc 52 | trimSuffix "-" -}}
 {{- else -}}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 52 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The base name with a suffix, never past `max` (63, a DNS label, unless the object needs less --
+52 for a StatefulSet): the base is shortened and the suffix kept, so "-headless" is still the
+headless Service whatever the release is called.
+  include "pravaha.suffixed" (dict "root" . "suffix" "-headless")
+  include "pravaha.suffixed" (dict "root" . "suffix" "-standby" "max" 52)
+*/}}
+{{- define "pravaha.suffixed" -}}
+{{- $max := int (default 63 .max) -}}
+{{- $base := include "pravaha.fullname" .root | trunc (int (sub $max (len .suffix))) | trimSuffix "-" -}}
+{{- printf "%s%s" $base .suffix -}}
 {{- end -}}
 
 {{- define "pravaha.chart" -}}
@@ -47,6 +67,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "pravaha.image" -}}
+{{- if not (trim (toString .Values.image.repository)) -}}
+{{-   fail "pravaha: image.repository is empty, which would render the image as ':<tag>' -- a reference no registry can pull. Name the repository (the default is pravaha/pravaha-server), and set image.tag for the version." -}}
+{{- end -}}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}
 

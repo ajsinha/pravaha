@@ -15,7 +15,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **Adversarial QA of 2.0.0** (2026-10-01): 322 cases over the engine, data and security
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
-  50 findings opened — 46 defects (10 HIGH) and 4 design notes. Wave 1 fixed all ten HIGH and Wave 2 all seventeen MEDIUM, below.
+  50 findings opened — 46 defects (10 HIGH) and 4 design notes. Waves 1 to 3 fixed every one of them, below.
 - **A PostgreSQL CDC slot dropped under a running query is detected (CDCSLOT-1).** The reader treated
   the slot's `42704` at reconnect as one more transient failure and retried for ever, so the query
   stayed `RUNNING`, health `UP`, and every later change was silently missing. Now a permanent refusal
@@ -292,8 +292,98 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   of privilege (`42501`) when creating the slot, starting the snapshot or starting the stream, it is now
   `PRV-5112` naming `ALTER ROLE <role> REPLICATION;` (`GRANT rds_replication TO <role>;` on Amazon RDS
   or Aurora). `ReplicationPrivilegeRefusalTest` (Testcontainers, PostgreSQL 16).
+- **The PostgreSQL gateway refuses `COPY` and cursors with the code it documents (PGCOPY-1).**
+  `COPY`, `DECLARE`, `FETCH`, `MOVE`, `CLOSE`, `LISTEN`/`NOTIFY` and `SELECT STREAM` reached the
+  planner and came back `42000 PRV-2001` (a syntax error) or, for `SELECT STREAM`, `42P01 PRV-4023`;
+  they are now refused by name on both protocols with `PRV-6201` and `0A000`, as the pgwire topic
+  promised, and the session goes on. `PgProbeAndRefusalTest`.
+- **The PostgreSQL gateway answers connection-validation probes (PGVALIDATE-1).** `SELECT 1` —
+  HikariCP's `connectionTestQuery`, DBeaver's "Test connection", Grafana's health check — and `SELECT
+  now()`, `SELECT 'a'::text`, `SHOW search_path` and `SET search_path` were refused. A `SELECT` with no
+  `FROM` made of literals, literal casts, the clock (`now()`, `current_timestamp`, `current_date`, …),
+  `current_user` and the existing `version()`/`current_schema()` family is answered with PostgreSQL's
+  column names and types; `SHOW search_path` answers `"$user", public`; `SET search_path` is accepted
+  when the path keeps `public` (the only schema) and refused otherwise. Anything else without a
+  `FROM` still reaches the planner. Documented under "Connection checks and probes" in the pgwire
+  topic. `PgProbeAndRefusalTest`.
+- **Malformed Flight requests are refused by name (FLIGHTTICKET-1).** A `DoGet` ticket the server
+  did not issue (`\x00\xff…`, `NOPE:x`, `LIST`) and a path descriptor on `GetFlightInfo`,
+  `GetSchema` or `DoPut` reached Flight SQL's own parser and failed as gRPC `INTERNAL` with no code.
+  They are now `INVALID_ARGUMENT` with new code `PRV-6106` (FLIGHT_UNREADABLE_TICKET) and
+  `UNIMPLEMENTED` with `PRV-6101`. `FlightMalformedRequestTest`.
+- **A Flight subscription's re-verification compares the principal (FLIGHTPRINCIPAL-1).** Every two
+  seconds a subscription checked only that its credential still verified; now it must still verify
+  as the same principal, as the PostgreSQL gateway checks (PGREVOKE-1), and any verifier failure ends
+  the stream. `SubscriptionRevocationTest`.
+- **Requests the HTTP server refuses itself are ApiErrors (TOMCATHTML-1).** An encoded `/` or `\`
+  or a NUL in the path, an oversized header and too many headers were refused by Tomcat before any
+  servlet ran, with its HTML error page. The host's error-report valve is replaced with one that
+  writes the `ApiError` JSON every other failure has: `400` with new code `PRV-1056`
+  (API_MALFORMED_REQUEST); any other status the container produces alone is `PRV-1052`.
+  `ApiErrorShapeTest` (raw socket).
+- **The console cookie no longer carries a usable credential (COOKIETOKEN-1).** It was signed, not
+  encrypted, and its readable payload held the engine session token — which works directly against
+  Flight, HTTP and pgwire — and, for one round trip, a just-issued API key or reset secret. The cookie
+  now holds an opaque id; the secrets stay in the console process (`routes/session_vault.py`) and
+  expire with the session. A console restart signs everybody out of the console; several instances
+  need sticky sessions. `test_identity.py`.
+- **A console cookie copied before sign-out reads as signed out (LOGOUTREPLAY-1).** The copy opened
+  `/queries` with the signed-in chrome and `PRV-1041 PRV-7001`: the console looked only at the first
+  code of an SDK-wrapped refusal. Every code is read now, so an engine-ended session goes back to sign
+  in as documented; and a cookie whose session was signed out is cleared and sent to the landing page,
+  where signing out goes. `test_identity.py`.
+- **The console sends security headers (CONSOLEHDR-1).** No response carried a CSP, `X-Frame-Options`,
+  `nosniff` or a `Referrer-Policy`, so the console could be framed by another site. Every response
+  now carries a Content-Security-Policy (scripts from the console or inline with the response's
+  nonce; `frame-ancestors 'none'`; `object-src 'none'`; forms post only to the console),
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, a
+  `Permissions-Policy`, and HSTS over https. The three inline handlers the policy would refuse became
+  listeners. The browser suites now fail on any CSP violation. `test_security_headers.py`.
+- **The console is ready in front of an engine that requires a credential (CONSOLEREADY-1).**
+  `/health/ready` was always `503`: the console holds no credential, and its probe read the SDK's
+  wrapped refusal (`PRV-1041 PRV-7001 …`) as "unreachable". Readiness now asks the engine's
+  anonymous `/actuator/health` when `engine.http_url` is set (`UP`/`DEGRADED` ready, `DOWN` not), and
+  a wrapped refusal of the credential counts as an answer. `test_readiness.py`.
+- **The Helm chart renders only names Kubernetes accepts (HELMNAME-1).** A 78-character
+  `fullnameOverride` was cut to 63 and then suffixed (`-headless` at 72, `-test-probes` at 75); an
+  empty `image.repository` rendered `":<tag>"`. The base name is now cut to 52 (a StatefulSet's pods
+  carry a revision label of its name plus 11), every derived name shortens the base and keeps its
+  suffix, and an empty repository fails the render with a message. `deploy/helm/test.sh`: 22 checks.
+- **`pravaha subscribe`'s help says what its flags do (SNAPDOC-1).** `--limit N` said "stop after N
+  rows" and stopped at the end of the commit that reached N (a 1 009-row snapshot for `--limit 2`) —
+  the documented and right behaviour, since a consumer applies whole commits; the help now says so.
+  `--limit 0` and negative numbers, which never stopped, are refused (exit `2`). `--snapshot` said
+  "the view's rows" and prints the changelog — on a keyed view, every version of a key; the help and
+  the start-up note say so and point at `--answer`, and CLI.md documents `--answer` and the caveat.
+  `test_cli_flight.py`.
+- **The `users` profile runs the `authenticated` policy (PERMISSIVEUSERS-1).** `dev,users`, the
+  profile every guide starts the console's engine with, left the default `permissive` policy in
+  force: any signed-in user could pause any view, read the audit trail and see every tenant's use.
+  `application-users.yaml` now sets `pravaha.security.policy: authenticated` — reads and
+  registrations for every signed-in user, administration by ownership, grants or `admin`, the trail
+  for `admin`. The guides and SECURITY.md say what `dev` and `users` each grant. **Upgrade note:** a
+  home whose catalogue imported `permissive` under this profile refuses to start with `PRV-7034`; set
+  `pravaha.security.policy: permissive` to keep it, or `pravaha.catalog.authority: catalog`.
+  `UsersProfileTest`.
+- **The guides match 2.0 (STALEDOC-1).** GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER and _WITH_DOCKER name
+  the `2.0.1-SNAPSHOT` jars; QUICKSTART's "What is not built" no longer lists the Kafka plugin, the
+  Spring Boot starter, the time-travel debugger or column masking (all built) and states clustering as
+  ADR-039/ADR-045 have it; §4's second server keeps `dev` (it refused with `PRV-7004`) and stops the
+  first; §7 says `make install` needs `python3-venv` or `uv venv --seed .venv`; the Java and Python
+  snippets read until the new view has filled (the Java one printed nothing); the console's
+  "deliberately not there" list, long out of date, says how it is built; CLI.md lists `explain-sql`
+  and `subscribe --answer`. QUICKSTART re-run verbatim on JDK 25 (25.0.4.1): §2–§8, §7's console
+  against `dev,users`, and both snippets (`750`).
+- **`-Pep` runs Error Prone and NullAway (ERRORPRONE-1).** The `ep` and `all` profiles set a property
+  nothing read. `-Pep` now runs Error Prone 2.50.0 as a forked javac plugin over the whole reactor,
+  main and test code, with NullAway 0.14.1 at WARNING; the default build is unchanged and `-Pall`
+  no longer claims to include it (`-Pall,ep`). The ten ERROR-level findings are resolved — nine
+  fixed (a boxed-`Boolean` identity comparison in `StateOwnership`, ignored return values in tests
+  that now assert them, a double-brace map), one suppressed with its reason (a test pinning an
+  overflow); 3,570 warnings remain listed (2,822 NullAway), see TESTING.md. No workflow runs
+  `-Pall` or `-Pep`, so no CI job was added.
 
-Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **544 findings — 525 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 

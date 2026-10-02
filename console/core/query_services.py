@@ -121,6 +121,15 @@ class HealthService:
             self._at = time.monotonic()
         return health
 
+    def readiness(self) -> dict:
+        """Whether the engine can serve, asked without a credential (CONSOLEREADY-1); see
+        ``Engine.readiness``. An engine adapter without that probe answers with :meth:`health`."""
+        probe = getattr(self._engine, "readiness", None)
+        if callable(probe):
+            return dict(probe())
+        health = self.health().as_dict()
+        return {**health, "ready": bool(health.get("reachable"))}
+
 
 class QueryService:
     """Registered continuous queries: listing, detail, and the lifecycle actions."""

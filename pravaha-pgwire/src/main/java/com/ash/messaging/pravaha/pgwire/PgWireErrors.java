@@ -190,6 +190,52 @@ public final class PgWireErrors {
     /** A {@code pravaha.pgwire.limits.*} setting is out of range; the node does not start. */
     public static final ErrorCode BAD_LIMITS = new ErrorCode(6220, "PGWIRE_BAD_LIMITS");
 
+    /**
+     * The statements PostgreSQL has and this gateway does not: {@code COPY}, SQL-level cursors
+     * ({@code DECLARE}, {@code FETCH}, {@code MOVE}, {@code CLOSE}), {@code LISTEN}/{@code NOTIFY}, and
+     * Pravaha's own {@code SELECT STREAM}, a subscription that never ends and so has no PostgreSQL
+     * result to put it in.
+     */
+    private static final java.util.regex.Pattern UNSUPPORTED_STATEMENT = java.util.regex.Pattern.compile(
+            "^(?:(COPY|DECLARE|FETCH|MOVE|CLOSE|LISTEN|UNLISTEN|NOTIFY)\\b|(SELECT\\s+STREAM)\\b)",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Refuses a statement this gateway does not implement, by name, with {@link #UNSUPPORTED_REQUEST}
+     * and {@code 0A000} (PGCOPY-1): before this, {@code COPY} and {@code DECLARE} reached the planner,
+     * which called them syntax errors ({@code PRV-2001}, {@code 42000}), and a {@code SELECT STREAM}
+     * was answered as though its stream were a missing view. The same words from both protocols.
+     */
+    static void refuseUnsupportedStatement(String statement) {
+        java.util.regex.Matcher m = UNSUPPORTED_STATEMENT.matcher(statement.strip());
+        if (!m.find()) {
+            return;
+        }
+        if (m.group(2) != null) {
+            throw new PravahaException(
+                    UNSUPPORTED_REQUEST,
+                    "SELECT STREAM is not supported by the PostgreSQL gateway: a subscription never ends, and a "
+                            + "PostgreSQL result has to. Read the maintained view with a plain SELECT here, or "
+                            + "subscribe over Flight -- an SDK's subscribe(), `pravaha subscribe`, or the console's "
+                            + "live tail.");
+        }
+        String verb = m.group(1).toUpperCase(java.util.Locale.ROOT);
+        String why =
+                switch (verb) {
+                    case "COPY" ->
+                        "COPY is not supported by the PostgreSQL gateway: it is read-only and serves "
+                                + "query results, not bulk transfers. Read the view with SELECT instead.";
+                    case "LISTEN", "UNLISTEN", "NOTIFY" ->
+                        verb + " is not supported by the PostgreSQL gateway: "
+                                + "it has no notification channels. To be told when a view changes, subscribe over "
+                                + "Flight (`pravaha subscribe`, an SDK's subscribe()).";
+                    default ->
+                        verb + " is not supported by the PostgreSQL gateway: SQL-level cursors are not "
+                                + "implemented. Read with a plain SELECT.";
+                };
+        throw new PravahaException(UNSUPPORTED_REQUEST, why);
+    }
+
     /** Refuses a continuous-query statement, if {@code statement} is one; the same words from both protocols. */
     static void refuseContinuousStatement(String statement) {
         if (com.ash.messaging.pravaha.sql.ContinuousStatements.isContinuousStatement(statement)) {

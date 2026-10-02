@@ -10,6 +10,10 @@
  */
 (function () {
   "use strict";
+  /* "Retry" when the engine is down: a handler here, because the CSP refuses an inline onclick. */
+  document.querySelectorAll("[data-pv-reload]").forEach(function (button) {
+    button.addEventListener("click", function () { window.location.reload(); });
+  });
   var api = window.PravahaApi, States = window.PravahaStates, t = api.t;
   var fresh = new window.PravahaFreshness(document.getElementById("freshness"));
 

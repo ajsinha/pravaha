@@ -762,7 +762,7 @@ public sealed interface Expression {
             // can parse and still name a field no instant carries, and that would otherwise fail on
             // the first row instead of at registration.
             try {
-                formatter.format(java.time.Instant.EPOCH);
+                String unused = formatter.format(java.time.Instant.EPOCH);
             } catch (java.time.DateTimeException unformattable) {
                 throw new IllegalArgumentException(unformattable.getMessage(), unformattable);
             }

@@ -213,10 +213,13 @@ the watermark runs at wall-clock, and every row is dropped as late — an empty 
 reporting `RUNNING`. The same option exists on the Aerospike source, and matters there for the
 same reason.
 
-With that file, the whole loop works from the command line:
+With that file, the whole loop works from the command line. Stop the server from the start of this
+step first (`kill %1`), then start one that reads the file — still with `dev`: the file above
+declares a stream and a source and says nothing about security, and without a security choice the
+node refuses to start (`PRV-7004`):
 
 ```bash
-pravaha-server --spring.config.additional-location=file:./application.yaml &
+pravaha-server --spring.profiles.active=dev --spring.config.additional-location=file:./application.yaml &
 pravaha register --name by_user \
         --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED'" --keys 0
 pravaha query --sql "SELECT * FROM by_user"
@@ -281,7 +284,8 @@ pravaha subscribe --view user_volume --filter user_id=u1
 
 > **Nothing appearing?** Almost certainly correct. A window closes when *data* says the window is
 > over, not when the clock does, and a subscription starts from *now* rather than from the beginning
-> of time (`pravaha subscribe --snapshot` prints the view's rows first). Send an event past the window's end. This is [Concepts §2](CONCEPTS.md#2-event-time-not-clock-time).
+> of time (`pravaha subscribe --snapshot --answer` prints the rows a read returns first; `--snapshot` alone
+> prints the view's changelog, which on a keyed view holds every version of a key). Send an event past the window's end. This is [Concepts §2](CONCEPTS.md#2-event-time-not-clock-time).
 
 ## 7. Open the console
 
@@ -303,6 +307,12 @@ The node creates `admin` on first start. With `dev`, `admin` keeps the published
 credential: you sign in to the console as `admin`, and the CLI and the SDKs use an API key you issue
 from the console's **Account** page (`pravaha query --token <key> ...`).
 
+**What the two profiles grant.** `dev` alone serves every view to every caller, credential or not —
+for one developer on loopback, never anywhere reachable. With `users` the node runs the
+`authenticated` policy: a signed-in user reads views and registers queries; drops, pauses, resumes or
+replaces only their own (or what a grant or the `admin` role allows); and only `admin` reads the audit
+trail and every tenant's use. Users you create in the console get exactly that.
+
 The landing page, the documentation and the health probes stay open, because an operator opening
 the console during an incident needs it to load and say what is wrong before signing in.
 
@@ -311,6 +321,12 @@ cd console
 make install          # .venv, the Pravaha Python SDK, and the console
 make run              # http://127.0.0.1:17070, engine at grpc://localhost:19090
 ```
+
+`make install` creates `.venv` with `python3 -m venv`. On Debian and Ubuntu that needs the
+`python3-venv` package for your Python (`sudo apt install python3.12-venv`, say); without it the
+first line fails with `ensurepip is not available`. With [uv](https://docs.astral.sh/uv/) instead,
+create the environment first and `make` uses it: `uv venv --seed .venv && make install`. The same
+applies to `make install` in `sdk/python` below.
 
 Any setting can be overridden on the command line, so a second instance needs no file of its own:
 
@@ -348,12 +364,13 @@ streaming engine usually lives.
 `include: docs/guides/CONCEPTS.md`, so what you read here is the file in this repository — one source of
 truth, and cross-references repointed at console routes when rendered.
 
-### What is deliberately not there
+### How it is built
 
-A **functional admin console**: server-rendered HTML, no build step, no JavaScript framework. It is
-not the product surface design §23.20 describes — no Monaco, no plan DAG, no time-travel debugger,
-no Storybook, no visual-regression baseline, no WCAG 2.2 AA audit. Light/dark/terminal, density,
-keyboard paths, deep links and the eight states of §23.12 are *implemented*, not yet *audited*.
+Server-rendered HTML with small script islands and **no build step**: the vendored Preact, the Monaco
+editor in the workbench, a plan graph and the time-travel debugger are files under `web/static`, not
+the output of a bundler. Its browser suites — journeys, the eight states of design §23.12, an
+accessibility check with axe, performance budgets and visual-regression screenshots — run in a real
+headless Chrome (`console/tests`).
 
 ## 8. Clean up
 
@@ -368,13 +385,28 @@ yours going leaves theirs running.
 
 ## From a program
 
+A view starts **empty** and fills as its source is read and its windows close, so a read made the
+moment after registering usually answers nothing — correctly. Each snippet below registers the view
+and then reads until it answers (for at most ten seconds; a windowed view needs rows past the end of
+its first window, as in §6). Both connect as the node of §4 allows, with no credential; against the
+`dev,users` node of §7, give them an API key — `connect(options=ClientOptions.create(url,
+token=key, allow_insecure_token=True))` in Python, a `ClientOptions` carrying it in Java.
+
 Java:
 
 ```java
 try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) {
     client.register("user_volume", Files.readString(Path.of("velocity.sql")), List.of(1));
-    try (QueryResult result = client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1")) {
-        for (Row row : result) System.out.println(row.getLong("total"));
+    for (int attempt = 0; attempt < 50; attempt++) {
+        try (QueryResult result = client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1")) {
+            boolean answered = false;
+            for (Row row : result) {
+                System.out.println(row.getLong("total"));
+                answered = true;
+            }
+            if (answered) break;
+        }
+        Thread.sleep(200); // not filled yet: ask again
     }
 }
 ```
@@ -385,11 +417,18 @@ Python:
 cd sdk/python && make install && . .venv/bin/activate
 ```
 ```python
+import time
+
 from pravaha import connect
 
 with connect("grpc://localhost:19090") as client:
     client.register("user_volume", open("velocity.sql").read(), [1])
-    for row in client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"]):
+    for _ in range(50):
+        rows = list(client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"]))
+        if rows:
+            break
+        time.sleep(0.2)  # not filled yet: ask again
+    for row in rows:
         print(row["total"])
 ```
 
@@ -405,15 +444,12 @@ with connect("grpc://localhost:19090") as client:
 
 ## What is not built
 
-Stated so you do not go looking. Roughly wave 9 of 11:
+Stated so you do not go looking. As of 2.0:
 
 | | |
 |---|---|
-| Clustering, rebalance, multi-node execution | Deferred ([ADR-034](../design/adr/034-distribution-deferred.md)) — **one node, scaled to its cores**. Wave 8 bought survival on that node, not distribution across several ([ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md)) |
+| Clustering, multi-node execution | **One node, scaled to its cores.** [ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md) put cluster mode on the road to GA; multi-node execution is on hold, and [ADR-045](../design/adr/045-cluster-mode-assigns-queries-not-rows.md) records its design only (a node owns whole computations, not rows). A node refuses to serve `PARTITIONED` (`PRV-9002`) and the Helm chart runs one replica |
 | Continuous failover | A standby (`pravaha.standby.enabled`) takes over from the newest checkpoint and says what that cost. It buys **recovery time, not continuity** |
-| Time-travel debugging | Not on the road to GA — [ADR-038](../design/adr/038-one-node-ga.md) moved it to the roadmap, and [ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md) kept it there. Prometheus metrics are live now, including per-query state against its ceiling — `/actuator/prometheus`, see [Operations](../operations/OPERATIONS.md#watching-a-running-node) |
-| Kafka and Redis plugins | Not built. Filesystem, feedfile, JDBC, Delta, Aerospike and Cassandra (a periodic `token()`-range scan) work now |
-| Spring Boot starter | ADR-020 planned it; not built |
+| A Redis plugin | Not built. The server jar carries Kafka, filesystem, feedfile, JDBC, Delta, Iceberg, Aerospike, Cassandra (a periodic `token()`-range scan), and MySQL and PostgreSQL change data capture — see [Connectors](CONNECTORS.md) |
 | State that spills instead of failing | Built, and **off by default**: set `pravaha.state.spill.directory` and join and windowed-aggregate state spill to disk rather than failing ([ADR-037](../design/adr/037-state-that-degrades-instead-of-dying.md) B2). `COUNT(DISTINCT)` cannot spill. Without it a query that reaches its ceiling is refused, and you can *watch* it approach — `pravaha_query_state_fraction` (B1) |
-| Column masking | Out of ADR-031 until a deployment asks |
 | Performance evidence | Gates P2/P3/P6 unmeasured — needs reference hardware |

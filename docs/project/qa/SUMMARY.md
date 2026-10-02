@@ -24,6 +24,11 @@ SIGKILLs lost and doubled nothing; 9,800 random predicates agreed between the in
 generated paths (apart from NANNOT-1); masks and row filters held on every read path tried; tenant
 names were indistinguishable on every surface tried; every grant and ownership escalation was refused.
 
+**Outcome (2026-10-02):** all 50 findings fixed in three waves — the ten HIGH (Wave 1), the
+seventeen MEDIUM (Wave 2) and the nineteen LOW with the four design notes (Wave 3) — each with its
+reproduction switched on and passing; three more found while fixing (FLIGHTPRINCIPAL-1, CLIDLQ-1,
+ERRORPRONE-1) were fixed too. The register has no open finding.
+
 The reproductions are kept: `pravaha-it/.../it/qa/adversarial/` (opt-in, `-Dpravaha.qa.adversarial=true`,
 28 `@Disabled("QE-…")` reproductions) and `tests/qa/adv_surface/` (opt-in against a running node,
 nine reproductions behind `PRAVAHA_QI_REPRODUCE=1`). Every defect's status is in

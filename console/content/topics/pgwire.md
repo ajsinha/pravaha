@@ -7,7 +7,7 @@ icon: server
 summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
-keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, "53300", max-connections, idle-timeout, revoked]
+keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", "select 1", hikari, "connectionTestQuery", "search_path", copy, PRV-6201, PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, "53300", max-connections, idle-timeout, revoked]
 guide: architecture
 related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
@@ -321,7 +321,7 @@ match the declared width are PRV-6202 (`08P01`).
 | `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY`, `SHOW CONTINUOUS QUERIES` | PRV-6211 | `25006` read_only_sql_transaction |
 | `INSERT`, `UPDATE`, `DELETE` | PRV-2020, by the planner — the same answer Flight gives | `42000` |
 | A column of type `BYTES` or `TIME` | PRV-6200 | `0A000` |
-| `COPY`, `DECLARE`/`FETCH` cursors | Refused by name as unsupported (PRV-6201) | `0A000` |
+| `COPY`, `DECLARE`/`FETCH`/`MOVE`/`CLOSE` cursors, `LISTEN`/`NOTIFY`, `SELECT STREAM` | Refused by name as unsupported (PRV-6201) — subscribe over Flight instead of `SELECT STREAM` | `0A000` |
 | `DISCARD ALL` | Accepted: forgets the session's named statements and portals, which is all the session state there is. Npgsql sends it whenever it reuses a pooled connection. Inside a transaction block it is refused with PRV-6215, as PostgreSQL refuses it | `25001` inside a block |
 | Anything but `ROLLBACK`, `COMMIT` or `ROLLBACK TO SAVEPOINT` after an error inside a transaction block | PRV-6212 | `25P02` in_failed_sql_transaction |
 | `SAVEPOINT`, `RELEASE`, `ROLLBACK TO` or `COMMIT AND CHAIN` outside a block | PRV-6213 | `25P01` no_active_sql_transaction |
@@ -342,9 +342,30 @@ match the declared width are PRV-6202 (`08P01`).
 | More than 1,000,000 result rows | PRV-4024 | `54000` |
 
 The one `SET` family accepted is the one whose effect is provably the same as honouring it:
-`extra_float_digits`, `application_name`, `client_min_messages`, and `client_encoding`/`DateStyle` for
-the single value each already matches. pgjdbc sends `SET extra_float_digits = 3` before anything else,
-which is why the list exists.
+`extra_float_digits`, `application_name`, `client_min_messages`, `client_encoding`/`DateStyle` for
+the single value each already matches, and `search_path` for a path that keeps `public` on it (made of
+`public`, `"$user"` and `pg_catalog`, or `DEFAULT`). pgjdbc sends `SET extra_float_digits = 3` before
+anything else, which is why the list exists.
+
+## Connection checks and probes
+
+Connection pools, BI tools and health checks validate a connection with a query that reads nothing.
+The gateway answers these itself, with PostgreSQL's column names and types (PGVALIDATE-1), so
+HikariCP's `connectionTestQuery`, DBeaver's "Test connection", Grafana's data-source check and
+SQLAlchemy's `pool_pre_ping` work unchanged:
+
+| You send | Answer |
+|---|---|
+| `SELECT 1` (any integer, decimal or `'string'` literal, `TRUE`/`FALSE`, several items, with or without `AS alias`) | One row; a literal's column is named `?column?`, as PostgreSQL names it |
+| A literal cast: `'a'::text`, `1::int8`, `CAST('7' AS bigint)` — to `text`, `varchar`, `int2`/`int4`/`int8`, `bool`, `numeric` | The cast value, in a column named after the type |
+| `now()`, `current_timestamp`, `transaction_timestamp()`, `statement_timestamp()`, `clock_timestamp()`, `current_date` | The node's clock (UTC) |
+| `current_user`, `session_user`, `user`, `current_role` | The principal your credential stands for |
+| `version()`, `current_schema()`, `current_database()`, `current_catalog`, `pg_backend_pid()` | As announced at connect |
+| `SHOW search_path` | `"$user", public` |
+| An empty query, `;`, `-- ping`; pgjdbc's `isValid()` | `EmptyQueryResponse` |
+
+A `SELECT` with no `FROM` that is anything else — arithmetic, another function — is not a probe; it
+reaches the planner and is refused as before, never approximated.
 
 Registering a query goes through Flight instead:
 

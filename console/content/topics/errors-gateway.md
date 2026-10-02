@@ -33,6 +33,7 @@ as "gateway".)
 | PRV-6103 | FLIGHT_PARAMETERS_TOO_LARGE | Flight | — |
 | PRV-6104 | FLIGHT_TLS_UNREADABLE | Flight | (startup) |
 | PRV-6105 | FLIGHT_SUBSCRIBER_BEHIND | Flight | — |
+| PRV-6106 | FLIGHT_UNREADABLE_TICKET | Flight | — |
 | PRV-6200 | PGWIRE_UNSUPPORTED_TYPE | PostgreSQL | `0A000` |
 | PRV-6201 | PGWIRE_UNSUPPORTED_REQUEST | PostgreSQL | `0A000` |
 | PRV-6202 | PGWIRE_PROTOCOL_VIOLATION | PostgreSQL | `08P01` |
@@ -69,7 +70,10 @@ cast in the source database.
 
 A Flight SQL request or action this server does not implement — for example an action name it does
 not know, or registering, dropping or subscribing on a Flight server that serves views but hosts no
-registry. The message names the request.
+registry. The message names the request. A **path** descriptor on `GetFlightInfo`, `GetSchema`,
+`PollFlightInfo` or `DoPut` is refused here too, with status `UNIMPLEMENTED`: Flight SQL requests are
+command descriptors — send the query as a Flight SQL statement (an SDK's `query()`, `pravaha query
+--sql`).
 
 ### PRV-6102 — Flight bad handle
 
@@ -120,6 +124,13 @@ in its callback — hand each batch to a queue of your own and return. Sent as `
 which retrying clients already treat as retryable. See
 [Subscriptions](/help/topics/subscriptions) for the two kinds of subscription.
 
+### PRV-6106 — Flight unreadable ticket
+
+A `DoGet` ticket that is neither a Flight SQL ticket this server issued nor a Pravaha subscription
+ticket — hand-made bytes, a ticket from another server, a truncated one. Sent as `INVALID_ARGUMENT`.
+Take the ticket from the endpoint `GetFlightInfo` returned, or subscribe through an SDK's
+`subscribe()` or `pravaha subscribe`, which build their own.
+
 ## The PostgreSQL gateway
 
 Enable it with `pravaha.pgwire.enabled` and give it TLS with `pravaha.pgwire.tls.certificate` and
@@ -138,7 +149,11 @@ result it might treat as complete. Read such a view over Flight, or project the 
 
 ### PRV-6201 — pgwire unsupported request
 
-A protocol message the gateway does not implement — `COPY`, for example. Refused by name.
+A message or statement the gateway does not implement, refused by name with SQLSTATE `0A000`:
+`COPY` (the statement, or its protocol messages), SQL-level cursors (`DECLARE`, `FETCH`, `MOVE`,
+`CLOSE`), `LISTEN`/`UNLISTEN`/`NOTIFY`, `SELECT STREAM` and a `FunctionCall`. Read a view with a plain
+`SELECT`; to follow a view as it changes, subscribe over Flight (`pravaha subscribe`, an SDK's
+`subscribe()`, the console's live tail).
 
 ### PRV-6202 — pgwire protocol violation
 
@@ -166,8 +181,9 @@ accepting it is a no-op rather than a lie:
 | `client_min_messages` | any value |
 | `client_encoding` | `UTF8` or `UNICODE` only |
 | `DateStyle` | `ISO` styles only |
+| `search_path` | a path with `public` on it, made of `public`, `"$user"` and `pg_catalog` — or `DEFAULT` |
 
-Anything else — `SET search_path`, `SET TIME ZONE` — is PRV-6204. Most tools send only these at
+Anything else — `SET search_path = sales`, `SET TIME ZONE` — is PRV-6204. Most tools send only these at
 connect; if one sends another, configure it not to.
 
 ### PRV-6205 — pgwire unsupported catalog query
