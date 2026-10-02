@@ -255,7 +255,7 @@ class IncrementalOracleTest {
                     KEYS[random.nextInt(KEYS.length)], random.nextInt(100), STATUSES[random.nextInt(STATUSES.length)]);
             // A small key space on purpose: it forces collisions, which is where weight arithmetic
             // and cancellation actually get exercised.
-            long weight = 1 + random.nextInt(3);
+            long weight = 1L + random.nextInt(3);
             if (allowNegative && random.nextBoolean()) {
                 weight = -weight;
             }

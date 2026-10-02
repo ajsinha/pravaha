@@ -53,7 +53,7 @@ class DeltaSourcePluginTest {
     }
 
     /** Drains a reader completely, which for a Delta table means "until the table stops moving". */
-    private static List<RowView> drain(DeltaSourcePlugin plugin, PartitionReader reader, DeltaCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, DeltaCollector collector) {
         while (reader.poll(collector, 128) > 0) {
             // keep going: each poll returns what was ready, not what will ever exist
         }
@@ -74,7 +74,7 @@ class DeltaSourcePluginTest {
         try (DeltaCollector collector = new DeltaCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
 
             assertThat(rows).hasSize(3);
             assertThat(rows.stream().map(r -> r.getLong(0))).containsExactlyInAnyOrder(1L, 2L, 3L);
@@ -104,7 +104,7 @@ class DeltaSourcePluginTest {
         try (DeltaCollector collector = new DeltaCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
 
             assertThat(rows.stream().map(RowView::eventTimestampNanos))
                     .as("Delta's microseconds as nanoseconds, and zero where the row has none")
@@ -132,13 +132,13 @@ class DeltaSourcePluginTest {
         try (DeltaCollector collector = new DeltaCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
-            assertThat(drain(plugin, reader, collector)).hasSize(2);
+            assertThat(drain(reader, collector)).hasSize(2);
 
             // The table moves while the reader is live, which is the entire point of a continuous
             // source: nothing is re-read, and the new commit arrives on the next poll.
             fixture.append(List.of(3L, 4L), List.of("row-3", "row-4"));
 
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
             assertThat(rows).hasSize(4);
             assertThat(rows.stream().map(r -> r.getLong(0))).containsExactlyInAnyOrder(1L, 2L, 3L, 4L);
             assertThat(rows.stream().map(RowView::weight)).containsOnly(1L);
@@ -159,11 +159,11 @@ class DeltaSourcePluginTest {
         try (DeltaCollector collector = new DeltaCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
-            assertThat(drain(plugin, reader, collector)).hasSize(4);
+            assertThat(drain(reader, collector)).hasSize(4);
 
             fixture.removeFileAddedBy(0);
 
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
             assertThat(rows).hasSize(6);
             List<RowView> retractions =
                     rows.stream().filter(r -> r.weight() < 0).toList();
@@ -209,9 +209,8 @@ class DeltaSourcePluginTest {
 
         try (DeltaCollector collector = new DeltaCollector(schema);
                 PartitionReader resumed = plugin.createReader(partition, checkpoint)) {
-            List<Long> rest = drain(plugin, resumed, collector).stream()
-                    .map(r -> r.getLong(0))
-                    .toList();
+            List<Long> rest =
+                    drain(resumed, collector).stream().map(r -> r.getLong(0)).toList();
             assertThat(rest).as("no row is repeated across the resume").doesNotContainAnyElementsOf(first);
             assertThat(rest).hasSize(4);
         }

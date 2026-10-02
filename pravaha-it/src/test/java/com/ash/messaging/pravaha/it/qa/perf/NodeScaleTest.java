@@ -78,21 +78,6 @@ final class NodeScaleTest {
     /** Fewer, because each is fed a row and the point is the per-query cost, not the count. */
     private static final int ACTIVE_QUERIES = 50;
 
-    /**
-     * Retained for the report line only; the assertion is an absolute bound on threads.
-     *
-     * <p>Platform threads per query that this build is allowed to cost.
-     *
-     * <p>A ratchet, and it may only fall. Measured at exactly 1.00 when written -- the lane -- with
-     * the feed already virtual (W9-2). This fixture now turns watermarks on, so it also covers the
-     * clock that W9-3 moved to a shared timer; what it still does not cover is checkpointing, which
-     * needs a directory.
-     *
-     * <p>Set at the measured value rather than a hoped-for one. A ceiling nobody meets is a ceiling
-     * that gets raised.
-     */
-    private static final double PLATFORM_THREADS_PER_QUERY = 1.0;
-
     @Test
     void whatOneRegisteredQueryCosts() {
         long threadsBefore = platformThreads();

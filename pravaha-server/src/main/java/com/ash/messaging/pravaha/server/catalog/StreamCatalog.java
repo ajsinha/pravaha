@@ -258,7 +258,8 @@ public class StreamCatalog {
     private static String camel(String setting) {
         StringBuilder text = new StringBuilder();
         boolean up = false;
-        for (char c : setting.toCharArray()) {
+        for (int i = 0; i < setting.length(); i++) {
+            char c = setting.charAt(i);
             if (c == '-') {
                 up = true;
             } else {

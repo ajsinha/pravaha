@@ -199,14 +199,14 @@ class DistinctValueCountsPropertyTest {
         Reference reference = new Reference();
         int groups = 40;
         int slices = 12;
-        long lastWindowEnd = (slices + 2) * 10 * SECOND;
+        long lastWindowEnd = (slices + 2) * 10L * SECOND;
 
         SlicedAggregateState state = null;
         try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir.resolve("a"))) {
             state = new SlicedAggregateState(WINDOWS, KINDS, 2, overflow, 256);
             for (int op = 0; op < 20_000; op++) {
                 long group = random.nextInt(groups);
-                long slice = random.nextInt(slices) * 10 * SECOND;
+                long slice = random.nextInt(slices) * 10L * SECOND;
                 // Mostly repeated values, so counts above one and retractions that leave a value
                 // present are ordinary rather than rare.
                 String text = random.nextInt(10) == 0 ? null : "user-" + random.nextInt(60);

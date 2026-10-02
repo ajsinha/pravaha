@@ -43,6 +43,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -409,7 +410,7 @@ class TransactionAssemblerTest {
                 BinlogTransaction.Change.of(MAPPING, new Serializable[] {1L, null, new BigDecimal("1.234")}, 1);
         assertThat(change.rejected()).contains("'tier' is NULL");
         change = BinlogTransaction.Change.of(
-                MAPPING, new Serializable[] {1L, "a".getBytes(), new BigDecimal("1.234")}, 1);
+                MAPPING, new Serializable[] {1L, "a".getBytes(UTF_8), new BigDecimal("1.234")}, 1);
         assertThat(change.rejected()).contains("column 'credit'");
     }
 

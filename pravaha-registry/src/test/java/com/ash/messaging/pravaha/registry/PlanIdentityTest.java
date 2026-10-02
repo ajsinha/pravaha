@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.registry;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -145,7 +146,10 @@ class PlanIdentityTest {
         shared(
                 "case and spacing are not the question",
                 join("JOIN", 5),
-                join("JOIN", 5).toLowerCase().replace("interval", "INTERVAL").replace(" on ", "  ON  "),
+                join("JOIN", 5)
+                        .toLowerCase(Locale.ROOT)
+                        .replace("interval", "INTERVAL")
+                        .replace(" on ", "  ON  "),
                 List.of(0));
     }
 

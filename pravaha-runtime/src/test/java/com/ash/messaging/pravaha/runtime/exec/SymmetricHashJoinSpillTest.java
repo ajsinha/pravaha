@@ -54,8 +54,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class SymmetricHashJoinSpillTest {
 
-    private static final long SECOND = 1_000_000_000L;
-
     private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);
     private final List<Long> out = new ArrayList<>();
 

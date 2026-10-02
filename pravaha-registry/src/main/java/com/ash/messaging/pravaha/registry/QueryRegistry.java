@@ -66,8 +66,6 @@ import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
  */
 public final class QueryRegistry implements AutoCloseable {
 
-    private static final System.Logger LOG = System.getLogger(QueryRegistry.class.getName());
-
     /** The default ceiling on keys in a view a registration creates. */
     public static final int DEFAULT_MAX_KEYS = 1_000_000;
 

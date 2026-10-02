@@ -286,7 +286,7 @@ public final class OffsetSplicedReader implements PartitionReader {
         lastRefillNanos = now;
         // At most a second of burst: a backfill that was idle for a minute must not then read a
         // minute's ration in one poll, which is exactly the spike the rate limit exists to prevent.
-        tokens = Math.max(0, Math.min(tokens, rate));
+        tokens = Math.max(0, Math.min(tokens, (double) rate));
         return (int) Math.max(0, Math.min(maxRecords, Math.floor(tokens)));
     }
 

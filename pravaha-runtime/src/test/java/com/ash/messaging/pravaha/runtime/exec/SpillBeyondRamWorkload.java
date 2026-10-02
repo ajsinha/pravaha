@@ -299,7 +299,7 @@ public final class SpillBeyondRamWorkload {
             Phase insert = new Phase("insert");
             long n = 0;
             for (int slice = 0; slice < SLICES; slice++) {
-                long time = slice * 10 * SECOND + SECOND;
+                long time = slice * 10L * SECOND + SECOND;
                 for (long group = 0; group < groups; group++) {
                     values[1] = group;
                     distinct[2] = group % 5;
@@ -344,7 +344,7 @@ public final class SpillBeyondRamWorkload {
                         group,
                         group * 0x9E3779B97F4A7C15L,
                         new Object[] {group},
-                        slice * 10 * SECOND + SECOND,
+                        slice * 10L * SECOND + SECOND,
                         values,
                         present,
                         distinct,

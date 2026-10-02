@@ -189,13 +189,13 @@ final class AvroSchema {
         if (type == null) {
             throw new Invalid("a schema object with no 'type'");
         }
-        if (!(type instanceof String)) {
+        if (!(type instanceof String string)) {
             // {"type": {...}} and {"type": [...]} are legal: the attributes around it are decoration.
             return node(type, enclosingNamespace);
         }
         String logical = text(object.get("logicalType"));
         String namespace = namespaceOf(object, enclosingNamespace);
-        return switch ((String) type) {
+        return switch (string) {
             case "record", "error" -> record(object, namespace, logical);
             case "enum" -> enumeration(object, namespace, logical);
             case "fixed" -> fixed(object, namespace, logical);
@@ -223,7 +223,7 @@ final class AvroSchema {
                         0,
                         0,
                         0);
-            default -> decorated((String) type, object, logical, enclosingNamespace);
+            default -> decorated(string, object, logical, enclosingNamespace);
         };
     }
 
@@ -469,8 +469,8 @@ final class AvroSchema {
             case VALUE_STRING -> parser.getText();
             case VALUE_NUMBER_INT -> parser.getLongValue();
             case VALUE_NUMBER_FLOAT -> parser.getDoubleValue();
-            case VALUE_TRUE -> Boolean.TRUE;
-            case VALUE_FALSE -> Boolean.FALSE;
+            case VALUE_TRUE -> true;
+            case VALUE_FALSE -> false;
             case VALUE_NULL -> null;
             default -> throw new Invalid("unexpected " + token + " in the schema's JSON");
         };

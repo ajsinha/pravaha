@@ -62,7 +62,6 @@ public final class ZooKeeperCoordinator implements ClusterCoordinator, LeaseGran
     private final List<Consumer<List<Member>>> membershipListeners = new CopyOnWriteArrayList<>();
     private final PartitionLeaseCoordinator leases;
 
-    private volatile Member self;
     private volatile List<Member> members = List.of();
     private LeaderLatch latch;
     private CuratorCache cache;
@@ -85,7 +84,6 @@ public final class ZooKeeperCoordinator implements ClusterCoordinator, LeaseGran
 
     @Override
     public void start(Member self) {
-        this.self = self;
         try {
             if (curator.getState() == org.apache.curator.framework.imps.CuratorFrameworkState.LATENT) {
                 curator.start();

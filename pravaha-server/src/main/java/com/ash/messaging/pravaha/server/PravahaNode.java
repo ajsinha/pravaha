@@ -590,7 +590,7 @@ public class PravahaNode implements SmartLifecycle {
         // CFG-9/SX-12: one term (policy alone, or authentication alone) failed in one direction or the
         // other -- token + permissive + allow-anonymous=false, which refuses every stranger, could not start.
         boolean unauthenticatedCallersGetIn = !security.authenticates() || security.isAllowAnonymous();
-        boolean policyServesThemEverything = catalog != null && catalog.enabled()
+        boolean policyServesThemEverything = (catalog != null && catalog.enabled())
                 ? catalog.servesEveryone()
                 : !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
         boolean open = unauthenticatedCallersGetIn && policyServesThemEverything;
@@ -684,7 +684,7 @@ public class PravahaNode implements SmartLifecycle {
                                 + "is a name and a shape; the name alone cannot be planned against.");
             }
             StreamSchema parsed = FilesystemSourcePlugin.parseSchema(name, declaration.getSchema());
-            StreamSchema declared = withEventTime(name, parsed, declaration);
+            StreamSchema declared = withEventTime(parsed, declaration);
             streams.register(declared);
             // TIME-6. One line per stream saying what its event time is and what lateness is in
             // force, because four of the six ways to arrive at "RUNNING, ingesting, serving
@@ -717,8 +717,7 @@ public class PravahaNode implements SmartLifecycle {
      * version it was planned against, which is what stops a re-declaration changing the meaning of a
      * query already in flight.
      */
-    private StreamSchema withEventTime(
-            String name, StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
+    private StreamSchema withEventTime(StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
         boolean namesAnEventTime = declaration.getEventTime() != null
                 && !declaration.getEventTime().isBlank();
         // T-6. `getOutOfOrderness() != null` is the new clause, and it is the whole of the second

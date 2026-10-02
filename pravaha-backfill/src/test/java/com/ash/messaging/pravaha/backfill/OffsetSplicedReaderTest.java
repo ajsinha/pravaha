@@ -33,6 +33,7 @@ import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -104,7 +105,7 @@ class OffsetSplicedReaderTest {
                     long value = records.get(++delivered);
                     consumed++;
                     if (poison.contains(delivered)) {
-                        if (!sink.reject(Long.toString(value).getBytes(), "n=" + delivered, "poison")) {
+                        if (!sink.reject(Long.toString(value).getBytes(UTF_8), "n=" + delivered, "poison")) {
                             throw new IllegalStateException("no dead-letter queue for record " + delivered);
                         }
                         continue;

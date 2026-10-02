@@ -56,7 +56,7 @@ public interface SecurityPolicy {
             return AccessDecision.allow();
         }
 
-        /**
+        /*
          * Allowed, and consistently so: a node that lets every caller read every view, register
          * and drop anything has no reader the audit trail could be kept from that is not already
          * entitled to everything it describes. A deployment that wants the trail kept from its

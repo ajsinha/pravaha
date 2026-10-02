@@ -254,14 +254,16 @@ final class KafkaRecordDecoder implements KafkaValueDecoder {
         }
         if (token == JsonToken.VALUE_STRING) {
             switch (parser.getText()) {
-                case "NaN":
+                case "NaN" -> {
                     return Double.NaN;
-                case "Infinity":
+                }
+                case "Infinity" -> {
                     return Double.POSITIVE_INFINITY;
-                case "-Infinity":
+                }
+                case "-Infinity" -> {
                     return Double.NEGATIVE_INFINITY;
-                default:
-                    break;
+                }
+                default -> {}
             }
         }
         throw wrong(column, type, token);

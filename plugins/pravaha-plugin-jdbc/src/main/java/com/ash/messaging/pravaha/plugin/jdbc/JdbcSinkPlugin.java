@@ -171,14 +171,14 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         this.schema = JdbcSinkSchema.parse(tableSetting, context.require("schema"));
 
         String mode = context.get("mode", "upsert").strip().toLowerCase(Locale.ROOT);
-        switch (mode) {
-            case "upsert" -> this.append = false;
-            case "append" -> this.append = true;
+        this.append = switch (mode) {
+            case "upsert" -> false;
+            case "append" -> true;
             default ->
                 throw new ConfigurationException(
                         JdbcErrors.BAD_CONFIGURATION,
                         "plugin '" + instanceName + "' mode '" + mode + "' is not upsert or append");
-        }
+        };
         String keys = context.get("key.columns", "").strip();
         if (append && !keys.isEmpty()) {
             throw new ConfigurationException(

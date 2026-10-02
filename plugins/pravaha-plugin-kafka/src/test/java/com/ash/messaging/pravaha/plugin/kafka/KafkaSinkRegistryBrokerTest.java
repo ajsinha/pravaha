@@ -75,9 +75,14 @@ class KafkaSinkRegistryBrokerTest {
             + "{\"name\":\"at\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-millis\"}}]}";
     private static final String KEY_AVRO = "{\"type\":\"record\",\"name\":\"OrderKey\",\"namespace\":\"t\","
             + "\"fields\":[{\"name\":\"id\",\"type\":\"long\"}]}";
-    private static final String PROTO = "syntax = \"proto3\";\npackage t;\n"
-            + "message Note { string text = 1; }\n"
-            + "message Holder {\n  message Order { int64 id = 1; string name = 2; }\n}\n";
+    private static final String PROTO = """
+                                        syntax = "proto3";
+                                        package t;
+                                        message Note { string text = 1; }
+                                        message Holder {
+                                          message Order { int64 id = 1; string name = 2; }
+                                        }
+                                        """;
     private static final String COLUMNS = "id:INT64,name:STRING,at:TIMESTAMP(3)";
 
     private static Network network;
@@ -260,7 +265,7 @@ class KafkaSinkRegistryBrokerTest {
     }
 
     private static String topic(String prefix) throws Exception {
-        String name = prefix + "-" + (++topics) + "-" + System.nanoTime() % 100_000;
+        String name = prefix + "-" + ++topics + "-" + System.nanoTime() % 100_000;
         try (Admin admin = Admin.create(Map.of("bootstrap.servers", kafka.getBootstrapServers()))) {
             admin.createTopics(List.of(new NewTopic(name, Optional.of(1), Optional.empty())))
                     .all()

@@ -125,10 +125,14 @@ class RequestLimitHttpTest {
                     .append("\r\n");
         }
         chunks.append("0\r\n\r\n");
-        String answer = exchange(
-                "POST /api/v1/auth/login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n"
-                        + "Connection: close\r\nTransfer-Encoding: chunked\r\n\r\n",
-                chunks.toString().getBytes(StandardCharsets.US_ASCII));
+        String answer = exchange("""
+                POST /api/v1/auth/login HTTP/1.1
+                Host: localhost
+                Content-Type: application/json
+                Connection: close
+                Transfer-Encoding: chunked
+
+                """, chunks.toString().getBytes(StandardCharsets.US_ASCII));
         assertThat(answer).startsWith("HTTP/1.1 413");
         assertThat(answer).contains("\"code\":\"PRV-1054\"").contains("pravaha.http.max-anonymous-body");
     }

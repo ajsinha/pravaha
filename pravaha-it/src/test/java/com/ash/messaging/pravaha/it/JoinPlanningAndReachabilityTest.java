@@ -59,8 +59,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Timeout(120)
 class JoinPlanningAndReachabilityTest {
 
-    private static final long SECOND = 1_000_000_000L;
-
     private static LaneConfig config() {
         return LaneConfig.defaults()
                 .withInbox(256, 128)
@@ -299,8 +297,8 @@ class JoinPlanningAndReachabilityTest {
 
         int users = 8;
         int rows = 200;
-        long oneLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 1);
-        long fourLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 4);
+        long oneLaneCount = runPartitionedJoin(plan, users, rows, 1);
+        long fourLaneCount = runPartitionedJoin(plan, users, rows, 4);
 
         assertThat(oneLaneCount).isEqualTo((long) rows);
         assertThat(fourLaneCount)
@@ -313,28 +311,23 @@ class JoinPlanningAndReachabilityTest {
         PhysicalOperator plan = wideJoinPlan();
         int users = 8;
         int rows = 200;
-        long oneLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 1);
+        long oneLaneCount = runPartitionedJoin(plan, users, rows, 1);
 
-        assertThat(runPartitionedJoin(plan, wideOrders(), users, rows, 2))
-                .as("2 lanes")
-                .isEqualTo(oneLaneCount);
-        assertThat(runPartitionedJoin(plan, wideOrders(), users, rows, 8))
-                .as("8 lanes")
-                .isEqualTo(oneLaneCount);
+        assertThat(runPartitionedJoin(plan, users, rows, 2)).as("2 lanes").isEqualTo(oneLaneCount);
+        assertThat(runPartitionedJoin(plan, users, rows, 8)).as("8 lanes").isEqualTo(oneLaneCount);
 
         // The degenerate case: 8 lanes, only 3 distinct users, so at most 3 lanes ever emit anything
         // and the idle lanes must still quiesce rather than hang -- the failure mode here is a
         // timeout, not a wrong number, which is why runPartitionedJoin's own awaitQuiescent assertion
         // (inside it) is the load-bearing check and this is really about it not timing out.
-        long threeUsersOneLane = runPartitionedJoin(plan, wideOrders(), 3, rows, 1);
-        long threeUsersEightLanes = runPartitionedJoin(plan, wideOrders(), 3, rows, 8);
+        long threeUsersOneLane = runPartitionedJoin(plan, 3, rows, 1);
+        long threeUsersEightLanes = runPartitionedJoin(plan, 3, rows, 8);
         assertThat(threeUsersEightLanes)
                 .as("idle lanes must not change the answer, and awaitQuiescent must not time out")
                 .isEqualTo(threeUsersOneLane);
     }
 
-    private static long runPartitionedJoin(
-            PhysicalOperator plan, StreamSchema wideSchema, int userCount, int rowCount, int lanes) {
+    private static long runPartitionedJoin(PhysicalOperator plan, int userCount, int rowCount, int lanes) {
         ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
         try (QueryExecution execution = QueryExecution.start(plan, lanes, config(), MemoryAccess.best(), () ->
                 (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
@@ -594,12 +587,10 @@ class JoinPlanningAndReachabilityTest {
 
     /** Emits a fixed, small list of pre-built rows and then stops. */
     private static final class FixedReader implements PartitionReader {
-        private final StreamSchema schema;
         private final List<Object[]> rows;
         private int produced;
 
         FixedReader(StreamSchema schema, List<Object[]> rows) {
-            this.schema = schema;
             this.rows = rows;
         }
 

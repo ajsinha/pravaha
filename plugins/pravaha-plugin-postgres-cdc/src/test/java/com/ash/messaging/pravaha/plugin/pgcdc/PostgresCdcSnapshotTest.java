@@ -475,7 +475,7 @@ class PostgresCdcSnapshotTest {
         }
 
         private String next() {
-            long k = 1 + random.nextInt((int) keys);
+            long k = 1L + random.nextInt((int) keys);
             return switch (random.nextInt(5)) {
                 case 0 ->
                     "INSERT INTO " + table + " (" + shape.columns() + ") VALUES (" + shape.values(k) + ", 'new', "

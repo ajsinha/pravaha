@@ -85,7 +85,7 @@ class CaseStudySqlTest {
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("pom.xml").toAbsolutePath())
+        while ((path != null && !Files.exists(path.resolve("pom.xml").toAbsolutePath()))
                 || (path != null && !Files.exists(path.resolve("examples")))) {
             path = path.getParent();
         }

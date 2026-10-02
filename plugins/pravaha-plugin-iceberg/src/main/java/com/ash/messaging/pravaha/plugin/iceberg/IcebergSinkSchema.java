@@ -82,7 +82,8 @@ final class IcebergSinkSchema {
         List<String> columns = new ArrayList<>();
         int depth = 0;
         StringBuilder current = new StringBuilder();
-        for (char c : spec.toCharArray()) {
+        for (int i = 0; i < spec.length(); i++) {
+            char c = spec.charAt(i);
             depth += c == '(' ? 1 : c == ')' ? -1 : 0;
             if (c == ',' && depth <= 0) {
                 columns.add(current.toString());

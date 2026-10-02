@@ -187,7 +187,7 @@ public final class StateOwnership implements AutoCloseable {
                 // Another node's id is refused by the marker, as between processes; the same node id
                 // is what the marker cannot tell from a re-claim, and is refused below.
                 if (live == null || !live.owner().nodeId().equals(owner.nodeId())) {
-                    readMarker(marker).ifPresent(held -> refuseIfHeldByAnother(directory, marker, owner, held, lease));
+                    readMarker(marker).ifPresent(held -> refuseIfHeldByAnother(directory, owner, held, lease));
                 }
                 if (live != null) {
                     throw new PravahaException(
@@ -231,7 +231,7 @@ public final class StateOwnership implements AutoCloseable {
         }
     }
 
-    private static void refuseIfHeldByAnother(Path directory, Path marker, Owner owner, Held held, Duration lease) {
+    private static void refuseIfHeldByAnother(Path directory, Owner owner, Held held, Duration lease) {
         boolean expired = held.ageMillis() > lease.toMillis();
         if (!held.owner().nodeId().equals(owner.nodeId())) {
             throw new PravahaException(

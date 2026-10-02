@@ -191,7 +191,7 @@ class StateRestoreTest extends StateTestSupport {
             // header(24) + offsetCount(4) + one entry: writeUTF("partition-0")=2+11=13, writeUTF(token)
             // =2+tokenBytes + stateCount(4) + the checksum entry every checkpoint carries since CKPTSUM-1,
             // writeUTF("checksum:crc32c")=2+15 and its length 0 (4) + trailer(12) + checksum tail(12).
-            long expected = 24 + 4 + 13 + (2 + utf8(token).length) + 4 + 21 + 12 + 12;
+            long expected = 24L + 4 + 13 + (2 + utf8(token).length) + 4 + 21 + 12 + 12;
             assertThat(fileSize).as("token=<" + token + ">").isEqualTo(expected);
         }
     }

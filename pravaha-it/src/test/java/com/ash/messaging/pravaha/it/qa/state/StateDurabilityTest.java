@@ -243,18 +243,18 @@ class StateDurabilityTest extends StateTestSupport {
 
         // Arm (a): truncate 4 bytes -- removes the trailer's final MAGIC.
         Files.write(file3, java.util.Arrays.copyOf(original, (int) fullLength - 4));
-        assertArm(store, dir);
+        assertArm(store);
 
         // Arm (b): truncate 12 bytes -- the whole trailer gone (EOFException path).
         Files.write(file3, java.util.Arrays.copyOf(original, (int) fullLength - 12));
-        assertArm(store, dir);
+        assertArm(store);
 
         // Arm (c): truncate to 30 bytes -- fails inside the header.
         Files.write(file3, java.util.Arrays.copyOf(original, 30));
-        assertArm(store, dir);
+        assertArm(store);
     }
 
-    private static void assertArm(FileCheckpointStore store, Path dir) {
+    private static void assertArm(FileCheckpointStore store) {
         assertThat(store.load(3)).isEmpty();
         assertThat(store.latest()).hasValueSatisfying(c -> assertThat(c.id()).isEqualTo(2));
         assertThat(store.availableIds()).containsExactly(3L, 2L, 1L);

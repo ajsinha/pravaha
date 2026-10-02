@@ -216,7 +216,6 @@ public final class TenantQuotas {
                         audit,
                         principal,
                         action,
-                        name,
                         sql,
                         Quota.QUERIES,
                         new PravahaException(
@@ -234,7 +233,6 @@ public final class TenantQuotas {
                         audit,
                         principal,
                         action,
-                        name,
                         sql,
                         Quota.STATE,
                         new PravahaException(
@@ -361,13 +359,7 @@ public final class TenantQuotas {
     }
 
     private void refuse(
-            AuditSink audit,
-            Principal principal,
-            String action,
-            String name,
-            String sql,
-            Quota quota,
-            PravahaException refusal) {
+            AuditSink audit, Principal principal, String action, String sql, Quota quota, PravahaException refusal) {
         (quota == Quota.QUERIES ? queryRefusals : stateRefusals)
                 .computeIfAbsent(principal.tenant(), ignored -> new LongAdder())
                 .increment();

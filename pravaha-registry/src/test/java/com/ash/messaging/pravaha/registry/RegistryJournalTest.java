@@ -200,11 +200,11 @@ class RegistryJournalTest {
             // The bound value is part of the plan and therefore part of the fingerprint. Recovering
             // without it would be a different query wearing the same name.
             assertThat(second.require("large_only").sql()).contains("?");
-            assertThat(second.require("large_only").fingerprint()).isEqualTo(first(journal, "large_only"));
+            assertThat(second.require("large_only").fingerprint()).isEqualTo(first("large_only"));
         }
     }
 
-    private static QueryFingerprint first(Path journal, String name) {
+    private static QueryFingerprint first(String name) {
         try (QueryRegistry reference =
                 new QueryRegistry(new ViewCatalog(), SecurityPolicy.PERMISSIVE, AuditSink.NONE, TXN)) {
             return reference

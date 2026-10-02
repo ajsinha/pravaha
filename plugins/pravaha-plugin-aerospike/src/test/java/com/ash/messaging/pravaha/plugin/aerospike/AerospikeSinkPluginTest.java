@@ -85,7 +85,7 @@ final class AerospikeSinkPluginTest {
                         default -> {}
                     }
                     Class<?> returns = method.getReturnType();
-                    return returns == boolean.class ? Boolean.FALSE : returns == int.class ? 0 : null;
+                    return returns == boolean.class ? false : returns == int.class ? 0 : null;
                 });
         AerospikeSinkPlugin sink = new AerospikeSinkPlugin(new AerospikeSinkPlugin.Connector() {
             @Override

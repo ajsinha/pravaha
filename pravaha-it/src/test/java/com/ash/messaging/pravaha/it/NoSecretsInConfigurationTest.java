@@ -77,18 +77,18 @@ class NoSecretsInConfigurationTest {
 
     @Test
     void theCheckFindsASecretWrittenIntoConfiguration() {
-        String yaml = String.join(
-                "\n",
-                "console:",
-                "  password: hunter2hunter2",
-                "  session_secret: \"@@SESSION_SECRET@@\"",
-                "  token: ${PRAVAHA_TOKEN}",
-                "  reset-token-life: 60m",
-                "  tokens:",
-                "    \"a-real-bearer-credential\":",
-                "      id: qa",
-                "    \"@@QA_TOKEN@@\":",
-                "      id: qa2");
+        String yaml = """
+                      console:
+                        password: hunter2hunter2
+                        session_secret: "@@SESSION_SECRET@@"
+                        token: ${PRAVAHA_TOKEN}
+                        reset-token-life: 60m
+                        tokens:
+                          "a-real-bearer-credential":
+                            id: qa
+                          "@@QA_TOKEN@@":
+                            id: qa2\
+                      """;
         assertThat(secretsIn("seed.yaml", yaml))
                 .containsExactly("seed.yaml:2 password", "seed.yaml:7 a token-table credential");
     }

@@ -224,7 +224,7 @@ class SqlxMultiStreamTest {
     @Test
     void aBoundValueOfTheWrongTypeIsRefusedWithACodeNamingThePlaceholderAndTheType() {
         // A Boolean where the query needs STRING.
-        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE user_id = ?", Boolean.TRUE))
+        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE user_id = ?", true))
                 .startsWith("PRV-2062")
                 .contains("?1");
         // A String where the query needs INT64.

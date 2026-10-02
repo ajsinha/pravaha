@@ -209,7 +209,7 @@ class QuickstartCommandsTest {
     }
 
     private static int execute(List<String> words, Path scratch, StringBuilder printed) throws IOException {
-        switch (words.get(0)) {
+        return switch (words.get(0)) {
             case "cd" -> {
                 // The quickstart steps into an example directory; bring its files to the scratch.
                 Path from = repoRoot().resolve(words.get(1));
@@ -221,15 +221,15 @@ class QuickstartCommandsTest {
                                 java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                     }
                 }
-                return 0;
+                yield 0;
             }
             case "printf" -> {
                 Files.writeString(scratch.resolve(words.get(3)), unescape(words.get(1)), StandardCharsets.UTF_8);
-                return 0;
+                yield 0;
             }
             case "cat" -> {
                 printed.append(Files.readString(scratch.resolve(words.get(1)), StandardCharsets.UTF_8));
-                return 0;
+                yield 0;
             }
             default -> {
                 // Relative paths in the document are relative to the directory the reader is in.
@@ -248,9 +248,9 @@ class QuickstartCommandsTest {
                                 new PrintStream(err, true, StandardCharsets.UTF_8))
                         .run(args.toArray(String[]::new));
                 printed.append(out.toString(StandardCharsets.UTF_8)).append(err.toString(StandardCharsets.UTF_8));
-                return code;
+                yield code;
             }
-        }
+        };
     }
 
     /** Shell words, honouring single and double quotes. Enough for the shapes above and no more. */

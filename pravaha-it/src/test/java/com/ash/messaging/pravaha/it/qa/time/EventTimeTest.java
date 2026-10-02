@@ -357,7 +357,7 @@ class EventTimeTest {
         // inside it.
         StringBuilder csv = new StringBuilder();
         for (int k = 0; k <= 120; k++) {
-            long floored = T0 + (k / 10) * 10 * SECOND;
+            long floored = T0 + (k / 10) * 10L * SECOND;
             csv.append(k)
                     .append(",u")
                     .append(k % 5)

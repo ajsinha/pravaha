@@ -86,7 +86,7 @@ class MySqlCdcIT {
     }
 
     private static String newTable() throws SQLException {
-        String table = "customers_" + (++tables);
+        String table = "customers_" + ++tables;
         root("CREATE TABLE shop." + table + " (id BIGINT PRIMARY KEY, tier VARCHAR(16) NOT NULL, "
                 + "region VARCHAR(8), credit DECIMAL(10,2), seen DATETIME(6))");
         return table;

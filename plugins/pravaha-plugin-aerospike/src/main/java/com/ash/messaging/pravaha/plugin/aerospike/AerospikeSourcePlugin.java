@@ -212,13 +212,13 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
      */
     private void configureDeletes(PluginContext context) {
         String mode = context.get("deletes", "ignore").strip().toLowerCase(java.util.Locale.ROOT);
-        switch (mode) {
-            case "ignore" -> this.detectDeletes = false;
-            case "detect" -> this.detectDeletes = true;
+        this.detectDeletes = switch (mode) {
+            case "ignore" -> false;
+            case "detect" -> true;
             default ->
                 throw new ConfigurationException(
                         AerospikeErrors.BAD_CONFIGURATION, "deletes must be 'ignore' or 'detect', got '" + mode + "'");
-        }
+        };
         if (!detectDeletes) {
             return;
         }

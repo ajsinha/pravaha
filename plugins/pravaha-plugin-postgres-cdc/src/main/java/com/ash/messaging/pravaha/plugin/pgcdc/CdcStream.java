@@ -377,7 +377,7 @@ final class CdcStream implements AutoCloseable {
 
     private void heartbeat() {
         try {
-            emit(options.slot() + ":heartbeat:" + (++heartbeats));
+            emit(options.slot() + ":heartbeat:" + ++heartbeats);
         } catch (SQLException e) {
             // Not fatal: the stream is fine, only the slot's advance on a quiet table is not.
             lastProblem = "heartbeat failed: " + e.getMessage();

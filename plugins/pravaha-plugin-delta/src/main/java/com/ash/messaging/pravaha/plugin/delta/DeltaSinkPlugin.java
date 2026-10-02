@@ -151,14 +151,14 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
         this.schema = DeltaSinkSchema.parse(nameOf(path), context.require("schema"));
 
         String mode = context.get("mode", "upsert").strip().toLowerCase(Locale.ROOT);
-        switch (mode) {
-            case "upsert" -> this.changelog = false;
-            case "changelog" -> this.changelog = true;
+        this.changelog = switch (mode) {
+            case "upsert" -> false;
+            case "changelog" -> true;
             default ->
                 throw new ConfigurationException(
                         DeltaErrors.SINK_BAD_CONFIGURATION,
                         "plugin '" + instanceName + "' mode '" + mode + "' is not upsert or changelog");
-        }
+        };
         this.deltaSchema = DeltaSinkSchema.toDeltaSchema(instanceName, schema, changelog);
         readKeyColumns(context.get("key.columns", "").strip());
         this.partitionOrdinals =

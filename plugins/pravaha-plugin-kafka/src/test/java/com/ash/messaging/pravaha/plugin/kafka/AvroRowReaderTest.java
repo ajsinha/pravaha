@@ -62,7 +62,7 @@ class AvroRowReaderTest {
         Row row = reader.read(value, 0, 5_000L);
         assertThat(row.values())
                 .containsExactly(
-                        Boolean.TRUE,
+                        true,
                         (short) -7,
                         42,
                         9_000_000_000L,

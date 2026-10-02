@@ -180,8 +180,8 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
             if (item == null) {
                 break;
             }
-            if (item instanceof Decoded d && d.offset() >= before
-                    || item instanceof Rejected r && r.offset() >= before) {
+            if ((item instanceof Decoded d && d.offset() >= before)
+                    || (item instanceof Rejected r && r.offset() >= before)) {
                 // The next record is at or past the bound, so nothing before the bound remains.
                 position = before;
                 break;

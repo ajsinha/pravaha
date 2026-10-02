@@ -701,7 +701,7 @@ final class Alert implements AnswerListener {
                     s.acknowledgedAt,
                     s.row == null ? Map.of() : rowMap(s.row)));
         }
-        states.sort(Comparator.comparing((AlertStatus.KeyStatus k) -> order(k.state())));
+        states.sort(Comparator.comparingInt((AlertStatus.KeyStatus k) -> order(k.state())));
         List<AlertStatus.Sent> told = new ArrayList<>();
         for (Told t : history) {
             told.add(new AlertStatus.Sent(

@@ -34,11 +34,9 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 final class ValidateCommand {
 
     private final PrintStream out;
-    private final PrintStream err;
 
     ValidateCommand(PrintStream out, PrintStream err) {
         this.out = out;
-        this.err = err;
     }
 
     int run(List<String> arguments) {

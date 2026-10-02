@@ -347,7 +347,7 @@ public final class ContinuousStatements {
                     }
                     case "WITH" -> {
                         once(options.isEmpty(), clause, "the options");
-                        options.putAll(options(clause));
+                        options.putAll(options());
                     }
                     default ->
                         throw unexpected(
@@ -479,7 +479,7 @@ public final class ContinuousStatements {
          * sections 11.2 and 17.2 write these lists with single-quoted names and a grammar that
          * refused the design's own spelling would be a second grammar.
          */
-        private java.util.Map<String, String> options(StatementLexer.Token with) {
+        private java.util.Map<String, String> options() {
             symbol("(");
             java.util.Map<String, String> read = new java.util.LinkedHashMap<>();
             while (true) {

@@ -146,14 +146,14 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
                 root.getFileName() == null ? "iceberg" : root.getFileName().toString(), spec);
 
         String mode = context.get("mode", "upsert").strip().toLowerCase(Locale.ROOT);
-        switch (mode) {
-            case "upsert" -> this.changelog = false;
-            case "changelog" -> this.changelog = true;
+        this.changelog = switch (mode) {
+            case "upsert" -> false;
+            case "changelog" -> true;
             default ->
                 throw new ConfigurationException(
                         IcebergErrors.SINK_BAD_CONFIGURATION,
                         "plugin '" + instanceName + "' mode '" + mode + "' is not upsert or changelog");
-        }
+        };
         readKeyColumns(context.get("key.columns", "").strip());
         this.transactional =
                 Boolean.parseBoolean(context.get("transactional", "true").strip());

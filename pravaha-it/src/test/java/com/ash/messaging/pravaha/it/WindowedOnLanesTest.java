@@ -175,7 +175,7 @@ class WindowedOnLanesTest {
             BinaryRowWriter writer = new BinaryRowWriter(layout);
             BinaryRowView view = new BinaryRowView(layout);
             for (int i = 0; i < 12; i++) {
-                long at = (i / 4) * 10 * SECOND;
+                long at = (i / 4) * 10L * SECOND;
                 long handle = arena.allocate(layout.rowSize(64));
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 writer.setLong(0, i % 4).setLong(1, 1).setLong(2, at);

@@ -430,7 +430,7 @@ class QueryRegistryTest {
             failure.setAccessible(true);
             failure.set(first, new IllegalStateException("the projection's arena is full"));
         } catch (ReflectiveOperationException e) {
-            throw new AssertionError("could not simulate a lane failure", e);
+            throw new LinkageError("could not simulate a lane failure", e);
         }
     }
 

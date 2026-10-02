@@ -103,7 +103,7 @@ public final class SignInSource {
 
     /** Only a literal is resolved: a name would send a sign-in to DNS. */
     private static boolean literal(String address) {
-        return address.matches("[0-9.]+") || address.matches("[0-9a-fA-F:.]+") && address.contains(":");
+        return address.matches("[0-9.]+") || (address.matches("[0-9a-fA-F:.]+") && address.contains(":"));
     }
 
     private static Block block(String entry) {

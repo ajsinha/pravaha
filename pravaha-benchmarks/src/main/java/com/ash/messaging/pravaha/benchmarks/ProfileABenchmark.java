@@ -15,7 +15,6 @@
  */
 package com.ash.messaging.pravaha.benchmarks;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -75,8 +74,6 @@ public class ProfileABenchmark {
 
     /** A realistic batch: large enough to amortise the call, small enough to stay in cache. */
     private static final int BATCH = 512;
-
-    private static final byte[] COMPLETED = "COMPLETED".getBytes(StandardCharsets.UTF_8);
 
     private MemoryRegion input;
     private MemoryRegion output;

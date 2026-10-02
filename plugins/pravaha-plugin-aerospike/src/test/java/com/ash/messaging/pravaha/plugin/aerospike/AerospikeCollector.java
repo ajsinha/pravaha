@@ -167,6 +167,7 @@ final class AerospikeCollector implements SourcePluginTck.RowCollector {
             return size;
         }
 
+        @Override
         public void abort() {
             delegate.abort();
         }

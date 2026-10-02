@@ -30,7 +30,7 @@ import com.ash.messaging.pravaha.api.plugin.PluginTls;
  * configured source what it can promise before it opens a connection, so nothing here may connect.
  *
  * @param url a {@code jdbc:postgresql:} URL. TLS goes in it, as for the {@code jdbc} source
- * @param table the captured table, {@code schema.table} or a bare name in {@code public}
+ * @param tableName the captured table, {@code schema.table} or a bare name in {@code public}
  * @param slot the logical replication slot, server-side state that retains WAL until confirmed
  * @param publication the publication the slot's {@code pgoutput} stream is filtered through
  * @param heartbeat how often to write a position marker into the WAL so that a quiet table's slot

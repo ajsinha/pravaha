@@ -447,8 +447,11 @@ class PravahaCliTest {
 
     // ------------------------------------------------------------ W8-11: the dead-letter queue
 
-    private static final String ONE_BAD_LINE =
-            "1,alice,500,COMPLETED\n" + "2,bob,NOTANUMBER,COMPLETED\n" + "3,carol,900,COMPLETED\n";
+    private static final String ONE_BAD_LINE = """
+            1,alice,500,COMPLETED
+            2,bob,NOTANUMBER,COMPLETED
+            3,carol,900,COMPLETED
+            """;
 
     @Test
     void aBadLineWithNoDeadLetterFileStillFailsTheRunAndNamesTheLineAndColumn(@TempDir Path dir) throws IOException {
@@ -649,9 +652,12 @@ class PravahaCliTest {
         // promises: the offending record is diverted, not the batch. The failure and the exit code
         // are correct and stay; losing the other rows was a separate harm that nobody intended.
         Path input = dir.resolve("num.csv");
-        Files.writeString(
-                input,
-                "1,alice,10,COMPLETED\n" + "2,bob,5,COMPLETED\n" + "3,carol,0,COMPLETED\n" + "4,dave,2,COMPLETED\n");
+        Files.writeString(input, """
+                1,alice,10,COMPLETED
+                2,bob,5,COMPLETED
+                3,carol,0,COMPLETED
+                4,dave,2,COMPLETED
+                """);
         Path out = dir.resolve("out.csv");
 
         int code = run(

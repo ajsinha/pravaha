@@ -283,42 +283,33 @@ final class CassandraPushdown {
 
     /** The filter's value as the driver binds it to a column of {@code type}, or null when it cannot be exact. */
     static Object exact(ColumnType type, Object value) {
-        switch (type) {
+        return switch (type) {
             case TINYINT, SMALLINT, INT, BIGINT -> {
                 if (!(value instanceof Byte
                         || value instanceof Short
                         || value instanceof Integer
                         || value instanceof Long)) {
-                    return null;
+                    yield null;
                 }
                 long number = ((Number) value).longValue();
-                return switch (type) {
+                yield switch (type) {
                     case TINYINT -> number == (byte) number ? Byte.valueOf((byte) number) : null;
                     case SMALLINT -> number == (short) number ? Short.valueOf((short) number) : null;
                     case INT -> number == (int) number ? Integer.valueOf((int) number) : null;
                     default -> Long.valueOf(number);
                 };
             }
-            case TEXT -> {
-                return value instanceof String text ? text : null;
-            }
-            case ASCII -> {
-                return value instanceof String text && text.chars().allMatch(c -> c < 128) ? text : null;
-            }
-            case BOOLEAN -> {
-                return value instanceof Boolean flag ? flag : null;
-            }
-            case TIMESTAMP -> {
+            case TEXT -> value instanceof String text ? text : null;
+            case ASCII -> value instanceof String text && text.chars().allMatch(c -> c < 128) ? text : null;
+            case BOOLEAN -> value instanceof Boolean flag ? flag : null;
+            case TIMESTAMP ->
                 // The engine keeps nanoseconds and Cassandra milliseconds: only a whole millisecond
                 // can be equal to anything Cassandra holds.
-                return value instanceof Long nanos && nanos % 1_000_000L == 0
+                value instanceof Long nanos && nanos % 1_000_000L == 0
                         ? Instant.ofEpochMilli(nanos / 1_000_000L)
                         : null;
-            }
-            default -> {
-                return null;
-            }
-        }
+            default -> null;
+        };
     }
 
     private static boolean isRange(ReadRequest.Comparison comparison) {

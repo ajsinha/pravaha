@@ -144,7 +144,7 @@ class StateJournalTest extends StateTestSupport {
         assertThat(fields).containsExactly("R", "q", sql, "0,1", "dana", "7200000");
 
         int sqlBytes = utf8(sql).length;
-        long expectedLength = 9 + (4 + 1) + (4 + 1) + (4 + sqlBytes) + (4 + 3) + (4 + 4) + (4 + 7);
+        long expectedLength = 9L + (4 + 1) + (4 + 1) + (4 + sqlBytes) + (4 + 3) + (4 + 4) + (4 + 7);
         assertThat((long) length).as("sql utf8 length=" + sqlBytes).isEqualTo(expectedLength);
         assertThat((long) all.length).isEqualTo(4 + expectedLength);
     }
@@ -165,7 +165,7 @@ class StateJournalTest extends StateTestSupport {
         assertThat(e.sql()).isEqualTo(sql);
         assertThat(e.keyColumns()).containsExactly(0, 1);
         assertThat(e.owner()).isEqualTo("dana");
-        assertThat(e.retention().maxAge()).isEqualTo(Duration.ofMillis(7200000));
+        assertThat(e.retention().maxAge()).isEqualTo(Duration.ofHours(2));
         assertThat(e.retention().maxAge()).isEqualTo(Duration.ofHours(2));
         assertThat(e.parameters()).isEmpty();
     }
@@ -213,8 +213,8 @@ class StateJournalTest extends StateTestSupport {
                 new Case((short) 42, "i:42"),
                 new Case(3.5d, "d:3.5"),
                 new Case(3.5f, "d:3.5"),
-                new Case(Boolean.TRUE, "z:true"),
-                new Case(Boolean.FALSE, "z:false"),
+                new Case(true, "z:true"),
+                new Case(false, "z:false"),
                 new Case("hello", "s:hello"),
                 new Case("", "s:"),
                 new Case("i:12", "s:i:12"),

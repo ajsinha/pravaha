@@ -113,7 +113,7 @@ public final class CatalogStatements {
             case "CREATE" -> second.equals("NAMESPACE") || second.equals("MASK") || isRowFilter(head);
             case "DROP" -> second.equals("MASK") || isRowFilter(head);
             case "COMMENT" -> second.equals("ON");
-            case "ALTER" -> second.equals("TAG") || KINDS.contains(second) && !second.equals("CATALOG");
+            case "ALTER" -> second.equals("TAG") || (KINDS.contains(second) && !second.equals("CATALOG"));
             case "SHOW" ->
                 second.equals("GRANTS")
                         || second.equals("EFFECTIVE")
@@ -346,10 +346,10 @@ public final class CatalogStatements {
                         ? new CatalogStatement.SetPolicy(target, name(3))
                         : new CatalogStatement.UnsetPolicy(target, name(3));
             }
-            switch (verb) {
+            return switch (verb) {
                 case "OWNER" -> {
                     keyword("TO");
-                    return new CatalogStatement.SetOwner(target, grantee());
+                    yield new CatalogStatement.SetOwner(target, grantee());
                 }
                 case "UNSET" -> {
                     keyword("TAGS");
@@ -359,12 +359,12 @@ public final class CatalogStatements {
                         keys.add(tagText());
                     } while (symbol(","));
                     symbolRequired(")");
-                    return new CatalogStatement.UnsetTags(target, keys);
+                    yield new CatalogStatement.UnsetTags(target, keys);
                 }
                 case "SET" -> {
                     if (isWord("NAMESPACE")) {
                         at++;
-                        return new CatalogStatement.SetNamespace(target, name(2));
+                        yield new CatalogStatement.SetNamespace(target, name(2));
                     }
                     keyword("TAGS");
                     symbolRequired("(");
@@ -378,34 +378,32 @@ public final class CatalogStatements {
                         tags.put(key, value);
                     } while (symbol(","));
                     symbolRequired(")");
-                    return new CatalogStatement.SetTags(target, tags);
+                    yield new CatalogStatement.SetTags(target, tags);
                 }
                 default -> throw malformed("ALTER " + target.kind() + " takes SET, UNSET or OWNER TO, not " + verb);
-            }
+            };
         }
 
         private CatalogStatement show() {
             shape = "SHOW GRANTS ON <target> | SHOW GRANTS TO ROLE|USER <name> | "
                     + "SHOW EFFECTIVE ACCESS FOR USER <name> ON <target> | SHOW NAMESPACES | SHOW POLICIES [ON <target>]";
             String what = nextWord();
-            switch (what) {
+            return switch (what) {
                 case "POLICIES" -> {
                     if (isWord("ON")) {
                         at++;
-                        return new CatalogStatement.ShowPolicies(Optional.of(target()));
+                        yield new CatalogStatement.ShowPolicies(Optional.of(target()));
                     }
-                    return new CatalogStatement.ShowPolicies(Optional.empty());
+                    yield new CatalogStatement.ShowPolicies(Optional.empty());
                 }
-                case "NAMESPACES" -> {
-                    return new CatalogStatement.ShowNamespaces();
-                }
+                case "NAMESPACES" -> new CatalogStatement.ShowNamespaces();
                 case "GRANTS" -> {
                     String preposition = nextWord();
                     if (preposition.equals("ON")) {
-                        return new CatalogStatement.ShowGrantsOn(target());
+                        yield new CatalogStatement.ShowGrantsOn(target());
                     }
                     if (preposition.equals("TO")) {
-                        return new CatalogStatement.ShowGrantsTo(grantee());
+                        yield new CatalogStatement.ShowGrantsTo(grantee());
                     }
                     throw malformed("SHOW GRANTS is followed by ON <target> or TO ROLE|USER <name>");
                 }
@@ -415,9 +413,9 @@ public final class CatalogStatements {
                     keyword("USER");
                     String user = part();
                     keyword("ON");
-                    return new CatalogStatement.ShowEffectiveAccess(user, target());
+                    yield new CatalogStatement.ShowEffectiveAccess(user, target());
                 }
-            }
+            };
         }
 
         private CatalogStatement.Target target() {

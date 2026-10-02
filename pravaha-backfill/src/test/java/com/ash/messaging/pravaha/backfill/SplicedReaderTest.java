@@ -67,7 +67,6 @@ class SplicedReaderTest {
     private static final class ListReader implements PartitionReader {
         private final ArrayDeque<Row> rows = new ArrayDeque<>();
         private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 8);
-        private final RowLayout layout = RowLayout.of(SCHEMA);
         private long delivered;
 
         ListReader(List<Row> initial) {

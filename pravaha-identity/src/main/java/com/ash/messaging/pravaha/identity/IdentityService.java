@@ -223,7 +223,7 @@ public final class IdentityService {
         }
         // The slow check outside the lock, and always made: an unknown user and a barred one pay for one
         // too, so the time a refusal takes says nothing about the name either.
-        boolean ok = user != null && user.active() && user.passwordHash() != null
+        boolean ok = (user != null && user.active() && user.passwordHash() != null)
                 ? Kdf.verify(password == null ? "" : password, user.passwordHash())
                 : Kdf.verify(password == null ? "" : password, TimingEqualiser.HASH);
         synchronized (this) {

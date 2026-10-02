@@ -126,7 +126,7 @@ final class ProfileBRows implements AutoCloseable {
             // to do and a boundary bug is not hidden by every row landing at the same instant.
             long ts =
                     EPOCH_NANOS + window * WINDOW_NANOS + random.nextInt((int) (WINDOW_NANOS / 1_000_000)) * 1_000_000L;
-            long amount = 1 + random.nextInt(1000);
+            long amount = 1L + random.nextInt(1000);
             offsets[i] = cursor;
             writer.begin(region, cursor);
             writer.setLong(0, user)

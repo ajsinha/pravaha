@@ -215,23 +215,8 @@ public final class RowLayout {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("RowLayout[")
-                .append(schema.name())
-                .append(" v")
-                .append(schema.version())
-                .append(", header=")
-                .append(HEADER_BYTES)
-                .append(", nulls=")
-                .append(nullBitmapBytes)
-                .append("B@")
-                .append(nullBitmapOffset)
-                .append(", fixed=")
-                .append(fixedEnd - fixedRegionOffset)
-                .append("B@")
-                .append(fixedRegionOffset)
-                .append(", varFields=")
-                .append(variableFieldCount)
-                .append(']');
-        return sb.toString();
+        return "RowLayout[" + schema.name() + " v" + schema.version() + ", header=" + HEADER_BYTES + ", nulls="
+                + nullBitmapBytes + "B@" + nullBitmapOffset + ", fixed=" + (fixedEnd - fixedRegionOffset) + "B@"
+                + fixedRegionOffset + ", varFields=" + variableFieldCount + ']';
     }
 }

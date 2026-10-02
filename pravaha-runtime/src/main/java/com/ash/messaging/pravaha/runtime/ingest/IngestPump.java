@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.runtime.ingest;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongConsumer;
@@ -671,7 +672,7 @@ public final class IngestPump implements AutoCloseable {
                 throw new PravahaException(
                         RuntimeErrors.BACKPRESSURED,
                         "lane " + lane.laneId() + " is "
-                                + (closed ? "closing" : state.name().toLowerCase())
+                                + (closed ? "closing" : state.name().toLowerCase(Locale.ROOT))
                                 + " and a row decoded for it has nowhere to go");
             }
             if (System.nanoTime() > deadline) {

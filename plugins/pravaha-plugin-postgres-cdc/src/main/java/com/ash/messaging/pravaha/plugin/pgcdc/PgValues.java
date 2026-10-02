@@ -80,8 +80,8 @@ final class PgValues {
         return switch (type.typeName()) {
             case BOOLEAN ->
                 switch (text) {
-                    case "t" -> Boolean.TRUE;
-                    case "f" -> Boolean.FALSE;
+                    case "t" -> true;
+                    case "f" -> false;
                     default -> throw new IllegalArgumentException("'" + text + "' is not a boolean");
                 };
             case INT16 -> Short.parseShort(text);
