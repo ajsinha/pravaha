@@ -9,7 +9,7 @@
     <p class="kicker mt-2 mb-1">{{ t('views.kicker') }}</p>
     <h1>{{ t('views.heading') }}{{ helplink('views') }}</h1>
   </div>
-  <form class="d-flex gap-2" method="get" action="/views" role="search" onsubmit="return false">
+  <form class="d-flex gap-2" method="get" action="/views" role="search">
     <label class="visually-hidden" for="view-filter">{{ t('views.filter_label') }}</label>
     <input class="form-control form-control-sm" type="search" id="view-filter" placeholder="{{ t('views.filter_placeholder') }}"
            autocomplete="off" hidden>
@@ -53,9 +53,11 @@
 {% endif %}
 {{ screenhelp('views') }}
 {% endblock %}
-{% block scripts %}<script type="module">
+{% block scripts %}<script type="module" nonce="{{ csp_nonce }}">
 /* Filter as you type. The list is small enough to filter in place; the server already sent it. */
 const input = document.getElementById("view-filter");
+/* The filter never submits: it filters in place (a handler, not onsubmit=, which the CSP refuses). */
+input?.form?.addEventListener("submit", (event) => event.preventDefault());
 const rows = document.querySelectorAll("#views-table tbody tr");
 if (input && rows.length) {
   input.hidden = false;

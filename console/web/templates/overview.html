@@ -16,7 +16,7 @@
   <pre class="small mt-2 mb-2">{{ engine_error }}</pre>
   <div class="small">{{ t('overview.down.body_before') }}
     <span class="mono">{{ engine_url }}</span> {{ t('overview.down.body_after') }}</div>
-  <button type="button" class="btn btn-sm btn-primary mt-2" onclick="location.reload()">{{ t('overview.down.retry') }}</button>
+  <button type="button" class="btn btn-sm btn-primary mt-2" data-pv-reload>{{ t('overview.down.retry') }}</button>
 </div>
 {% endif %}
 
