@@ -111,6 +111,17 @@ def code_of(exc: BaseException) -> str | None:
     return None
 
 
+def codes_of(exc: BaseException) -> set[str]:
+    """Every ``PRV-nnnn`` a refusal names: its own code and each one its message carries. The SDK
+    wraps a transport failure in its own code and keeps the engine's after it -- ``PRV-1041
+    PRV-7001 this server requires a credential`` -- so the first code alone is not the answer."""
+    named = set(_ALL_CODES.findall(str(exc)))
+    first = code_of(exc)
+    if first:
+        named.add(first)
+    return named
+
+
 def note_refusal(exc: BaseException) -> None:
     """Marks the bound credential from an engine refusal: expired on a 401 or ``PRV-7016``,
     must-change on ``PRV-7018``. Anything else leaves it alone. Called by the engine adapter on
@@ -124,7 +135,7 @@ def note_refusal(exc: BaseException) -> None:
     # own code and keeps the engine's after it -- "PRV-1041 PRV-7001 this server requires a
     # credential" -- and reading only the first is how a signed-out session was drawn as a
     # signed-in page with an error in it (LOGOUTREPLAY-1).
-    named = {code} | set(_ALL_CODES.findall(str(exc)))
+    named = codes_of(exc)
     if MUST_CHANGE_CODE in named:
         credential.must_change = True
     elif named & EXPIRED_CODES or (code is None and status == 401) or _unauthenticated(exc):
