@@ -751,15 +751,17 @@ class TypeBatch2Test {
 
         List<CapturingRowWriter.Captured> out =
                 runBounded(types(), "SELECT f64, COUNT(*) AS n FROM types GROUP BY f64", rows);
-        assertThat(out).hasSize(9); // 0.0 (rows 4 and 6-by-id... here row4 and row "0.0" merge) and -0.0 separate
+        // NANGROUP-1: -0.0 and 0.0 are one group, as SQL equality says (d = 0 keeps both), published
+        // 0.0. It used to be a group of its own, nine groups where SQL has eight.
+        assertThat(out).hasSize(8);
         long zeroCount = out.stream()
-                .filter(r -> !r.isNull(0) && ((Double) r.values()[0]) == 0.0 && !isNegativeZero((Double) r.values()[0]))
+                .filter(r -> !r.isNull(0) && ((Double) r.values()[0]) == 0.0)
                 .mapToLong(r -> r.asLong(1))
                 .sum();
-        assertThat(zeroCount).isEqualTo(2);
+        assertThat(zeroCount).isEqualTo(3);
         boolean hasNegativeZeroGroup =
                 out.stream().anyMatch(r -> !r.isNull(0) && isNegativeZero((Double) r.values()[0]));
-        assertThat(hasNegativeZeroGroup).as("-0.0 is its own group").isTrue();
+        assertThat(hasNegativeZeroGroup).as("-0.0 joins 0.0's group").isFalse();
 
         assertThatThrownBy(() -> runBounded(types(), "SELECT SUM(f64) FROM types", rows))
                 .isInstanceOf(PravahaException.class)
@@ -768,7 +770,7 @@ class TypeBatch2Test {
         List<CapturingRowWriter.Captured> having =
                 runBounded(types(), "SELECT f64, COUNT(*) AS n FROM types GROUP BY f64 HAVING COUNT(*) > 1", rows);
         assertThat(having).hasSize(1);
-        assertThat(having.get(0).asLong(1)).isEqualTo(2);
+        assertThat(having.get(0).asLong(1)).isEqualTo(3);
     }
 
     private static boolean isNegativeZero(double d) {

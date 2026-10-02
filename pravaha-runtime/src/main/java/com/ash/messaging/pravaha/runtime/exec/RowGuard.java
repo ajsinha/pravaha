@@ -71,17 +71,11 @@ final class RowGuard {
 
     /** {@code stateful}, marking that the row in hand has reached state. */
     RowProcessor boundary(RowProcessor stateful) {
-        return new RowProcessor() {
-            @Override
-            public void process(com.ash.messaging.pravaha.api.data.RowView row) {
-                crossed = true;
-                stateful.process(row);
-            }
-
-            @Override
-            public void finish() {
-                stateful.finish();
-            }
+        // No finish() to forward: a pipeline's operators are finished through its finishers, never
+        // through the chain.
+        return row -> {
+            crossed = true;
+            stateful.process(row);
         };
     }
 
