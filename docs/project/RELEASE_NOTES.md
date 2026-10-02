@@ -281,6 +281,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   home whose catalogue imported `permissive` under this profile refuses to start with `PRV-7034`; set
   `pravaha.security.policy: permissive` to keep it, or `pravaha.catalog.authority: catalog`.
   `UsersProfileTest`.
+- **The guides match 2.0 (STALEDOC-1).** GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER and _WITH_DOCKER name
+  the `2.0.1-SNAPSHOT` jars; QUICKSTART's "What is not built" no longer lists the Kafka plugin, the
+  Spring Boot starter, the time-travel debugger or column masking (all built) and states clustering as
+  ADR-039/ADR-045 have it; §4's second server keeps `dev` (it refused with `PRV-7004`) and stops the
+  first; §7 says `make install` needs `python3-venv` or `uv venv --seed .venv`; the Java and Python
+  snippets read until the new view has filled (the Java one printed nothing); the console's
+  "deliberately not there" list, long out of date, says how it is built; CLI.md lists `explain-sql`
+  and `subscribe --answer`. QUICKSTART re-run verbatim on JDK 25 (25.0.4.1): §2–§8, §7's console
+  against `dev,users`, and both snippets (`750`).
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
