@@ -317,9 +317,9 @@ pravaha subscribe --view <name> [--filter col=val[,col=val]]... [--snapshot] [--
 |---|---|---|
 | `--view` | required | The view to follow |
 | `--filter` | none | Equality filters applied at the tap on the server; repeatable. A column the view lacks is refused with PRV-8002; a malformed pair is exit `2` |
-| `--snapshot` | off | Print the view's rows first, then every commit after them — none missed and none counted twice. Without it the stream starts at the next commit |
+| `--snapshot` | off | Print what the view holds first, then every commit after it — none missed and none counted twice. Without it the stream starts at the next commit. Without `--answer` that first batch is the view's **changelog**: on a keyed view that upserts, every version of a key at `+1`, not what a read returns (KEYEDWT-1); with `--answer`, the rows a read returns |
 | `--answer` | off | Print how the view's **answer** moves — rows a reader stops seeing at `-1`, rows a reader starts seeing at `+1` — instead of the changelog. For a keyed view that upserts, only these weights sum to the view |
-| `--limit` | `0` (none) | Stop after this many rows, at the end of that commit |
+| `--limit` | none | Stop once this many rows (at least 1) have printed, at the end of the commit or snapshot that reaches it — a commit is never cut in half. `0` or a negative number is refused (exit `2`); leave the flag off to follow until Ctrl-C |
 | `--reconnect` | off | When the node restarts, open the stream again (backoff 0.25–10 s) instead of ending |
 | `--reconnect-timeout` | `300` | Seconds without a stream before giving up; `0` never gives up |
 | `--buffer-rows`, `--overflow` | the node's (10000, `CONFLATE`) | What the server's buffer does when you fall behind. `FAIL` ends the stream rather than lose a change |

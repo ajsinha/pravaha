@@ -67,7 +67,8 @@ withdrawn — under a `WEIGHT` header printed with the first change. Each group 
 `-- commit, N rows` is one commit. Nothing prints until the next
 commit after you attach: a subscription is the changes from *now*, not a replay of the view.
 
-Stop after a number of rows, which is what a script wants:
+Stop after a number of rows, which is what a script wants — at the end of the commit that reaches
+it, so a commit is never cut in half (at least 1; leave `--limit` off to follow until Ctrl-C):
 
 ```bash
 pravaha subscribe --view large_payments --limit 100

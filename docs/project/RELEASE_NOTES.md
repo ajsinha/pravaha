@@ -248,6 +248,30 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   code of an SDK-wrapped refusal. Every code is read now, so an engine-ended session goes back to sign
   in as documented; and a cookie whose session was signed out is cleared and sent to the landing page,
   where signing out goes. `test_identity.py`.
+- **The console sends security headers (CONSOLEHDR-1).** No response carried a CSP, `X-Frame-Options`,
+  `nosniff` or a `Referrer-Policy`, so the console could be framed by another site. Every response
+  now carries a Content-Security-Policy (scripts from the console or inline with the response's
+  nonce; `frame-ancestors 'none'`; `object-src 'none'`; forms post only to the console),
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, a
+  `Permissions-Policy`, and HSTS over https. The three inline handlers the policy would refuse became
+  listeners. The browser suites now fail on any CSP violation. `test_security_headers.py`.
+- **The console is ready in front of an engine that requires a credential (CONSOLEREADY-1).**
+  `/health/ready` was always `503`: the console holds no credential, and its probe read the SDK's
+  wrapped refusal (`PRV-1041 PRV-7001 …`) as "unreachable". Readiness now asks the engine's
+  anonymous `/actuator/health` when `engine.http_url` is set (`UP`/`DEGRADED` ready, `DOWN` not), and
+  a wrapped refusal of the credential counts as an answer. `test_readiness.py`.
+- **The Helm chart renders only names Kubernetes accepts (HELMNAME-1).** A 78-character
+  `fullnameOverride` was cut to 63 and then suffixed (`-headless` at 72, `-test-probes` at 75); an
+  empty `image.repository` rendered `":<tag>"`. The base name is now cut to 52 (a StatefulSet's pods
+  carry a revision label of its name plus 11), every derived name shortens the base and keeps its
+  suffix, and an empty repository fails the render with a message. `deploy/helm/test.sh`: 22 checks.
+- **`pravaha subscribe`'s help says what its flags do (SNAPDOC-1).** `--limit N` said "stop after N
+  rows" and stopped at the end of the commit that reached N (a 1 009-row snapshot for `--limit 2`) —
+  the documented and right behaviour, since a consumer applies whole commits; the help now says so.
+  `--limit 0` and negative numbers, which never stopped, are refused (exit `2`). `--snapshot` said
+  "the view's rows" and prints the changelog — on a keyed view, every version of a key; the help and
+  the start-up note say so and point at `--answer`, and CLI.md documents `--answer` and the caveat.
+  `test_cli_flight.py`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

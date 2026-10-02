@@ -401,8 +401,16 @@ def weight_text(weight: int) -> str:
 def subscribe(ctx: Context) -> int:
     view = ctx.require("view")
     filters = parse_filters(ctx.arg("filter"))
-    limit = int(ctx.arg("limit", 0))
+    # SNAPDOC-1: 0 and negative numbers were accepted and meant "never stop". Leaving the flag off
+    # is how to follow a view until Ctrl-C; a number given is a number of rows, at least one.
+    limit = ctx.arg("limit")
+    if limit is not None and int(limit) < 1:
+        raise UsageError(
+            f"--limit is how many rows to print before stopping, at least 1, and {limit} is not; "
+            "leave it off to follow the view until Ctrl-C")
+    limit = int(limit) if limit is not None else 0
     snapshot = bool(ctx.arg("snapshot"))
+    answer = bool(ctx.arg("answer"))
     reconnect = bool(ctx.arg("reconnect"))
     # Seconds without a stream open before a reconnecting subscription gives up; 0 is never.
     timeout: Optional[float] = float(ctx.arg("reconnect_timeout", 300.0))
@@ -416,14 +424,25 @@ def subscribe(ctx: Context) -> int:
         overflow=ctx.arg("overflow"),
         reconnect=reconnect,
         reconnect_timeout=timeout,
-        changes="answer" if ctx.arg("answer") else "changelog",
+        changes="answer" if answer else "changelog",
     )
+    if snapshot and answer:
+        first = "; the rows a read returns print first, then"
+    elif snapshot:
+        # The changelog's snapshot is the view's Z-set: on a keyed view that upserts, every version
+        # of a key, each at +1 (KEYEDWT-1). Said, so it is not mistaken for what a read returns.
+        first = ("; the view's changelog prints first (on a keyed view, every version of a key -- "
+                 "--answer for the rows a read returns), then")
+    else:
+        first = ";"
     ctx.out.note(
         f"subscribing to {view}"
-        + (" (its answer)" if ctx.arg("answer") else "")
+        + (" (its answer)" if answer else "")
         + (f" {filters}" if filters else "")
-        + ("; the view's rows print first, then" if snapshot else ";")
-        + " changes print as they are committed. Ctrl-C to stop."
+        + first
+        + " changes print as they are committed"
+        + (f", until {limit} row{'' if limit == 1 else 's'} (at the end of that commit)" if limit else "")
+        + ". Ctrl-C to stop."
     )
     header = False
     seen = 0

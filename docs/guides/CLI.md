@@ -128,7 +128,15 @@ Flight (`--url`):
 | `replace --name V (--sql \| --sql-file) [--keys] [--backfill history\|none] [--rate-limit N] [--cutover manual\|auto] [--rollback-retention D] [--wait]` | `Client.replace` |
 | `replacements [--name V]` | `Client.replacements`, `replacement` |
 | `cutover \| rollback \| pause-backfill \| resume-backfill --name V`, `throttle --name V --rate N`, `abandon \| finish --name V [--yes]` | `Client.cut_over`, `roll_back`, `pause_backfill`, `resume_backfill`, `throttle_backfill`, `abandon_replacement`, `finish_replacement` |
-| `subscribe --view V [--filter c=v,...] [--snapshot] [--limit N] [--reconnect [--reconnect-timeout S]] [--buffer-rows N] [--overflow CONFLATE\|DROP_OLDEST\|FAIL]` | `Client.subscribe` |
+| `subscribe --view V [--filter c=v,...] [--snapshot] [--answer] [--limit N] [--reconnect [--reconnect-timeout S]] [--buffer-rows N] [--overflow CONFLATE\|DROP_OLDEST\|FAIL]` | `Client.subscribe` (`--answer`: `changes="answer"`) |
+
+`subscribe` prints the view's **changelog** by default: what the query applied, weights verbatim. On a
+keyed view that upserts (the latest row per key), a replaced row gets no `-1`, so `--snapshot` alone
+prints every version of a key at `+1` — not what a read returns (KEYEDWT-1). Add `--answer` for how
+the view's answer moves: rows a reader stops seeing at `-1`, rows a reader starts seeing at `+1`; with
+`--snapshot`, the snapshot is the rows a read returns. `--limit N` (at least 1) stops once N rows have
+printed, at the end of the commit or snapshot that reaches N — a commit is never cut in half; leave it
+off to follow the view until Ctrl-C.
 | `dlq list --name V [--offset N] [--limit N]`, `dlq show --name V --id I`, `dlq replay --name V --id I[,I]` | `Client.dead_letters`, `dead_letter`, `replay_dead_letters` |
 | `debug fork \| checkpoints \| step \| state \| inspect \| view \| fixture \| sessions \| end` (flags as the Java CLI) | `Client.debug_*` |
 | `alert create A --on V --notify C[,C] [--where COND] [--severity] [--fire-after D] [--clear-after D] [--dedupe D] [--resend-every D] [--include c,c] [--print-sql]`, `alert drop A [--if-exists] [--yes]` | `Client.query` with the `CREATE ALERT` / `DROP ALERT` statement it writes |
@@ -185,6 +193,7 @@ The assistant (ADR-058; configured in `~/.config/pravaha/assist.json` — see [`
 | Command | What it does |
 |---|---|
 | `ask "<description>" [--name N] [--repairs 0-3] [--register [--yes]] [--show-context] [--profile P] [--model ID]` | Drafts a continuous query from the description: the context from `GET /api/v1/me/permissions`, `/streams`, `/queries`, `/views/{name}` and `/sinks` (only what you may read), judged by `POST /api/v1/queries/validate` and `/explain`, up to three repair turns. Prints the statement, the engine's plan, assumptions, questions and every turn. `--register` registers an accepted draft once you confirm (at a terminal, or `--yes`) through the Flight `register` call under your credentials, so it needs `--url`. Exit `1` when still refused after the repairs |
+| `explain-sql (--sql S \| --sql-file F \| --query NAME) [--level physical\|logical] [--show-plan] [--profile P] [--model ID]` | A query in plain English, grounded in the plan `POST /api/v1/queries/explain` gives for it (`--query` reads a registered query's SQL with `GET /api/v1/queries/{name}` first). Experimental, as the assistant is ([COMPATIBILITY](../operations/COMPATIBILITY.md)) |
 | `why PRV-nnnn [--sql \| --sql-file] [--no-check] [--profile P] [--model ID]` | What the refusal means and what to change, grounded in `POST /api/v1/queries/validate` and the guide; a proposed rewrite is validated too. With no statement it needs no engine |
 | `assist models`, `assist providers` | The configured models (key variable set or not, the chains naming each) and every provider type, built-in or installed |
 | `assist check [--model ID,ID]` | Ping each enabled model as cheaply as its API allows (exit `1` if one failed) |
