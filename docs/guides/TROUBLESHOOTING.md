@@ -140,6 +140,7 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-7040` policy conflict | Two policies that cannot both hold: two masks on one column for the same reader (bound directly, or one by tag), or `DROP ROW FILTER` / `DROP MASK` of a policy that is still bound — dropping it would widen what those objects show. Unbind one with `ALTER ... UNSET POLICY` first |
 | `PRV-1050` missing field | A JSON request body left out a field the endpoint requires — today a null `sql` on `/validate` or `/explain`. Returned as **400**, not as a 200 with `valid:false`: a malformed request is not a query that failed to validate, and the distinction matters to anything reading the response programmatically. It used to surface as a raw `NullPointerException` message dressed in a `PRV-` code (API-F9). Deliberately 1xxx rather than 2xxx — a `PRV-2xxx` would send the reader to the SQL documentation for a request that carried no SQL. An *empty* `sql` is not this: the console sends one between keystrokes and the lexer already refuses it precisely |
 | `PRV-1053` malformed text | A string in a request body that is not well-formed text — today an unpaired UTF-16 surrogate, half of a character, which no UTF-8 encoder can carry: every one substitutes U+FFFD, so the name or the SQL the server would store, log and quote back is not the one that was sent. Refused as **400** in the deserializer, before the body becomes an argument, because a stream registered under such a name is a key no later request can address — not by URL, not in SQL, and over Flight only as `?`. Over Flight the same text is refused with the same code: the Java SDK refuses it before sending, because protobuf and `String.getBytes` would deliver `?` in its place, and the server refuses a control request whose bytes are not UTF-8 rather than decoding them into replacement characters |
+
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`; on any endpoint, an `?offset=` or `?limit=` that is present and empty or not a number, an empty `?level=` or `?format=` on `/explain`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
@@ -424,6 +425,19 @@ should roll back, as it would against PostgreSQL. `PRV-6213` (`25P01`) is a save
 block, `PRV-6214` (`3B001`) a savepoint the block never set, `PRV-6215` (`25001`) `DISCARD ALL`
 inside a block. Reads in a block are `READ COMMITTED`: each one sees the views as they are when it
 runs (the console help topic *The PostgreSQL gateway*, section *Transactions*).
+
+**A PostgreSQL client is refused with `53300` / `PRV-6216` "too many clients".** The gateway holds
+`pravaha.pgwire.limits.max-connections` (100) connections, or `max-unauthenticated` (32) are still
+signing in, or this credential holds its `max-connections-per-principal`. A BI tool's connection pool
+is the usual holder: shrink the pool, or raise the limit the message names. `54000` / `PRV-6217` is a
+message over `pravaha.pgwire.limits.max-message-size` (1MB; 16 KiB before sign-in). A connection that
+handshakes for longer than `authentication-timeout` (10s) is simply closed (PGPREAUTH-1).
+
+**An open `psql` or BI connection ends with `FATAL 28000` / `PRV-6218`.** Its credential no longer
+verifies: the API key was revoked or expired, the session signed out or expired, or the user disabled.
+The gateway verifies the credential before every statement, so this is revocation working (PGREVOKE-1).
+Reconnect with a current key. `57P05` / `PRV-6219` is `pravaha.pgwire.limits.idle-timeout` ending an
+idle connection.
 
 **`RST_STREAM ... CANCEL` from a Flight client, with nothing explaining why.** Almost always the JVM
 missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED`.
@@ -1089,6 +1103,11 @@ client models the error rather than an empty object.
 | `PRV-6213` | PGWIRE_NO_TRANSACTION | gateway |
 | `PRV-6214` | PGWIRE_NO_SUCH_SAVEPOINT | gateway |
 | `PRV-6215` | PGWIRE_TRANSACTION_ACTIVE | gateway |
+| `PRV-6216` | PGWIRE_TOO_MANY_CONNECTIONS | gateway |
+| `PRV-6217` | PGWIRE_MESSAGE_TOO_LARGE | gateway |
+| `PRV-6218` | PGWIRE_CREDENTIAL_REVOKED | gateway |
+| `PRV-6219` | PGWIRE_IDLE_TIMEOUT | gateway |
+| `PRV-6220` | PGWIRE_BAD_LIMITS | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

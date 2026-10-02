@@ -73,7 +73,8 @@ final class PgExtendedSession {
 
     private final ViewQuery queries;
     private final PgCatalogShim catalog;
-    private final Principal principal;
+    /** Re-read at every statement: the credential is verified again each time (PGREVOKE-1). */
+    private Principal principal;
 
     private final Map<String, PgStatement> statements = new HashMap<>();
     private final Map<String, PgPortal> portals = new HashMap<>();
@@ -87,6 +88,14 @@ final class PgExtendedSession {
         this.queries = queries;
         this.catalog = catalog;
         this.principal = principal;
+    }
+
+    /**
+     * The principal as the credential verifies now -- the same person, whose roles or attributes may
+     * have changed since sign-in -- so a role taken away is gone from the next statement, as on HTTP.
+     */
+    void reverified(Principal now) {
+        this.principal = now;
     }
 
     /** The session's transaction state, which {@code PgWireConnection.simpleQuery} shares. */

@@ -58,6 +58,7 @@ pravaha:
   node:
     id: pravaha-node-01
 
+
   # Where this deployment publishes the help page for a PRV-nnnn code (DOCX-21).
   #
   # UNSET ON PURPOSE, and unset is a supported state. Every failure used to end with
@@ -155,6 +156,21 @@ pravaha:
 #   tls:
 #     certificate: ""
 #     key: ""
+  # What the gateway holds at once (PGPREAUTH-1). Past max-connections, or max-unauthenticated
+  # connections still in their handshake, a new socket is answered FATAL 53300 (PRV-6216) at once,
+  # without a thread. The handshake -- startup to AuthenticationOk -- has one authentication-timeout
+  # deadline; before it completes a message may be 16 KiB at most, and after it max-message-size
+  # (PRV-6217, refused on the declared length before anything is read). max-connections-per-principal
+  # is one credential's share (0 = no share smaller than max-connections); idle-timeout ends a
+  # signed-in connection that sends nothing for that long (FATAL 57P05, PRV-6219; 0 = never). An
+  # out-of-range value stops the node with PRV-6220.
+#   limits:
+#     max-connections: 100
+#     max-connections-per-principal: 0
+#     max-unauthenticated: 32
+#     authentication-timeout: 10s
+#     max-message-size: 1MB
+#     idle-timeout: 0s
 
   flight:
     enabled: true

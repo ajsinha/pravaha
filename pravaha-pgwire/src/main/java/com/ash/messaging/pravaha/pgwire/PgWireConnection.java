@@ -22,6 +22,9 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.security.SecureRandom;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
@@ -59,16 +62,6 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
 final class PgWireConnection implements Runnable {
 
     /**
-     * How long a client has to complete the handshake.
-     *
-     * <p>Applied to the handshake only and cleared afterwards. An unauthenticated peer that opens a
-     * socket and says nothing would otherwise hold a thread for as long as it likes, which is a
-     * denial of service that costs the attacker one packet. An <em>authenticated</em> session, by
-     * contrast, is allowed to sit idle: that is what a psql window does all afternoon.
-     */
-    private static final int HANDSHAKE_TIMEOUT_MILLIS = 10_000;
-
-    /**
      * How many magic packets ({@code SSLRequest}, {@code GSSENCRequest}) precede a real startup.
      *
      * <p>A client may legitimately send one of each. A client that sends them forever is a loop,
@@ -84,6 +77,9 @@ final class PgWireConnection implements Runnable {
     private final TokenVerifier verifier;
     private final PgTls tls;
     private final String serverVersion;
+    private final PgWireLimits limits;
+    private final PgConnections.Ticket ticket;
+    private final ScheduledExecutorService deadlines;
 
     PgWireConnection(
             Socket socket,
@@ -91,21 +87,43 @@ final class PgWireConnection implements Runnable {
             PgCatalogShim catalog,
             TokenVerifier verifier,
             PgTls tls,
-            String serverVersion) {
+            String serverVersion,
+            PgWireLimits limits,
+            PgConnections.Ticket ticket,
+            ScheduledExecutorService deadlines) {
         this.socket = socket;
         this.queries = queries;
         this.catalog = catalog;
         this.verifier = verifier;
         this.tls = tls;
         this.serverVersion = serverVersion;
+        this.limits = limits;
+        this.ticket = ticket;
+        this.deadlines = deadlines;
+    }
+
+    /**
+     * The handshake's deadline, in milliseconds, as a per-read timeout as well as the overall one.
+     *
+     * <p>An unauthenticated peer that opens a socket and says nothing -- or says one byte every few
+     * seconds -- would otherwise hold a connection slot for as long as it likes. The per-read timeout
+     * alone was renewed by every byte; the overall deadline, which closes the socket from the
+     * deadline thread, is not (PGPREAUTH-1). An <em>authenticated</em> session is then allowed to sit
+     * idle for {@code pravaha.pgwire.limits.idle-timeout}, which is for ever by default: that is
+     * what a psql window does all afternoon.
+     */
+    private int handshakeMillis() {
+        return (int) Math.min(Integer.MAX_VALUE, limits.authenticationTimeout().toMillis());
     }
 
     @Override
     public void run() {
         Socket active = socket;
         PgBackend backend = null;
+        ScheduledFuture<?> deadline = null;
         try {
-            active.setSoTimeout(HANDSHAKE_TIMEOUT_MILLIS);
+            deadline = deadlines.schedule(() -> closeQuietly(socket), handshakeMillis(), TimeUnit.MILLISECONDS);
+            active.setSoTimeout(handshakeMillis());
             Prelude prelude = handshake(active);
             if (prelude == null) {
                 return; // A CancelRequest, or a client that gave up mid-handshake.
@@ -119,13 +137,29 @@ final class PgWireConnection implements Runnable {
                     BufferedOutputStream out = new BufferedOutputStream(active.getOutputStream())) {
                 PgFrontend frontend = new PgFrontend(in);
                 backend = new PgBackend(out);
-                Principal principal = authenticate(prelude.startup(), frontend, backend);
-                if (principal == null) {
-                    return; // Refused; the client has been told and the socket is closing.
+                SignedIn signedIn;
+                try {
+                    signedIn = authenticate(prelude.startup(), frontend, backend);
+                    if (signedIn == null) {
+                        return; // Refused; the client has been told and the socket is closing.
+                    }
+                    if (!deadline.cancel(false)) {
+                        return; // Signed in just as the deadline closed the socket: too late is too late.
+                    }
+                    // A principal's share is counted once the principal is known; past it, 53300.
+                    ticket.authenticated(signedIn.principal().id());
+                } catch (PravahaException refused) {
+                    // Answered here, inside the streams' block: once it is left the streams -- and
+                    // the socket under them -- are closed, and the refusal would never be written.
+                    // A PasswordMessage that declared too much (PGPREAUTH-1) arrived as silence.
+                    fatal(backend, refused);
+                    return;
                 }
-                active.setSoTimeout(0);
-                ready(backend, principal, prelude.startup().parameters());
-                serve(frontend, backend, principal);
+                frontend.afterAuthentication(limits.maxMessageBytes());
+                active.setSoTimeout(
+                        (int) Math.min(Integer.MAX_VALUE, limits.idleTimeout().toMillis()));
+                ready(backend, signedIn.principal(), prelude.startup().parameters());
+                serve(frontend, backend, signedIn);
             }
         } catch (PravahaException refused) {
             // A protocol-level failure: the connection does not survive it, because after a
@@ -142,7 +176,11 @@ final class PgWireConnection implements Runnable {
             // never TLS at all). Both look identical from here, and every one of these is a normal
             // end to a session: none is worth a stack trace in an operator's log.
         } finally {
+            if (deadline != null) {
+                deadline.cancel(false);
+            }
             closeQuietly(active);
+            ticket.close();
         }
     }
 
@@ -185,7 +223,7 @@ final class PgWireConnection implements Runnable {
                     // would read raw TLS handshake bytes as though they were PostgreSQL protocol.
                     backend.acceptEncryption();
                     active = tls.serverSocket(active);
-                    active.setSoTimeout(HANDSHAKE_TIMEOUT_MILLIS);
+                    active.setSoTimeout(handshakeMillis());
                     frontend = new PgFrontend(active.getInputStream());
                     backend = new PgBackend(active.getOutputStream());
                     continue;
@@ -270,13 +308,14 @@ final class PgWireConnection implements Runnable {
      * uses on the Flight side -- an embedded engine already behind its own wall -- rather than a
      * default that silently downgrades a configured one.
      *
-     * @return the authenticated principal, or {@code null} if the connection was refused
+     * @return the authenticated principal and the credential it presented, or {@code null} if the
+     *     connection was refused
      */
-    private Principal authenticate(PgFrontend.Startup startup, PgFrontend frontend, PgBackend backend)
+    private SignedIn authenticate(PgFrontend.Startup startup, PgFrontend frontend, PgBackend backend)
             throws IOException {
         if (verifier == null) {
             backend.authenticationOk();
-            return Principal.ANONYMOUS;
+            return new SignedIn(Principal.ANONYMOUS, null);
         }
         backend.authenticationCleartextPassword();
         backend.flush();
@@ -299,7 +338,7 @@ final class PgWireConnection implements Runnable {
                 throw new PravahaException(SecurityErrors.UNAUTHENTICATED, "the credential presented was not accepted");
             }
             backend.authenticationOk();
-            return principal;
+            return new SignedIn(principal, password);
         } catch (PravahaException refused) {
             // 28P01 invalid_password specifically, rather than the generic mapping: it is what every
             // client's "wrong password, prompt again" path is written against. The message is the
@@ -308,6 +347,45 @@ final class PgWireConnection implements Runnable {
             backend.errorResponse("FATAL", "28P01", refused.getMessage(), null);
             return null;
         }
+    }
+
+    /**
+     * Who signed in, and with what: the credential is kept for as long as the connection, so it can
+     * be verified again at every statement (PGREVOKE-1). Null when no verifier is configured.
+     */
+    private record SignedIn(Principal principal, String credential) {}
+
+    /**
+     * The principal the sign-in credential stands for now, or the connection's end.
+     *
+     * <p>PGREVOKE-1. The gateway checked the credential once, at sign-in, and never again, so a
+     * revoked API key, a signed-out session or a disabled user kept reading on a connection that was
+     * already open -- while HTTP refused the same credential at once and Flight at its next call.
+     * Now every statement verifies it again, through the same verifier, as Flight does per call: a
+     * session or key lookup, which the identity service answers from memory. A credential that no
+     * longer verifies, or verifies as somebody else, ends the connection with {@code FATAL 28000};
+     * any failure of the verifier itself is treated the same way, closed rather than open.
+     */
+    private Principal reverify(SignedIn signedIn) {
+        if (verifier == null) {
+            return signedIn.principal();
+        }
+        Principal now;
+        try {
+            now = verifier.verify(signedIn.credential());
+        } catch (RuntimeException refused) {
+            now = null;
+        }
+        if (now == null
+                || now.isAnonymous()
+                || !now.id().equals(signedIn.principal().id())) {
+            throw new PravahaException(
+                    PgWireErrors.CREDENTIAL_REVOKED,
+                    "terminating connection: the credential it signed in with is no longer accepted (the key was "
+                            + "revoked or expired, the session ended, or the user was disabled). Connect again "
+                            + "with a valid credential.");
+        }
+        return now;
     }
 
     /** {@code ParameterStatus}, {@code BackendKeyData}, {@code ReadyForQuery}. */
@@ -347,7 +425,8 @@ final class PgWireConnection implements Runnable {
     // -------------------------------------------------------------------------------------
     // The message loop.
 
-    private void serve(PgFrontend frontend, PgBackend backend, Principal principal) throws IOException {
+    private void serve(PgFrontend frontend, PgBackend backend, SignedIn signedIn) throws IOException {
+        Principal principal = signedIn.principal();
         // One extended-query session per connection: Parse/Bind name statements and portals that
         // live until Close or the connection ends, so this state cannot be local to the message
         // loop the way everything before slice 4 was.
@@ -358,6 +437,15 @@ final class PgWireConnection implements Runnable {
                 message = frontend.readMessage();
             } catch (PravahaException malformed) {
                 fatal(backend, malformed);
+                return;
+            } catch (SocketTimeoutException idle) {
+                // pravaha.pgwire.limits.idle-timeout: PostgreSQL's idle_session_timeout, and its code.
+                fatal(
+                        backend,
+                        new PravahaException(
+                                PgWireErrors.IDLE_TIMEOUT,
+                                "terminating connection due to idle-session timeout: nothing was sent for "
+                                        + limits.idleTimeout() + " (pravaha.pgwire.limits.idle-timeout)"));
                 return;
             }
             if (message == null) {
@@ -370,6 +458,19 @@ final class PgWireConnection implements Runnable {
                 // one more message the client did not ask for on top of the one it is still waiting
                 // to see fail.
                 continue;
+            }
+            if ("QPBDE".indexOf(message.type()) >= 0) {
+                // Every message that reads, plans or describes data verifies the credential again.
+                try {
+                    Principal now = reverify(signedIn);
+                    if (!now.equals(principal)) {
+                        principal = now;
+                        extended.reverified(now);
+                    }
+                } catch (PravahaException revoked) {
+                    fatal(backend, revoked);
+                    return;
+                }
             }
             switch (message.type()) {
                 case 'Q' -> simpleQuery(backend, principal, message.asString(), extended);

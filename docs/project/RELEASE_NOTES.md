@@ -23,6 +23,24 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `pg_replication_slots` whether the slot still exists, is not `lost`, and has not been confirmed past
   where the reader stopped (recreated under the same name); any of those is `PRV-5117`, logged at
   `ERROR`, with node health `DEGRADED` (FEED-1). `PostgresCdcSlotDroppedTest`.
+- **The PostgreSQL gateway bounds what an unauthenticated peer can make it hold (PGPREAUTH-1).** It
+  allocated whatever a client declared for its `PasswordMessage` — up to 16 MiB — before reading a
+  byte, from a pool with no connection cap: sixty silent sockets ended a 1 GiB node. Now a message
+  before sign-in is at most 16 KiB and refused on its declared length (`54000`, `PRV-6217`); any
+  message is allocated as its bytes arrive; magic packets must have their exact length; the handshake
+  has one 10 s deadline a trickling peer cannot renew; and new settings `pravaha.pgwire.limits.*`
+  bound connections (`max-connections` 100, `max-unauthenticated` 32, optional
+  `max-connections-per-principal`; past them `FATAL 53300`, `PRV-6216`, before a thread is spent),
+  the signed-in message size (`max-message-size` 1MB) and idle time (`idle-timeout`, off; `57P05`,
+  `PRV-6219`). Out-of-range limits stop the node (`PRV-6220`). `PgWireLimitsTest`,
+  `PravahaNodePgWireLimitsTest`.
+- **Revoking a credential ends the PostgreSQL connections it opened (PGREVOKE-1).** The gateway
+  checked the password once, at sign-in; a revoked key, a signed-out session or a disabled user kept
+  reading on an open connection. It now verifies the credential again before every statement (`Query`,
+  `Parse`, `Bind`, `Describe`, `Execute`) and ends the connection `FATAL 28000` (`PRV-6218`); a role
+  removed applies from the next statement. Flight subscriptions already re-verified every two seconds.
+  `PgWireLimitsTest`, `PgWireSignInTest` (real pgjdbc against identity: key revoked, session signed
+  out, user disabled).
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

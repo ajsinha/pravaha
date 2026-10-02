@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -104,6 +105,8 @@ public final class PravahaPgWireServer implements AutoCloseable {
     private Duration readDeadline = Duration.ZERO;
     private TokenVerifier verifier;
     private volatile PgTls tls;
+    private PgWireLimits limits = PgWireLimits.DEFAULTS;
+    private volatile PgConnections connections;
 
     /**
      * Stable object identifiers for {@code pg_catalog.pg_class}, minted once per view and never
@@ -118,6 +121,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
 
     private volatile ServerSocket listener;
     private ExecutorService sessions;
+    private ScheduledExecutorService deadlines;
     private Thread acceptor;
     private volatile boolean closing;
 
@@ -199,6 +203,30 @@ public final class PravahaPgWireServer implements AutoCloseable {
     }
 
     /**
+     * Bounds how many connections this server holds, how long a handshake may take, how large a
+     * message may be and how long a signed-in connection may sit idle (PGPREAUTH-1). Without this
+     * call {@link PgWireLimits#DEFAULTS} applies -- there is no unlimited setting.
+     */
+    public PravahaPgWireServer limitedBy(PgWireLimits limits) {
+        if (listener != null) {
+            throw new IllegalStateException("limits are set before start, not on a server already accepting");
+        }
+        this.limits = Objects.requireNonNull(limits, "limits");
+        return this;
+    }
+
+    /** The limits this server enforces. */
+    public PgWireLimits limits() {
+        return limits;
+    }
+
+    /** Connections open now, signed in or not; for health and tests. */
+    public int openConnections() {
+        PgConnections counted = connections;
+        return counted == null ? 0 : counted.open();
+    }
+
+    /**
      * Binds the port and starts accepting.
      *
      * @param port the port, or 0 to let the operating system choose one -- which is what a test
@@ -232,6 +260,12 @@ public final class PravahaPgWireServer implements AutoCloseable {
             thread.setDaemon(true);
             return thread;
         });
+        this.deadlines = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pravaha-pgwire-deadline");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.connections = new PgConnections(limits);
         this.acceptor = new Thread(() -> accept(queries, catalogShim), "pravaha-pgwire-accept");
         this.acceptor.setDaemon(true);
         this.acceptor.start();
@@ -254,10 +288,54 @@ public final class PravahaPgWireServer implements AutoCloseable {
                 // answer arrives 40ms after it was ready. That delay is indistinguishable from a
                 // slow engine to whoever is watching the prompt.
                 client.setTcpNoDelay(true);
-                sessions.execute(new PgWireConnection(client, queries, catalogShim, verifier, tls, SERVER_VERSION));
-            } catch (IOException | RuntimeException rejected) {
+            } catch (IOException broken) {
+                closeQuietly(client);
+                continue;
+            }
+            PgConnections.Ticket ticket;
+            try {
+                // Counted here, on the acceptor, before a thread is spent: a connection past a limit
+                // costs this server one small write and a close, whoever is sending them.
+                ticket = connections.admit();
+            } catch (PravahaException full) {
+                refuseAtOnce(client, full);
+                continue;
+            }
+            try {
+                sessions.execute(new PgWireConnection(
+                        client, queries, catalogShim, verifier, tls, SERVER_VERSION, limits, ticket, deadlines));
+            } catch (RuntimeException rejected) {
+                ticket.close();
                 closeQuietly(client);
             }
+        }
+    }
+
+    /**
+     * Answers {@code FATAL 53300} without reading anything, and closes.
+     *
+     * <p>Before the startup packet, deliberately: reading it would mean a thread, or a wait, for a
+     * connection this server has already decided not to hold. libpq, pgjdbc and Npgsql each read an
+     * {@code ErrorResponse} that arrives in place of the answer to {@code SSLRequest} or to the
+     * startup packet and report its message, as they do PostgreSQL's own "too many clients".
+     */
+    private void refuseAtOnce(Socket client, PravahaException full) {
+        try {
+            PgBackend backend = new PgBackend(new java.io.BufferedOutputStream(client.getOutputStream()));
+            backend.errorResponse(
+                    "FATAL",
+                    PgWireErrors.sqlStateFor(full),
+                    full.getMessage(),
+                    full.errorCode().name());
+            // Half-closed now and fully closed a moment later, off this thread: closing at once with
+            // the client's startup packet still unread would reset the connection, and a reset can
+            // discard the ErrorResponse before the client reads it -- leaving "connection reset"
+            // where "too many clients" should be.
+            client.shutdownOutput();
+            deadlines.schedule(() -> closeQuietly(client), 1, TimeUnit.SECONDS);
+        } catch (IOException | RuntimeException gone) {
+            // The peer has already gone, or this server is closing; nothing is owed to it.
+            closeQuietly(client);
         }
     }
 
@@ -297,6 +375,9 @@ public final class PravahaPgWireServer implements AutoCloseable {
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
             }
+        }
+        if (deadlines != null) {
+            deadlines.shutdownNow();
         }
         if (acceptor != null) {
             try {

@@ -4,10 +4,10 @@ slug: errors-gateway
 category: errors
 order: 70
 icon: hdd-network
-summary: "PRV-6100 to PRV-6215: what the Flight SQL and PostgreSQL gateways refuse — types they will not put on the wire, requests they do not implement, TLS they cannot load, writes to a read-only gateway, and statements in a failed transaction block."
+summary: "PRV-6100 to PRV-6220: what the Flight SQL and PostgreSQL gateways refuse — types, unimplemented requests, unreadable TLS, writes, statements in a failed block, connections past the limits, and revoked credentials."
 badge: PRV-6XXX
 audience: Developers, operators
-keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate, transaction, savepoint, "25P02"]
+keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate, transaction, savepoint, "25P02", "53300", too many connections, revoked, idle timeout, max-message-size]
 guide: continuous-queries#16-types
 related: [pgwire, clients, tls, errors-overview, sql-reference]
 listed_on: errors-overview
@@ -49,6 +49,11 @@ as "gateway".)
 | PRV-6213 | PGWIRE_NO_TRANSACTION | PostgreSQL | `25P01` |
 | PRV-6214 | PGWIRE_NO_SUCH_SAVEPOINT | PostgreSQL | `3B001` |
 | PRV-6215 | PGWIRE_TRANSACTION_ACTIVE | PostgreSQL | `25001` |
+| PRV-6216 | PGWIRE_TOO_MANY_CONNECTIONS | PostgreSQL | `53300` |
+| PRV-6217 | PGWIRE_MESSAGE_TOO_LARGE | PostgreSQL | `54000` |
+| PRV-6218 | PGWIRE_CREDENTIAL_REVOKED | PostgreSQL | `28000` |
+| PRV-6219 | PGWIRE_IDLE_TIMEOUT | PostgreSQL | `57P05` |
+| PRV-6220 | PGWIRE_BAD_LIMITS | PostgreSQL | (startup) |
 
 ## Arrow Flight SQL
 
@@ -269,6 +274,50 @@ folded to lower case, as PostgreSQL folds it. SQLSTATE `3B001`; the block is fai
 `DISCARD ALL` inside a transaction block. SQLSTATE `25001 active_sql_transaction`, as PostgreSQL
 refuses it there. Npgsql sends `DISCARD ALL` only when it hands out a pooled connection, which it
 rolls back first.
+
+### PRV-6216 — pgwire too many connections
+
+`FATAL 53300 too_many_connections`, and the connection closes. The gateway already holds
+`pravaha.pgwire.limits.max-connections` connections (100), or `max-unauthenticated` (32) are still in
+their handshake — both answered at once, before the startup packet is read — or this credential
+already holds `max-connections-per-principal` (off by default), answered just after sign-in.
+
+**Do:** close idle connections (a BI tool's pool is the usual holder), retry in a moment, or raise the
+limit the message names.
+
+### PRV-6217 — pgwire message too large
+
+`FATAL 54000`, and the connection closes. A message declared more bytes than the gateway accepts:
+before sign-in, more than 16 KiB — no token or key is that large — and after it, more than
+`pravaha.pgwire.limits.max-message-size` (1MB). Refused on the declared length, before anything is
+read or allocated (PGPREAUTH-1).
+
+**Do:** send a smaller statement. If a generated query genuinely exceeds it, raise
+`max-message-size`.
+
+### PRV-6218 — pgwire credential revoked
+
+`FATAL 28000`, and the connection closes. The credential the connection signed in with no longer
+verifies: the API key was revoked or has expired, the session was signed out or expired, or the user
+was disabled. The gateway verifies it again before every statement, so revocation takes effect on an
+open connection at its next statement, as on HTTP and Flight (PGREVOKE-1).
+
+**Do:** connect again with a current credential.
+
+### PRV-6219 — pgwire idle timeout
+
+`FATAL 57P05 idle_session_timeout`, and the connection closes. The connection sent nothing for
+`pravaha.pgwire.limits.idle-timeout` (off by default). Most pools reconnect on their own.
+
+**Do:** nothing, or lengthen `idle-timeout`, or have the pool validate connections before use.
+
+### PRV-6220 — pgwire bad limits
+
+The node does not start: a `pravaha.pgwire.limits.*` value is out of range — `max-connections` below
+1, `max-unauthenticated` above `max-connections`, a zero `authentication-timeout`, a
+`max-message-size` below 64KB. The message names the key.
+
+**Do:** fix the value it names.
 
 ## Where next
 
