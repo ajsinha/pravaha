@@ -576,7 +576,13 @@ captured). Everything before it was delivered. `PRV-5115` at a restart means the
 been confirmed past the checkpoint being restored — the newest checkpoint was unreadable and recovery
 fell back to an older one, or the slot was recreated — and PostgreSQL has released the changes in
 between. `PRV-5117` is the replication stream failing in a way no reconnect can fix: the slot
-dropped, invalidated, or the role's privileges revoked. For all three the recovery is the same:
+dropped, invalidated, recreated under the same name, or the role's privileges revoked. A slot dropped
+under a running query (its walsender terminated, then `pg_drop_replication_slot`) is caught at the
+reader's first reconnect, within a second or two: the feed stops with `PRV-5117` (the query stays
+`RUNNING` with its feed stopped, `pravaha_query_feed_stopped` 1 — FEED-1), node health turns
+`DEGRADED`, the source's health `UNHEALTHY`, and an `ERROR` line names the slot. (Before CDCSLOT-1
+the reader retried for ever and the query stayed `RUNNING` with every later change missing.) For
+all three the recovery is the same:
 stop the registration, delete its checkpoint directory, drop the slot, register again
 ([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Change data capture: the replication slot*).
 

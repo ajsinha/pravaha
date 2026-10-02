@@ -16,6 +16,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
   50 findings opened — 46 defects (10 HIGH) and 4 design notes. None is fixed yet.
+- **A PostgreSQL CDC slot dropped under a running query is detected (CDCSLOT-1).** The reader treated
+  the slot's `42704` at reconnect as one more transient failure and retried for ever, so the query
+  stayed `RUNNING`, health `UP`, and every later change was silently missing. Now a permanent refusal
+  at reconnect stops the feed with `PRV-5117`, and before each reconnect the reader asks
+  `pg_replication_slots` whether the slot still exists, is not `lost`, and has not been confirmed past
+  where the reader stopped (recreated under the same name); any of those is `PRV-5117`, logged at
+  `ERROR`, with node health `DEGRADED` (FEED-1). `PostgresCdcSlotDroppedTest`.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 
