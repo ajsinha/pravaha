@@ -38,6 +38,7 @@ class _Recorder(BaseHTTPRequestHandler):
                 "method": method,
                 "path": self.path,
                 "authorization": self.headers.get("Authorization"),
+                "forwarded_for": self.headers.get("X-Forwarded-For"),
                 "body": json.loads(body) if body else None,
             }
         )
@@ -257,3 +258,13 @@ def test_a_token_is_not_sent_over_plaintext_http_unless_asked_for():
 
     # Asked for by name, for a loopback engine.
     RestClient("http://127.0.0.1:18080", token="t", allow_insecure_token=True)
+
+
+def test_extra_headers_go_with_every_request(engine):
+    # LOCKENUM-1: how the console says whose address a sign-in is for.
+    rest = RestClient(engine, headers={"X-Forwarded-For": "198.51.100.7"})
+    rest.post("/api/v1/auth/login", {"username": "ana", "password": "x"})
+    rest.get("/api/v1/streams")
+    assert [c["forwarded_for"] for c in _Recorder.calls] == ["198.51.100.7", "198.51.100.7"]
+    RestClient(engine).get("/api/v1/streams")
+    assert _Recorder.calls[-1]["forwarded_for"] is None

@@ -42,6 +42,8 @@ import com.ash.messaging.pravaha.identity.IdentityErrors;
 import com.ash.messaging.pravaha.identity.IdentityService;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.PravahaNode;
+import com.ash.messaging.pravaha.server.identity.IdentityProperties;
+import com.ash.messaging.pravaha.server.identity.SignInSource;
 import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 
 /**
@@ -118,10 +120,12 @@ public class IdentityController {
 
     private final PravahaNode node;
     private final HttpAuthorizer authorizer;
+    private final SignInSource sources;
 
-    public IdentityController(PravahaNode node, HttpAuthorizer authorizer) {
+    public IdentityController(PravahaNode node, HttpAuthorizer authorizer, IdentityProperties identity) {
         this.node = node;
         this.authorizer = authorizer;
+        this.sources = identity.signInSource();
     }
 
     private IdentityService identity() {
@@ -144,7 +148,9 @@ public class IdentityController {
                 .login(
                         body == null ? null : body.username(),
                         body == null ? null : body.password(),
-                        request.getRemoteAddr());
+                        // LOCKENUM-1: failures bar the source they came from; through a trusted proxy
+                        // (the console) that is the address it signs in for.
+                        sources.of(request.getRemoteAddr(), request.getHeader("X-Forwarded-For")));
         return new LoginAnswer(login.token(), login.expiresAt(), login.mustChangePassword(), "ok");
     }
 

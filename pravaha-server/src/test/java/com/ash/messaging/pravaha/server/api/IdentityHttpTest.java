@@ -229,23 +229,33 @@ class IdentityHttpTest {
     }
 
     @Test
-    void aWrongPasswordIs401AndTheFifthLocksTheAccountWith423() throws Exception {
+    void aLockedAccountAnswersExactlyAsAnUnknownName() throws Exception {
+        // LOCKENUM-1: the sixth sign-in used to be 423 PRV-7011 for a real account and 401 for a name
+        // nobody holds -- an enumeration oracle. Now both, and the right password while barred, are 401.
         String admin = login("admin", "pravaha-dev-admin");
         postJson(
                         "/api/v1/users",
                         admin,
                         "{\"username\":\"carl\",\"roles\":[\"analyst\"],\"password\":\"" + GOOD + "\"}")
                 .andExpect(status().isOk());
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             postJson("/api/v1/auth/login", null, "{\"username\":\"carl\",\"password\":\"Wrong-password-1\"}")
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("PRV-7010"));
         }
-        postJson("/api/v1/auth/login", null, "{\"username\":\"carl\",\"password\":\"" + GOOD + "\"}")
-                .andExpect(status().isLocked())
-                .andExpect(jsonPath("$.code").value("PRV-7011"));
-        postJson("/api/v1/auth/login", null, "{\"username\":\"nobody\",\"password\":\"" + GOOD + "\"}")
+        String locked = postJson("/api/v1/auth/login", null, "{\"username\":\"carl\",\"password\":\"" + GOOD + "\"}")
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("PRV-7010"));
+                .andExpect(jsonPath("$.code").value("PRV-7010"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String unknown = postJson("/api/v1/auth/login", null, "{\"username\":\"nobody\",\"password\":\"" + GOOD + "\"}")
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("PRV-7010"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertThat(locked.replaceAll("\"(timestamp|traceId|requestId)\":\"[^\"]*\"", ""))
+                .isEqualTo(unknown.replaceAll("\"(timestamp|traceId|requestId)\":\"[^\"]*\"", ""));
     }
 }

@@ -700,6 +700,33 @@ outside the dev profile refuses to start while the default is still its password
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
 still work beside all this, logged as deprecated.
 
+**Failed sign-ins and lockout (LOCKENUM-1).** The policy, and why each half is what it is:
+
+- *A lock is never announced to someone who has not signed in.* An unknown name, a wrong password, a
+  disabled account and a barred sign-in all answer `401 PRV-7010` with the same message, after the
+  same password-hash work. In 2.0.0 the sixth failure answered `423 PRV-7011 locked until …` for a
+  real account and `401` for a name nobody holds, so six requests told anyone whether a user name
+  existed, and the lock's fast refusal told them again by its timing. The right password is refused
+  too while barred -- otherwise the lock would be a guessing oracle.
+- *Failures bar the address they come from, not the account.* Five failures from one address within
+  `lockout.window` (15 minutes) bar that address from that account for `lockout.duration` (30
+  minutes); the person signing in from anywhere else is not affected. An account lock counted over
+  every source let anyone who knew a user name -- `admin` included -- lock it for 30 minutes with five
+  requests, and again every 30 minutes, indefinitely.
+- *A bounded account lock stops guessing spread over many addresses.* Ten times as many failures (50)
+  from any addresses within the window lock the account itself for `lockout.duration`, then it opens
+  again. A barred address's further attempts are not counted, so one address cannot reach it alone.
+- *Through a proxy, the person's address counts.* The console signs in for the browser and sends its
+  address as `X-Forwarded-For`; the node believes that header only from
+  `pravaha.identity.lockout.trusted-proxies` (addresses or CIDR blocks; the compose stack trusts
+  `172.16.0.0/12`, Docker's range), so a caller cannot spread guesses over invented addresses.
+  Without it, everyone signing in through one proxy is one address.
+- What is barred is kept in memory (a restart forgets it; at most 10,000 address-and-account pairs);
+  the account-wide lock is in the identity store. Both are audit events (`auth.lockout`, and
+  `auth.login_locked` for each refused attempt), and an administrator sees `lockedUntil` on the user.
+  A password reset clears it. What remains: an attacker with fifty addresses can lock an account for
+  30 minutes at a time -- put sign-in behind a proxy that rate-limits by address if that matters.
+
 **A user's queries after a restart.** A registration is journalled under its owner's id, and at start
 the node replays it as that owner, asking the identity store first and the token table second
 (RECOVERYOWNER-1; it used to ask only the token table, so every query a store user had registered was

@@ -40,6 +40,11 @@ pravaha:
     enabled: true
     environment: stack
     bootstrap-password-file: secrets/initial-admin-password
+    # Five failed sign-ins bar the address they came from (LOCKENUM-1). The console signs people in
+    # from the compose network and says whose address each sign-in is for (X-Forwarded-For); believe
+    # it from Docker's private range, or every console user would be one address.
+    lockout:
+      trusted-proxies: [172.16.0.0/12]
 
   # Token authentication; nothing for a caller without one. The two static tokens below are for
   # programs that cannot sign in: the seed job and the host's CLI (id seed), and Prometheus (id

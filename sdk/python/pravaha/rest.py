@@ -78,6 +78,7 @@ class RestClient:
         timeout_seconds: float = 30.0,
         tls: TlsOptions | None = None,
         allow_insecure_token: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> None:
         parsed = urllib.parse.urlparse(base_url or "")
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -95,6 +96,9 @@ class RestClient:
         self._token = token
         self._timeout = timeout_seconds
         self._context = _ssl_context(tls) if parsed.scheme == "https" else None
+        #: Sent with every request: how a proxy such as the console says whom it is signing in for
+        #: (``X-Forwarded-For``), which a node believes only from a proxy it trusts.
+        self._headers = dict(headers or {})
 
     @property
     def base_url(self) -> str:
@@ -150,6 +154,8 @@ class RestClient:
             request.add_header("Content-Type", "application/json")
         if self._token:
             request.add_header("Authorization", "Bearer " + self._token)
+        for name, value in self._headers.items():
+            request.add_header(name, value)
         # W3C trace context, when the caller has a trace (pravaha.tracecontext): the node continues it.
         for name, value in tracecontext.headers().items():
             request.add_header(name, value)

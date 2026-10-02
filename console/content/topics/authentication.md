@@ -41,7 +41,8 @@ no reversible secret. A person signs in with a username and password (`POST /api
 | `pravaha.identity.password.require-classes` | `3` | of lower case, upper case, digits and symbols |
 | `pravaha.identity.password.history` | `5` | a new password may not be any of the last this many |
 | `pravaha.identity.password.max-age` | `90d` | past it, the next sign-in must change the password |
-| `pravaha.identity.lockout.failures` | `5` | failed sign-ins within `lockout.window` (`15m`) that lock the account for `lockout.duration` (`30m`) |
+| `pravaha.identity.lockout.failures` | `5` | failed sign-ins from one address within `lockout.window` (`15m`) that bar that address from the account for `lockout.duration` (`30m`); ten times as many from any addresses lock the account itself for as long |
+| `pravaha.identity.lockout.trusted-proxies` | none | addresses or CIDR blocks (the console, a load balancer) whose `X-Forwarded-For` names the address a sign-in is counted against |
 | `pravaha.identity.session.idle` | `30m` | a session unused this long ends; `session.absolute` (`12h`) ends it regardless |
 | `pravaha.identity.session.per-user` | `3` | open sessions per person; signing in once more ends the oldest |
 | `pravaha.identity.key.default-days` | `90` | an API key's life unless asked otherwise; `key.max-days` (`365`) is the most |
@@ -249,9 +250,11 @@ as you: it is authorised by your roles and recorded under your name in the
 [audit trail](/help/topics/audit). The console checks no password, key or session itself.
 
 A session ends after 30 minutes idle or 12 hours, when you sign out, or when your password changes;
-the console then sends you back to sign in (`PRV-7016`). Five failed sign-ins in 15 minutes lock
-the account for 30 (`PRV-7011`), and the refusal is the same whether the username or the password
-was wrong (`PRV-7010`). Your own API keys -- for a program that calls the engine as you, with no more
+the console then sends you back to sign in (`PRV-7016`). Five failed sign-ins from one address in
+15 minutes bar that address from the account for 30 minutes; you can still sign in from elsewhere.
+The refusal is the same `PRV-7010` whether the username was wrong, the password was wrong, or the
+sign-in was barred -- a lock is never announced to someone who has not signed in, because saying
+"locked" told anyone which user names exist (LOCKENUM-1). An administrator sees a lock on the user. Your own API keys -- for a program that calls the engine as you, with no more
 than your roles -- are made, rotated and revoked on the console's **Account** page, and shown once.
 
 An administrator keeps the accounts under **Admin · Users**: adds a person, sets their roles,

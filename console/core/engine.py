@@ -700,13 +700,17 @@ class Engine:
     # verifies nothing: a password, a key and a session are checked by the engine or not at all.
 
     def _identity(self, method: str, path: str, body: dict | None = None,
-                  query: dict | None = None, *, anonymous: bool = False):
+                  query: dict | None = None, *, anonymous: bool = False, for_address: str | None = None):
         """``method`` on ``/api/v1<path>`` through the SDK's HTTP client, as this request's person
-        (or as nobody, for the sign-in), with a refusal as an :class:`EngineHttpError`."""
+        (or as nobody, for the sign-in), with a refusal as an :class:`EngineHttpError`.
+        ``for_address`` is the browser's address, sent as ``X-Forwarded-For`` so the engine counts a
+        failed sign-in against the person's address rather than the console's (LOCKENUM-1)."""
         if not self._http:
             raise EngineHttpError(0, "no engine HTTP URL is configured (engine.http_url)")
+        headers = {"X-Forwarded-For": for_address} if for_address else None
         rest = _IdentityRest(self._http, token=None if anonymous else credential.token(),
-                             timeout_seconds=self._http_timeout, allow_insecure_token=True)
+                             timeout_seconds=self._http_timeout, allow_insecure_token=True,
+                             headers=headers)
         try:
             return rest.send(method, "/api/v1" + path, body, query)
         except Exception as exc:
@@ -717,11 +721,12 @@ class Engine:
                 raise
             raise translated from exc
 
-    def login(self, username: str, password: str) -> dict:
+    def login(self, username: str, password: str, for_address: str | None = None) -> dict:
         """``POST auth/login``: ``{token, expiresAt, mustChangePassword, mfa}``, or the engine's
-        refusal (``PRV-7010`` credentials refused, ``PRV-7011`` locked)."""
+        refusal -- ``PRV-7010`` for a wrong name or password and, since LOCKENUM-1, for a locked
+        account too (an engine before it answered ``PRV-7011``)."""
         return dict(self._identity("POST", "/auth/login", {"username": username, "password": password},
-                                   anonymous=True) or {})
+                                   anonymous=True, for_address=for_address) or {})
 
     def logout(self) -> None:
         self._identity("POST", "/auth/logout", {})

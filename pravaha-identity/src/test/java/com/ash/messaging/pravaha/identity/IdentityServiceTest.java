@@ -154,19 +154,62 @@ class IdentityServiceTest {
     }
 
     @Test
-    void fiveFailuresLockTheAccountAndOneMessageServesUnknownAndWrong() {
+    void fiveFailuresBarTheirSourceAndTheBarReadsExactlyAsAWrongPassword() {
+        // LOCKENUM-1: a barred sign-in, an unknown name and a wrong password are one answer.
         IdentityService identity = service();
         identity.createUser(admin(), "ana", null, null, null, Set.of("analyst"), GOOD, false);
-        Throwable unknown = catchIt(() -> identity.login("nobody", GOOD, null));
-        Throwable wrong = catchIt(() -> identity.login("ana", "Wrong-password-1", null));
+        Throwable unknown = catchIt(() -> identity.login("nobody", GOOD, "10.0.0.9"));
+        Throwable wrong = catchIt(() -> identity.login("ana", "Wrong-password-1", "10.0.0.9"));
         assertThat(unknown.getMessage()).isEqualTo(wrong.getMessage());
         for (int i = 0; i < 4; i++) {
-            catchIt(() -> identity.login("ana", "Wrong-password-1", null));
+            catchIt(() -> identity.login("ana", "Wrong-password-1", "10.0.0.9"));
         }
-        assertThat(code(catchIt(() -> identity.login("ana", GOOD, null)))).isEqualTo("PRV-7011");
+        Throwable barred = catchIt(() -> identity.login("ana", GOOD, "10.0.0.9"));
+        assertThat(code(barred)).isEqualTo("PRV-7010");
+        assertThat(barred.getMessage()).isEqualTo(unknown.getMessage());
+        for (int i = 0; i < 6; i++) {
+            assertThat(catchIt(() -> identity.login("nobody", "Wrong-password-1", "10.0.0.9"))
+                            .getMessage())
+                    .isEqualTo(barred.getMessage());
+        }
+        assertThat(audit).extracting(AuditEvent::action).contains("auth.lockout", "auth.login_locked");
+
+        // The bar is the source's: ana signs in from anywhere else, and from there again when it ends.
+        identity.login("ana", GOOD, "10.0.0.1");
         clock.advance(Duration.ofMinutes(31));
-        identity.login("ana", GOOD, null);
-        assertThat(audit).extracting(AuditEvent::action).contains("auth.lockout", "auth.login");
+        identity.login("ana", GOOD, "10.0.0.9");
+        assertThat(audit).extracting(AuditEvent::action).contains("auth.login");
+    }
+
+    @Test
+    void failuresFromManySourcesLockTheAccountForABoundedTime() {
+        IdentityService identity = service();
+        identity.createUser(admin(), "ana", null, null, null, Set.of("analyst"), GOOD, false);
+        int ceiling = IdentitySettings.defaults("qa").lockoutFailures() * SignInThrottle.ACCOUNT_WIDE_FACTOR;
+        for (int i = 0; i < ceiling; i++) {
+            String source = "10.1.0." + (i / 4); // four from each: no source is barred on its own
+            catchIt(() -> identity.login("ana", "Wrong-password-1", source));
+        }
+        assertThat(code(catchIt(() -> identity.login("ana", GOOD, "10.9.9.9")))).isEqualTo("PRV-7010");
+        assertThat(identity.users(admin()).stream()
+                        .filter(u -> u.username().equals("ana"))
+                        .findFirst()
+                        .orElseThrow()
+                        .lockedUntil())
+                .as("an administrator sees the lock the sign-in does not reveal")
+                .isNotNull();
+        clock.advance(Duration.ofMinutes(31));
+        identity.login("ana", GOOD, "10.9.9.9");
+    }
+
+    @Test
+    void aBarredSourceCannotReachTheAccountWideCeilingAlone() {
+        IdentityService identity = service();
+        identity.createUser(admin(), "ana", null, null, null, Set.of("analyst"), GOOD, false);
+        for (int i = 0; i < 60; i++) {
+            catchIt(() -> identity.login("ana", "Wrong-password-1", "203.0.113.5"));
+        }
+        identity.login("ana", GOOD, "198.51.100.7");
     }
 
     @Test

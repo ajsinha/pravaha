@@ -39,8 +39,8 @@ class AccountService:
             raise _refusal(exc) from exc
 
     # ------------------------------------------------------------------ signing in
-    def login(self, username: str, password: str) -> dict:
-        return self._call(self._engine.login, username, password)
+    def login(self, username: str, password: str, for_address: str | None = None) -> dict:
+        return self._call(self._engine.login, username, password, for_address)
 
     def logout(self) -> None:
         self._call(self._engine.logout)

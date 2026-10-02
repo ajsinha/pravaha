@@ -325,15 +325,23 @@ def test_qi046_every_error_is_an_api_error(admin, path, headers):
 
 
 @needs_http
-@open_defect("QI-054: open defect -- after five failures an existing account answers 423 PRV-7011 "
-                         "'locked until ...' while an unknown name keeps answering 401 PRV-7010: an enumeration oracle")
 def test_qi054_a_locked_account_reads_like_an_unknown_one(admin):
+    # LOCKENUM-1, fixed: a barred sign-in -- the right password included -- answers exactly as an
+    # unknown name does (401 PRV-7010, the same message); the lock is recorded, not announced.
     name = "qi_" + uuid.uuid4().hex[:8]
-    http_call("POST", "/api/v1/users", admin, {"username": name, "password": "Qi-Lock-Password-2026", "roles": ["reader"]})
+    password = "Qi-Lock-Password-2026"
+    http_call("POST", "/api/v1/users", admin, {"username": name, "password": password, "roles": ["reader"]})
     for _ in range(6):
         locked = http_call("POST", "/api/v1/auth/login", body={"username": name, "password": "wrong-wrong-1A"})
+    right = http_call("POST", "/api/v1/auth/login", body={"username": name, "password": password})
     unknown = http_call("POST", "/api/v1/auth/login", body={"username": name + "_x", "password": "wrong-wrong-1A"})
-    assert locked[0] == unknown[0]
+
+    def said(answer):
+        body = json.loads(answer[2])
+        return answer[0], body.get("code"), body.get("message")
+
+    assert said(locked) == said(right) == said(unknown)
+    assert said(unknown)[:2] == (401, "PRV-7010")
 
 
 def _declared_only(path, length):

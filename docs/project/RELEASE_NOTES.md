@@ -109,6 +109,19 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   version keeps the one it replaces). The declaration, and so a query over it, still lasts until the
   node restarts. `DeclaredStreamTest`, `DeclaredStreamRegistrationTest` (HTTP declare, validate, Flight
   register), ADV-SURFACE `test_qi059` now a passing check.
+- **Account lockout no longer tells anyone which user names exist, and cannot be used to lock a user
+  out indefinitely (LOCKENUM-1).** After five failures a real account answered `423 PRV-7011 locked
+  until …` (quickly, without checking the password) while an unknown name kept answering `401`, so
+  six requests enumerated users and anyone could lock any known account — `admin` included — for 30
+  minutes, repeatedly. Now an unknown name, a wrong password and a barred sign-in all answer
+  `401 PRV-7010`, identically and after the same password-hash work; five failures from one address
+  within 15 minutes bar *that address* from the account for 30 minutes, and fifty from any addresses
+  lock the account for 30 minutes. The lock is audited and visible to administrators. New setting
+  `pravaha.identity.lockout.trusted-proxies` (addresses or CIDR blocks; the compose stack trusts
+  `172.16.0.0/12`) whose `X-Forwarded-For` is believed; the console now sends the browser's address
+  (the Python SDK's `RestClient` takes `headers=`). Policy in SECURITY.md. `IdentityServiceTest`,
+  `SignInThrottleTest`, `SignInSourceTest`, `IdentityHttpTest`, console `test_identity`, SDK
+  `test_rest`, ADV-SURFACE `test_qi054` now a passing check.
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 

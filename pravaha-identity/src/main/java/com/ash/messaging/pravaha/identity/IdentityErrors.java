@@ -23,7 +23,11 @@ public final class IdentityErrors {
     /** One answer for a wrong user and a wrong password, so the answer says nothing about which. */
     public static final ErrorCode CREDENTIALS_REFUSED = new ErrorCode(7010, "IDENTITY_CREDENTIALS_REFUSED");
 
-    /** Too many failures: the account is locked until a stated time. */
+    /**
+     * Too many failures: the account is locked until a stated time. No longer answered to a sign-in
+     * (LOCKENUM-1) -- a lock there reads exactly as {@link #CREDENTIALS_REFUSED}, because answering it
+     * told an anonymous caller the name existed -- and kept so the number is never reused.
+     */
     public static final ErrorCode LOCKED = new ErrorCode(7011, "IDENTITY_LOCKED");
 
     /** A new password the policy refuses; the message names the rule. */

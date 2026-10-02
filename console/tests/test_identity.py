@@ -113,22 +113,26 @@ def test_a_wrong_user_and_a_wrong_password_get_one_message(engine):
     assert client.get("/account", follow_redirects=False).status_code == 303
 
 
-def test_five_failures_lock_the_account_and_the_page_says_until_when(engine):
+def test_a_locked_account_reads_exactly_as_a_wrong_password(engine):
+    """LOCKENUM-1: the sixth sign-in used to be 423 "locked until ..." for a real account while an
+    unknown name kept 401 -- which told anyone the name existed. The console signs in for the
+    browser's address, so failures bar that address and not every console user."""
     client = _app(engine)
-    for _ in range(4):
+    for _ in range(5):
         assert sign_in(client, ADMIN, "wrong-password", keep_token=False).status_code == 401
-    locked = sign_in(client, ADMIN, "wrong-password", keep_token=False)
-    assert locked.status_code == 423
-    assert "locked after too many failed sign-ins, until 20" in locked.text
-    # And the right password is refused too, until the lock ends.
-    assert sign_in(client, ADMIN, ADMIN_PASSWORD, keep_token=False).status_code == 423
+    barred = sign_in(client, ADMIN, ADMIN_PASSWORD, keep_token=False)
+    unknown = sign_in(client, "nobody", ADMIN_PASSWORD, keep_token=False)
+    assert barred.status_code == unknown.status_code == 401
+    said = [re.search(r'id="login-error">([^<]*)<', r.text).group(1) for r in (barred, unknown)]
+    assert said[0] == said[1] == "That username and password were not accepted."
+    assert set(engine.identity.addresses) == {"testclient"}
 
 
 def test_a_second_factor_the_console_cannot_ask_for_keeps_no_session(engine):
     original = engine.identity.login
 
-    def challenged(username, password):
-        return {**original(username, password), "mfa": "challenge"}
+    def challenged(username, password, for_address=None):
+        return {**original(username, password, for_address), "mfa": "challenge"}
 
     engine.identity.login = challenged
     client = _app(engine)
