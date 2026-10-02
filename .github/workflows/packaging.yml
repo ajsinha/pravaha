@@ -7,7 +7,7 @@ name: packaging
 # Every job's command HAS been run on the development machine, and that is the distinction:
 #
 #   versions   deploy/release/set-version.sh --check and deploy/release/test.sh, both green
-#   ci-helpers deploy/ci/test.sh, 15 checks green
+#   ci-helpers deploy/ci/test.sh, 15 checks green; tools/docker-env-test.sh, 8 checks green
 #   chart      deploy/helm/test.sh, 18 checks green, against a helm 3.16.3 fetched for it
 #              (helm is NOT installed on that machine; this job installs it the same way)
 #   image      deploy/docker/build.sh then deploy/docker/smoke.sh, 10 steps green against a
@@ -64,6 +64,10 @@ jobs:
 
       - name: The checkers' own tests
         run: deploy/ci/test.sh
+
+      # ENVRERUN-1: a re-run of the compose stack's setup keeps the ports, tag and lines a user set.
+      - name: tools/docker-env.sh keeps your settings
+        run: tools/docker-env-test.sh
 
   chart:
     name: Helm chart

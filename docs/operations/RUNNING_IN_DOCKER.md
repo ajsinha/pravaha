@@ -268,7 +268,11 @@ New credentials -- shown this once (they are kept in <repo>/.../pravaha-home/sec
 | `data/console/`, `logs/`, `plugins/`, `tmp/` | empty, yours |
 
 Re-running it is safe: nothing that exists is overwritten, credentials are kept, and only the uid,
-gid and home in `.env` are refreshed.
+gid and home in `.env` are refreshed. The ports, `PRAVAHA_BIND`, `PRAVAHA_TAG` and
+`COMPOSE_PROJECT_NAME` you set in `.env` are kept, and so is any line you added
+(`COMPOSE_PROFILES=...`); the file is replaced in one rename. (Before 2.0.1 a re-run put every port
+but pgwire's, and the tag, back to the defaults -- ENVRERUN-1.) `tools/docker-env-test.sh` checks
+exactly this, with no Docker.
 
 ### Services and profiles
 

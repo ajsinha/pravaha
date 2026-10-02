@@ -131,6 +131,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   aggregates over the whole view answer, `SELECT *` past the ceiling is `PRV-4024`, and a single row
   too wide for an empty arena is a coded `PRV-3001`. `LargeViewReadTest` (90,000 wide rows and
   1,000,010 narrow ones; fails without the fix).
+- **Re-running `tools/docker-env.sh` keeps the settings `.env` says are yours (ENVRERUN-1).** The
+  script wrote `.env` with `cat > .env <<EOF` whose `$(port …)` substitutions read `.env` back — after
+  the redirection had already truncated it — so a re-run reset the image tag and every port but
+  pgwire's to the defaults, and the next `compose up` bound them silently. Every value is now read
+  first, the file is written to a temporary and renamed into place, and `COMPOSE_PROJECT_NAME`,
+  `PRAVAHA_BIND` and lines the script does not write (`COMPOSE_PROFILES`, …) are kept too. New
+  `tools/docker-env-test.sh` (run twice with edited values, then a third time byte-for-byte; no
+  Docker), wired into the packaging workflow.
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 
