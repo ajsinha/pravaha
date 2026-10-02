@@ -17,8 +17,9 @@ because every check talks to a real one over HTTP, pgwire or Flight:
 A check that reproduces an OPEN defect is skipped with its case ID, so the file stays green while
 the defect is open; ``PRAVAHA_QI_REPRODUCE=1`` runs those as strict xfails, which must fail -- a
 pass there means the defect is fixed and the mark should go.
-The two denial-of-service reproductions are destructive -- they push a node into
-OutOfMemoryError -- and are also gated on ``PRAVAHA_QI_DESTRUCTIVE=1``; aim them at a scratch node.
+The two denial-of-service replays (QI-012, QI-045) are destructive -- before PGPREAUTH-1 and
+HTTPBODY-1 they pushed a node into OutOfMemoryError; now they check it keeps serving -- and are gated
+on ``PRAVAHA_QI_DESTRUCTIVE=1``; aim them at a scratch node.
 Everything this creates is named ``qi_*`` and dropped again where it can be.
 """
 
@@ -125,25 +126,57 @@ def any_view(token):
 # PostgreSQL gateway
 
 
+def _read_until_closed(s):
+    reply = b""
+    try:
+        while chunk := s.recv(4096):
+            reply += chunk
+    except OSError:
+        pass
+    return reply
+
+
+@needs_pgwire
+def test_qi012_a_declared_16_mib_password_is_refused_on_its_length():
+    # PGPREAUTH-1, fixed: before sign-in a message may be 16 KiB; a larger declaration is refused
+    # FATAL 54000 PRV-6217 before anything is read or allocated, and the connection closes.
+    host, port = pg_host_port()
+    with socket.create_connection((host, port), timeout=10) as s:
+        s.sendall(pg_startup())
+        assert s.recv(64)[:1] == b"R"  # AuthenticationCleartextPassword
+        s.sendall(b"p" + struct.pack("!I", 16 * 1024 * 1024))
+        reply = _read_until_closed(s)
+    assert reply[:1] == b"E" and b"PRV-6217" in reply and b"54000" in reply
+
+
 @needs_pgwire
 @destructive
-@open_defect("QI-012: open defect -- an unauthenticated client makes the gateway allocate a declared "
-                         "16 MiB PasswordMessage before reading it; ~60 sockets end the shipped image's JVM "
-                         "(-XX:+ExitOnOutOfMemoryError)")
 def test_qi012_unauthenticated_password_flood_leaves_the_node_serving():
+    # PGPREAUTH-1, fixed: the QI-012 attack -- 100 sockets each declaring a 16 MiB PasswordMessage.
+    # Each is refused on its length (PRV-6217), or, past pravaha.pgwire.limits.max-unauthenticated,
+    # refused at once with 53300 PRV-6216; the node keeps serving.
     host, port = pg_host_port()
-    socks = []
+    socks, refused = [], 0
     for _ in range(100):
         s = socket.create_connection((host, port), timeout=10)
-        s.sendall(pg_startup())
-        s.recv(64)  # AuthenticationCleartextPassword
-        s.sendall(b"p" + struct.pack("!I", 16 * 1024 * 1024))  # declares 16 MiB, sends nothing more
+        try:
+            s.sendall(pg_startup())
+            first = s.recv(64)
+            if first[:1] == b"E":
+                refused += b"PRV-6216" in first or b"53300" in first
+            else:
+                s.sendall(b"p" + struct.pack("!I", 16 * 1024 * 1024))  # declares 16 MiB, sends nothing more
+        except OSError:
+            pass
         socks.append(s)
     time.sleep(3)
     st, _, _ = http_call("GET", "/actuator/health/readiness")
+    answers = [_read_until_closed(s) for s in socks]
     for s in socks:
         s.close()
     assert st == 200
+    assert all(a[:1] in (b"E", b"") for a in answers)
+    assert any(b"PRV-6217" in a for a in answers)
 
 
 @needs_pgwire
@@ -179,17 +212,30 @@ def test_qi003_revoked_key_cannot_open_a_new_connection(admin):
 
 
 @needs_pgwire
-@open_defect("QI-004: open defect -- a pgwire connection opened with a key, session or user that is "
-                         "later revoked, ended or disabled keeps reading for as long as it stays open")
 def test_qi004_an_open_connection_stops_reading_once_its_key_is_revoked(admin):
+    # PGREVOKE-1, fixed: the credential is verified again before every statement; a revoked key
+    # ends its open connection with FATAL 28000 PRV-6218.
     view = any_view(admin)
     st, _, body = http_call("POST", "/api/v1/keys", admin, {"name": "qi_" + uuid.uuid4().hex[:6], "days": 1})
     key = json.loads(body)
     with pg_connect(key["key"]) as conn:
         conn.execute(f"SELECT COUNT(*) FROM {view}").fetchone()
         assert http_call("DELETE", f"/api/v1/keys/{key['keyId']}", admin)[0] == 204
-        with pytest.raises(Exception):
+        with pytest.raises(Exception) as refused:
             conn.execute(f"SELECT COUNT(*) FROM {view}").fetchone()
+    assert "PRV-6218" in str(refused.value)
+
+
+@needs_pgwire
+def test_qi004_an_open_connection_stops_reading_once_its_session_signs_out(admin):
+    view = any_view(admin)
+    session = login("admin", ADMIN_PASSWORD)
+    with pg_connect(session) as conn:
+        conn.execute(f"SELECT COUNT(*) FROM {view}").fetchone()
+        assert http_call("POST", "/api/v1/auth/logout", session)[0] in (200, 204)
+        with pytest.raises(Exception) as refused:
+            conn.execute(f"SELECT COUNT(*) FROM {view}").fetchone()
+    assert "PRV-6218" in str(refused.value)
 
 
 @needs_pgwire
@@ -285,18 +331,42 @@ def test_qi054_a_locked_account_reads_like_an_unknown_one(admin):
     assert locked[0] == unknown[0]
 
 
+def _declared_only(path, length):
+    """Sends a request head declaring ``length`` body bytes and none of them; the raw answer."""
+    host, port = HTTP.split("//", 1)[1].split(":")
+    with socket.create_connection((host, int(port.rstrip("/"))), timeout=30) as s:
+        s.sendall(f"POST {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+                  f"Content-Length: {length}\r\n\r\n".encode())
+        s.shutdown(socket.SHUT_WR)
+        reply = b""
+        try:
+            while chunk := s.recv(4096):
+                reply += chunk
+        except OSError:
+            pass
+    return reply.decode(errors="replace")
+
+
+@needs_http
+def test_qi045_a_large_anonymous_login_is_refused_413_before_its_body_is_read():
+    # HTTPBODY-1, fixed: refused on the declared length, before a byte of the body is read.
+    reply = _declared_only("/api/v1/auth/login", 19 * 1000 * 1000)
+    assert reply.startswith("HTTP/1.1 413") and '"code":"PRV-1054"' in reply, reply[:300]
+
+
 @needs_http
 @destructive
-@open_defect("QI-045: open defect -- 30 concurrent anonymous 19 MB POST /api/v1/auth/login bodies are "
-                         "buffered whole before authentication and push the node into OutOfMemoryError")
 def test_qi045_anonymous_large_login_bodies_leave_the_node_serving():
+    # HTTPBODY-1, fixed: the QI-045 attack. Each is refused 413 PRV-1054 (or the connection is closed
+    # once the refused body passes server.tomcat.max-swallow-size); the node keeps serving.
     body = b'{"username":"' + b"a" * (19 * 1000 * 1000) + b'","password":"x"}'
+    answers = []
 
     def one():
         try:
-            http_call("POST", "/api/v1/auth/login", raw=body, timeout=120)
+            answers.append(http_call("POST", "/api/v1/auth/login", raw=body, timeout=120)[0])
         except OSError:
-            pass
+            answers.append("closed")
 
     threads = [threading.Thread(target=one) for _ in range(30)]
     for t in threads:
@@ -304,6 +374,7 @@ def test_qi045_anonymous_large_login_bodies_leave_the_node_serving():
     for t in threads:
         t.join()
     assert http_call("GET", "/actuator/health/readiness")[0] == 200
+    assert set(answers) <= {413, "closed"}, answers
 
 
 @needs_flight

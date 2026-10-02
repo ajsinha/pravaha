@@ -20,6 +20,20 @@ spring:
 server:
   port: 18080
   shutdown: graceful
+  # HTTPBODY-1. What the container itself holds. Requests run on virtual threads (above), so the bound
+  # on how many are in flight at once is max-connections, not a thread count; past it the kernel
+  # queues accept-count more and then refuses. The engine's lane, clock and pump threads are platform
+  # threads of their own and are never lent to a request. max-swallow-size is how much of a body
+  # Tomcat reads and discards after an early refusal (a 413) before closing the connection;
+  # max-http-form-post-size bounds a form body Tomcat parses itself. Bodies the API reads are bounded
+  # by pravaha.http.* below, before authentication and before anything parses them.
+  tomcat:
+    max-connections: 1024
+    accept-count: 100
+    connection-timeout: 20s
+    keep-alive-timeout: 20s
+    max-swallow-size: 64KB
+    max-http-form-post-size: 16KB
 
 management:
   endpoints:
@@ -58,6 +72,16 @@ pravaha:
   node:
     id: pravaha-node-01
 
+  # What one HTTP request may cost before it is refused (HTTPBODY-1). A body larger than its limit is
+  # refused 413 (PRV-1054) on its declared Content-Length, before a byte is read, or as soon as a
+  # chunked body passes it. max-anonymous-body applies to the paths open without a credential --
+  # sign-in, password reset, the API documentation -- and max-request-body everywhere else, where the
+  # body is read only after the credential is verified. Sign-ins each run a deliberately slow
+  # password hash; past max-concurrent-sign-ins at once the rest are 429 (PRV-1055) with Retry-After.
+  http:
+    max-anonymous-body: 16KB
+    max-request-body: 4MB
+    max-concurrent-sign-ins: 8
 
   # Where this deployment publishes the help page for a PRV-nnnn code (DOCX-21).
   #

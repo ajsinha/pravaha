@@ -41,6 +41,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   removed applies from the next statement. Flight subscriptions already re-verified every two seconds.
   `PgWireLimitsTest`, `PgWireSignInTest` (real pgjdbc against identity: key revoked, session signed
   out, user disabled).
+- **HTTP request bodies are bounded before anything reads them (HTTPBODY-1).** A body was read whole,
+  before authentication, up to Jackson's 20 M-character limit, and thirty 19 MB anonymous sign-ins
+  ran a 1 GiB node out of heap. A new filter, first in the chain, refuses a body over
+  `pravaha.http.max-anonymous-body` (16KB, open paths) or `pravaha.http.max-request-body` (4MB) with
+  `413` `PRV-1054` on its declared length, or as soon as a chunked body passes it; at most
+  `pravaha.http.max-concurrent-sign-ins` (8) sign-ins run at once (`429` `PRV-1055`, `Retry-After`);
+  Tomcat's `max-connections`, `max-swallow-size` and form-post size are set in `application.yaml`.
+  `RequestLimitHttpTest`, `RequestLimitFilterTest`.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

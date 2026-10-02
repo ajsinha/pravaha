@@ -23,6 +23,8 @@ becomes a surprise.
 | …and as a backstop | `maxKeys` | **fails** (`PRV-4022`) |
 | Subscriber buffers | `SubscriptionOptions` | conflate / drop / fail, per the subscriber's choice -- which over Flight it now genuinely is: the choice rides on the subscription ticket, where until STRM-16 it went nowhere and every remote subscriber was `(10 000, CONFLATE)` |
 | Concurrent reads | `ReadAdmission` | refuse (`PRV-4026`–`4028`) |
+| HTTP request bodies | `pravaha.http.max-anonymous-body` / `max-request-body`, checked before the body is read | refuse `413` (`PRV-1054`) |
+| PostgreSQL gateway connections and messages | `pravaha.pgwire.limits.*` | refuse `53300` (`PRV-6216`) / `54000` (`PRV-6217`) |
 | Readable audit trail (`GET /api/v1/audit`) | `pravaha.security.audit-recent` decisions (10,000 default), only with `audit: memory` or `file` | oldest dropped from the readable window; the response says how many, and a `file` sink still has them |
 
 The distinction that runs through all of it:
@@ -407,6 +409,37 @@ permit, and what the other tenants report is "Pravaha is down".
 
 Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff — not as
 `INVALID_ARGUMENT`, which they give up on.
+
+## Connections and request bodies
+
+What a caller can make the node hold **before it has authenticated** is bounded on both ports that
+take one (PGPREAUTH-1, HTTPBODY-1): sixty silent PostgreSQL sockets, or thirty 19 MB anonymous HTTP
+sign-ins, used to be enough to run a 1 GiB node out of heap. The bounds, all refusals rather than
+waits:
+
+| Setting | Default | What it bounds |
+|---|---|---|
+| `pravaha.http.max-anonymous-body` | `16KB` | A request body on a path open without a credential — sign-in, password reset, the API documentation. Past it, `413` `PRV-1054`, on the declared `Content-Length` before a byte is read |
+| `pravaha.http.max-request-body` | `4MB` | Any other request body, read only after the credential is verified |
+| `pravaha.http.max-concurrent-sign-ins` | `8` | Sign-ins in progress at once (each a deliberately slow password hash). Past it, `429` `PRV-1055` with `Retry-After: 1` |
+| `pravaha.pgwire.limits.max-connections` | `100` | PostgreSQL connections, signed in or not. Past it, `FATAL 53300` `PRV-6216`, at once, without a thread |
+| `pravaha.pgwire.limits.max-unauthenticated` | `32` | Connections still in their handshake, likewise |
+| `pravaha.pgwire.limits.authentication-timeout` | `10s` | The whole handshake, as one deadline; the socket is closed |
+| `pravaha.pgwire.limits.max-connections-per-principal` | `0` (no share smaller than the whole) | One credential's connections, `FATAL 53300` |
+| `pravaha.pgwire.limits.max-message-size` | `1MB` | One message after sign-in (before it, a fixed 16 KiB), `FATAL 54000` `PRV-6217` |
+| `pravaha.pgwire.limits.idle-timeout` | `0s` (never) | A signed-in connection that sends nothing, `FATAL 57P05` `PRV-6219` |
+
+An out-of-range `pravaha.pgwire.limits.*` value stops the node with `PRV-6220`, an out-of-range
+`pravaha.http.*` value with `PRV-1026`. The servlet container's own bounds are in `application.yaml`
+under `server.tomcat`: `max-connections` (1024) is the bound on requests in flight — they run on virtual
+threads, so there is no request thread pool to exhaust, and the engine's lanes, clock and pumps are
+platform threads of their own — and `max-swallow-size` (64KB) is how much of a refused body Tomcat
+reads and discards before it closes the connection.
+
+**Sizing.** Worst case before authentication is about `max-unauthenticated` × 16 KiB on the PostgreSQL
+port and `max-connections` × 16 KB on the HTTP sign-in path — a few megabytes. After authentication,
+`max-connections` × `max-message-size` and in-flight HTTP requests × `max-request-body` are what a
+misbehaving *authenticated* client could hold; lower them on a small heap.
 
 ## Tenant quotas
 

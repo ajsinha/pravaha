@@ -4,10 +4,10 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1053: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1055: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
-keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk]
+keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
 guide: troubleshooting#every-code
 related: [errors-overview, configuration, clients, http-api]
 listed_on: errors-overview
@@ -24,7 +24,7 @@ They are grouped here by who raises them:
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1044 | The Java and Python SDKs | Constructing a client, or talking to the node |
-| PRV-1050 – PRV-1053 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, or that reached no endpoint at all |
+| PRV-1050 – PRV-1055 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, or a sign-in past the node's concurrency |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
     The server reads `application.yaml` through Spring Boot's binder, which reports a value it cannot
@@ -359,6 +359,29 @@ controller and came back as a third error shape —
 and no `helpUrl`, on a surface whose stated contract is one shape and nothing else. The published
 OpenAPI document now carries the `ApiError` schema with its five fields and a `default` response on
 every operation, so a generated client models the error rather than an empty object.
+
+### PRV-1054 — API_BODY_TOO_LARGE
+
+`413`. The request's body is larger than this node reads: `pravaha.http.max-anonymous-body` (16KB) on
+a path open without a credential — sign-in, password reset, the API documentation — and
+`pravaha.http.max-request-body` (4MB) everywhere else. A body that declares its length is refused on
+the declaration, before a byte of it is read; a chunked one as soon as it passes the limit. The
+connection is closed after the answer.
+
+Before HTTPBODY-1 a body was read whole, before authentication, up to Jackson's 20-million-character
+string limit, and thirty concurrent 19 MB anonymous sign-ins ran a 1 GiB node out of heap.
+
+**Do:** send less — no request the API takes needs megabytes. If one genuinely does, raise
+`pravaha.http.max-request-body`.
+
+### PRV-1055 — API_TOO_MANY_SIGN_INS
+
+`429`, with `Retry-After: 1`. More sign-ins (`POST /api/v1/auth/login`, `/api/v1/auth/reset/redeem`)
+are in progress at once than `pravaha.http.max-concurrent-sign-ins` (8). Each runs a deliberately slow
+password hash, so the number at once is bounded rather than left to whoever is sending them.
+
+**Do:** retry after the second the header names; a script signing in in a loop should sign in once and
+keep the session, or use an API key.
 
 ## Where next
 

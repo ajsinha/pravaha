@@ -65,6 +65,24 @@ public final class ApiErrors {
     public static final ErrorCode UNHANDLED_REQUEST = new ErrorCode(1052, "API_UNHANDLED_REQUEST");
 
     /**
+     * A request body larger than this node reads: {@code pravaha.http.max-anonymous-body} on an
+     * endpoint open without a credential (sign-in, reset), {@code pravaha.http.max-request-body}
+     * everywhere else. {@code 413}, refused on the declared length before a byte is read, or as soon
+     * as a body without one passes the limit.
+     *
+     * <p>HTTPBODY-1. Bodies were read whole before authentication, up to Jackson's 20-million
+     * character string limit, so thirty anonymous 19 MB sign-ins ran a 1 GiB node out of heap.
+     */
+    public static final ErrorCode BODY_TOO_LARGE = new ErrorCode(1054, "API_BODY_TOO_LARGE");
+
+    /**
+     * More sign-ins in progress at once than {@code pravaha.http.max-concurrent-sign-ins}: {@code 429}
+     * with {@code Retry-After}. Each sign-in costs a deliberately slow password hash, so a burst of them
+     * is a burst of CPU an anonymous caller chooses the size of.
+     */
+    public static final ErrorCode TOO_MANY_SIGN_INS = new ErrorCode(1055, "API_TOO_MANY_SIGN_INS");
+
+    /**
      * A string in a request body is not text: it carries a UTF-16 surrogate with no partner.
      *
      * <p>API-F10. {@code "\ud800"} parses as JSON and decodes to a Java {@code String}, and encodes

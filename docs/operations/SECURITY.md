@@ -619,6 +619,31 @@ changelog or none of it, so a decision that allowed the write and carried a filt
 the excluded rows written anyway. It is refused at registration, before the sink is opened, and it
 is not `PRV-7002`: nothing was denied, so it is the policy that has to change.
 
+## Bounds on what a caller can make a node hold
+
+An unauthenticated peer can reach the HTTP port and, when it is on, the PostgreSQL gateway. What it
+can make the node allocate or hold before it has proved who it is is bounded, and so is what one
+signed-in caller can hold (PGPREAUTH-1, HTTPBODY-1). Both used to be open: sixty silent pgwire sockets
+each declaring a 16 MiB password, or thirty 19 MB anonymous sign-ins, ran a 1 GiB node out of heap.
+
+| Door | Bound | Setting (default) | Past it |
+|---|---|---|---|
+| HTTP | A body on a path open without a credential (sign-in, reset, the API documentation) | `pravaha.http.max-anonymous-body` (16KB) | `413`, `PRV-1054`, on the declared length before a byte is read; a chunked body as soon as it passes |
+| HTTP | Any other body — read only after the credential is verified | `pravaha.http.max-request-body` (4MB) | `413`, `PRV-1054` |
+| HTTP | Sign-ins (each a slow password hash) at once | `pravaha.http.max-concurrent-sign-ins` (8) | `429`, `PRV-1055`, `Retry-After: 1` |
+| HTTP | Connections in flight; the unread rest of a refused body | `server.tomcat.max-connections` (1024), `server.tomcat.max-swallow-size` (64KB) | queued, then refused by the kernel; the connection is closed |
+| pgwire | Connections, signed in or not | `pravaha.pgwire.limits.max-connections` (100) | `FATAL 53300`, `PRV-6216`, at once and without a thread |
+| pgwire | Connections still in their handshake | `pravaha.pgwire.limits.max-unauthenticated` (32) | the same |
+| pgwire | The handshake, start to `AuthenticationOk`, as one deadline | `pravaha.pgwire.limits.authentication-timeout` (10s) | the socket is closed |
+| pgwire | A message before sign-in | fixed, 16 KiB | `FATAL 54000`, `PRV-6217`, on the declared length |
+| pgwire | A message after sign-in | `pravaha.pgwire.limits.max-message-size` (1MB) | the same |
+| pgwire | One credential's connections | `pravaha.pgwire.limits.max-connections-per-principal` (0 = no share smaller than the whole) | `FATAL 53300`, `PRV-6216` |
+| pgwire | An idle signed-in connection | `pravaha.pgwire.limits.idle-timeout` (0 = never) | `FATAL 57P05`, `PRV-6219` |
+
+HTTP requests run on virtual threads; the engine's lanes, clock and pumps are platform threads of
+their own and are never lent to a request. Flight authenticates each call from its headers before
+the call is handled; its message-size bounds are gRPC's.
+
 ## Users, passwords, API keys and sessions (ADR-052)
 
 The engine can keep its own users (`pravaha.identity.enabled`), the way MAYA does. Every credential
@@ -631,6 +656,14 @@ of secrets:
 | A session (`prv_s_…`) | SHA-256 | 30 minutes idle, 12 hours in all, at most 3 per person; ended by sign-out, a password change or reset, or disabling the user |
 | An API key (`prv_<env>_<keyid>_<secret>`) | the password KDF | shown once; roles a subset of its holder's; expires (90 days by default, at most 365); rotation keeps the old key for 7 days; revocation is immediate; a key from another environment is refused |
 | A reset token | SHA-256 | single use, 60 minutes, issued by an administrator |
+
+**Revocation reaches connections that are already open.** Revoking a key, ending or signing out a
+session, or disabling a user takes effect on every door at the credential's next use: HTTP verifies
+every request; Flight every call, and a running subscription re-verifies every two seconds and ends
+`UNAUTHENTICATED`; the PostgreSQL gateway verifies the credential again before every statement and
+ends the connection `FATAL 28000` (`PRV-6218`) — PGREVOKE-1; it used to check once, at sign-in, and an
+open BI connection kept reading after its key was revoked. A connection that sends nothing reads
+nothing; `pravaha.pgwire.limits.idle-timeout` closes it as well, if that is wanted.
 
 Sign-in and administration are REST calls under `/api/v1/auth`, `/users`, `/keys` and `/sessions`, and
 the same from a shell: `pravaha login`, `pravaha user`, `pravaha key`, `pravaha session` and `pravaha password`.

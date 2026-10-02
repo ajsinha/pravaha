@@ -65,6 +65,40 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * A body that passed {@code pravaha.http.max-*-body} while it was being read (HTTPBODY-1): a
+     * chunked body declares no length, so {@code RequestLimitFilter} can only stop it in the reading,
+     * and Spring wraps the stop in a message-conversion failure. {@code 413}, {@link
+     * ApiErrors#BODY_TOO_LARGE}. Any other unreadable body is not this handler's: rethrown, it falls
+     * to Spring's own resolution, which answers {@code 400} through {@code ApiErrorController}.
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiDtos.ApiError> handleUnreadable(
+            org.springframework.http.converter.HttpMessageNotReadableException e, HttpServletRequest request)
+            throws org.springframework.http.converter.HttpMessageNotReadableException {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof com.ash.messaging.pravaha.server.security.RequestLimitFilter.BodyTooLargeException) {
+                ErrorCode code = ApiErrors.BODY_TOO_LARGE;
+                return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                        .header("Connection", "close")
+                        .body(new ApiDtos.ApiError(
+                                code.code(),
+                                cause.getMessage(),
+                                code.helpUrl(),
+                                Instant.now(),
+                                request.getRequestURI()));
+            }
+        }
+        // A PravahaException a deserializer threw (PRV-1053, a lone surrogate) is answered as one,
+        // as Spring's cause matching answered it before this handler claimed the wrapper.
+        for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof PravahaException engine) {
+                return handle(engine, request);
+            }
+        }
+        throw e;
+    }
+
+    /**
      * Maps an error category to a status.
      *
      * <p>Configuration and planning problems are the caller's ({@code 400}); runtime, state, plugin
