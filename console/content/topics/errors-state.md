@@ -4,7 +4,7 @@ slug: errors-state
 category: errors
 order: 50
 icon: exclamation-triangle
-summary: "PRV-4001 to PRV-4093: state past its ceiling, spill quota and disk, unreadable checkpoints, directories another node owns, the dead-letter queue and its replays, an unusable checkpoint directory, backfill, and every way a view read is refused."
+summary: "PRV-4001 to PRV-4095: state past its ceiling, spill quota and disk, unreadable checkpoints, directories another node owns, the dead-letter queue and its replays, an unusable checkpoint directory, backfill, and every way a view read is refused."
 badge: PRV-4XXX
 audience: Operators, developers
 keywords: [state too large, ceiling, spill, quota, disk full, checkpoint, snapshot, ownership, owner, allow-shared, dlq, dead letter, replay, retention, evicted, backfill, view too large, no such view, admission, tenant, deadline, consistency, frontier]
@@ -54,6 +54,8 @@ The codes split into two families that call for different people:
 | PRV-4091 | STATE_DLQ_NO_SUCH_LETTER | No dead letter with that id is in the query's queue |
 | PRV-4092 | STATE_DLQ_REPLAY_REFUSED | Replaying that dead letter could not be correct |
 | PRV-4093 | STATE_CHECKPOINT_DIRECTORY_UNUSABLE | The configured checkpoint directory is not a directory, is unwritable, or has no parent |
+| PRV-4094 | STATE_CHECKPOINT_CORRUPT | A checkpoint's bytes do not match its checksum; skipped for the one before it |
+| PRV-4095 | STATE_CHECKPOINT_SCHEMA_CHANGED | A checkpoint of another output schema; the query rebuilds from its sources |
 
 ## The node's state
 
@@ -141,6 +143,13 @@ Two nodes sharing a checkpoint root prune each other's checkpoints; two sharing 
 other's registrations and each comes up running queries it never registered. Both used to be reachable
 from two lines of configuration, silently (CFG-13, CFG-14).
 
+**Two engines in one process** are told apart too: a second embedded engine (or node) in the same
+JVM on a directory the first still holds is refused with `another engine in this process holds the
+state`, whatever its node id — the marker names a process, so it could not see the difference, and
+until SAMEPIDCLAIM-1 the second ran beside the first and its close deleted the first's marker. Close
+the first engine, or give the second its own directories. A close deletes only the marker that claim
+wrote.
+
 **Do:** give each node its own directories, stop the other instance, or set
 `pravaha.state.allow-shared` to `true` if sharing is genuinely intended. A node reclaiming **its own**
 state after a crash does not hit this: an expired claim under the same node id is taken over
@@ -211,6 +220,29 @@ directory.
 
 **Do:** name a directory, or leave the key unset to run without checkpoints — which the node also
 says at startup. See [Checkpoints and recovery](/help/topics/checkpoints-recovery).
+
+### PRV-4094 — checkpoint corrupt
+
+Every checkpoint carries a CRC32C of its contents, checked before anything in it is believed. One
+whose bytes do not match — a flipped bit on disk, a bad copy, a tail cut off — is **skipped**, with a
+`WARNING` naming the checkpoint and this code, and the restore falls back to the one before it (the
+store keeps `pravaha.checkpoint.keep` of them), or to the beginning of the sources when none is
+sound: reprocessing, never a damaged answer. Until CKPTSUM-1 only the header, counts and trailer were
+checked, and a single flipped bit in a window's state was restored and published — a window boundary
+nobody wrote — for ever. A checkpoint written before 2.0.1 has no checksum; it is restored as it
+always was, unverified, and logged as such once at restore. **Do:** if it recurs, check the disk
+under the checkpoint root.
+
+### PRV-4095 — checkpoint of another output schema
+
+A checkpoint records the schema of the query's output — each column's name and type — and a restart
+whose query now produces another (a stream redeclared with `v` as `VARCHAR` where it was `BIGINT`) does
+**not** restore it: the view would hold values of the old type beside rows of the new. The query
+starts from the beginning of its sources instead, and the reason is its last checkpoint failure. A
+column added to the stream that the query does not select changes nothing, and the state comes back.
+Until RETYPERESTORE-1 the old values were restored into the new columns. A checkpoint written before
+2.0.1 records no schema and is restored as before. A debug session forked from such a checkpoint is
+refused with this code.
 
 ## Backfill and blue/green replacement
 

@@ -301,6 +301,39 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             List<String> sourceStreams,
             Runnable afterDelivery,
             Map<String, String> resumeFrom) {
+        // DLQPROJ-1: before the feed starts, so no row it delivers can fail with nowhere to go.
+        List<AutoCloseable> owned = new ArrayList<>();
+        deadLetterRowFailures(queryName, execution, owned);
+        try {
+            return RowFailureLetters.closingWith(
+                    openFeed(queryName, execution, sourceStreams, afterDelivery, resumeFrom), owned);
+        } catch (RuntimeException e) {
+            execution.deadLetterRowFailures(null);
+            closeQuietly(owned);
+            throw e;
+        }
+    }
+
+    /**
+     * Gives the query's lanes its dead-letter queue for a row whose evaluation fails (DLQPROJ-1),
+     * when a directory is configured. The queue is the one its pumps write decode failures to;
+     * opened here when nothing has opened it yet, and then closed with the feed.
+     */
+    private void deadLetterRowFailures(String queryName, QueryExecution execution, List<AutoCloseable> owned) {
+        java.nio.file.Path directory = deadLetterDirectory;
+        if (directory == null) {
+            return;
+        }
+        LiveDeadLetters live = liveDeadLetters(directory, queryName, owned);
+        execution.deadLetterRowFailures(new RowFailureLetters(live.queue(), queryName));
+    }
+
+    private SourceFeed openFeed(
+            String queryName,
+            QueryExecution execution,
+            List<String> sourceStreams,
+            Runnable afterDelivery,
+            Map<String, String> resumeFrom) {
         // Distinct, because a self-join names one stream twice and opening two feeds for it would
         // deliver every row twice to a query that asked for it once.
         List<String> bound =
@@ -1088,6 +1121,17 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         if (directory == null) {
             return;
         }
+        LiveDeadLetters live = liveDeadLetters(directory, queryName, resources);
+        pump.deadLetteringTo(live.queue(), queryName);
+        pump.deadLetterRate(live.rate());
+    }
+
+    /**
+     * The query's open queue and rate, opened when nothing has opened them yet, with what closes them
+     * added to {@code resources}.
+     */
+    private LiveDeadLetters liveDeadLetters(
+            java.nio.file.Path directory, String queryName, List<AutoCloseable> resources) {
         try {
             java.nio.file.Files.createDirectories(directory);
             // One file per query, named for it: a shared file would make "which query rejected
@@ -1097,7 +1141,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             // One queue and one rate per query, however many pumps it has: the file is the
             // query's, and four partitions each keeping their own rejection window would each
             // decide the query was degraded on a quarter of the evidence.
-            LiveDeadLetters live = liveDeadLetters.computeIfAbsent(queryName, name -> {
+            return liveDeadLetters.computeIfAbsent(queryName, name -> {
                 try {
                     com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue opened =
                             new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue(file, deadLetterRetention);
@@ -1108,9 +1152,6 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     throw new java.io.UncheckedIOException(cannot);
                 }
             });
-            com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue = live.queue();
-            pump.deadLetteringTo(queue, queryName);
-            pump.deadLetterRate(live.rate());
         } catch (java.io.UncheckedIOException wrapped) {
             // computeIfAbsent cannot throw a checked exception, so opening the file wraps its
             // IOException; it is unwrapped here so the refusal names the cause and not the wrapper.

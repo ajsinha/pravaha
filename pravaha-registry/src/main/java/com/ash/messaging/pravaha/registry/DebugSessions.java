@@ -135,6 +135,8 @@ public final class DebugSessions implements AutoCloseable {
         QueryExecution execution = null;
         try {
             StreamSchema schema = query.outputSchema();
+            // RETYPERESTORE-1: a fork of a checkpoint of another output schema is refused, PRV-4095.
+            CheckpointSchemas.requireSame(checkpoint, schema, query.anyName());
             // The fork's own view: built here, named for the session, and never given to the view
             // catalogue -- so no reader resolves a name to it and no subscriber can attach.
             ServedView view = new ServedView(

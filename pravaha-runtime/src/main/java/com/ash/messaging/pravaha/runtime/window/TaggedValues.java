@@ -77,7 +77,8 @@ final class TaggedValues {
         return switch (tag) {
             case NULL -> null;
             case STRING -> in.readUTF();
-            case DOUBLE -> in.readDouble();
+            // NANGROUP-1: a key or distinct value is canonical since; one that is not is refused.
+            case DOUBLE -> GroupDoubles.restored(in.readDouble());
             case BOOLEAN -> in.readBoolean();
             case LONG -> in.readLong();
             case DECIMAL -> new DecimalBits(in.readLong(), in.readLong());

@@ -38,5 +38,11 @@ public final class EmbeddedErrors {
     /** The engine's configuration says something it cannot do, found at start rather than at first use. */
     public static final ErrorCode MISCONFIGURED = new ErrorCode(8104, "EMBEDDED_MISCONFIGURED");
 
+    /**
+     * A push some queries on the stream applied and committed and at least one could not
+     * (PUSHPARTIAL-1). The message names both: retrying the push would count it twice in the first.
+     */
+    public static final ErrorCode PUSH_PARTLY_APPLIED = new ErrorCode(8105, "EMBEDDED_PUSH_PARTLY_APPLIED");
+
     private EmbeddedErrors() {}
 }

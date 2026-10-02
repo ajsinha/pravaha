@@ -704,6 +704,12 @@ correlation id, source offset, reason, and the original bytes in Base64 — mean
 the queue itself could not write, that count goes to stderr: a run that reports `ok` while having
 quietly discarded input is the thing the queue exists to prevent, not something it may cause.
 
+On a node or an embedded engine the queue also takes a row that decoded and then failed evaluation —
+a division by zero, an overflow, a `CAST` with no answer — before it reached any state, coded
+`PRV-3027`, with the row's columns as a JSON object in place of source bytes; the query keeps running.
+So every query has a `<query>.dlq` once a directory is set, pushed-to or source-fed. Such an entry is
+not replayable (`PRV-4092`). A failure above state still stops the query (DLQPROJ-1).
+
 **The queue is bounded, and it evicts rather than refuses.** `pravaha.dlq.max-bytes` defaults to
 256 MiB a query, with `pravaha.dlq.max-entries` and `pravaha.dlq.max-age` off unless set. Past a
 bound the *oldest* entries go: refusing the newest would hand the writer a queue that has stopped
@@ -2238,7 +2244,7 @@ PRV-4003  the state in /opt/pravaha/data/checkpoints belongs to node 'pravaha-no
 |---|---|
 | `pravaha.node.id` | Who the claim is made by. The directory is namespaced by **node id, not by address**, so a node restarting on a new pod IP still finds its own checkpoints; the address lives in the marker, where it answers the question the id cannot — whether the holder is still running |
 | `pravaha.state.allow-shared` | `false`. Skips every check, for an operator who has read the refusal and meant it |
-| `PRV-4003` | Held by another node, or by a second live instance of this one |
+| `PRV-4003` | Held by another node, or by a second live instance of this one — including a second engine in the same JVM, which the marker alone cannot tell apart (SAMEPIDCLAIM-1) |
 | `PRV-4004` | A marker exists and cannot be read or written. Refused rather than assumed free, because a truncated marker and an absent one mean different things |
 
 **A crash restart is not this.** An expired claim under the *same* node id is taken over
@@ -2375,6 +2381,13 @@ reversed.
 Node upgrades are a stop and start — there is no clustering to roll through. What that costs in
 Kubernetes, step by step, and why `terminationGracePeriodSeconds` is 60 rather than the default 30,
 is in [`DEPLOYMENT.md`](DEPLOYMENT.md), "Upgrading a node".
+
+**A checkpoint is checked before it is believed.** Since 2.0.1 every checkpoint ends with a CRC32C
+of its contents; one that does not match is skipped (`PRV-4094`, logged at `WARNING`) for the one
+before it, as a truncated one is (CKPTSUM-1). It also records the query's output schema, and one of
+another schema is not restored — the query rebuilds from its sources, `PRV-4095` (RETYPERESTORE-1). A
+checkpoint from 2.0.0 has neither: it is restored as before, logged as unverified. The checksum is a
+tail after an unchanged body, so 2.0.0 still reads a 2.0.1 checkpoint if a node is rolled back.
 
 **A checkpoint written by an older engine may be refused.** Formats inside a checkpoint carry a
 version and a different one is refused with `PRV-4002`, never guessed at. The served view's snapshot

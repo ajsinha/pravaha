@@ -169,6 +169,12 @@ the row, its size and the cell, and every query on the stream keeps running. Unt
 embedded engine read no `pravaha.lane.*` setting at all, and such a row stopped every query on the
 stream for good. A stream that was never declared is PRV-8101.
 
+**Each query takes a push on its own.** If one query cannot — its lane fails on the row, or its inbox
+stays full — every other query on the stream still applies and commits it, and the push then throws
+[PRV-8105](/help/codes/PRV-8105) naming the queries that have the rows and the one that does not.
+Do not retry that push: it would count twice where it landed. When no query took it, the push throws
+that query's own failure, and a retry is right (PUSHPARTIAL-1).
+
 ## Closing windows
 
 A windowed query emits a window when the watermark passes its end. Over a *bound source* the engine

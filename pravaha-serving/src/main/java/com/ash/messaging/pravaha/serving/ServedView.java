@@ -1436,6 +1436,21 @@ public final class ServedView {
      * replaced and a retraction that found nothing to withdraw.
      */
     private record Key(Object[] values) {
+
+        /**
+         * A view's key compares a DOUBLE as SQL groups it (NANGROUP-1): either zero is one key, as
+         * every NaN already was under {@link Double#equals}. The row keeps its own value.
+         */
+        private Key {
+            for (int i = 0; i < values.length; i++) {
+                if (values[i] instanceof Double d && d == 0.0) {
+                    values[i] = 0.0;
+                } else if (values[i] instanceof Float f && f == 0.0f) {
+                    values[i] = 0.0f;
+                }
+            }
+        }
+
         @Override
         public boolean equals(Object other) {
             return other instanceof Key that && Arrays.deepEquals(values, that.values);

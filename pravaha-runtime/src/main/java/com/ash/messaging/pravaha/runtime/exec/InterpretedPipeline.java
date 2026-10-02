@@ -392,10 +392,14 @@ public final class InterpretedPipeline implements AutoCloseable {
         Builder builder = new Builder(arena, sink, lookups, measured || measureOperators ? plan : null);
         builder.generate = generate && builder.clock == null;
         RowProcessor built = builder.build(plan);
-        // A self-join reads one stream on both sides and has one entry point, which is its head.
-        RowProcessor head = builder.joins.isEmpty()
-                ? built
-                : builder.heads.size() == 1 ? builder.heads.values().iterator().next() : null;
+        // Every entry point dead-letters a row that fails before it reaches state, once a sink is
+        // attached (DLQPROJ-1). A chain over one scan is its own entry point, so the head is that
+        // entry, guarded; a self-join reads one stream on both sides and has one entry point too.
+        builder.heads.replaceAll(
+                (stream, entry) -> builder.guard.guard(stream, schemaOf(builder.scans, stream), entry));
+        RowProcessor head = builder.heads.size() == 1
+                ? builder.heads.values().iterator().next()
+                : builder.joins.isEmpty() ? built : null;
         InterpretedPipeline pipeline =
                 new InterpretedPipeline(arena, head, builder.scans, sink, builder.operatorsInPlanOrder());
         pipeline.finishers.addAll(builder.finishers);
@@ -407,12 +411,32 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.keyed.addAll(builder.keyed);
         pipeline.heldRows.addAll(builder.heldRows);
         pipeline.inputs.putAll(builder.heads);
+        pipeline.rowGuard = builder.guard;
         pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
         pipeline.partialAggregateSchemas.putAll(builder.partialAggregateSchemas);
         pipeline.executionPaths.addAll(
                 builder.paths.isEmpty() ? List.of(noChainGenerated(generate, builder)) : builder.paths);
         return pipeline;
     }
+
+    private static StreamSchema schemaOf(List<ScanOperator> scans, String stream) {
+        return scans.stream()
+                .filter(s -> s.streamName().equals(stream))
+                .findFirst()
+                .orElseThrow()
+                .outputSchema();
+    }
+
+    /**
+     * Sends a row whose evaluation fails before it reaches any state -- a division by zero, an
+     * overflow, a cast with no answer -- to {@code failures} instead of stopping the query
+     * (DLQPROJ-1); null stops the query again. See {@link RowGuard} for why only before state.
+     */
+    public void deadLetterRowFailures(RowFailureSink failures) {
+        rowGuard.sendTo(failures);
+    }
+
+    private RowGuard rowGuard = new RowGuard();
 
     private static String noChainGenerated(boolean generate, Builder builder) {
         if (!generate) {
@@ -1143,6 +1167,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<HeldRows> heldRows = new ArrayList<>();
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
+        private final RowGuard guard = new RowGuard();
         private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
         private final Map<String, StreamSchema> partialAggregateSchemas = new LinkedHashMap<>();
 
@@ -1211,6 +1236,11 @@ public final class InterpretedPipeline implements AutoCloseable {
             return metrics == null ? self : metrics.entering(self, clock, operator instanceof ScanOperator);
         }
 
+        /** {@link #entering}, marked as the point a row reaches state (DLQPROJ-1, {@link RowGuard}). */
+        private RowProcessor stateful(PhysicalOperator operator, RowProcessor self) {
+            return guard.boundary(entering(operator, self));
+        }
+
         /** Says where {@code operator}'s state bytes are read from, when it holds any. */
         private void holdsState(PhysicalOperator operator, java.util.function.LongSupplier bytes) {
             OperatorMetrics metrics = counters.get(operator);
@@ -1222,22 +1252,23 @@ public final class InterpretedPipeline implements AutoCloseable {
         RowProcessor build(PhysicalOperator operator) {
             return switch (operator) {
                 case WindowAssignOperator w -> {
-                    RowProcessor terminal = row -> RowStages.copyInto(sink, row, w.outputSchema());
+                    RowProcessor terminal = guard.boundary(row -> RowStages.copyInto(sink, row, w.outputSchema()));
                     yield buildInput(w, terminal);
                 }
                 case WindowedAggregateOperator w -> {
-                    RowProcessor terminal = row -> RowStages.copyInto(sink, row, w.outputSchema());
+                    RowProcessor terminal = guard.boundary(row -> RowStages.copyInto(sink, row, w.outputSchema()));
                     yield buildInput(w, terminal);
                 }
                 case SinkOperator s -> {
-                    RowProcessor terminal = row -> RowStages.copyInto(sink, row, s.outputSchema());
+                    RowProcessor terminal = guard.boundary(row -> RowStages.copyInto(sink, row, s.outputSchema()));
                     yield buildInput(s, terminal);
                 }
                 case ScanOperator s -> buildInput(s, row -> {});
                 default -> {
                     // A plan whose root is not a sink still has to run for tests and EXPLAIN; treat
                     // the root's output as the result.
-                    RowProcessor terminal = row -> RowStages.copyInto(sink, row, operator.outputSchema());
+                    RowProcessor terminal =
+                            guard.boundary(row -> RowStages.copyInto(sink, row, operator.outputSchema()));
                     yield buildInput(operator, terminal);
                 }
             };
@@ -1301,7 +1332,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                             partialAggregateTargets.put(stream, aggregate::processPartial);
                             partialAggregateSchemas.put(stream, a.outputSchema());
                         });
-                        yield buildInput(a.input(), entering(a, aggregate));
+                        yield buildInput(a.input(), stateful(a, aggregate));
                     }
                     KeyedAggregate aggregate = new KeyedAggregate(
                             a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
@@ -1313,11 +1344,11 @@ public final class InterpretedPipeline implements AutoCloseable {
                         partialAggregateTargets.put(stream, aggregate::processPartial);
                         partialAggregateSchemas.put(stream, a.outputSchema());
                     });
-                    yield buildInput(a.input(), entering(a, aggregate));
+                    yield buildInput(a.input(), stateful(a, aggregate));
                 }
                 case WindowAssignOperator w -> {
                     WindowAssign assign = new WindowAssign(w, arena, downstream);
-                    yield buildInput(w.input(), entering(w, assign));
+                    yield buildInput(w.input(), stateful(w, assign));
                 }
                 case WindowedAggregateOperator w -> {
                     WindowedAggregate aggregate = overflowAccess == null
@@ -1337,13 +1368,13 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // since ADR-044, COUNT(DISTINCT)'s values. The slice bookkeeping above them is
                     // on the heap and has no number that is not a guess.
                     holdsState(w, () -> aggregate.state().offHeapBytesAllocated());
-                    yield buildInput(w.input(), entering(w, aggregate));
+                    yield buildInput(w.input(), stateful(w, aggregate));
                 }
                 case SinkOperator s -> buildInput(s.input(), entering(s, downstream));
                 case TopNOperator t -> {
                     TopNRanking ranking = new TopNRanking(t, arena, downstream);
                     heldRows.add(ranking);
-                    yield buildInput(t.input(), entering(t, ranking));
+                    yield buildInput(t.input(), stateful(t, ranking));
                 }
                 case LookupJoinOperator l -> {
                     LookupSourcePlugin table = lookups.get(l.lookupStream());
@@ -1361,7 +1392,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // parked on a round trip has been consumed and not yet answered, and dropping
                     // it at shutdown loses output that the offsets say was processed.
                     finishers.add(join::drain);
-                    yield buildInput(l.input(), entering(l, join));
+                    yield buildInput(l.input(), stateful(l, join));
                 }
                 case JoinOperator j -> {
                     // A join is where the plan stops being a chain. Both sides are built with the
@@ -1382,8 +1413,8 @@ public final class InterpretedPipeline implements AutoCloseable {
                     holdsState(j, join::stateBytes);
                     // Both sides through the same counter: a join's rows in is what it was handed,
                     // and which side a row arrived on is already in rowsPerLane and the plan.
-                    buildInput(j.left(), entering(j, join.leftInput()));
-                    buildInput(j.right(), entering(j, join.rightInput()));
+                    buildInput(j.left(), stateful(j, join.leftInput()));
+                    buildInput(j.right(), stateful(j, join.rightInput()));
                     yield row -> {
                         throw new IllegalStateException("rows must enter a join's inputs by stream name");
                     };

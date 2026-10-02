@@ -364,15 +364,10 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-080: checkpoints carry no checksum; a single flipped bit in a window checkpoint is restored as "
-            + "state and the view publishes a corrupted window boundary for ever")
     void qe080_aFlippedBitInACheckpointIsNeverRestoredAsAnAnswer(@TempDir Path dir) throws Exception {
+        // CKPTSUM-1, fixed: a checkpoint carries a CRC32C; a flipped bit is skipped (PRV-4094) and the
+        // restore falls back, so every flip converges to the same answer.
         assertThat(bitFlips(dir)).isEmpty();
-    }
-
-    @Test
-    void qe080_observed(@TempDir Path dir) throws Exception {
-        assertThat(bitFlips(dir)).isNotEmpty();
     }
 
     static List<String> bitFlips(Path dir) throws Exception {
@@ -624,45 +619,29 @@ class AdvDurabilityTest {
     // ------------------------------------------------------------------ ownership, permissions, full disk
 
     @Test
-    @Disabled("QE-083: a second engine in the same JVM with the same node id (the default, pravaha-embedded) claims a "
-            + "running engine's state directory, and closing it deletes the first engine's ownership marker")
     void qe083_aSecondEngineOnARunningEnginesDirectoryIsRefused(@TempDir Path dir) {
-        Map<String, String> settings = AdvSupport.durable(dir);
-        try (PravahaEngine first = AdvSupport.engine(settings, e -> e.declareStream(W))) {
-            String same = AdvSupport.attempt(
-                    () -> AdvSupport.engine(settings, e -> e.declareStream(W)).close());
-            assertThat(same).startsWith("PRV-4003");
-        }
-    }
-
-    @Test
-    void qe083_observed(@TempDir Path dir) {
+        // SAMEPIDCLAIM-1, fixed: a second engine in this JVM with the same node id is refused
+        // PRV-4003, the first engine's markers survive the attempt, and another node's id is still
+        // refused afterwards.
         Map<String, String> settings = AdvSupport.durable(dir);
         Map<String, String> other = new LinkedHashMap<>(settings);
         other.put("pravaha.node.id", "intruder");
         try (PravahaEngine first = AdvSupport.engine(settings, e -> e.declareStream(W))) {
             first.register("q", "SELECT k, v, ts FROM w", "k", "ts");
-            String intruderBefore = AdvSupport.attempt(
+            String same = AdvSupport.attempt(
+                    () -> AdvSupport.engine(settings, e -> e.declareStream(W)).close());
+            assertThat(same).startsWith("PRV-4003").contains("another engine in this process");
+            assertThat(dir.resolve(".pravaha-owner")).exists();
+            assertThat(dir.resolve("checkpoints").resolve(".pravaha-owner")).exists();
+            String intruder = AdvSupport.attempt(
                     () -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
-            String same = AdvSupport.attempt(() -> {
-                try (PravahaEngine second = AdvSupport.engine(settings, e -> e.declareStream(W))) {
-                    // Both engines now journal and checkpoint into one directory.
-                    second.register("q_second", "SELECT k, ts FROM w", "k", "ts");
-                }
-            });
-            boolean markerAfter = Files.exists(dir.resolve(".pravaha-owner"))
-                    && Files.exists(dir.resolve("checkpoints").resolve(".pravaha-owner"));
-            String intruderAfter = AdvSupport.attempt(
-                    () -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
-            System.out.println("NOTE QE-083 intruder while first runs: "
-                    + intruderBefore.lines().findFirst().orElse("")
-                    + " | same id, same JVM: " + same + " | markers after the second closed: " + markerAfter
-                    + " | intruder after: " + intruderAfter.lines().findFirst().orElse(""));
-            assertThat(intruderBefore).startsWith("PRV-4003");
-            assertThat(same).isEqualTo("OK");
-            assertThat(markerAfter).isFalse();
-            assertThat(intruderAfter).isEqualTo("OK");
+            assertThat(intruder).startsWith("PRV-4003");
+            assertThat(AdvSupport.state(first, "q")).isEqualTo("RUNNING");
         }
+        // Closed: the directory is free for the next engine of this node.
+        assertThat(AdvSupport.attempt(() ->
+                        AdvSupport.engine(settings, e -> e.declareStream(W)).close()))
+                .isEqualTo("OK");
     }
 
     @Test
@@ -749,49 +728,37 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-088: a checkpoint taken when column v was BIGINT is restored into the view after v became STRING; "
-            + "the view's VARCHAR column then holds a Long beside Strings")
     void qe088_aCheckpointOfAnotherOutputSchemaIsNotRestored(@TempDir Path dir) throws Exception {
-        assertThat(retyped(dir)).doesNotContain("1=Long");
-    }
-
-    @Test
-    void qe088_observed(@TempDir Path dir) throws Exception {
+        // RETYPERESTORE-1, fixed: the checkpoint records the output schema; one of another schema is
+        // rebuilt from (PRV-4095), so the VARCHAR column never holds the old Long.
         List<String> seen = retyped(dir);
-        System.out.println("NOTE QE-088 " + seen);
-        assertThat(seen).contains("1=Long", "2=String");
+        assertThat(seen).doesNotContain("1=Long");
+        assertThat(seen).contains("2=String");
         assertThat(seen.get(0)).contains("v VARCHAR");
     }
 
     // ------------------------------------------------------------------ QE-012, QE-094, QE-164
 
     @Test
-    @Disabled("QE-012: with pravaha.dlq.directory set, a row that divides by zero stops the query (PRV-8003) instead "
-            + "of going to the dead-letter queue as CQ §11 and the PRV-3010 message say")
     void qe012_aRowThatDividesByZeroGoesToTheDeadLetterQueue(@TempDir Path dir) throws Exception {
+        // DLQPROJ-1, fixed: with pravaha.dlq.directory set, a row whose evaluation fails before it
+        // reaches state is dead-lettered (PRV-3027) and the query keeps running.
         try (PravahaEngine engine = divisionEngine(dir)) {
-            Thread.sleep(2000);
+            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+            while (AdvSupport.rows(engine, "SELECT * FROM q").size() < 2 && System.nanoTime() < deadline) {
+                Thread.sleep(100);
+            }
             assertThat(AdvSupport.state(engine, "q")).isEqualTo("RUNNING");
             assertThat(engine.deadLetters()
                             .counts(engine.find("q").orElseThrow().name())
                             .entries())
                     .isEqualTo(1);
-            assertThat(AdvSupport.rows(engine, "SELECT * FROM q")).containsExactly("1|5", "3|2");
-        }
-    }
-
-    @Test
-    void qe012_observed(@TempDir Path dir) throws Exception {
-        try (PravahaEngine engine = divisionEngine(dir)) {
-            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-            while (AdvSupport.state(engine, "q").equals("RUNNING") && System.nanoTime() < deadline) {
-                Thread.sleep(100);
-            }
-            String state = AdvSupport.state(engine, "q");
-            long entries = engine.deadLetters().counts("q").entries();
-            System.out.println("NOTE QE-012 state=" + state.lines().findFirst().orElse("") + " dlqEntries=" + entries);
-            assertThat(state).startsWith("FAILED PRV-8003").contains("division by zero");
-            assertThat(entries).isZero();
+            assertThat(AdvSupport.rows(engine, "SELECT * FROM q")).containsExactlyInAnyOrder("1|5", "3|2");
+            var letter = engine.deadLetters().page("q", 0, 10).entries().get(0).letter();
+            assertThat(letter.code()).isEqualTo("PRV-3027");
+            assertThat(letter.reason()).contains("division by zero");
+            assertThat(new String(letter.raw(), java.nio.charset.StandardCharsets.UTF_8))
+                    .contains("\"id\":\"2\"");
         }
     }
 

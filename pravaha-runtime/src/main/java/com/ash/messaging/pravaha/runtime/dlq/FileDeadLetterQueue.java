@@ -92,8 +92,12 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
         this.writer = open(file);
     }
 
+    /**
+     * Synchronized: a query's pumps and, since DLQPROJ-1, its lane (a row whose evaluation failed)
+     * write the one file, each from its own thread.
+     */
     @Override
-    public void accept(DeadLetter letter) {
+    public synchronized void accept(DeadLetter letter) {
         try {
             String line = DeadLetterJson.write(letter);
             writer.write(line);
@@ -318,7 +322,7 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         try {
             writer.close();
         } catch (IOException e) {

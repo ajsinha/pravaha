@@ -148,9 +148,26 @@ final class ExpressionCompiler {
             case DECIMAL ->
                 value.stripTrailingZeros().scale() > 0
                         ? Expression.Literal.ofDouble(value.doubleValue())
-                        : Expression.Literal.ofLong(value.longValue());
-            default -> Expression.Literal.ofLong(value.longValue());
+                        : Expression.Literal.ofLong(exactLong(literal, value));
+            default -> Expression.Literal.ofLong(exactLong(literal, value));
         };
+    }
+
+    /**
+     * An integer literal's value, refused at registration when it is outside {@code BIGINT}
+     * (NARROWCAST-1): {@code BigDecimal.longValue} keeps the low 64 bits, so {@code CAST(
+     * 9223372036854775808 AS BIGINT)} compiled as {@code Long.MIN_VALUE}.
+     */
+    private static long exactLong(RexLiteral literal, BigDecimal value) {
+        try {
+            return value.longValueExact();
+        } catch (ArithmeticException outsideBigint) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "literal '" + literal + "' is " + value.toPlainString() + ", outside BIGINT's range ["
+                            + Long.MIN_VALUE + ", " + Long.MAX_VALUE + "]; the engine refuses it rather than "
+                            + "keeping its low 64 bits. Write a value that fits, or a DECIMAL that holds it.");
+        }
     }
 
     private Expression call(RexCall call) {

@@ -777,6 +777,21 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                     // Both halves (WINDECKEY-1): the high half alone is zero for every value of
                     // eighteen digits or fewer, so every such key hashed alike.
                     case DECIMAL -> mix(row.getDecimalHigh(ordinal) ^ 0x6A09E667F3BCC909L) ^ row.getDecimalLow(ordinal);
+                    // NANGROUP-1: either zero and every NaN hash as one value. Any other value keeps
+                    // the slot's raw bits, so an existing group's digest -- and a checkpoint's -- is
+                    // unchanged.
+                    case FLOAT64 -> {
+                        double d = row.getDouble(ordinal);
+                        yield d == 0.0 || Double.isNaN(d)
+                                ? Double.doubleToLongBits(
+                                        com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(d))
+                                : row.getLong(ordinal);
+                    }
+                    // The float's own four bytes. getLong read eight from a four-byte slot, so the
+                    // digest took in the next column's bytes too and equal REAL keys could differ.
+                    case FLOAT32 ->
+                        Float.floatToIntBits(
+                                com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getFloat(ordinal)));
                     default -> row.getLong(ordinal);
                 };
             }
@@ -793,8 +808,9 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             case INT8 -> row.getByte(ordinal);
             case INT16 -> row.getShort(ordinal);
             case INT32, DATE -> row.getInt(ordinal);
-            case FLOAT32 -> row.getFloat(ordinal);
-            case FLOAT64 -> row.getDouble(ordinal);
+            // The group's own value (NANGROUP-1): 0.0 for either zero, NaN for any NaN.
+            case FLOAT32 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getFloat(ordinal));
+            case FLOAT64 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getDouble(ordinal));
             // The whole unscaled value (WINDECKEY-1). getLong is the high half of the slot, which is
             // zero for every value of eighteen digits or fewer: 1.50 and 2.75 were one group, and
             // COUNT(DISTINCT) counted them as one value.
@@ -848,7 +864,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             values[i] = switch (tag) {
                 case 0 -> null;
                 case 1 -> in.readUTF();
-                case 2 -> in.readDouble();
+                case 2 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.restored(in.readDouble());
                 case 3 -> in.readBoolean();
                 case 4 -> in.readLong();
                 case 5 -> new com.ash.messaging.pravaha.runtime.window.DecimalBits(in.readLong(), in.readLong());

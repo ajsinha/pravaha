@@ -194,6 +194,33 @@ class SlicedWindowsTest {
     }
 
     @Test
+    void aHopWhoseSizeIsNotAMultipleOfTheSlideStartsItsWindowsOnTheSlide() {
+        // HOPALIGN-1. SQL's HOP starts windows at multiples of the slide: 25 s sliding 10 s puts
+        // t = 12 s in [-10, 15), [0, 25) and [10, 35). Ends used to be aligned instead: [-5, 20) and
+        // [5, 30), and lastWindowEndFor -- start-aligned all along -- disagreed with the firing.
+        SlicedWindows windows = new SlicedWindows(WindowSpec.hopping(25 * SECOND, 10 * SECOND));
+        assertThat(windows.windowEndsContaining(12 * SECOND)).containsExactly(15 * SECOND, 25 * SECOND, 35 * SECOND);
+        assertThat(windows.windowsCompletedBetween(0, 60 * SECOND))
+                .containsExactly(5 * SECOND, 15 * SECOND, 25 * SECOND, 35 * SECOND, 45 * SECOND, 55 * SECOND);
+        // Every slice is in exactly the windows that contain it, the firing and the discard agree,
+        // and each window's slices start on its own start.
+        for (long slice = -60 * SECOND; slice <= 60 * SECOND; slice += windows.sliceSizeNanos()) {
+            List<Long> ends = windows.windowEndsContaining(slice);
+            assertThat(ends).as("slice %d", slice).hasSizeBetween(2, 3);
+            assertThat(windows.lastWindowEndFor(slice)).as("slice %d", slice).isEqualTo(ends.get(ends.size() - 1));
+            for (long end : ends) {
+                assertThat(Math.floorMod(end - 25 * SECOND, 10 * SECOND)).isZero();
+                assertThat(windows.slicesOfWindowEnding(end)).contains(slice);
+            }
+        }
+        // A size that is a multiple of the slide, and a tumble, are unchanged.
+        assertThat(new SlicedWindows(WindowSpec.hopping(60 * SECOND, 10 * SECOND)).windowEndsContaining(12 * SECOND))
+                .containsExactly(20 * SECOND, 30 * SECOND, 40 * SECOND, 50 * SECOND, 60 * SECOND, 70 * SECOND);
+        assertThat(new SlicedWindows(WindowSpec.hopping(30 * SECOND, 30 * SECOND)).windowEndsContaining(12 * SECOND))
+                .containsExactly(30 * SECOND);
+    }
+
+    @Test
     void aWindowingSchemeThatWouldLoseRecordsIsRefused() {
         // A slide wider than the size leaves gaps, so records between windows belong to none. Almost
         // always a typo; when it is not, it is a filter followed by a tumble, which says what it

@@ -35,11 +35,22 @@ import com.ash.messaging.pravaha.runtime.RuntimeErrors;
  * other convention double-counts boundary records, and event times land exactly on boundaries far
  * more often than intuition suggests -- clocks tick in round numbers and batch jobs stamp whole
  * seconds.
+ *
+ * <p><strong>Windows start on multiples of the slide</strong>, as SQL's {@code HOP} does (Calcite's
+ * {@code HopEnumerator}, Flink): {@code [k * slide, k * slide + size)}. Ends are therefore aligned to
+ * {@code size mod slide}, which is zero for a tumble and for a hop whose size is a multiple of its
+ * slide -- every window those have is unchanged. A hop of size 25 s sliding every 10 s used to align
+ * its ends instead, so its windows were {@code [-5, 20)} and {@code [5, 30)} where SQL's are
+ * {@code [-10, 15)}, {@code [0, 25)} and {@code [10, 35)} -- and {@link #lastWindowEndFor}, which
+ * already assumed aligned starts, disagreed with the firing about a slice's last window (HOPALIGN-1).
  */
 public final class SlicedWindows {
 
     private final WindowSpec spec;
     private final long sliceSize;
+
+    /** Where window ends fall within a slide: {@code size mod slide}, since starts are aligned. */
+    private final long endOffset;
 
     public SlicedWindows(WindowSpec spec) {
         if (spec.kind() == WindowSpec.Kind.SESSION) {
@@ -47,6 +58,14 @@ public final class SlicedWindows {
         }
         this.spec = spec;
         this.sliceSize = spec.sliceSizeNanos();
+        this.endOffset = Math.floorMod(spec.sizeNanos(), spec.slideNanos());
+    }
+
+    /** The first window end strictly after {@code timeNanos}: a start on a multiple of the slide, plus size. */
+    private long firstEndAfter(long timeNanos) {
+        return Math.floorDiv(timeNanos - endOffset, spec.slideNanos()) * spec.slideNanos()
+                + spec.slideNanos()
+                + endOffset;
     }
 
     /**
@@ -86,7 +105,7 @@ public final class SlicedWindows {
         List<Long> ends = new ArrayList<>();
         // The smallest window end strictly after the record. Strictly after is the half-open rule:
         // a window ending exactly at the record's time does not contain it.
-        long firstEnd = Math.floorDiv(eventTimeNanos, spec.slideNanos()) * spec.slideNanos() + spec.slideNanos();
+        long firstEnd = firstEndAfter(eventTimeNanos);
         for (long end = firstEnd; end - spec.sizeNanos() <= eventTimeNanos; end += spec.slideNanos()) {
             ends.add(end);
         }
@@ -124,8 +143,7 @@ public final class SlicedWindows {
         // looks like the protection while silently absorbing the mistake it appears to catch. The
         // same shape was found and removed from windowEndsContaining minutes earlier, which is why
         // it is called out here rather than quietly deleted.
-        long firstEnd =
-                Math.floorDiv(previousWatermarkNanos, spec.slideNanos()) * spec.slideNanos() + spec.slideNanos();
+        long firstEnd = firstEndAfter(previousWatermarkNanos);
         // TIME-1. Bounded, because this loop's length is (watermark - previousWatermark) / slide and
         // both ends of that subtraction come from the data. One row timestamped 1970 in a stream of
         // present-day rows makes the first window start in 1970, and a one-second slide then means

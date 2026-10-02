@@ -60,6 +60,66 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   expression, value and range), and a filter on the expression meets the same overflow as its
   projection. `2e9 * 2` was published `-294967296` while `WHERE i * 2 > 0` kept the row.
   `CAST(i AS BIGINT) * 2` asks for the 64-bit answer.
+- **A cast or a quotient with no answer of its type is an overflow** (NARROWCAST-1, DIVMIN-1).
+  `CAST(d AS BIGINT)` (or `INT`, `SMALLINT`, `TINYINT`) of `NaN`, `±Infinity` or a value past the
+  target's range, a finite `DOUBLE` past `REAL` cast to `REAL`, and `-9223372036854775808 / -1` are
+  handled as any other overflow (the query stops naming the expression and value, or the row is
+  dead-lettered as DLQPROJ-1 describes). They were published as `0`, `±9223372036854775807` and
+  `-9223372036854775808`, and `WHERE CAST(d AS BIGINT) = 0` kept NaN rows. An integer literal outside
+  `BIGINT` is refused `PRV-2021` at registration instead of compiled as its low 64 bits. A query that
+  ran over such values now stops on them: filter them out (`WHERE d BETWEEN ...`) or keep them `DOUBLE`.
+- **A row that fails evaluation goes to the dead-letter queue, as the guide said** (DLQPROJ-1). With
+  `pravaha.dlq.directory` set, a row whose evaluation fails before it reaches state — a division by
+  zero, an overflow, a cast with no answer, in a `WHERE`, a projection or a computed column — is
+  written to the query's queue coded `PRV-3027` (new), its columns as a JSON object, and the query
+  keeps running; pushed rows too, so every query now has a `<query>.dlq` once a directory is set.
+  Such an entry is not replayable (`PRV-4092`). A failure above an aggregate, window, join or top-N
+  still stops the query, and without a queue every one does, as before. **Upgrade:** a query that
+  used to stop on such a row now keeps running with the row in its queue — watch the queue's depth.
+- **A push one query cannot take is committed by the others, and says so** (PUSHPARTIAL-1). The
+  embedded engine applied a push to every query on the stream and committed them one by one, so the
+  first query whose lane had died threw `PRV-3010` and left the rest applied and unpublished until some
+  later push; a caller retrying the push it was told failed counted the row twice. Each query now takes
+  a push independently: the healthy ones commit it, and the push throws `PRV-8105` (new) naming the
+  queries that have the rows and the ones that do not — do not retry it. When no query took it, the
+  failure is reported unchanged and a retry is right.
+- **A second engine in one JVM cannot claim a running engine's state** (SAMEPIDCLAIM-1). The ownership
+  marker names a process, so a second embedded engine with the same node id (the default,
+  `pravaha-embedded`) on a running engine's directories took it for a re-claim, ran beside it, and on
+  close deleted the first engine's marker — after which another node's id was accepted. The claims a
+  process holds are now kept in-process too: the second engine is refused `PRV-4003` (`another engine
+  in this process holds the state`), and a close deletes only the marker that claim wrote. One engine
+  naming a directory twice (a journal in its checkpoint directory) is still one claim.
+- **A checkpoint carries a checksum** (CKPTSUM-1). Only the header, counts and trailer were checked, so
+  a single flipped bit in a window's state was restored and published, for ever (8–10 of 16 flips in
+  QE-080). Every checkpoint now ends with a CRC32C of its contents, checked before anything in it is
+  read; one that does not match is skipped with `PRV-4094` (new) and the one before it restored, as a
+  truncated one is. **Compatibility:** a 2.0.0 checkpoint has no checksum and is restored as before,
+  logged as unverified; the checksum is a tail after an unchanged body, so 2.0.0 still reads a 2.0.1
+  checkpoint on a rollback.
+- **A checkpoint of another output schema is not restored** (RETYPERESTORE-1). A query re-registered
+  over a stream whose selected column changed type (`v BIGINT` to `VARCHAR`) got the old `Long`s
+  restored into its new `VARCHAR` column. A checkpoint now records the output schema, and one of
+  another schema is not restored: the query rebuilds from its sources, its last checkpoint failure
+  saying `PRV-4095` (new) with both schemas. A 2.0.0 checkpoint records none and is restored as before.
+- **A GROUP BY on a DOUBLE counts every row once** (NANGROUP-1). A window grouped a `DOUBLE` by its
+  bits, so `-0.0` and `0.0` were two groups and two `NaN` payloads two more, which the view then showed
+  as one row — five rows in, counts summing to four. Every grouping path (windowed and unwindowed
+  aggregates, `COUNT(DISTINCT)`, a read's `GROUP BY`, a view's key) now follows SQL equality: either
+  zero is one group, published `0.0`, and every `NaN` is one, published `NaN`. A windowed `GROUP BY`
+  on a `REAL` also hashed the next column's bytes with the key, so equal keys could split; it hashes
+  the float alone now. **Answers change:** a query grouping on a column that holds both zeros or
+  several `NaN` payloads publishes fewer, merged groups. **Upgrade:** a 2.0.0 checkpoint holding a
+  `-0.0` or a non-standard `NaN` as a key or distinct value is not restored — restored, it would stay a
+  group apart — and that query rebuilds from its sources; any other checkpoint restores as before.
+- **HOP windows start on multiples of the slide, as SQL's HOP does** (HOPALIGN-1). A hop whose size is
+  not a multiple of its slide aligned its window *ends* to the slide: `HOP(10 s slide, 25 s size)` put a
+  row at 12 s in `[-5, 20)` and `[5, 30)` where SQL (Calcite, Flink) says `[-10, 15)`, `[0, 25)` and
+  `[10, 35)`, and the firing disagreed with the state's discard about a row's last window. Windows now
+  start at `k × slide`. **Answers change** for such hops only — a `TUMBLE`, and a `HOP` whose size is a
+  multiple of its slide, have exactly the windows they had. **Upgrade:** a checkpoint of such a hop
+  restores (its slices are unchanged), and windows still open fire on the new boundaries; windows the
+  view already holds keep their old boundaries until retention removes them.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the

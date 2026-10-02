@@ -71,7 +71,16 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * {@code refuseAccidentalOpenServer} already uses -- refuse, explain, and name the flag.
  *
  * <p>A graceful {@link #close()} deletes the marker, so a clean stop leaves nothing for the next
- * start to reason about.
+ * start to reason about -- but only the marker this claim wrote, recognised by a per-claim id.
+ *
+ * <h2>Two engines in one process</h2>
+ *
+ * <p>A marker names a process, so it cannot tell two engines in one JVM apart: a second embedded
+ * engine with the default node id on a running engine's directories took the "our own claim, being
+ * re-made" branch, started, journalled and checkpointed beside the first, and its close deleted the
+ * first engine's marker -- after which another node's id was accepted (SAMEPIDCLAIM-1). So the live
+ * claims of this process are also kept here, by directory: a second claim on a directory this process
+ * holds is refused, whatever the marker says, until the first is closed.
  */
 public final class StateOwnership implements AutoCloseable {
 
@@ -119,15 +128,28 @@ public final class StateOwnership implements AutoCloseable {
         }
     }
 
+    /**
+     * The claims this process holds, by real directory (SAMEPIDCLAIM-1). A marker names a process,
+     * not an engine within it; this is what tells two engines in one JVM apart.
+     */
+    private static final java.util.Map<Path, StateOwnership> LIVE = new java.util.HashMap<>();
+
     private final Path directory;
     private final Path marker;
     private final Owner owner;
     private final ScheduledExecutorService refresher;
 
-    private StateOwnership(Path directory, Path marker, Owner owner, Duration lease) {
+    /** Written into the marker, so {@link #close()} deletes only the marker this claim wrote. */
+    private final String claimId = java.util.UUID.randomUUID().toString();
+
+    /** This claim's key in {@link #LIVE}. */
+    private final Path key;
+
+    private StateOwnership(Path directory, Path marker, Owner owner, Duration lease, Path key) {
         this.directory = directory;
         this.marker = marker;
         this.owner = owner;
+        this.key = key;
         this.refresher = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "pravaha-state-owner");
             // Daemon: holding a claim must never be the reason a JVM will not exit.
@@ -158,12 +180,55 @@ public final class StateOwnership implements AutoCloseable {
                     "cannot create the state directory " + directory + " to claim it: " + cannot,
                     cannot);
         }
-        if (!allowShared) {
-            readMarker(marker).ifPresent(held -> refuseIfHeldByAnother(directory, marker, owner, held, lease));
+        Path key = keyOf(directory);
+        synchronized (LIVE) {
+            if (!allowShared) {
+                StateOwnership live = LIVE.get(key);
+                // Another node's id is refused by the marker, as between processes; the same node id
+                // is what the marker cannot tell from a re-claim, and is refused below.
+                if (live == null || !live.owner().nodeId().equals(owner.nodeId())) {
+                    readMarker(marker).ifPresent(held -> refuseIfHeldByAnother(directory, marker, owner, held, lease));
+                }
+                if (live != null) {
+                    throw new PravahaException(
+                            StateOwnershipErrors.STATE_NOT_OURS,
+                            "another engine in this process holds the state in " + directory + " (node '"
+                                    + live.owner().nodeId() + "'), and this one is node '" + owner.nodeId() + "'. Two "
+                                    + "engines on one state directory prune each other's checkpoints and replay each "
+                                    + "other's registrations. Close the other engine first, give this one its own "
+                                    + "directories, or set pravaha.state.allow-shared=true if sharing is what you meant.");
+                }
+            }
+            StateOwnership claim = new StateOwnership(directory, marker, owner, lease, key);
+            claim.write();
+            LIVE.putIfAbsent(key, claim);
+            return claim;
         }
-        StateOwnership claim = new StateOwnership(directory, marker, owner, lease);
-        claim.write();
-        return claim;
+    }
+
+    /**
+     * Claims {@code directory} into {@code held}, the claims one engine or node already holds --
+     * unless one of them covers it already. One engine may name a directory twice (a journal kept in
+     * its checkpoint directory); that is one claim, where a second engine naming it is refused.
+     */
+    public static void claimInto(
+            java.util.List<StateOwnership> held, Path directory, Owner owner, Duration lease, boolean allowShared) {
+        Path key = keyOf(directory);
+        for (StateOwnership claim : held) {
+            if (claim.key.equals(key)) {
+                return;
+            }
+        }
+        held.add(claim(directory, owner, lease, allowShared));
+    }
+
+    /** The directory as this process names it once: real, so two spellings of one path meet. */
+    private static Path keyOf(Path directory) {
+        try {
+            return directory.toRealPath();
+        } catch (IOException notThere) {
+            return directory.toAbsolutePath().normalize();
+        }
     }
 
     private static void refuseIfHeldByAnother(Path directory, Path marker, Owner owner, Held held, Duration lease) {
@@ -184,7 +249,9 @@ public final class StateOwnership implements AutoCloseable {
                                             + "s ago, so it is running now."));
         }
         if (held.owner().isSameProcessAs(owner)) {
-            return; // our own claim, being re-made
+            // Written by this process and not held by it now (LIVE was asked first): an engine here
+            // that stopped without closing its claim, or a pid this process inherited. Ours to take.
+            return;
         }
         if (!expired && !claimantIsGone(held.owner(), owner)) {
             throw new PravahaException(
@@ -312,6 +379,7 @@ public final class StateOwnership implements AutoCloseable {
         properties.setProperty("port", Integer.toString(owner.port()));
         properties.setProperty("pid", Long.toString(owner.pid()));
         properties.setProperty("claimed.at", Long.toString(System.currentTimeMillis()));
+        properties.setProperty("claim.id", claimId);
         SensitiveFiles.createOwnerOnly(marker);
         try (OutputStream out = Files.newOutputStream(marker, StandardOpenOption.TRUNCATE_EXISTING)) {
             properties.store(out, "Written by Pravaha. Says which node owns the state in this directory.");
@@ -336,6 +404,17 @@ public final class StateOwnership implements AutoCloseable {
         }
     }
 
+    /** The claim id the marker carries now, or null when there is none or it cannot be read. */
+    private String markerClaimId() {
+        Properties properties = new Properties();
+        try (InputStream in = Files.newInputStream(marker)) {
+            properties.load(in);
+        } catch (IOException gone) {
+            return null;
+        }
+        return properties.getProperty("claim.id");
+    }
+
     /** The directory this claim covers. */
     public Path directory() {
         return directory;
@@ -346,11 +425,21 @@ public final class StateOwnership implements AutoCloseable {
         return owner;
     }
 
-    /** Releases the claim and deletes the marker, so a clean stop leaves nothing to reason about. */
+    /**
+     * Releases the claim and deletes the marker, so a clean stop leaves nothing to reason about -- the
+     * marker this claim wrote, and no other: one rewritten by another claim (two engines sharing a
+     * directory by {@code pravaha.state.allow-shared}) is that claim's to delete (SAMEPIDCLAIM-1).
+     */
     @Override
     public void close() {
         refresher.shutdownNow();
+        synchronized (LIVE) {
+            LIVE.remove(key, this);
+        }
         try {
+            if (!claimId.equals(markerClaimId())) {
+                return;
+            }
             Files.deleteIfExists(marker);
         } catch (IOException cannot) {
             LOG.log(

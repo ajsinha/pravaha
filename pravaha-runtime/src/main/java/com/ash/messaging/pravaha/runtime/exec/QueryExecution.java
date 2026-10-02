@@ -815,7 +815,7 @@ public final class QueryExecution implements AutoCloseable {
         if (reader.deliversPartialAggregate()) {
             throw new IllegalStateException("a partial aggregate cannot be routed by join key; feed rows");
         }
-        int[] keyOrdinals = joinKeyOrdinalsFor(input);
+        int[] keyOrdinals = PlanShape.joinKeyOrdinals(plan, input);
         PartitionedIngestPump pump = new PartitionedIngestPump(
                 reader,
                 lanes.lanes(),
@@ -835,25 +835,12 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /**
-     * The join key columns of one input, expressed in that input's own scan ordinals.
-     *
-     * <p>Walks down from the join, mapping ordinals through anything between it and the scan. A
-     * projection renumbers columns, so taking the join's ordinals as the scan's would route rows by
-     * whatever column happens to sit at that position -- correct-looking, and wrong.
+     * Sends a row whose evaluation fails before it reaches state to {@code failures} instead of
+     * stopping the query (DLQPROJ-1), on every lane; null stops the query again. Attached by whatever
+     * opens the query's dead-letter queue.
      */
-    private int[] joinKeyOrdinalsFor(int input) {
-        com.ash.messaging.pravaha.runtime.plan.JoinOperator join = PlanShape.findJoin(plan);
-        if (join == null) {
-            throw new IllegalStateException("this query has no join, so there is no key to partition by; use pumpInto");
-        }
-        boolean left = input == 0;
-        List<Integer> keys = left ? join.leftKeys() : join.rightKeys();
-        PhysicalOperator side = left ? join.left() : join.right();
-        int[] mapped = new int[keys.size()];
-        for (int i = 0; i < mapped.length; i++) {
-            mapped[i] = PlanShape.mapDownToScan(side, keys.get(i));
-        }
-        return mapped;
+    public void deadLetterRowFailures(RowFailureSink failures) {
+        pipelines.forEach(pipeline -> pipeline.deadLetterRowFailures(failures));
     }
 
     /** The streams this query reads, in plan order: a join's left side first. */

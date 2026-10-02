@@ -124,6 +124,8 @@ final class QueryCheckpoints {
             if (latest.isEmpty()) {
                 return Map.of();
             }
+            // RETYPERESTORE-1: a checkpoint of another output schema is rebuilt from, not restored.
+            CheckpointSchemas.requireSame(latest.get(), query.outputSchema(), query.anyName());
             execution.restore(latest.get(), RESTORE_TIMEOUT);
             try {
                 // What it recorded about sinks, for each registration to claim as it attaches: the

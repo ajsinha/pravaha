@@ -95,5 +95,22 @@ public final class StateErrors {
     public static final ErrorCode CHECKPOINT_DIRECTORY_UNUSABLE =
             new ErrorCode(4093, "STATE_CHECKPOINT_DIRECTORY_UNUSABLE");
 
+    /**
+     * A checkpoint whose contents do not match the CRC32C written with them (CKPTSUM-1).
+     *
+     * <p>Skipped, as a truncated one is, and the restore falls back to the one before it: a flipped
+     * bit was restored as state and published as an answer for ever, because nothing checked the
+     * bytes between the header and the trailer.
+     */
+    public static final ErrorCode CHECKPOINT_CORRUPT = new ErrorCode(4094, "STATE_CHECKPOINT_CORRUPT");
+
+    /**
+     * A checkpoint taken when the query's output had another schema (RETYPERESTORE-1).
+     *
+     * <p>Not restored: the query rebuilds from its sources instead, because the view would otherwise
+     * hold values of the old types beside rows of the new ones.
+     */
+    public static final ErrorCode CHECKPOINT_SCHEMA_CHANGED = new ErrorCode(4095, "STATE_CHECKPOINT_SCHEMA_CHANGED");
+
     private StateErrors() {}
 }

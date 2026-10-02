@@ -546,20 +546,22 @@ class WindowAnswerTest extends WindowTestSupport {
 
     @Test
     void win020And021_aNonDividingHopPutsARowInThreeWindowsOrFour(@TempDir Path dir) throws Exception {
-        // WIN-020 and WIN-021. Size 10s sliding every 3s: the true count for a row at t is
-        // floor((t+S)/D) - floor(t/D), so ceil(10/3) = 4 and floor(10/3) = 3 both occur in one
-        // dataset. FINDINGS W-5 records that "ceil(size/slide) windows" is a maximum, not a
-        // constant, and this is the case that discriminates.
+        // WIN-020 and WIN-021. Size 10s sliding every 3s: windows start on multiples of the slide
+        // (HOPALIGN-1, as SQL's HOP), so the count for a row at t is floor(t/D) - floor((t-S)/D),
+        // and ceil(10/3) = 4 and floor(10/3) = 3 both occur in one dataset. FINDINGS W-5 records
+        // that "ceil(size/slide) windows" is a maximum, not a constant, and this is the case that
+        // discriminates.
         List<String> rows = configured(
                 dir, D_PLUS, SPEC, Duration.ZERO, hop("s0", "3' SECOND", "10' SECOND"), List.of(0, 1, 2), 3, 4);
 
         assertThat(rows)
                 .containsExactlyInAnyOrder(
-                        "-7000000000|3000000000|100|2|3", // 1 + 2 = 3
-                        "-4000000000|6000000000|100|2|3", // 1 + 2 = 3
-                        "-1000000000|9000000000|100|2|3", // 1 + 2 = 3
-                        "2000000000|12000000000|100|1|2"); // 2
-        // The row at 0.000 is in three windows and the row at 2.000 is in four: 3 + 4 = 7.
+                        "-9000000000|1000000000|100|1|1", // 1
+                        "-6000000000|4000000000|100|2|3", // 1 + 2 = 3
+                        "-3000000000|7000000000|100|2|3", // 1 + 2 = 3
+                        "0|10000000000|100|2|3"); // 1 + 2 = 3
+        // The row at 0.000 is in four windows and the row at 2.000 is in three: 4 + 3 = 7. Until
+        // HOPALIGN-1 the windows' ends were aligned instead, [-7, 3) to [2, 12), and the counts swapped.
         assertThat(sumOf(rows, 3)).isEqualTo(7);
     }
 
@@ -829,17 +831,17 @@ class WindowAnswerTest extends WindowTestSupport {
 
     @Test
     void win076_aSevenSecondWindowHoppingEveryTwo(@TempDir Path dir) throws Exception {
-        // WIN-076. d72.csv: rows at 0.000 (amount 1) and 1.000 (amount 2), pusher at 30.000. The
-        // first row is in three windows and the second in four: 3 + 4 = 7.
+        // WIN-076. d72.csv: rows at 0.000 (amount 1) and 1.000 (amount 2), pusher at 30.000. Windows
+        // start on even seconds (HOPALIGN-1): the first row is in four and the second in three, 4 + 3 = 7.
         String data = csv(row(1, 100, 1, 0L), row(2, 100, 2, SECOND)) + row(3, 999, 0, 30 * SECOND);
         List<String> rows =
                 configured(dir, data, SPEC, Duration.ZERO, hop("s0", "2' SECOND", "7' SECOND"), List.of(0, 1, 2), 3, 4);
         assertThat(rows)
                 .containsExactlyInAnyOrder(
-                        "-5000000000|2000000000|100|2|3", // 1 + 2 = 3
-                        "-3000000000|4000000000|100|2|3",
-                        "-1000000000|6000000000|100|2|3",
-                        "1000000000|8000000000|100|1|2");
+                        "-6000000000|1000000000|100|1|1", // 1
+                        "-4000000000|3000000000|100|2|3", // 1 + 2 = 3
+                        "-2000000000|5000000000|100|2|3",
+                        "0|7000000000|100|2|3");
         assertThat(sumOf(rows, 3)).isEqualTo(7);
     }
 

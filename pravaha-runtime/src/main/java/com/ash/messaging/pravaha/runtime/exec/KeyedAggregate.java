@@ -213,8 +213,9 @@ final class KeyedAggregate implements RowProcessor {
             case INT16 -> row.getShort(ordinal);
             case INT32, DATE -> row.getInt(ordinal);
             case INT64, TIME, TIMESTAMP_LTZ -> row.getLong(ordinal);
-            case FLOAT32 -> row.getFloat(ordinal);
-            case FLOAT64 -> row.getDouble(ordinal);
+            // NANGROUP-1: one group for either zero, one for every NaN.
+            case FLOAT32 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getFloat(ordinal));
+            case FLOAT64 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getDouble(ordinal));
             case STRING -> row.getString(ordinal);
             case DECIMAL -> new DecimalBits(row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal));
             default ->
@@ -512,8 +513,9 @@ final class KeyedAggregate implements RowProcessor {
             case INT16 -> row.getShort(ordinal);
             case INT32, DATE -> row.getInt(ordinal);
             case INT64, TIME, TIMESTAMP_LTZ -> row.getLong(ordinal);
-            case FLOAT32 -> row.getFloat(ordinal);
-            case FLOAT64 -> row.getDouble(ordinal);
+            // NANGROUP-1: one group for either zero, one for every NaN.
+            case FLOAT32 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getFloat(ordinal));
+            case FLOAT64 -> com.ash.messaging.pravaha.runtime.window.GroupDoubles.canonical(row.getDouble(ordinal));
             case STRING -> row.getString(ordinal);
             // The whole unscaled value (DECKEYGROUP-1, as WINDECKEY-1 for windows).
             case DECIMAL -> new DecimalBits(row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal));

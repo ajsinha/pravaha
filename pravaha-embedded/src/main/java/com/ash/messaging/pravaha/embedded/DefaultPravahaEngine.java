@@ -436,11 +436,12 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     private void claim(Path directory) {
         boolean allowShared = configuration.getBoolean("pravaha.state.allow-shared", false);
-        claims.add(StateOwnership.claim(
+        StateOwnership.claimInto(
+                claims,
                 directory,
                 StateOwnership.Owner.current(instanceId, "embedded", 0),
                 StateOwnership.DEFAULT_LEASE,
-                allowShared));
+                allowShared);
     }
 
     @Override
@@ -787,19 +788,41 @@ final class DefaultPravahaEngine implements PravahaEngine {
                         target.query().view().appliedFrontier());
                 sequence.accumulateAndGet(reached, Math::max);
             }
+            // PUSHPARTIAL-1: each query takes the push independently. One that cannot apply it --
+            // its lane failed, its inbox stayed full -- no longer stops the others being committed:
+            // they used to be applied and left unpublished until some later push committed them, and
+            // a caller retrying the push it was told failed then counted it twice.
+            Map<Target, RuntimeException> failed = new LinkedHashMap<>();
             for (Object[] values : validated) {
                 BinaryRowView row = write(encoder, values, weight);
                 for (Target target : targets) {
-                    offer(target, row);
+                    if (!failed.containsKey(target)) {
+                        try {
+                            offer(target, row);
+                        } catch (RuntimeException cannot) {
+                            failed.put(target, cannot);
+                        }
+                    }
                 }
             }
             // Applied and published before returning, so the caller's next read sees what it pushed.
+            List<String> committed = new ArrayList<>(targets.size());
             for (Target target : targets) {
-                applyAndCommit(target.query(), stream);
+                if (!failed.containsKey(target)) {
+                    try {
+                        applyAndCommit(target.query(), stream);
+                        committed.add(target.query().name());
+                    } catch (RuntimeException cannot) {
+                        failed.put(target, cannot);
+                    }
+                }
             }
             // After the rows are applied, so they are placed in their windows before any closes.
             if (weight > 0) {
                 followEventTime(encoder, validated);
+            }
+            if (!failed.isEmpty()) {
+                throw PushOutcome.failure(stream, committed, failed);
             }
             return targets.size();
         }
@@ -817,7 +840,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
     }
 
     /** One computation a pushed row must reach, and its own spelling of the stream. */
-    private record Target(RegisteredQuery query, String streamName) {}
+    record Target(RegisteredQuery query, String streamName) {}
 
     private List<Target> targetsFor(String stream) {
         List<Target> targets = new ArrayList<>();

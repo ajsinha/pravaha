@@ -7,7 +7,7 @@ icon: cpu
 summary: "PRV-3001 to PRV-3102: a query that planned and could not keep running — memory too small, a lane that died, an aggregate or join the runtime will not do, a total past 64 bits, a bad event time, a 65th column, codegen."
 badge: PRV-3XXX
 audience: Operators
-keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction, overflow, sum overflow, PRV-3025, hop, window too fine, PRV-3026, max-windows-per-row]
+keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction, overflow, sum overflow, PRV-3025, hop, window too fine, PRV-3026, max-windows-per-row, PRV-3027, dead-lettered row, division by zero]
 guide: troubleshooting#it-ran-out-of-memory-the-disk-filled
 related: [lanes, errors-state, event-time-watermarks, query-lifecycle, errors-overview]
 listed_on: errors-overview
@@ -33,6 +33,7 @@ console shows the code that stopped it.
 | PRV-3024 | RUNTIME_RETRACTED_UNHELD_ROW | A top-N was asked to retract a row it does not hold |
 | PRV-3025 | RUNTIME_AGGREGATE_OVERFLOW | A `SUM`, `COUNT` or `AVG` total left the 64-bit range |
 | PRV-3026 | RUNTIME_WINDOW_TOO_FINE | A hop so fine each row lands in too many windows; refused at registration |
+| PRV-3027 | RUNTIME_ROW_EVALUATION_FAILED | A row's evaluation failed (a division by zero, an overflow) and it went to the dead-letter queue |
 | PRV-3030 | ROW_FIELD_LIMIT_EXCEEDED | A row with more than 64 columns |
 | PRV-3100 | CODEGEN_COMPILATION_FAILED | Generated code did not compile |
 | PRV-3101 | CODEGEN_UNSUPPORTED_OPERATOR | A stage the generator does not emit; the interpreter runs it |
@@ -200,6 +201,18 @@ pravaha:
 
 On an embedded engine it is the same key in the engine's configuration. A query already journalled is
 checked at the start too, so lowering the bound refuses a recovered one by name.
+
+### PRV-3027 — a row's evaluation failed
+
+A row decoded and then had no answer: `a / b` with `b` zero, an `INT` result past `INT`'s range,
+`-9223372036854775808 / -1`, `CAST(d AS BIGINT)` of `NaN`. With `pravaha.dlq.directory` set, a failure
+in a `WHERE`, a projection or a computed column — before the row reaches any aggregate, window, join or
+top-N — puts the row in the query's dead-letter queue under this code, its columns as a JSON object,
+and the query keeps running (DLQPROJ-1). Without a queue the query stops, `PRV-3010` with the cause. A
+failure above state stops the query either way. Such an entry is not replayed (`PRV-4092`): the same
+values would fail the same way. **Do:** correct the record at the source, or guard the expression —
+`CASE WHEN b = 0 THEN NULL ELSE a / b END`, `CAST(i AS BIGINT) * 2`. See
+[Dead letters](/help/topics/dead-letters#a-row-that-decodes-and-then-fails).
 
 ### PRV-3030 — row field limit exceeded
 

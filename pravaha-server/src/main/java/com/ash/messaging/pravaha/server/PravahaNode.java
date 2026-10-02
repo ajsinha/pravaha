@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
 import com.ash.messaging.pravaha.common.config.ConfigErrors;
 import com.ash.messaging.pravaha.common.config.Configuration;
+import com.ash.messaging.pravaha.common.io.StateOwnership;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
 import com.ash.messaging.pravaha.pgwire.PgWireLimits;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
@@ -1374,10 +1375,8 @@ public class PravahaNode implements SmartLifecycle {
      * id cannot -- whether the other owner is still alive.
      */
     private void claimState(java.nio.file.Path directory, String what) {
-        com.ash.messaging.pravaha.common.io.StateOwnership.Owner owner =
-                com.ash.messaging.pravaha.common.io.StateOwnership.Owner.current(nodeId, flightHost, flightPort);
-        stateClaims.add(com.ash.messaging.pravaha.common.io.StateOwnership.claim(
-                directory, owner, com.ash.messaging.pravaha.common.io.StateOwnership.DEFAULT_LEASE, allowSharedState));
+        StateOwnership.Owner owner = StateOwnership.Owner.current(nodeId, flightHost, flightPort);
+        StateOwnership.claimInto(stateClaims, directory, owner, StateOwnership.DEFAULT_LEASE, allowSharedState);
         log.info("claimed the {} {} for node '{}'", what, directory, nodeId);
     }
 

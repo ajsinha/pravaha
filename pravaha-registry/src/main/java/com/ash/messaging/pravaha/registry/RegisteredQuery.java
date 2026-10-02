@@ -785,6 +785,8 @@ public final class RegisteredQuery implements AutoCloseable {
             java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
             byte[] contents = view.snapshot();
             entries.put(QueryExecution.SERVED_VIEW_STATE, contents);
+            // RETYPERESTORE-1: the schema the view's contents have, compared at restore.
+            entries.put(CheckpointSchemas.KEY, CheckpointSchemas.of(outputSchema()));
             for (SinkDelivery delivery : sinkDeliveries) {
                 delivery.cut(checkpointId).ifPresent(section -> entries.put(SinkDelivery.stateKey(delivery), section));
             }

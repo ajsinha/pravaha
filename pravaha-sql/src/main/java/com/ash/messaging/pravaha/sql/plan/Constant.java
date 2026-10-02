@@ -55,6 +55,9 @@ sealed interface Constant {
     /** A constant written into the SQL text. */
     record OfLiteral(RexLiteral literal) implements Constant {
 
+        private static final BigDecimal LONG_MIN = BigDecimal.valueOf(Long.MIN_VALUE);
+        private static final BigDecimal LONG_MAX = BigDecimal.valueOf(Long.MAX_VALUE);
+
         @Override
         public boolean isNull() {
             return literal.isNull();
@@ -76,6 +79,14 @@ sealed interface Constant {
             }
             BigDecimal decimal = literal.getValueAs(BigDecimal.class);
             if (decimal != null) {
+                // NARROWCAST-1: longValue keeps the low 64 bits of a literal past BIGINT, so
+                // 9223372036854775808 compared as Long.MIN_VALUE. Refused instead.
+                if (decimal.compareTo(LONG_MIN) < 0 || decimal.compareTo(LONG_MAX) > 0) {
+                    throw new PravahaException(
+                            SqlErrors.UNSUPPORTED_EXPRESSION,
+                            "literal " + literal + " is outside BIGINT's range [" + Long.MIN_VALUE + ", "
+                                    + Long.MAX_VALUE + "]; refused rather than compared as its low 64 bits");
+                }
                 return decimal.longValue();
             }
             Long value = literal.getValueAs(Long.class);

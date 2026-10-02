@@ -126,15 +126,21 @@ public sealed interface Expression {
      * the query for a reason that has nothing to do with what the user wrote.
      *
      * <p>Only numeric conversions. A floating-point value narrowed to an integer truncates towards
-     * zero. An integer narrowed to {@code INT}, {@code SMALLINT} or {@code TINYINT} must fit: one
-     * that does not is an overflow (NARROWINT-1), because its low bits are a different number --
-     * a conversion that would silently change a value's meaning rather than its width.
+     * zero, and must be a finite number within the target's range: {@code NaN}, an infinity or
+     * {@code 1e300} has no integer answer, and Java's {@code (long)} would make them {@code 0} and
+     * {@code Long.MAX_VALUE} (NARROWCAST-1). An integer narrowed to {@code INT}, {@code SMALLINT} or
+     * {@code TINYINT} must fit (NARROWINT-1), because its low bits are a different number. A finite
+     * {@code DOUBLE} narrowed to {@code REAL} must not become an infinity. Each is an overflow, routed
+     * as a {@code BIGINT} one is -- a conversion that would silently change a value's meaning rather
+     * than its width is never answered.
      */
     record Cast(Expression source, TypeName type) implements Expression {
 
         @Override
         public long evaluateLong(RowView row) {
-            long value = source.isFloatingPoint() ? (long) source.evaluateDouble(row) : source.evaluateLong(row);
+            long value = source.isFloatingPoint()
+                    ? floatingToLong(source.evaluateDouble(row), type, this)
+                    : source.evaluateLong(row);
             // A narrowing to INT, SMALLINT or TINYINT of a value outside the target's range has no
             // answer, so it is an overflow like any other (NARROWINT-1) rather than the value's low
             // bits written by the projection while a filter compared the whole of it.
@@ -143,7 +149,18 @@ public sealed interface Expression {
 
         @Override
         public double evaluateDouble(RowView row) {
-            return source.isFloatingPoint() ? source.evaluateDouble(row) : source.evaluateLong(row);
+            if (!isFloatingPoint()) {
+                // An integer target read as a double (CAST(d AS BIGINT) * 1.5) is the integer --
+                // truncated and range-checked -- not the floating source passed through unchanged.
+                return evaluateLong(row);
+            }
+            double value = source.isFloatingPoint() ? source.evaluateDouble(row) : source.evaluateLong(row);
+            if (type == TypeName.FLOAT32 && Double.isFinite(value) && Math.abs(value) > Float.MAX_VALUE) {
+                throw new ArithmeticException("REAL overflow: " + source.describe() + " is " + value
+                        + ", outside REAL's range; refused rather than published as an infinity. "
+                        + "Keep it a DOUBLE.");
+            }
+            return value;
         }
 
         @Override
@@ -644,7 +661,8 @@ public sealed interface Expression {
                         // is obviously right for a stream, and throwing is the one that cannot be
                         // mistaken for an answer -- the record goes to the dead-letter queue with
                         // the reason.
-                        case DIVIDE -> r == 0 ? divideByZero() : l / r;
+                        case DIVIDE -> r == 0 ? divideByZero() : divideExact(l, r);
+                        // Long.MIN_VALUE % -1 is 0 in Java and in arithmetic alike: no overflow.
                         case MODULO -> r == 0 ? divideByZero() : l % r;
                     };
             // NARROWINT-1: the operands are evaluated in 64 bits, so an INT, SMALLINT or TINYINT
@@ -653,6 +671,20 @@ public sealed interface Expression {
             // compared 4e9. SQL types INT * INT as INT, so the result is checked against that range
             // here, once, for every consumer: an overflow exactly as a BIGINT one is.
             return fitNarrow(result, type, this);
+        }
+
+        /**
+         * {@code l / r} for a non-zero {@code r}, refusing the one quotient that does not fit 64 bits
+         * (DIVMIN-1): {@code Long.MIN_VALUE / -1} is {@code 2^63}, and Java answers
+         * {@code Long.MIN_VALUE} where {@code + - *} use {@code Math.*Exact}. A narrower type's
+         * {@code MIN / -1} fits 64 bits and is refused by {@link #fitNarrow} as its own overflow.
+         */
+        private long divideExact(long l, long r) {
+            if (l == Long.MIN_VALUE && r == -1) {
+                throw new ArithmeticException("BIGINT overflow: " + describe() + " is 9223372036854775808, "
+                        + "outside BIGINT's range; refused rather than published as -9223372036854775808");
+            }
+            return l / r;
         }
 
         private static long divideByZero() {
@@ -1201,6 +1233,31 @@ public sealed interface Expression {
      * cannot disagree. Widening the operands ({@code CAST(i AS BIGINT) * 2}) is how to ask for the
      * 64-bit answer.
      */
+    /**
+     * A floating-point {@code value} converted to an integer for a {@code CAST} to {@code type},
+     * truncated towards zero; an {@link ArithmeticException} if it has no integer answer
+     * (NARROWCAST-1). {@code NaN} and the infinities are not numbers an integer can hold, and a
+     * finite value at or beyond {@code 2^63} is outside {@code BIGINT}: Java's {@code (long)} makes
+     * them {@code 0}, {@code Long.MAX_VALUE} and {@code Long.MIN_VALUE}, which a filter then
+     * compares as if they were the value. The narrower targets are checked by {@link #fitNarrow}.
+     */
+    static long floatingToLong(double value, TypeName type, Expression where) {
+        // -2^63 is exactly representable and is Long.MIN_VALUE; 2^63 is not a long.
+        if (Double.isNaN(value) || value >= 0x1p63 || value < -0x1p63) {
+            String name =
+                    switch (type) {
+                        case INT32 -> "INT";
+                        case INT16 -> "SMALLINT";
+                        case INT8 -> "TINYINT";
+                        default -> "BIGINT";
+                    };
+            throw new ArithmeticException(name + " overflow: CAST of " + where.describe() + " is " + value
+                    + ", which has no " + name + " value; refused rather than converted to a number it is not. "
+                    + "Filter the row out (WHERE " + where.describe() + " BETWEEN ...) or keep it a DOUBLE.");
+        }
+        return (long) value;
+    }
+
     static long fitNarrow(long value, TypeName type, Expression where) {
         long min;
         long max;

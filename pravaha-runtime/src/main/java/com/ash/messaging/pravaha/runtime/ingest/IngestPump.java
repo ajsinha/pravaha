@@ -196,7 +196,7 @@ public final class IngestPump implements AutoCloseable {
         this.layout = RowLayout.of(schema);
         this.writer = new BinaryRowWriter(layout);
         this.streamName = schema.name();
-        this.schemaSignature = signatureOf(schema);
+        this.schemaSignature = schemaSignature(schema);
         if (layout.fixedEnd() > lane.inboxCellBytes()) {
             throw new PravahaException(
                     RuntimeErrors.BACKPRESSURED,
@@ -562,7 +562,7 @@ public final class IngestPump implements AutoCloseable {
      * version, because all three change what the same bytes decode into; the watermark settings are
      * left out, because they change when a row is late and not what it contains.
      */
-    private static String signatureOf(StreamSchema schema) {
+    public static String schemaSignature(StreamSchema schema) {
         StringBuilder out = new StringBuilder(schema.name()).append('/').append(schema.version());
         out.append('(');
         for (int i = 0; i < schema.fieldCount(); i++) {
