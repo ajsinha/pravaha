@@ -227,6 +227,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   that would reach one is refused `PRV-8102` before any row is delivered, with every query left running.
   A journalled query of this shape is refused at recovery. `RetractedExtremesTest`,
   `RetractedExtremeTest`, QE-044.
+- **An alert comparing a masked column is refused when it is created (MASKALERT-1).** `CREATE ALERT …
+  WHERE card = '…'` by an owner for whom `card` is masked answered `ACTIVE`, then the alert showed
+  `following=BROKEN` and never fired — closed, but not the plan-time `PRV-7006` SECURITY.md promises.
+  `CREATE ALERT` now runs the same check the alert runs when it follows, so the person creating it gets
+  `PRV-7006` and nothing is journalled; a mask applied later still marks an existing alert broken with
+  the code. `AlertNarrowingTest`, QE-105.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

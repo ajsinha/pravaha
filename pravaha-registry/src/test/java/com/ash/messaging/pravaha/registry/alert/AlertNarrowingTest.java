@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.catalog.Catalog;
 import com.ash.messaging.pravaha.catalog.CatalogPolicy;
 import com.ash.messaging.pravaha.catalog.CatalogService;
@@ -35,6 +36,7 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * An alert runs as its owner (ADR-059 §4): it sees the view it follows through the owner's row filters
@@ -88,8 +90,24 @@ class AlertNarrowingTest {
     }
 
     @Test
-    void aConditionOnAMaskedColumnBreaksTheAlertByName() {
+    void aConditionOnAMaskedColumnIsRefusedWhenTheAlertIsCreated() {
+        // MASKALERT-1: refused to the person creating it, as SECURITY.md says -- it used to be accepted
+        // ACTIVE and marked broken only once it started following.
+        assertThatThrownBy(() -> fixture.sql(ANA, "CREATE ALERT tiny ON low_stock WHERE on_hand < 2 NOTIFY buyers"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7006")
+                .hasMessageContaining("on_hand");
+        assertThatThrownBy(() -> fixture.service.detail(ANA, "tiny"))
+                .as("nothing was journalled or kept")
+                .isInstanceOf(PravahaException.class);
+    }
+
+    @Test
+    void aMaskAppliedAfterwardsBreaksTheAlertByName() {
+        fixture.sql(OPS, "ALTER VIEW low_stock UNSET POLICY counted");
         fixture.sql(ANA, "CREATE ALERT tiny ON low_stock WHERE on_hand < 2 NOTIFY buyers");
+        fixture.sql(OPS, "ALTER VIEW low_stock SET POLICY counted");
+        fixture.tick();
         fixture.tick();
         assertThat(fixture.service.detail(ANA, "tiny").alert().problem()).contains("PRV-7006");
     }

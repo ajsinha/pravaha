@@ -196,7 +196,7 @@ because the person using them needs it to act.
 
 A mask (ADR-059 §4) replaces a column's value in everything you read, subscribe to or build on.
 **PRV-7006** refuses a query that uses a masked column where its value would be compared — a `WHERE`
-operand, a `GROUP BY` or join key, an `ORDER BY`, an aggregate's argument, a view's key, a tap filter:
+operand, a `GROUP BY` or join key, an `ORDER BY`, an aggregate's argument, a view's key, a tap filter, a `CREATE ALERT` condition on it:
 comparing it would tell you which rows share a value, which is what the mask hides. Select it to see
 the masked value. **PRV-7007** ends an open subscription whose row filters or masks changed; subscribe
 again. See [Row filters and masks](/help/topics/row-filters-and-masks).
