@@ -437,13 +437,15 @@ threads, so there is no request thread pool to exhaust, and the engine's lanes, 
 platform threads of their own — and `max-swallow-size` (64KB) is how much of a refused body Tomcat
 reads and discards before it closes the connection.
 
-**Failed sign-ins** are bounded by `pravaha.identity.lockout.*` (LOCKENUM-1): `failures` (5) from one
-address within `window` (15m) bar that address from the account for `duration` (30m); ten times
-`failures` from any addresses lock the account for `duration`; every refusal answers `401 PRV-7010`
-alike. `trusted-proxies` (addresses or CIDR blocks; none by default, `172.16.0.0/12` in the compose
-stack) names the proxies — the console, a load balancer — whose `X-Forwarded-For` is believed; a
-malformed entry stops the node (`PRV-7004`). The policy and its reasons are in
-[`SECURITY.md`](SECURITY.md).
+**Failed sign-ins** are bounded too (LOCKENUM-1); every refusal answers `401 PRV-7010` alike, and the
+policy and its reasons are in [`SECURITY.md`](SECURITY.md):
+
+| Setting | Default | What it bounds |
+|---|---|---|
+| `pravaha.identity.lockout.failures` | `5` | Failures from one address, within the window, that bar that address from the account; ten times as many from any addresses lock the account |
+| `pravaha.identity.lockout.window` | `15m` | The window failures are counted in |
+| `pravaha.identity.lockout.duration` | `30m` | How long a bar, or an account lock, lasts |
+| `pravaha.identity.lockout.trusted-proxies` | none (`172.16.0.0/12` in the compose stack) | Addresses or CIDR blocks — the console, a load balancer — whose `X-Forwarded-For` is believed. Without the console's address here, everyone signing in through it is one address. A malformed entry stops the node (`PRV-7004`) |
 
 **Credentials are re-checked on open connections.** The PostgreSQL gateway verifies a connection's
 credential again before every statement and ends it `FATAL 28000` (`PRV-6218`) once the key is
