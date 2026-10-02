@@ -118,12 +118,6 @@ public final class SlicedWindows {
     }
 
     /**
-     * Window ends that have completed at this watermark and not before.
-     *
-     * @param previousWatermarkNanos the watermark at the last firing
-     * @param watermarkNanos the watermark now
-     */
-    /**
      * The most windows one watermark advance may fire.
      *
      * <p>Generous on purpose: a day of one-second windows is 86,400 and a year of hourly ones is
@@ -133,6 +127,12 @@ public final class SlicedWindows {
      */
     private static final long MAX_WINDOWS_PER_ADVANCE = 10_000_000L;
 
+    /**
+     * Window ends that have completed at this watermark and not before.
+     *
+     * @param previousWatermarkNanos the watermark at the last firing
+     * @param watermarkNanos the watermark now
+     */
     public List<Long> windowsCompletedBetween(long previousWatermarkNanos, long watermarkNanos) {
         List<Long> ends = new ArrayList<>();
         // The first window end strictly after the previous watermark. Strictly after is what stops a

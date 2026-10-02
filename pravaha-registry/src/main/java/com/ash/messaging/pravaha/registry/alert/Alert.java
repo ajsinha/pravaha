@@ -94,6 +94,7 @@ final class Alert implements AnswerListener {
     private record Change(List<Object[]> leaving, List<Object[]> entering, Instant at) {}
 
     /** A notification sent or tried, kept with its raw key so it is shown by column name once followed. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Told(
             Instant at,
             Object[] key,
@@ -911,6 +912,7 @@ final class Alert implements AnswerListener {
     }
 
     /** A view key, compared by content -- including a {@code BYTES} column's. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record RowKey(Object[] values) {
         @Override
         public boolean equals(Object other) {

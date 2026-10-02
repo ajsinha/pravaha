@@ -87,6 +87,7 @@ final class AnswerChanges {
     }
 
     /** A row compared by its values, arrays included. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record Row(Object[] values) {
         @Override
         public boolean equals(Object other) {

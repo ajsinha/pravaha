@@ -104,6 +104,7 @@ final class DetectingScanReader implements PartitionReader {
         };
     }
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Change(long weight, Digest key, byte[] row, long eventTimeNanos) {}
 
     private final IAerospikeClient client;

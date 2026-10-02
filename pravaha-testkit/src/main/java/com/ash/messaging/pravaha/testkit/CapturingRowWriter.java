@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 public final class CapturingRowWriter implements RowWriter {
 
     /** One captured row: its column values, its Z-set weight and its timestamps. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     public record Captured(Object[] values, long weight, long eventTimeNanos, long sequence) {
 
         /** A column as a {@code long}, which is what most assertions want. */

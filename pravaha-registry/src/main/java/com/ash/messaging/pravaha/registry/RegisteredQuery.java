@@ -541,14 +541,6 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /**
-     * Ends the subscriptions opened under one of this computation's names, with the reason.
-     *
-     * <p>STRM-14. For a drop that does not release the computation: the name is gone and its view
-     * with it, so a subscriber that asked for that name has nothing left to watch, while every
-     * subscriber on a surviving name is correctly untouched -- which is the mirror case STRM-067
-     * confirmed was already right, and the reason this is by name rather than wholesale.
-     */
-    /**
      * Closes this computation because the node is going down, not because anybody dropped it
      * (STRM-12).
      *
@@ -566,6 +558,14 @@ public final class RegisteredQuery implements AutoCloseable {
         close();
     }
 
+    /**
+     * Ends the subscriptions opened under one of this computation's names, with the reason.
+     *
+     * <p>STRM-14. For a drop that does not release the computation: the name is gone and its view
+     * with it, so a subscriber that asked for that name has nothing left to watch, while every
+     * subscriber on a surviving name is correctly untouched -- which is the mirror case STRM-067
+     * confirmed was already right, and the reason this is by name rather than wholesale.
+     */
     void endSubscriptionsUnder(String name, PravahaException why) {
         for (Subscription subscription : subscriptions) {
             if (name.equals(subscription.queryName())) {

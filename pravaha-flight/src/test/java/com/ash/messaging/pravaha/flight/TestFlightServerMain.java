@@ -55,18 +55,6 @@ import com.ash.messaging.pravaha.serving.ViewCatalog;
 public final class TestFlightServerMain {
 
     /**
-     * Tails {@code feedFile} and pushes each line into every registered query over {@code trade}.
-     *
-     * <p>Deliberately the push path rather than a source plugin: this module cannot depend on the
-     * server or on a plugin without a cycle, and what a cross-language test needs from ingest is
-     * that a row the client wrote reaches the query it registered. The plugin ingest paths have
-     * their own tests in the modules that own them.
-     *
-     * <p>Line format: {@code trade_id,product_type,trade_json[,weight]}. The optional weight is
-     * what lets a client in another language see a retraction, which is otherwise unreachable from
-     * outside the engine.
-     */
-    /**
      * FEED-1, for a client in another language: a query registered under a name starting {@code
      * stalled_} gets a feed whose source has already stopped with {@code PRV-5040} at {@code
      * trade#0}, so an SDK's listing can be checked against a real server. Every other name has no
@@ -121,6 +109,18 @@ public final class TestFlightServerMain {
         };
     }
 
+    /**
+     * Tails {@code feedFile} and pushes each line into every registered query over {@code trade}.
+     *
+     * <p>Deliberately the push path rather than a source plugin: this module cannot depend on the
+     * server or on a plugin without a cycle, and what a cross-language test needs from ingest is
+     * that a row the client wrote reaches the query it registered. The plugin ingest paths have
+     * their own tests in the modules that own them.
+     *
+     * <p>Line format: {@code trade_id,product_type,trade_json[,weight]}. The optional weight is
+     * what lets a client in another language see a retraction, which is otherwise unreachable from
+     * outside the engine.
+     */
     private static void startFeeding(QueryRegistry registry, StreamSchema schema, java.nio.file.Path feedFile) {
         Thread feeder = new Thread(
                 () -> {

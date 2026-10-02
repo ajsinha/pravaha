@@ -44,6 +44,7 @@ import java.util.Map;
 final class PgTestClient implements AutoCloseable {
 
     /** One backend message, framed and no further interpreted. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Message(char type, byte[] payload) {
 
         /** The payload as a sequence of null-terminated strings. */

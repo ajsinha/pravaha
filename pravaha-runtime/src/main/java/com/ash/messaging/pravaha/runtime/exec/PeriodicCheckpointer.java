@@ -139,7 +139,6 @@ public final class PeriodicCheckpointer implements AutoCloseable {
                 log);
     }
 
-    /** Starts the schedule. The first checkpoint is one interval away, not immediate. */
     /**
      * Sends every checkpoint failure, and nothing else, to {@code consumer}.
      *
@@ -169,6 +168,7 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         return this;
     }
 
+    /** Starts the schedule. The first checkpoint is one interval away, not immediate. */
     public void start() {
         if (!running.compareAndSet(false, true)) {
             return;

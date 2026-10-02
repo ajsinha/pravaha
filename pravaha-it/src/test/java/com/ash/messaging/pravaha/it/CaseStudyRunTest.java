@@ -273,6 +273,7 @@ class CaseStudyRunTest {
 
     private record View(String name, String file, List<String> keys) {}
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Row(long time, boolean retraction, Object[] values) {}
 
     private record Answer(String target, List<Object> parameters, List<String> rows) {

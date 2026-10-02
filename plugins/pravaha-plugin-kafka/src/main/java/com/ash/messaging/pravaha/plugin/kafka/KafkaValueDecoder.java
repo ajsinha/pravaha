@@ -47,6 +47,7 @@ interface KafkaValueDecoder {
      *     nanoseconds), {@code Float}, {@code Double}, {@code BigDecimal} at the column's scale,
      *     {@code byte[]}, {@code String}, or null
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Row(Object[] values, long weight, long eventTimeNanos) {}
 
     /** Why a record could not be decoded, as a sentence. Carries no stack: it is data, not a bug. */

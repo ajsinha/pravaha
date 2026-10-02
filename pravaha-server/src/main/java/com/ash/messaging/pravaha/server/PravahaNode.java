@@ -1431,10 +1431,6 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     /**
-     * The source bindings this node reads, for striking their option values out of a stopped feed's
-     * message before it leaves the node (FEED-1); empty before it starts.
-     */
-    /**
      * What has been dead-lettered on this node, readable (B5).
      *
      * <p>{@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} until the node is
@@ -1447,6 +1443,10 @@ public class PravahaNode implements SmartLifecycle {
         return open == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE : open.deadLetters();
     }
 
+    /**
+     * The source bindings this node reads, for striking their option values out of a stopped feed's
+     * message before it leaves the node (FEED-1); empty before it starts.
+     */
     public Optional<PluginSourceFeeds> sources() {
         return Optional.ofNullable(feeds);
     }

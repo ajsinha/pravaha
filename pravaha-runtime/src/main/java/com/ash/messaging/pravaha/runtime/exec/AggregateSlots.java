@@ -144,6 +144,7 @@ final class AggregateSlots {
      * content, since what decides whether a group re-publishes is whether its answer changed --
      * and 0 becoming NULL is a change.
      */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     record Answer(long[] values, boolean[] nulls) {
 
         @Override

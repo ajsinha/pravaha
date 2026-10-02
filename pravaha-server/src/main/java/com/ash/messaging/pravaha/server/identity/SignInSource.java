@@ -39,6 +39,7 @@ public final class SignInSource {
 
     private final List<Block> trusted;
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Block(byte[] network, int bits) {
         boolean contains(byte[] address) {
             if (address.length != network.length) {

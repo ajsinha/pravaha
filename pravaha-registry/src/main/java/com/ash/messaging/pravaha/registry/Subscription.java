@@ -266,13 +266,13 @@ public final class Subscription implements AutoCloseable {
         }
     }
 
+    /** Whether {@link #close} threw away changes the subscriber had not received. Guarded by {@code lock}. */
+    private boolean abandoned;
+
     /**
      * Changes waiting for this subscriber: how far behind it is, in the unit {@code bufferRows}
      * bounds.
      */
-    /** Whether {@link #close} threw away changes the subscriber had not received. Guarded by {@code lock}. */
-    private boolean abandoned;
-
     public int pending() {
         lock.lock();
         try {

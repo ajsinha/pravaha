@@ -168,6 +168,11 @@ public final class BinaryRowView implements RowView {
         return region.equalsBytes(offset + region.getInt(slot), literal);
     }
 
+    /** The byte length of a text or binary column's value, read from its slot. */
+    public int payloadLength(int ordinal) {
+        return region.getInt(offset + layout.offsetOf(ordinal) + 4);
+    }
+
     /**
      * Whether a text column holds exactly {@code ascii}, compared in place with nothing allocated.
      *
@@ -179,11 +184,6 @@ public final class BinaryRowView implements RowView {
      * 'COMPLETED'} decoded a String for every row, and that allocation was half of a lane's time
      * and most of its garbage (gate P2, 2026-09-26).
      */
-    /** The byte length of a text or binary column's value, read from its slot. */
-    public int payloadLength(int ordinal) {
-        return region.getInt(offset + layout.offsetOf(ordinal) + 4);
-    }
-
     public boolean asciiEquals(int ordinal, String ascii) {
         int slot = offset + layout.offsetOf(ordinal);
         int length = region.getInt(slot + 4);

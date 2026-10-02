@@ -107,6 +107,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
     private long openLabel = -1;
     private int nextSeq;
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Change(Object[] values, long weight) {}
 
     @Override

@@ -168,14 +168,6 @@ public class PravahaServerApplication {
     }
 
     /**
-     * Starts the engine after the web layer can serve health, and stops it before the web layer
-     * goes away.
-     *
-     * <p>Ordered explicitly through {@link SmartLifecycle} rather than left to Spring's bean
-     * destruction order: lanes must drain before the HTTP surface stops accepting, and bean order
-     * does not express that.
-     */
-    /**
      * The policy the HTTP surface authorizes against, and the sink that records its decisions.
      *
      * <p>Built from the same configuration key the engine reads, so the two halves of the node
@@ -304,6 +296,14 @@ public class PravahaServerApplication {
         };
     }
 
+    /**
+     * Starts the engine after the web layer can serve health, and stops it before the web layer
+     * goes away.
+     *
+     * <p>Ordered explicitly through {@link SmartLifecycle} rather than left to Spring's bean
+     * destruction order: lanes must drain before the HTTP surface stops accepting, and bean order
+     * does not express that.
+     */
     @Bean
     public SmartLifecycle pravahaLifecycle(PravahaEngine engine) {
         return new SmartLifecycle() {

@@ -49,6 +49,7 @@ final class CdcSchema {
     record Column(String name, int typeOid, char typtype, boolean notNull, int typmod, String typeName) {}
 
     /** The stream, and for each of its fields the table column and type OID it is read from. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Mapping(StreamSchema schema, List<String> columnNames, int[] typeOids) {}
 
     private CdcSchema() {}

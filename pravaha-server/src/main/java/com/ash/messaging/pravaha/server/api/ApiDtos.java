@@ -451,20 +451,6 @@ public final class ApiDtos {
             Problem problem) {}
 
     /**
-     * What the node is and how it is doing. Served even when the console process is down.
-     *
-     * @param registeredQueries how many registrations the node holds, by name -- two names for one
-     *     computation are two. It was the stream count until HLP-8
-     * @param streams how many streams the node has declared
-     * @param stoppedFeeds how many registered names have a source that stopped mid-read and is not
-     *     retried (FEED-1). A count and not names: this endpoint answers anyone who can reach the
-     *     port, and which queries exist is the listing's to decide
-     * @param flight where Flight SQL is listening, {@code host:port} with an IPv6 host bracketed,
-     *     or {@code "disabled"}. CFG-2(b): {@code pravaha.flight.port: 0} binds an ephemeral port
-     *     and nothing served it, so a client told to connect had nowhere to look -- the log line on
-     *     the node is not reachable from the client that needs the number
-     */
-    /**
      * How the node places queries on lanes ({@code GET /api/v1/lanes}), as in effect in its registry.
      *
      * @param mode {@code auto}, {@code true} or {@code false}, as {@code pravaha.lane.multiplex.enabled}
@@ -489,6 +475,20 @@ public final class ApiDtos {
     /** One shared lane: its number and the query pipelines on it. */
     public record SharedLane(int lane, int queries) {}
 
+    /**
+     * What the node is and how it is doing. Served even when the console process is down.
+     *
+     * @param registeredQueries how many registrations the node holds, by name -- two names for one
+     *     computation are two. It was the stream count until HLP-8
+     * @param streams how many streams the node has declared
+     * @param stoppedFeeds how many registered names have a source that stopped mid-read and is not
+     *     retried (FEED-1). A count and not names: this endpoint answers anyone who can reach the
+     *     port, and which queries exist is the listing's to decide
+     * @param flight where Flight SQL is listening, {@code host:port} with an IPv6 host bracketed,
+     *     or {@code "disabled"}. CFG-2(b): {@code pravaha.flight.port: 0} binds an ephemeral port
+     *     and nothing served it, so a client told to connect had nowhere to look -- the log line on
+     *     the node is not reachable from the client that needs the number
+     */
     public record NodeStatus(
             String instanceId,
             String version,

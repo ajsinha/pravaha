@@ -392,12 +392,6 @@ final class ExpressionCompiler {
     }
 
     /**
-     * A numeric cast, which Calcite inserts on its own whenever operand types differ.
-     *
-     * <p>Accepted only between numbers. A cast to or from text, or anything else, is refused by name
-     * rather than evaluated as whatever the underlying long happens to be.
-     */
-    /**
      * {@code CASE WHEN a THEN x WHEN b THEN y ELSE z END}.
      *
      * <p>Calcite flattens the chain into one call: condition, value, condition, value, …, else. It
@@ -619,6 +613,12 @@ final class ExpressionCompiler {
         };
     }
 
+    /**
+     * A numeric cast, which Calcite inserts on its own whenever operand types differ.
+     *
+     * <p>Accepted only between numbers. A cast to or from text, or anything else, is refused by name
+     * rather than evaluated as whatever the underlying long happens to be.
+     */
     private Expression cast(RexCall call) {
         if (isIdentityCast(call)) {
             // Calcite inserts a cast of a VARCHAR onto itself to settle a charset or a nullability

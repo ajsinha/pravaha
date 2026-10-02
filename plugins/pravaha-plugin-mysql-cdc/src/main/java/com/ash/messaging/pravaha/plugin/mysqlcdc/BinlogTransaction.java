@@ -63,6 +63,7 @@ record BinlogTransaction(
      * @param rejected why the row could not be converted, or null; offered to the dead-letter queue
      * @param raw the row as text, for the dead-letter queue
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Change(Object[] values, long weight, String rejected, byte[] raw) {
 
         /** A row from its binlog image, every column in table order. */

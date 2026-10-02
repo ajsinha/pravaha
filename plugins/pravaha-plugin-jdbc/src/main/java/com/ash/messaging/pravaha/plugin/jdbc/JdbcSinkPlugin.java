@@ -333,11 +333,6 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         this.deleteSql = JdbcDialect.delete(target, keys);
     }
 
-    /**
-     * Creates the staging table when it is missing. Probed with a query that returns nothing rather
-     * than looked up in the catalogue, so it is found under exactly the spelling every statement
-     * here will use.
-     */
     /** Refuses prepared mode where the database cannot prepare a transaction, before a row moves. */
     private void requirePreparedTransactions() throws SQLException {
         if (dialect != JdbcDialect.POSTGRESQL) {
@@ -391,6 +386,11 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         }
     }
 
+    /**
+     * Creates the staging table when it is missing. Probed with a query that returns nothing rather
+     * than looked up in the catalogue, so it is found under exactly the spelling every statement
+     * here will use.
+     */
     private void ensureStagingTable() throws SQLException {
         try (Statement probe = connection.createStatement()) {
             probe.executeQuery("SELECT sink_id, label, seq, payload FROM " + stagingTable + " WHERE 1 = 0")

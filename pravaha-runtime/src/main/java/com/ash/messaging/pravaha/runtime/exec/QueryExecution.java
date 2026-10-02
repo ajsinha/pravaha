@@ -344,13 +344,6 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /**
-     * Feeds one lane from a source partition.
-     *
-     * <p>One pump per partition per lane, because a pump owns the backpressure decision for the
-     * reader it holds: two pumps sharing a reader would pause it for one lane's fullness and resume
-     * it for another's emptiness, which is not backpressure so much as a fight.
-     */
-    /**
      * The row-header identity a pre-combined partial aggregate carries into a lane, never given to a
      * stream: {@code QueryRegistry} numbers streams upwards from one and zero means unassigned.
      */
@@ -377,6 +370,13 @@ public final class QueryExecution implements AutoCloseable {
         return views;
     }
 
+    /**
+     * Feeds one lane from a source partition.
+     *
+     * <p>One pump per partition per lane, because a pump owns the backpressure decision for the
+     * reader it holds: two pumps sharing a reader would pause it for one lane's fullness and resume
+     * it for another's emptiness, which is not backpressure so much as a fight.
+     */
     public IngestPump pumpInto(int laneIndex, PartitionReader reader, BackpressurePolicy policy) {
         if (streams.size() != 1) {
             throw new IllegalStateException("this query reads " + streams
@@ -385,23 +385,6 @@ public final class QueryExecution implements AutoCloseable {
         return pumpInto(laneIndex, streams.get(0), reader, policy);
     }
 
-    /**
-     * Hands one row to the query, by stream name.
-     *
-     * <p>The seam a caller needs when it already has a row and no source plugin: a registry fed by
-     * something else, an embedder pushing from its own loop, a test. A pump is the right shape when
-     * there is a source to poll; this is the right shape when the rows arrive by other means.
-     *
-     * <p>Copies into the lane's inbox and returns. <strong>The row is processed on the lane's
-     * thread, not this one</strong>, so a caller that reads the view immediately afterwards may see
-     * the state before this row. That is the engine being what it is rather than a wart: work is
-     * done by the thread that owns the state, which is what removes the locks. {@link
-     * #awaitQuiescent} is how a caller that needs the row applied waits for it.
-     *
-     * @return false if the lane's inbox is full, which is backpressure and not an error. The caller
-     *     decides whether to retry, drop or slow down, because only it knows which its source
-     *     permits
-     */
     /**
      * Hands one row to a query that reads exactly one stream.
      *
@@ -422,6 +405,23 @@ public final class QueryExecution implements AutoCloseable {
         return lanes.lane(0).inboxCellBytes();
     }
 
+    /**
+     * Hands one row to the query, by stream name.
+     *
+     * <p>The seam a caller needs when it already has a row and no source plugin: a registry fed by
+     * something else, an embedder pushing from its own loop, a test. A pump is the right shape when
+     * there is a source to poll; this is the right shape when the rows arrive by other means.
+     *
+     * <p>Copies into the lane's inbox and returns. <strong>The row is processed on the lane's
+     * thread, not this one</strong>, so a caller that reads the view immediately afterwards may see
+     * the state before this row. That is the engine being what it is rather than a wart: work is
+     * done by the thread that owns the state, which is what removes the locks. {@link
+     * #awaitQuiescent} is how a caller that needs the row applied waits for it.
+     *
+     * @return false if the lane's inbox is full, which is backpressure and not an error. The caller
+     *     decides whether to retry, drop or slow down, because only it knows which its source
+     *     permits
+     */
     public boolean accept(String streamName, RowView row) {
         int input = streams.indexOf(streamName);
         if (input < 0) {
@@ -1091,29 +1091,6 @@ public final class QueryExecution implements AutoCloseable {
         return sources.backpressure();
     }
 
-    /**
-     * Takes a checkpoint: every lane's state, paired with every source's offset.
-     *
-     * <p>Each lane snapshots its own state on its own thread, between batches. That is not caution
-     * about locking -- there is no lock to take -- it is the only moment at which a lane's state is
-     * a coherent thing to copy at all: mid-batch, an operator has seen some of a batch's rows and
-     * not others, and the offset the pump would report has moved past all of them.
-     *
-     * <p><strong>Aligned.</strong> The cut is one point in the query's input, not one point per
-     * lane. Every source is held between rows for the length of phase one; inside that, each
-     * source's offset is read and each lane is given a marker at the position its producers have
-     * reached. Only then is any lane waited on. A lane cuts its batch at the marker rather than
-     * finishing the batch it was in, so the state it snapshots covers exactly the rows the recorded
-     * offsets exclude -- which is what "exactly-once state" has to mean to be worth saying.
-     *
-     * <p>Output is cut here too when {@link #cuttingOutputWith} gave it a hook: on the lane, in the
-     * same task, at the same marker. That is what lets a transactional sink be prepared at exactly
-     * the point the checkpoint describes, and it is the registry's to arrange, since the execution
-     * knows nothing of views or sinks. Without the hook a row emitted before the cut and re-emitted
-     * after a restore is a duplicate this cannot prevent (ADR-008, design section 14.4).
-     *
-     * <p>What is still not cut is the exchange. See {@link #refuseWhileRowsCrossTheExchange}.
-     */
     /** The key a served view's contents travel under inside a checkpoint's operator state. */
     public static final String SERVED_VIEW_STATE = "served-view";
 
@@ -1206,6 +1183,29 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Takes a checkpoint: every lane's state, paired with every source's offset.
+     *
+     * <p>Each lane snapshots its own state on its own thread, between batches. That is not caution
+     * about locking -- there is no lock to take -- it is the only moment at which a lane's state is
+     * a coherent thing to copy at all: mid-batch, an operator has seen some of a batch's rows and
+     * not others, and the offset the pump would report has moved past all of them.
+     *
+     * <p><strong>Aligned.</strong> The cut is one point in the query's input, not one point per
+     * lane. Every source is held between rows for the length of phase one; inside that, each
+     * source's offset is read and each lane is given a marker at the position its producers have
+     * reached. Only then is any lane waited on. A lane cuts its batch at the marker rather than
+     * finishing the batch it was in, so the state it snapshots covers exactly the rows the recorded
+     * offsets exclude -- which is what "exactly-once state" has to mean to be worth saying.
+     *
+     * <p>Output is cut here too when {@link #cuttingOutputWith} gave it a hook: on the lane, in the
+     * same task, at the same marker. That is what lets a transactional sink be prepared at exactly
+     * the point the checkpoint describes, and it is the registry's to arrange, since the execution
+     * knows nothing of views or sinks. Without the hook a row emitted before the cut and re-emitted
+     * after a restore is a duplicate this cannot prevent (ADR-008, design section 14.4).
+     *
+     * <p>What is still not cut is the exchange. See {@link #refuseWhileRowsCrossTheExchange}.
+     */
     public com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint(long id, Duration timeout) {
         refuseWhileRowsCrossTheExchange();
         OutputCut cut = outputCut;

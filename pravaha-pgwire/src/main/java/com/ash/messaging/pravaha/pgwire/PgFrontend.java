@@ -82,6 +82,7 @@ final class PgFrontend {
     private static final int CANCEL_REQUEST_BYTES = 16;
 
     /** A framed frontend message: its one-byte type, and its payload with the length stripped. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Message(char type, byte[] payload) {
 
         /** The payload read as a single null-terminated string, which most of them are. */

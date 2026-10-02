@@ -542,8 +542,6 @@ class FilesystemPluginTest {
 
     // ------------------------------------------------------------------ helpers
 
-    /** Reads every row into arena-backed views, mirroring how the engine will drive a reader. */
-
     /**
      * Reads every row and hands them to {@code body} <em>while the arena is still open</em>.
      *

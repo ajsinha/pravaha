@@ -69,6 +69,7 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
 
     private record Decoded(long offset, KafkaValueDecoder.Row row) implements Item {}
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Rejected(long offset, byte[] raw, String reason) implements Item {}
 
     /** Offsets up to {@code next} hold nothing to hand over: a skipped tombstone, a marker, an aborted record. */

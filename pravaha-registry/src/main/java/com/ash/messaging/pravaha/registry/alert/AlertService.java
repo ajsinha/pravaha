@@ -492,10 +492,10 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     // ------------------------------------------------------------------ the statements
 
-    /** {@code CREATE ALERT}. */
     /** Names an alert may not take: the alert API's own literal paths (ALERTPATH-1). */
     private static final java.util.Set<String> RESERVED_NAMES = java.util.Set.of("channels");
 
+    /** {@code CREATE ALERT}. */
     public synchronized AlertStatus.Summary create(Principal principal, AlertStatement.Create statement) {
         String name = CatalogNames.part(statement.name(), "an alert's name");
         if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {

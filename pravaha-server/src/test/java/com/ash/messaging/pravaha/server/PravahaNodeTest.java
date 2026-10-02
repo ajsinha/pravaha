@@ -301,7 +301,6 @@ class PravahaNodeTest {
         return security;
     }
 
-    /** Journal where the caller asked for one, and no checkpoint directory. */
     /** A node with a named id, its own checkpoint directory, and the ownership rule in force. */
     private static PravahaNode ownedNode(String nodeId, java.nio.file.Path checkpointDirectory, String journal) {
         PersistenceProperties persistence = persistence(journal);
@@ -415,6 +414,7 @@ class PravahaNodeTest {
         restarted.stop();
     }
 
+    /** Journal where the caller asked for one, and no checkpoint directory. */
     private static PersistenceProperties persistence(String journal) {
         PersistenceProperties persistence = new PersistenceProperties();
         persistence.getRegistry().setJournal(journal == null ? "" : journal);

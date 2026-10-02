@@ -1233,19 +1233,6 @@ public sealed interface Expression {
     }
 
     /**
-     * {@code value}, if it is within {@code type}'s range; an {@link ArithmeticException} naming the
-     * expression and the range if {@code type} is {@code INT}, {@code SMALLINT} or {@code TINYINT}
-     * and it is not (NARROWINT-1). Every other type passes through: {@code BIGINT} is checked by the
-     * {@code *Exact} arithmetic that produced the value.
-     *
-     * <p>An overflow, not a wrap and not a silent widening: SQL gives {@code INT * INT} the type
-     * {@code INT}, and a value outside it has no answer of that type. It is routed as a {@code BIGINT}
-     * overflow is -- the query stops {@code PRV-8003}, or the row is dead-lettered where that applies
-     * -- and a filter on the expression meets the same exception as the projection of it, so the two
-     * cannot disagree. Widening the operands ({@code CAST(i AS BIGINT) * 2}) is how to ask for the
-     * 64-bit answer.
-     */
-    /**
      * A floating-point {@code value} converted to an integer for a {@code CAST} to {@code type},
      * truncated towards zero; an {@link ArithmeticException} if it has no integer answer
      * (NARROWCAST-1). {@code NaN} and the infinities are not numbers an integer can hold, and a
@@ -1270,6 +1257,19 @@ public sealed interface Expression {
         return (long) value;
     }
 
+    /**
+     * {@code value}, if it is within {@code type}'s range; an {@link ArithmeticException} naming the
+     * expression and the range if {@code type} is {@code INT}, {@code SMALLINT} or {@code TINYINT}
+     * and it is not (NARROWINT-1). Every other type passes through: {@code BIGINT} is checked by the
+     * {@code *Exact} arithmetic that produced the value.
+     *
+     * <p>An overflow, not a wrap and not a silent widening: SQL gives {@code INT * INT} the type
+     * {@code INT}, and a value outside it has no answer of that type. It is routed as a {@code BIGINT}
+     * overflow is -- the query stops {@code PRV-8003}, or the row is dead-lettered where that applies
+     * -- and a filter on the expression meets the same exception as the projection of it, so the two
+     * cannot disagree. Widening the operands ({@code CAST(i AS BIGINT) * 2}) is how to ask for the
+     * 64-bit answer.
+     */
     static long fitNarrow(long value, TypeName type, Expression where) {
         long min;
         long max;

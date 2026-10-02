@@ -54,6 +54,7 @@ import java.util.Optional;
  * @param timestampNanos when the engine rejected it, not when it was produced; monotonic, for order
  * @param wallMillis the same moment on the wall clock, or zero when it was not recorded
  */
+@SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
 public record DeadLetter(
         String queryId,
         String reason,

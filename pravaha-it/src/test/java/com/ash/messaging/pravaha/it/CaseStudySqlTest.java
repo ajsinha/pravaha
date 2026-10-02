@@ -366,6 +366,7 @@ class CaseStudySqlTest {
      * source -- each registered as a stream, as a node with two {@code pravaha.sources} bindings
      * registers them. Planning the second as a lookup would refuse the join those studies run.
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Schemas(List<StreamSchema> sources, StreamSchema[] lookups) {
         SqlPlanner planner() {
             PravahaSchema catalog = new PravahaSchema();

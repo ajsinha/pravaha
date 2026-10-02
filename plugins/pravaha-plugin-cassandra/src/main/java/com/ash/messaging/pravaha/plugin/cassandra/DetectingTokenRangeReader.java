@@ -88,8 +88,10 @@ final class DetectingTokenRangeReader implements PartitionReader {
         }
     };
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Change(long weight, long token, byte[] row, long eventTimeNanos) {}
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Seen(byte[] row, long eventTimeNanos) {}
 
     private final PassSource passes;

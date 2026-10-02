@@ -48,6 +48,7 @@ record CdcTransaction(long endLsn, int alreadyDelivered, List<Change> changes, P
      * @param raw the row's text as it arrived, for the dead-letter queue
      * @param key the row's primary key as text, when an initial snapshot needs it; otherwise null
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Change(Object[] values, long weight, long eventTimeNanos, String rejected, byte[] raw, List<String> key) {
 
         /**

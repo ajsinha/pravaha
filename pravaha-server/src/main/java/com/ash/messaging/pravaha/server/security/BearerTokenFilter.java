@@ -54,9 +54,8 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
      * <p>Liveness must not need one: a health probe that authenticates fails closed when the
      * identity source is down, and takes the node out of rotation for a fault that has nothing to
      * do with it.
-     */
-    /**
-     * Health, and the two identity calls a person makes before they hold a credential: signing in, and
+     *
+     * <p>Health, and the two identity calls a person makes before they hold a credential: signing in, and
      * redeeming a reset token an administrator gave them (ADR-052). Each answers for itself.
      */
     private static final Set<String> ALWAYS_OPEN =

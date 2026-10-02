@@ -149,14 +149,12 @@ public class DtoMapper {
         return byNode;
     }
 
-    /** A refusal or failure, as the API shows one. */
     /**
-     * A replacement as the API renders it.
+     * A replacement as {@code caller} is shown it: its query by the name the caller would write (ADR-060).
      *
      * <p>Static, because it maps one immutable answer onto another and needs nothing of the node:
      * the engine already decided everything in it.
      */
-    /** A replacement as {@code caller} is shown it: its query by the name the caller would write (ADR-060). */
     public static ApiDtos.ReplacementStatus replacement(
             com.ash.messaging.pravaha.registry.QueryReplacement.Status status,
             com.ash.messaging.pravaha.security.Principal caller) {
@@ -201,6 +199,7 @@ public class DtoMapper {
                                 com.ash.messaging.pravaha.api.HelpUrls.forCode(status.failureCode())));
     }
 
+    /** A refusal or failure, as the API shows one. */
     public ApiDtos.Problem toProblem(com.ash.messaging.pravaha.api.PravahaException failure, String message) {
         return new ApiDtos.Problem(failure.errorCode().code(), message, failure.helpUrl());
     }

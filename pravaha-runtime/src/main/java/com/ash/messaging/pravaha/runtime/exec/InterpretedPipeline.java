@@ -312,12 +312,6 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
-     * Builds a pipeline.
-     *
-     * @param plan the physical plan, whose root must be a sink
-     * @param sink where the terminal stage writes
-     */
-    /**
      * A slab sized for this plan's own rows rather than a flat megabyte.
      *
      * <p>It was {@code 1 << 20} with 64 slabs for every plan, which measured as 1,024 KiB per active
@@ -346,6 +340,12 @@ public final class InterpretedPipeline implements AutoCloseable {
         return (int) Math.max(4, Math.min(1024, ceiling / slabFor(plan)));
     }
 
+    /**
+     * Builds a pipeline.
+     *
+     * @param plan the physical plan, whose root must be a sink
+     * @param sink where the terminal stage writes
+     */
     public static InterpretedPipeline compile(PhysicalOperator plan, RowOutput sink) {
         return compile(plan, sink, Map.of());
     }
@@ -843,13 +843,6 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
-     * Snapshots every stateful operator in this pipeline.
-     *
-     * <p>Must be called on the thread that owns the pipeline -- the lane thread, between batches --
-     * for the same reason a lane's arena is not shared: reading state from elsewhere while the lane
-     * mutates it produces a snapshot of no moment in particular.
-     */
-    /**
      * Identifies a snapshot as ours.
      *
      * <p>Without it, bytes that were not a snapshot at all would be read as row counts and lengths,
@@ -865,17 +858,15 @@ public final class InterpretedPipeline implements AutoCloseable {
      * <p>Bumped when any operator's serialised form changes. Version 2 added the per-row matched flag
      * that outer joins need. An older snapshot is refused rather than read: the fields would parse,
      * in the wrong places, and the query would resume from state that is wrong without looking wrong.
-     */
-    /**
-     * Version 3: the windowed aggregate's {@code emitted} map dropped its 64-bit key field.
+     *
+     * <p>Version 3: the windowed aggregate's {@code emitted} map dropped its 64-bit key field.
      *
      * <p>It wrote the group twice -- once as a fold of two digests and once as the key columns
      * themselves -- and the fold is gone, so the layout changed. A version 2 snapshot is refused
      * rather than read, which is what this field is for: the alternative is parsing one field as
      * another and resuming from state that is wrong without being obviously wrong.
-     */
-    /**
-     * Version 4: unwindowed aggregates, after the joins.
+     *
+     * <p>Version 4: unwindowed aggregates, after the joins.
      *
      * <p>They were in no snapshot at all, and a pipeline holding only one reported itself stateless,
      * so its lane put nothing in a checkpoint: a restart restored the view and resumed the source
@@ -884,9 +875,8 @@ public final class InterpretedPipeline implements AutoCloseable {
      * <p>A version 3 snapshot is still read, since its layout is version 4's without the aggregates
      * section -- but only into a plan with no unwindowed aggregate. Into one with an aggregate it
      * would restore that aggregate empty, which is the defect version 4 exists to close.
-     */
-    /**
-     * Version 5: a windowed aggregate's own section changed (ADR-044). Its accumulators carry their
+     *
+     * <p>Version 5: a windowed aggregate's own section changed (ADR-044). Its accumulators carry their
      * non-null counts, and {@code COUNT(DISTINCT)}'s values follow them as a section of their own
      * instead of an on-heap set inside each accumulator -- which is what lets them spill.
      *
@@ -909,6 +899,13 @@ public final class InterpretedPipeline implements AutoCloseable {
     /** The last layout without unwindowed aggregates, readable into a plan that has neither those nor windows. */
     private static final int SNAPSHOT_VERSION_WITHOUT_GLOBALS = 3;
 
+    /**
+     * Snapshots every stateful operator in this pipeline.
+     *
+     * <p>Must be called on the thread that owns the pipeline -- the lane thread, between batches --
+     * for the same reason a lane's arena is not shared: reading state from elsewhere while the lane
+     * mutates it produces a snapshot of no moment in particular.
+     */
     public byte[] snapshotState() {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {

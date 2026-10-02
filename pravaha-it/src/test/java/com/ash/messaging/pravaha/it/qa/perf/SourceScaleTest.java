@@ -390,13 +390,6 @@ final class SourceScaleTest {
     }
 
     /**
-     * Open file descriptors for this process.
-     *
-     * <p>Through the JVM's own Unix MXBean where it is present, and {@code /proc/self/fd} otherwise.
-     * Counting a directory is not elegant; being able to state a number here rather than reason
-     * about one is worth the inelegance, and this is the ceiling nobody set.
-     */
-    /**
      * Descriptors this process holds on {@code file} itself. The process-wide count moves with
      * whatever else the JVM opens or closes meanwhile -- a metrics or tracing thread, a finished
      * test's leftovers -- and once went down by six between two registrations; the number this
@@ -419,6 +412,13 @@ final class SourceScaleTest {
         return count;
     }
 
+    /**
+     * Open file descriptors for this process.
+     *
+     * <p>Through the JVM's own Unix MXBean where it is present, and {@code /proc/self/fd} otherwise.
+     * Counting a directory is not elegant; being able to state a number here rather than reason
+     * about one is worth the inelegance, and this is the ceiling nobody set.
+     */
     private static long openDescriptors() {
         java.lang.management.OperatingSystemMXBean os = ManagementFactory.getOperatingSystemMXBean();
         if (os instanceof com.sun.management.UnixOperatingSystemMXBean unix) {

@@ -116,11 +116,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * retract a row whose key has <em>gone</em>: a group whose weights net to zero after the window
      * was published simply stops appearing, and there is nothing left to build the retraction from.
      * So the key's own columns and its window's start travel with it.
-     */
-    /**
-     * What a window published for one group. {@code nulls} marks the answers that were SQL NULL
+     *
+     * <p>What a window published for one group. {@code nulls} marks the answers that were SQL NULL
      * (ALLNULLAGG-1); it takes part in deciding whether a correction changed anything.
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Published(Object[] keyValues, long windowStartNanos, long[] values, boolean[] nulls) {
 
         boolean sameAnswer(long[] otherValues, boolean[] otherNulls) {
@@ -151,6 +151,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * carried in {@link Published} so a vanished key can be named when it is withdrawn, so keying by
      * them costs an array comparison on a path that runs once per window per key, not per row.
      */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record GroupKey(Object[] values) {
 
         @Override
@@ -828,7 +829,6 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         };
     }
 
-    /** Writes one group column back into the result row, in the output schema's type. */
     /** A group's key columns, each tagged with its shape, for the checkpoint. */
     private static void writeTaggedValues(java.io.DataOutput out, Object[] values) throws java.io.IOException {
         out.writeInt(values == null ? -1 : values.length);
@@ -881,6 +881,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         return values;
     }
 
+    /** Writes one group column back into the result row, in the output schema's type. */
     private void writeKey(int column, Object value) {
         if (value == null) {
             writer.setNull(column);
