@@ -254,6 +254,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   expression, so a lane failure still says "long overflow" after the JIT has compiled `Math.*Exact`'s
   throw site and dropped its message. `EmbeddedRegisterApiTest`, `SqlPlannerTest`,
   `NarrowIntegerOverflowTest`, QE-062/063/085/139/152/166.
+- **`pravaha-engine run --dlq` dead-letters rows that fail evaluation (CLIDLQ-1).** The one-shot
+  runner dead-lettered only records the source could not decode, so a row that divided by zero stopped
+  the run with `--dlq` given, while the server and the embedded engine dead-letter it (`PRV-3027`,
+  DLQPROJ-1). The runner now attaches the same row-failure path to its queue: the row is written with
+  its columns, counted in `N rejected`, and the run finishes; without `--dlq` it still fails the run.
+  `PravahaCliTest`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

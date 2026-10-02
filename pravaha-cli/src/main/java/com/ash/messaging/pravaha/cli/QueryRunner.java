@@ -71,7 +71,8 @@ public final class QueryRunner {
     /**
      * What a run produced.
      *
-     * @param rowsRejected records the source could not decode, which went to the dead-letter queue.
+     * @param rowsRejected records the source could not decode, and rows whose evaluation failed before
+     *     reaching state (PRV-3027, CLIDLQ-1), which went to the dead-letter queue.
      *     Always zero without {@code --dlq}, because without one a bad record still fails the run
      * @param deadLetterFailures entries the dead-letter queue could not write. Non-zero means the
      *     run's own record of what it discarded is incomplete, which is worth more attention than
@@ -201,6 +202,11 @@ public final class QueryRunner {
                     IngestPump pump = execution.pumpInto(0, reader, BackpressurePolicy.defaults());
                     if (deadLetters != null) {
                         pump.deadLetteringTo(deadLetters, streamName);
+                        // CLIDLQ-1: a row that decodes and then fails evaluation before it reaches
+                        // state goes to the same file, coded PRV-3027, and the run goes on -- as the
+                        // server and the embedded engine have since DLQPROJ-1. Without --dlq it still
+                        // fails the run.
+                        execution.deadLetterRowFailures(rowFailuresTo(deadLetters, streamName));
                     }
                     // Pump until the source is exhausted. A pump returns zero both when the source
                     // has nothing right now and when it has nothing ever, and a file source is the
@@ -293,6 +299,26 @@ public final class QueryRunner {
      * asked for the rejected records to be kept, and continuing without keeping them would discard
      * exactly the records they said they wanted.
      */
+    /**
+     * A row whose evaluation failed, as a dead letter in the run's queue: coded {@code PRV-3027}, its
+     * columns as a JSON object, under the same name the pump files decode failures by.
+     */
+    private static com.ash.messaging.pravaha.runtime.exec.RowFailureSink rowFailuresTo(
+            DeadLetterQueue deadLetters, String queryId) {
+        return (stream, schema, row, failure) ->
+                deadLetters.accept(new com.ash.messaging.pravaha.runtime.dlq.DeadLetter(
+                        queryId,
+                        "evaluating the row failed and it was not applied: " + failure.getMessage(),
+                        com.ash.messaging.pravaha.runtime.RuntimeErrors.ROW_EVALUATION_FAILED.code(),
+                        stream,
+                        IngestPump.schemaSignature(schema),
+                        "",
+                        row.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        java.util.UUID.randomUUID().toString(),
+                        System.nanoTime(),
+                        System.currentTimeMillis()));
+    }
+
     private static DeadLetterQueue openDeadLetters(Path file) {
         if (file == null) {
             return null;
