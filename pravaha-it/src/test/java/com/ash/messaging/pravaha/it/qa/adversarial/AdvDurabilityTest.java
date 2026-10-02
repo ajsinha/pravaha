@@ -35,7 +35,6 @@ import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -816,17 +815,14 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-164: a CSV TIMESTAMP after 2262-04-11 overflows nanoseconds silently and the row is stamped in 1677")
     void qe164_aTimestampPastTheNanosecondRangeIsRefusedNotWrapped(@TempDir Path dir) throws Exception {
-        List<String> rows = farFuture(dir);
-        assertThat(rows).isNotEmpty().allSatisfy(r -> assertThat(r).doesNotContain("|-"));
-    }
-
-    @Test
-    void qe164_observed(@TempDir Path dir) throws Exception {
+        // FARTIME-1, fixed: the line is refused as a decode failure naming the line, the column and
+        // the range (PRV-5040), never stored stamped in 1677.
         List<String> rows = farFuture(dir);
         System.out.println("NOTE QE-164 " + rows);
-        assertThat(rows).anySatisfy(r -> assertThat(r).contains("|-"));
+        assertThat(rows).noneSatisfy(r -> assertThat(r).contains("|-"));
+        assertThat(rows).noneSatisfy(r -> assertThat(r).startsWith("1|"));
+        assertThat(String.join("\n", rows)).contains("PRV-5040").contains("2262-04-11");
     }
 
     static List<String> farFuture(Path dir) throws Exception {
@@ -850,6 +846,8 @@ class AdvDurabilityTest {
                     .scan()
                     .forEach(r -> raw.add(r[0] + "|"
                             + (r[1] instanceof Instant i ? i.getEpochSecond() * 1_000_000_000L + i.getNano() : r[1])));
+            raw.add("state=" + AdvSupport.state(engine, "q"));
+            raw.add("dlq=" + engine.deadLetters().page("q", 0, 10));
             return raw;
         }
     }

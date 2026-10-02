@@ -297,6 +297,12 @@ else is checked.
     Set `pravaha.dlq.directory` and the line is written there with its reason while the source reads
     on. See [dead letters](/help/topics/dead-letters).
 
+!!! note "A timestamp after 2262 is a bad line, not a wrapped one"
+    A `TIMESTAMP` or `TIME` is held as nanoseconds since 1970 in 64 bits, which covers 1677-09-21 to
+    2262-04-11 UTC. A value outside that — `3000-01-01T00:00:00Z` — is refused with PRV-5040 naming
+    the line, the column and the range, exactly as a bad number is. It used to wrap silently and be
+    stored as a time in 1677 (FARTIME-1).
+
 !!! note "The two schemas must agree"
     `pravaha.streams.txn.schema` is what queries are planned against; `options.schema` is what the
     plugin decodes with. They are read by different components and are not compared for you. If they

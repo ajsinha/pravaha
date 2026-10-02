@@ -393,6 +393,24 @@ class FilesystemPluginTest {
     }
 
     @Test
+    void aTimestampPastTheNanosecondRangeIsRefusedNotWrapped(@TempDir Path dir) throws IOException {
+        // FARTIME-1. 3000-01-01 in nanoseconds since 1970 does not fit 64 bits; the unchecked
+        // product wrapped it to -4389808147419103232, a row stamped in 1677.
+        Path input = dir.resolve("far.csv");
+        Files.writeString(input, "1,3000-01-01T00:00:00Z\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", "id:INT64,ts:TIMESTAMP")));
+            source.open();
+            assertThatThrownBy(() -> countRows(source))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("PRV-5040")
+                    .hasMessageContaining("line 1")
+                    .hasMessageContaining("'ts'")
+                    .hasMessageContaining("2262-04-11");
+        }
+    }
+
+    @Test
     void aNullInANotNullColumnIsRefused(@TempDir Path dir) throws IOException {
         Path input = dir.resolve("bad.csv");
         Files.writeString(input, "1,,1.0,true,x\n");

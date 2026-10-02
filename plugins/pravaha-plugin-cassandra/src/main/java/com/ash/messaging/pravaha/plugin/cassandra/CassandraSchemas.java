@@ -160,7 +160,15 @@ public final class CassandraSchemas {
                     "event.time column '" + column + "' is null on a row that has one; declare it NOT NULL in "
                             + "Cassandra or choose a column that always holds a value");
         }
-        return instant.getEpochSecond() * 1_000_000_000L + instant.getNano();
+        try {
+            // Checked, as the filesystem codec is (FARTIME-1): past 2262-04-11 the product wraps.
+            return Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
+        } catch (ArithmeticException outOfRange) {
+            throw new PravahaException(
+                    CassandraErrors.UNSUPPORTED_TYPE,
+                    "column '" + column + "' holds " + instant + ", outside the range this engine holds a TIMESTAMP "
+                            + "in (nanoseconds since 1970 in 64 bits: 1677-09-21 to 2262-04-11 UTC)");
+        }
     }
 
     private static byte[] bytesOf(ByteBuffer buffer) {

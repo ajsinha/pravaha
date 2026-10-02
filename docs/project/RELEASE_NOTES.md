@@ -214,6 +214,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   rows the same way. A negated `DOUBLE`/`REAL` comparison is now the total complement restricted to
   rows where both sides are present, interpreted and generated alike; a NULL stays out of both.
   `NegatedFloatingComparisonTest`, QE-014.
+- **A file timestamp past 2262 is refused, not wrapped into 1677 (FARTIME-1).** The filesystem codec
+  multiplied epoch seconds by 10⁹ unchecked, so `3000-01-01T00:00:00Z` was stored as
+  `-4389808147419103232` ns. It now checks the product and refuses the line with `PRV-5040` naming the
+  line, the column and the range (1677-09-21 to 2262-04-11 UTC) — dead-lettered with a queue, a stopped
+  source without one; a `DATE` past 32 bits of days likewise. The Cassandra event-time read is checked
+  the same way (`PRV-5087`). `FilesystemPluginTest`, QE-164.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
