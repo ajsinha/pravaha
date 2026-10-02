@@ -617,8 +617,12 @@ class AdvSecurityTest {
         seen.put(
                 "QE-136 smuggled name",
                 as("eve", "CREATE CONTINUOUS QUERY \"acme.default.x\" KEYED BY (id) AS SELECT id FROM txn"));
-        // acme_only exists in acme only.
+        seen.put("QE-122 GetTables", tables("eve"));
+        seen.put("QE-122 GetTables, admin", tables("ops"));
+        seen.put("QE-122 GetTables, ana", tables("ana"));
+        seen.put("QE-122 GetTables, gops", tables("gops"));
         seen.forEach((label, out) -> System.out.println("NOTE " + label + " => " + out));
+        assertThat(seen.get("QE-122 GetTables")).doesNotContain("acme");
         String engineNames = node.registry().orElseThrow().names().toString();
         System.out.println("NOTE QE-124 engine names " + engineNames + " computations "
                 + node.registry().orElseThrow().queries().size());
@@ -627,6 +631,46 @@ class AdvSecurityTest {
                 .isEqualTo(normal(seen.get("QE-118 qualified, absent"), "nothing_here"));
         assertThat(seen.get("QE-119 show")).doesNotContain("acme");
         assertThat(seen.get("QE-123 typo")).doesNotContain("acme", "acme_watch");
+    }
+
+    @Test
+    @Disabled(
+            "QE-168: under the catalogue, Flight SQL GetTables lists nothing to a non-admin principal -- not the views "
+                    + "they own, not the views they are granted SELECT on -- while an admin sees every tenant's")
+    void qe168_getTablesListsTheViewsACallerMayRead() throws Exception {
+        baseline();
+        assertThat(tables("ana")).contains("payments");
+    }
+
+    @Test
+    void qe168_observed() throws Exception {
+        baseline();
+        String ana = tables("ana");
+        String read = as("ana", "SELECT id FROM payments");
+        String ops = tables("ops");
+        System.out.println(
+                "NOTE QE-168 ana GetTables " + ana + " while her read returns " + read + "; ops GetTables " + ops);
+        assertThat(ana).isEqualTo("[]");
+        assertThat(read).isEqualTo("[p1, p3]");
+        assertThat(ops).contains("payments");
+    }
+
+    /** Flight SQL GetTables as {@code who}: every catalog.schema.table it lists. */
+    String tables(String who) {
+        try {
+            FlightInfo info = sql.getTables(null, null, null, null, false, bearer(who));
+            List<String> names = new ArrayList<>();
+            try (FlightStream stream = sql.getStream(info.getEndpoints().get(0).getTicket(), bearer(who))) {
+                while (stream.next()) {
+                    for (List<String> row : cells(stream.getRoot())) {
+                        names.add(row.get(0) + "." + row.get(1) + "." + row.get(2));
+                    }
+                }
+            }
+            return names.toString();
+        } catch (Exception refused) {
+            return String.valueOf(refused.getMessage()).lines().findFirst().orElse("");
+        }
     }
 
     /** A refusal with the name asked for replaced, so two refusals can be compared. */
