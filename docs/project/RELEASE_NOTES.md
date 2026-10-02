@@ -233,6 +233,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `CREATE ALERT` now runs the same check the alert runs when it follows, so the person creating it gets
   `PRV-7006` and nothing is journalled; a mask applied later still marks an existing alert broken with
   the code. `AlertNarrowingTest`, QE-105.
+- **A window of a million groups is emitted, not stopped for room (EMITROOM-1).** A firing window
+  allocated every result row in the pipeline's 64 MiB arena before the batch ended, so about 836,000
+  groups stopped the query with `PRV-3001 no room to emit a window result`, below the view's 1,000,000
+  ceiling (`PRV-4022`) that names the limit. Each emitted row is now given back to the arena once
+  downstream has copied it — in the windowed and the grouped aggregate — so emission needs one row of
+  arena however many groups fire. `EmissionRoomTest`, QE-144.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

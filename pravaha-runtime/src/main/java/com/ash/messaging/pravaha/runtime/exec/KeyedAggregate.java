@@ -243,6 +243,7 @@ final class KeyedAggregate implements RowProcessor {
                 // no longer there.
                 continue;
             }
+            long mark = arena.mark(); // EMITROOM-1, as in writeGroup
             long handle = arena.allocate(layout.rowSize(256));
             if (handle == ArenaHandle.NULL) {
                 throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit a grouped aggregate result");
@@ -275,6 +276,7 @@ final class KeyedAggregate implements RowProcessor {
                     .commit();
             arena.trimTo(handle, writer.sizeSoFar());
             downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            arena.resetTo(mark);
         }
     }
 
@@ -341,6 +343,8 @@ final class KeyedAggregate implements RowProcessor {
 
     private void writeGroup(Key key, AggregateSlots.Answer answer, long weight, long timestamp, long sequence) {
         long[] values = answer.values();
+        // EMITROOM-1: given back once downstream has copied it, as WindowedAggregate does.
+        long mark = arena.mark();
         long handle = arena.allocate(layout.rowSize(256));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit a grouped aggregate result");
@@ -357,6 +361,7 @@ final class KeyedAggregate implements RowProcessor {
         writer.weight(weight).eventTimestampNanos(timestamp).sequence(sequence).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        arena.resetTo(mark);
     }
 
     /**
