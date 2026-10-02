@@ -208,6 +208,20 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   they themselves said, never past it, never backwards — so the windows the burst has passed close
   `idle-after` after it. The idle-exclusion rule is unchanged otherwise. `WatermarkTrackerTest`;
   proved on the compose stack (`--profile seed`: `spend_per_minute` 10 rows, 10:00 to 10:04).
+- **The PostgreSQL gateway refuses `COPY` and cursors with the code it documents (PGCOPY-1).**
+  `COPY`, `DECLARE`, `FETCH`, `MOVE`, `CLOSE`, `LISTEN`/`NOTIFY` and `SELECT STREAM` reached the
+  planner and came back `42000 PRV-2001` (a syntax error) or, for `SELECT STREAM`, `42P01 PRV-4023`;
+  they are now refused by name on both protocols with `PRV-6201` and `0A000`, as the pgwire topic
+  promised, and the session goes on. `PgProbeAndRefusalTest`.
+- **The PostgreSQL gateway answers connection-validation probes (PGVALIDATE-1).** `SELECT 1` —
+  HikariCP's `connectionTestQuery`, DBeaver's "Test connection", Grafana's health check — and `SELECT
+  now()`, `SELECT 'a'::text`, `SHOW search_path` and `SET search_path` were refused. A `SELECT` with no
+  `FROM` made of literals, literal casts, the clock (`now()`, `current_timestamp`, `current_date`, …),
+  `current_user` and the existing `version()`/`current_schema()` family is answered with PostgreSQL's
+  column names and types; `SHOW search_path` answers `"$user", public`; `SET search_path` is accepted
+  when the path keeps `public` (the only schema) and refused otherwise. Anything else without a
+  `FROM` still reaches the planner. Documented under "Connection checks and probes" in the pgwire
+  topic. `PgProbeAndRefusalTest`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

@@ -113,7 +113,8 @@ final class PgCatalogShim {
      *     plainly catalog introspection but not a shape this class has been taught to answer
      */
     Optional<ViewQuery.Result> tryAnswer(String sql, Principal principal) {
-        Optional<ViewQuery.Result> scalar = tryScalarFunction(sql);
+        // A SELECT with no FROM -- SELECT 1, now(), version(), current_user: PGVALIDATE-1.
+        Optional<ViewQuery.Result> scalar = PgConstantSelect.answer(sql, serverVersion, principal);
         if (scalar.isPresent()) {
             return scalar;
         }
@@ -180,49 +181,6 @@ final class PgCatalogShim {
                         + "GetSchema, and Power BI's navigator send -- table and column listing, chiefly -- "
                         + "and refuses anything else by name rather than approximate a "
                         + "PostgreSQL function or join this server has never implemented.");
-    }
-
-    // ------------------------------------------------------------------------------------------
-    // Bare scalar functions: version(), current_schema(), and the like.
-    // ------------------------------------------------------------------------------------------
-
-    private static final Pattern BARE_SELECT_LIST =
-            Pattern.compile("^SELECT\\s+(.+?)\\s*$", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-
-    private Optional<ViewQuery.Result> tryScalarFunction(String sql) {
-        Matcher match = BARE_SELECT_LIST.matcher(sql.strip());
-        if (!match.matches()
-                || match.group(1).contains(",")
-                || match.group(1).toUpperCase(Locale.ROOT).contains("FROM")) {
-            return Optional.empty();
-        }
-        String expr = match.group(1).strip();
-        String value =
-                switch (normalizeCall(expr)) {
-                    case "VERSION()" -> "PostgreSQL " + serverVersion + " -- Pravaha's PostgreSQL wire gateway";
-                    case "CURRENT_SCHEMA()", "CURRENT_SCHEMA" -> "public";
-                    case "CURRENT_DATABASE()", "CURRENT_CATALOG" -> "pravaha";
-                    case "PG_BACKEND_PID()" ->
-                        String.valueOf(ProcessHandle.current().pid());
-                    default -> null;
-                };
-        if (value == null) {
-            return Optional.empty();
-        }
-        StreamSchema schema = StreamSchema.builder("scalar")
-                .field(columnNameFor(expr), Types.string())
-                .build();
-        return Optional.of(new ViewQuery.Result(schema, java.util.Collections.singletonList(new Object[] {value})));
-    }
-
-    private static String normalizeCall(String expr) {
-        return expr.toUpperCase(Locale.ROOT).replaceAll("\\s+", "").replaceAll(";$", "");
-    }
-
-    private static String columnNameFor(String expr) {
-        int paren = expr.indexOf('(');
-        String base = paren >= 0 ? expr.substring(0, paren) : expr;
-        return base.toLowerCase(Locale.ROOT);
     }
 
     // ------------------------------------------------------------------------------------------

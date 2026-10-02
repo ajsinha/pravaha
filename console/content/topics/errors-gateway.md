@@ -138,7 +138,11 @@ result it might treat as complete. Read such a view over Flight, or project the 
 
 ### PRV-6201 — pgwire unsupported request
 
-A protocol message the gateway does not implement — `COPY`, for example. Refused by name.
+A message or statement the gateway does not implement, refused by name with SQLSTATE `0A000`:
+`COPY` (the statement, or its protocol messages), SQL-level cursors (`DECLARE`, `FETCH`, `MOVE`,
+`CLOSE`), `LISTEN`/`UNLISTEN`/`NOTIFY`, `SELECT STREAM` and a `FunctionCall`. Read a view with a plain
+`SELECT`; to follow a view as it changes, subscribe over Flight (`pravaha subscribe`, an SDK's
+`subscribe()`, the console's live tail).
 
 ### PRV-6202 — pgwire protocol violation
 
@@ -166,8 +170,9 @@ accepting it is a no-op rather than a lie:
 | `client_min_messages` | any value |
 | `client_encoding` | `UTF8` or `UNICODE` only |
 | `DateStyle` | `ISO` styles only |
+| `search_path` | a path with `public` on it, made of `public`, `"$user"` and `pg_catalog` — or `DEFAULT` |
 
-Anything else — `SET search_path`, `SET TIME ZONE` — is PRV-6204. Most tools send only these at
+Anything else — `SET search_path = sales`, `SET TIME ZONE` — is PRV-6204. Most tools send only these at
 connect; if one sends another, configure it not to.
 
 ### PRV-6205 — pgwire unsupported catalog query

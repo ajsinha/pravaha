@@ -274,15 +274,31 @@ def test_qi019_a_failed_statement_aborts_the_block_until_rollback(admin):
 
 
 @needs_pgwire
-@open_defect("QI-021: open defect -- COPY is PRV-2001 42000 'Non-query expression', where the pgwire "
-                         "help topic promises PRV-6201 0A000")
-def test_qi021_copy_is_refused_as_documented(admin):
+@pytest.mark.parametrize("statement", ["COPY {view} TO STDOUT", "DECLARE c CURSOR FOR SELECT * FROM {view}",
+                                       "SELECT STREAM * FROM {view}"])
+def test_qi021_copy_is_refused_as_documented(admin, statement):
+    # PGCOPY-1, fixed: COPY, cursors and SELECT STREAM are refused by name, PRV-6201 0A000.
     psycopg = pytest.importorskip("psycopg")
     view = any_view(admin)
     with pg_connect(admin) as conn:
         with pytest.raises(psycopg.Error) as refused:
-            conn.execute(f"COPY {view} TO STDOUT")
-    assert refused.value.sqlstate == "0A000" and "PRV-6201" in str(refused.value)
+            conn.execute(statement.format(view=view))
+        assert refused.value.sqlstate == "0A000" and "PRV-6201" in str(refused.value)
+        conn.execute(f"SELECT * FROM {view}").fetchall()
+
+
+@needs_pgwire
+def test_qi029_connection_validation_probes_are_answered(admin):
+    # PGVALIDATE-1, fixed: the probes pools and BI tools validate a connection with.
+    with pg_connect(admin) as conn:
+        assert conn.execute("SELECT 1").fetchone() == (1,)
+        assert conn.execute("SELECT 'a'::text").fetchone() == ("a",)
+        assert conn.execute("SELECT now()").fetchone()[0] is not None
+        assert conn.execute("SHOW search_path").fetchone() == ('"$user", public',)
+        conn.execute("SET search_path TO public")
+        cur = conn.execute("SELECT 1 AS ok, current_user")
+        assert [d.name for d in cur.description] == ["ok", "current_user"]
+        assert cur.fetchone() == (1, "admin")
 
 
 # ---------------------------------------------------------------------------------------------

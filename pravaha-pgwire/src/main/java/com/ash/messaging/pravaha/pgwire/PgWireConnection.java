@@ -535,6 +535,7 @@ final class PgWireConnection implements Runnable {
                 backend.commandComplete("SET");
                 return;
             }
+            PgWireErrors.refuseUnsupportedStatement(statement);
             PgWireErrors.refuseContinuousStatement(statement);
             java.util.Optional<ViewQuery.Result> shown = PgShow.answer(statement, serverVersion);
             if (shown.isPresent()) {

@@ -163,6 +163,7 @@ final class PgExtendedSession {
         }
         // Refused at Parse, as a real backend refuses a statement it will not run, rather than
         // planned: the planner would call CREATE CONTINUOUS QUERY a syntax error.
+        PgWireErrors.refuseUnsupportedStatement(statement);
         PgWireErrors.refuseContinuousStatement(statement);
         Optional<ViewQuery.Result> shown = PgShow.answer(statement, catalog.serverVersion());
         if (shown.isPresent()) {

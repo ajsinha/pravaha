@@ -107,7 +107,18 @@ final class PgSessionSet {
          * those is refused rather than accepted and ignored, which would leave the client parsing
          * ISO-formatted values with a non-ISO parser.
          */
-        DATESTYLE("DateStyle", value -> normalize(value).startsWith("ISO"));
+        DATESTYLE("DateStyle", value -> normalize(value).startsWith("ISO")),
+
+        /**
+         * Where unqualified names are looked up (PGVALIDATE-1: pools, ORMs and BI tools set it on
+         * connect). Accepted only for a path that resolves names exactly as this server already
+         * does: every view is a table in {@code public} and no other schema exists, so a path made of
+         * {@code public}, {@code "$user"} (a schema that never exists here, which PostgreSQL itself
+         * skips) and {@code pg_catalog} -- with {@code public} on it -- or {@code DEFAULT}, changes
+         * nothing. A path naming any other schema, or leaving {@code public} off, is refused: it would
+         * ask for a resolution this server does not perform.
+         */
+        SEARCH_PATH("search_path", PgSessionSet::keepsPublicResolution);
 
         private final String parameter;
         private final java.util.function.Predicate<String> acceptsValue;
@@ -126,6 +137,32 @@ final class PgSessionSet {
             }
             return stripped.toUpperCase(Locale.ROOT);
         }
+    }
+
+    private static boolean keepsPublicResolution(String value) {
+        String trimmed = value.strip();
+        if (trimmed.equalsIgnoreCase("DEFAULT")) {
+            return true;
+        }
+        boolean hasPublic = false;
+        for (String entry : trimmed.split(",")) {
+            String schema = entry.strip();
+            if (schema.length() >= 2
+                    && (schema.charAt(0) == '\'' || schema.charAt(0) == '"')
+                    && schema.charAt(schema.length() - 1) == schema.charAt(0)) {
+                schema = schema.substring(1, schema.length() - 1);
+            }
+            switch (schema.toLowerCase(Locale.ROOT)) {
+                case "public" -> hasPublic = true;
+                case "$user", "pg_catalog" -> {
+                    // Never a schema with views in it here: no effect on resolution.
+                }
+                default -> {
+                    return false;
+                }
+            }
+        }
+        return hasPublic;
     }
 
     private static final Pattern DISCARD_ALL = Pattern.compile("^DISCARD\\s+ALL$", Pattern.CASE_INSENSITIVE);
