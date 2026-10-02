@@ -33,6 +33,7 @@ as "gateway".)
 | PRV-6103 | FLIGHT_PARAMETERS_TOO_LARGE | Flight | — |
 | PRV-6104 | FLIGHT_TLS_UNREADABLE | Flight | (startup) |
 | PRV-6105 | FLIGHT_SUBSCRIBER_BEHIND | Flight | — |
+| PRV-6106 | FLIGHT_UNREADABLE_TICKET | Flight | — |
 | PRV-6200 | PGWIRE_UNSUPPORTED_TYPE | PostgreSQL | `0A000` |
 | PRV-6201 | PGWIRE_UNSUPPORTED_REQUEST | PostgreSQL | `0A000` |
 | PRV-6202 | PGWIRE_PROTOCOL_VIOLATION | PostgreSQL | `08P01` |
@@ -69,7 +70,10 @@ cast in the source database.
 
 A Flight SQL request or action this server does not implement — for example an action name it does
 not know, or registering, dropping or subscribing on a Flight server that serves views but hosts no
-registry. The message names the request.
+registry. The message names the request. A **path** descriptor on `GetFlightInfo`, `GetSchema`,
+`PollFlightInfo` or `DoPut` is refused here too, with status `UNIMPLEMENTED`: Flight SQL requests are
+command descriptors — send the query as a Flight SQL statement (an SDK's `query()`, `pravaha query
+--sql`).
 
 ### PRV-6102 — Flight bad handle
 
@@ -119,6 +123,13 @@ and the new stream starts from a fresh snapshot. If it keeps happening, the cons
 in its callback — hand each batch to a queue of your own and return. Sent as `RESOURCE_EXHAUSTED`,
 which retrying clients already treat as retryable. See
 [Subscriptions](/help/topics/subscriptions) for the two kinds of subscription.
+
+### PRV-6106 — Flight unreadable ticket
+
+A `DoGet` ticket that is neither a Flight SQL ticket this server issued nor a Pravaha subscription
+ticket — hand-made bytes, a ticket from another server, a truncated one. Sent as `INVALID_ARGUMENT`.
+Take the ticket from the endpoint `GetFlightInfo` returned, or subscribe through an SDK's
+`subscribe()` or `pravaha subscribe`, which build their own.
 
 ## The PostgreSQL gateway
 

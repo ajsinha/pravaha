@@ -64,6 +64,15 @@ public final class FlightErrors {
     public static final ErrorCode SUBSCRIBER_BEHIND = new ErrorCode(6105, "FLIGHT_SUBSCRIBER_BEHIND");
 
     /**
+     * A {@code DoGet} ticket that is neither a Pravaha subscription ticket nor a Flight SQL ticket
+     * this server issued (FLIGHTTICKET-1). Before this the bytes reached Flight SQL's own parser,
+     * whose failure surfaced as gRPC {@code INTERNAL} with no code; it is {@code INVALID_ARGUMENT}
+     * now, because the client sent something the server cannot read. A ticket is only ever obtained
+     * from {@code GetFlightInfo} or built by an SDK's {@code subscribe()}.
+     */
+    public static final ErrorCode UNREADABLE_TICKET = new ErrorCode(6106, "FLIGHT_UNREADABLE_TICKET");
+
+    /**
      * The Flight status a Pravaha failure should arrive as.
      *
      * <p>The message always carries the engine's own PRV code and diagnosis, but the status code is

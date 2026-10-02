@@ -428,15 +428,28 @@ def test_qi059_a_declared_stream_can_be_registered_over(admin):
 
 
 @needs_flight
-@open_defect("QI-071: open defect -- a ticket the server cannot parse is INTERNAL 'There was an error "
-                         "servicing your request', not INVALID_ARGUMENT with a PRV code")
-def test_qi071_a_garbage_ticket_is_invalid_argument(admin):
+@pytest.mark.parametrize("ticket", [b"\x00\xff garbage", b"NOPE:x", b"LIST"])
+def test_qi071_a_garbage_ticket_is_invalid_argument(admin, ticket):
+    # FLIGHTTICKET-1, fixed: INVALID_ARGUMENT with PRV-6106, not INTERNAL without a code.
     flight = pytest.importorskip("pyarrow.flight")
     client = flight.FlightClient(FLIGHT)
     options = flight.FlightCallOptions(headers=[(b"authorization", ("Bearer " + admin).encode())])
-    with pytest.raises(flight.FlightError) as refused:
-        client.do_get(flight.Ticket(b"\x00\xff garbage"), options).read_all()
+    with pytest.raises(Exception) as refused:
+        client.do_get(flight.Ticket(ticket), options).read_all()
     assert not isinstance(refused.value, flight.FlightInternalError)
+    assert "PRV-6106" in str(refused.value)
+
+
+@needs_flight
+def test_qi077_a_path_descriptor_is_unimplemented_with_a_code(admin):
+    # FLIGHTTICKET-1, fixed: Flight SQL speaks command descriptors; a path one is UNIMPLEMENTED PRV-6101.
+    flight = pytest.importorskip("pyarrow.flight")
+    client = flight.FlightClient(FLIGHT)
+    options = flight.FlightCallOptions(headers=[(b"authorization", ("Bearer " + admin).encode())])
+    with pytest.raises(Exception) as refused:
+        client.get_flight_info(flight.FlightDescriptor.for_path(any_view(admin)), options)
+    assert not isinstance(refused.value, flight.FlightInternalError)
+    assert "PRV-6101" in str(refused.value)
 
 
 @needs_flight

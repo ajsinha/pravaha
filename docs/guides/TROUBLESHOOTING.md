@@ -671,6 +671,12 @@ fresh snapshot. If it keeps happening, the consumer is doing too much in its cal
 batch to a queue of your own and return. The status is `RESOURCE_EXHAUSTED`, which retrying
 clients already treat as retryable.
 
+**`DoGet` is refused with `PRV-6106` (`INVALID_ARGUMENT`), or a call with `PRV-6101`
+(`UNIMPLEMENTED`) "with a path descriptor is not supported".** The ticket was not one this server
+issued — use the ticket in the endpoint `GetFlightInfo` returned, or an SDK's `subscribe()` — or the
+client sent a path descriptor where Flight SQL wants a command: send the query as a Flight SQL
+statement (an SDK's `query()`, `pravaha query --sql`).
+
 **A snapshot subscription is refused with `PRV-6102` "this is not a subscription ticket".** The
 server predates snapshot subscriptions (SUB-1). Upgrade it, or use a plain subscription, which is
 gapful: see "Is the subscription attached?" above.
@@ -1098,6 +1104,7 @@ client models the error rather than an empty object.
 | `PRV-6103` | FLIGHT_PARAMETERS_TOO_LARGE | gateway |
 | `PRV-6104` | FLIGHT_TLS_UNREADABLE | gateway |
 | `PRV-6105` | FLIGHT_SUBSCRIBER_BEHIND | gateway |
+| `PRV-6106` | FLIGHT_UNREADABLE_TICKET | gateway |
 | `PRV-6200` | PGWIRE_UNSUPPORTED_TYPE | gateway |
 | `PRV-6201` | PGWIRE_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6202` | PGWIRE_PROTOCOL_VIOLATION | gateway |

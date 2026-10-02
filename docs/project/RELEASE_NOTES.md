@@ -222,6 +222,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   when the path keeps `public` (the only schema) and refused otherwise. Anything else without a
   `FROM` still reaches the planner. Documented under "Connection checks and probes" in the pgwire
   topic. `PgProbeAndRefusalTest`.
+- **Malformed Flight requests are refused by name (FLIGHTTICKET-1).** A `DoGet` ticket the server
+  did not issue (`\x00\xff…`, `NOPE:x`, `LIST`) and a path descriptor on `GetFlightInfo`,
+  `GetSchema` or `DoPut` reached Flight SQL's own parser and failed as gRPC `INTERNAL` with no code.
+  They are now `INVALID_ARGUMENT` with new code `PRV-6106` (FLIGHT_UNREADABLE_TICKET) and
+  `UNIMPLEMENTED` with `PRV-6101`. `FlightMalformedRequestTest`.
+- **A Flight subscription's re-verification compares the principal (FLIGHTPRINCIPAL-1).** Every two
+  seconds a subscription checked only that its credential still verified; now it must still verify
+  as the same principal, as the PostgreSQL gateway checks (PGREVOKE-1), and any verifier failure ends
+  the stream. `SubscriptionRevocationTest`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

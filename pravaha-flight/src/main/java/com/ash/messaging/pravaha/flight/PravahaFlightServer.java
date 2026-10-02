@@ -314,9 +314,10 @@ public final class PravahaFlightServer implements AutoCloseable {
             FlightServer.Builder builder = FlightServer.builder(
                     allocator,
                     requested,
+                    // Inside the observer, so a refused request is still an observed (failed) call.
                     observation == FlightObservation.NONE
-                            ? producer
-                            : new ObservedFlightProducer(producer, observation));
+                            ? new RequestShapeGuard(producer)
+                            : new ObservedFlightProducer(new RequestShapeGuard(producer), observation));
             if (observation != FlightObservation.NONE) {
                 builder.middleware(ObservedFlightProducer.KEY, new ObservedFlightProducer.HeadersFactory());
             }
