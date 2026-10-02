@@ -223,7 +223,10 @@ final class PgConstantSelect {
 
     private static Optional<Constant> timestamp(String name) {
         Instant now = Instant.now();
-        long epochNanos = Math.addExact(Math.multiplyExact(now.getEpochSecond(), 1_000_000_000L), now.getNano());
+        // To the microsecond, PostgreSQL's own precision for now(): a client's parser (psycopg's)
+        // refuses the nine fractional digits a nanosecond clock would put in the text form.
+        long epochNanos =
+                Math.addExact(Math.multiplyExact(now.getEpochSecond(), 1_000_000_000L), now.getNano() / 1_000 * 1_000L);
         return Optional.of(new Constant(Types.timestamp(), epochNanos, name));
     }
 

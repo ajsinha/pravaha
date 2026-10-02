@@ -337,7 +337,8 @@ def test_qi043_malformed_json_is_an_api_error(admin, raw):
 ])
 def test_qi046_every_error_is_an_api_error(admin, path, headers):
     # TOMCATHTML-1, fixed: what the HTTP server refuses itself is an ApiError, PRV-1056.
-    st, h, body = http_call("GET", path, admin, headers=headers)
+    # The oversized Authorization case brings its own header; the admin token would replace it.
+    st, h, body = http_call("GET", path, None if "Authorization" in headers else admin, headers=headers)
     assert st == 400 and h.get("Content-Type", "").startswith("application/json"), body[:200]
     assert json.loads(body)["code"] == "PRV-1056"
 

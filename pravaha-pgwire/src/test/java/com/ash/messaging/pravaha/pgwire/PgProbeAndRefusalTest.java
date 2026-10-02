@@ -98,6 +98,8 @@ class PgProbeAndRefusalTest {
                     assertThat(rs.getMetaData().getColumnName(1)).isEqualTo("now");
                     assertThat(rs.next()).isTrue();
                     assertThat(rs.getTimestamp(1).toInstant()).isAfter(before);
+                    // Microseconds, as PostgreSQL's now(): psycopg refuses nine fractional digits.
+                    assertThat(rs.getTimestamp(1).getNanos() % 1_000).isZero();
                 }
                 try (ResultSet rs = statement.executeQuery("SELECT 'a'::text")) {
                     assertThat(rs.getMetaData().getColumnName(1)).isEqualTo("text");
