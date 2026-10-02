@@ -29,8 +29,8 @@ pointing at an old path.
 | ADRs | **61** |
 
 **Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
-11, cluster mode, is on hold. The adversarial QA of 2.0.0 (2026-10-01) opened 46 findings: 538 in the register, 472 fixed,
-47 open — 0 GA-BLOCKER, 19 GA-REQUIRED (10 of them HIGH), 26 POST-GA, 2 notes; see
+11, cluster mode, is on hold. The adversarial QA of 2.0.0 (2026-10-01) opened 46 findings: 542 in the register, 472 fixed,
+51 open — 0 GA-BLOCKER, 19 GA-REQUIRED (10 of them HIGH), 26 POST-GA, 6 notes; see
 [the QA summary](../project/qa/SUMMARY.md). Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
 assistant with any model switched at runtime (ADR-058), the governed catalogue with grants, row
 filters and column masks (ADR-059 phases 1–2), Power BI over the PostgreSQL gateway, observability

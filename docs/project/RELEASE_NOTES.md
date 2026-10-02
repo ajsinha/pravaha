@@ -15,9 +15,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **Adversarial QA of 2.0.0** (2026-10-01): 322 cases over the engine, data and security
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
-  46 defects opened, 10 of them HIGH. None is fixed yet.
+  50 findings opened — 46 defects (10 HIGH) and 4 design notes. None is fixed yet.
 
-Register: **538 findings — 472 fixed, 47 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
+Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 

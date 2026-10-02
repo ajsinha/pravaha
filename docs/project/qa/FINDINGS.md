@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **538 findings carrying a
-status — 472 FIXED, 47 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 47 open, **0 are
-GA-BLOCKER, 19 GA-REQUIRED, 26 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **542 findings carrying a
+status — 472 FIXED, 51 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 51 open, **0 are
+GA-BLOCKER, 19 GA-REQUIRED, 26 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7673,25 +7673,25 @@ Cases and evidence: [cases/ADV-SURFACE.md](cases/ADV-SURFACE.md), [logs/ADV-SURF
 > **Status:** OPEN — (a) GUIDE_WITHOUT_DOCKER §3 lists `pravaha-server-0.2.1-SNAPSHOT-app.jar` (it is `2.0.1-SNAPSHOT`); GUIDE_WITH_DOCKER §3 shows `pravaha-engine 1.0.1-SNAPSHOT` / `pravaha-server-1.0.1-SNAPSHOT-app.jar`. (b) QUICKSTART "What is not built" says the Kafka plugin and the Spring Boot starter are not built and clustering is deferred; `plugins/pravaha-plugin-kafka` and `pravaha-spring-boot-starter` build and ship, and COMPATIBILITY.md documents the starter's Boot 3.4+ requirement. (c) QUICKSTART §4's `pravaha-server --spring.config.additional-location=file:./application.yaml &` (no profile) refuses to start with PRV-7004; the YAML shown has no security block. (d) QUICKSTART §7 `make install` fails on Ubuntu without `python3.X-venv` (the workaround is only in GUIDE_WITHOUT_DOCKER). (e) CLI.md's command map lacks `explain-sql` and `subscribe --answer`. (f) QUICKSTART's Java and Python snippets register then query at once; the Java one printed nothing (the view had not filled yet). Repro: QI-190, QI-193, QI-195, QI-197, QI-200, QI-201.
 > **Disposition:** POST-GA
 
-### PGVALIDATE-1 (NOTE) — `SELECT 1` is not answered by the gateway
+### PGVALIDATE-1 (LOW) — `SELECT 1` is not answered by the gateway
 
-> **Status:** NOTE — `SELECT 1`, `SELECT now()`, `SELECT 'a'::text`, `SHOW search_path` and `SET search_path` are refused (PRV-2020 LogicalValues, PRV-2002, PRV-2001, PRV-6204). Empty queries, `;`, `-- ping` and pgjdbc `isValid()` work, so most pools are fine, but `SELECT 1` is the default validation query of HikariCP's `connectionTestQuery`, DBeaver's "Test connection", SQLAlchemy's pre-ping on some dialects and Grafana's health check. `COUNT(*)` columns are named `EXPR$0`. Also pgjdbc `getSchemas()` and `getPrimaryKeys()` are PRV-6205 (DBeaver's navigator calls the first). Behaviour matches "refuses anything else by name". Cases QI-029, QI-031.
-> **Disposition:** NOTE
+> **Status:** OPEN — a design concern rather than a defect: `SELECT 1`, `SELECT now()`, `SELECT 'a'::text`, `SHOW search_path` and `SET search_path` are refused (PRV-2020 LogicalValues, PRV-2002, PRV-2001, PRV-6204). Empty queries, `;`, `-- ping` and pgjdbc `isValid()` work, so most pools are fine, but `SELECT 1` is the default validation query of HikariCP's `connectionTestQuery`, DBeaver's "Test connection", SQLAlchemy's pre-ping on some dialects and Grafana's health check. `COUNT(*)` columns are named `EXPR$0`. Also pgjdbc `getSchemas()` and `getPrimaryKeys()` are PRV-6205 (DBeaver's navigator calls the first). Behaviour matches "refuses anything else by name". Cases QI-029, QI-031.
+> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
 
-### PERMISSIVEUSERS-1 (NOTE) — `dev,users`, the documented console profile, makes every user an administrator of every view
+### PERMISSIVEUSERS-1 (LOW) — `dev,users`, the documented console profile, makes every user an administrator of every view
 
-> **Status:** NOTE — with `dev,users` and the catalogue on, `permissive` is imported whole: user `bob` (role `guest`) paused admin's `by_user`, read the audit endpoint and saw every tenant's counts. SECURITY.md documents exactly this; the guides present `dev,users` as the way to run the console without saying so. Cases QI-042, QI-050.
-> **Disposition:** NOTE
+> **Status:** OPEN — a design concern rather than a defect: with `dev,users` and the catalogue on, `permissive` is imported whole: user `bob` (role `guest`) paused admin's `by_user`, read the audit endpoint and saw every tenant's counts. SECURITY.md documents exactly this; the guides present `dev,users` as the way to run the console without saying so. Cases QI-042, QI-050.
+> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
 
-### RECOVERYHEALTH-1 (NOTE) — a registration refused at recovery leaves the node UP and the query gone
+### RECOVERYHEALTH-1 (LOW) — a registration refused at recovery leaves the node UP and the query gone
 
-> **Status:** NOTE — PRV-5115 (Postgres slot overtaken) and PRV-5155 (MySQL binlog purged) were detected correctly at restart, but each refused registration simply vanished from `pravaha queries`, with one WARN line and health `UP`. OPERATIONS.md documents "the refused list is the one to read"; a metric or a DEGRADED health for refused recoveries would make it visible. Cases QI-172, QI-174.
-> **Disposition:** NOTE
+> **Status:** OPEN — a design concern rather than a defect: PRV-5115 (Postgres slot overtaken) and PRV-5155 (MySQL binlog purged) were detected correctly at restart, but each refused registration simply vanished from `pravaha queries`, with one WARN line and health `UP`. OPERATIONS.md documents "the refused list is the one to read"; a metric or a DEGRADED health for refused recoveries would make it visible. Cases QI-172, QI-174.
+> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
 
-### COOKIETOKEN-1 (NOTE) — the console cookie carries a usable engine bearer token
+### COOKIETOKEN-1 (LOW) — the console cookie carries a usable engine bearer token
 
-> **Status:** NOTE — the signed cookie's payload is readable base64 JSON including the engine session token (`prv_s_…`), which works directly against Flight, HTTP and pgwire. HttpOnly and SameSite=Lax limit theft to the same channels a session id has; encrypting the cookie or keeping the token server-side would keep a leaked cookie from becoming a credential for the other doors. Case QI-114.
-> **Disposition:** NOTE
+> **Status:** OPEN — a design concern rather than a defect: the signed cookie's payload is readable base64 JSON including the engine session token (`prv_s_…`), which works directly against Flight, HTTP and pgwire. HttpOnly and SameSite=Lax limit theft to the same channels a session id has; encrypting the cookie or keeping the token server-side would keep a leaked cookie from becoming a credential for the other doors. Case QI-114.
+> **Disposition:** NOTE — not a defect; behaves as documented, recorded so the design question is decided
 
 Smaller observations, recorded in the cases rather than registered: `PATCH /api/v1/users/{u}` ignores unknown fields with 200 (`{"enabled": false}` does nothing); `POST /api/v1/queries/validate` accepts `{"sql": 5}` and `"str"` as SQL; anonymous `/api/v1/openapi.json` and `/actuator/info` (version); a 16 MiB simple query takes 21 s to refuse; doubled codes in `pravaha-engine` messages (`PRV-1028  stream 't', column 'a': PRV-1028 …`); `ConfigurationException:` class names inside PRV-5091 messages; Java-SDK clients print JEP 498 `sun.misc.Unsafe` warnings unless they add the launcher's two options; the compose Prometheus never scrapes the console, so the Assistant dashboard and the `pravaha-console` rule group are always empty there; Kafka dead letters show `CODE -`; every `pravaha register` prints "a query with the same fingerprint is the same computation, shared" even when nothing is shared; sink failure text (PRV-8009) carries the failed row's values to every reader of the query listing.
 
