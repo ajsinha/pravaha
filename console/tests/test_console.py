@@ -149,7 +149,7 @@ class SignInOnly(Engine):
     not authenticate, so what these tests prove is that the console signs in, holds the session
     and carries it, not that the engine checks it (the engine's own tests do)."""
 
-    def login(self, username, password):
+    def login(self, username, password, for_address=None):
         if (username, password) != (USER, PASSWORD):
             raise EngineHttpError(401, "the username or password was not accepted", "PRV-7010")
         return {"token": SESSION_TOKEN, "expiresAt": "2099-01-01T00:00:00Z",
