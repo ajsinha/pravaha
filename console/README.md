@@ -261,9 +261,14 @@ ratios and that distance.
 
 **Signing in is the engine's (ADR-052).** A person signs in with the username and password the
 engine holds for them; the console posts them to the engine's `POST /api/v1/auth/login`, keeps only
-the session token it answers with (in its signed, HttpOnly, SameSite=Lax cookie), and makes every
-engine call for that person with that token — so everything done here is authorised and audited as
-the person who did it. The console has no password and no engine token of its own
+the session token it answers with — in the console process (`routes/session_vault.py`), under an
+opaque id that its signed, HttpOnly, SameSite=Lax cookie carries, so the cookie is never a credential
+(COOKIETOKEN-1) — and makes every engine call for that person with that token, so everything done
+here is authorised and audited as the person who did it. A console restart therefore signs everyone
+out of it, and several instances need sticky sessions. It signs in with the browser's address as
+`X-Forwarded-For`; list the console's address in the engine's
+`pravaha.identity.lockout.trusted-proxies`, or every person signing in through it counts as one
+address and five wrong passwords by anyone bar that account for everyone using the console. The console has no password and no engine token of its own
 (`console.password` and `engine.token` are no longer read), verifies no password, key or session
 itself, and keeps no user table. Only the landing page, About, the help and the health probes are
 open without a session. When the engine says a session is over (`PRV-7016`) the person is sent back
