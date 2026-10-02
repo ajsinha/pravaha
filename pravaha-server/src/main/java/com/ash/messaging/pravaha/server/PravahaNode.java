@@ -38,6 +38,7 @@ import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
 import com.ash.messaging.pravaha.common.config.ConfigErrors;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
+import com.ash.messaging.pravaha.pgwire.PgWireLimits;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
@@ -252,12 +253,10 @@ public class PravahaNode implements SmartLifecycle {
     /** pravaha.pgwire.limits.* (PGPREAUTH-1). A setter, as setTenancy; the defaults when unset. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setPgWireLimits(PgWireLimitsProperties properties) {
-        pgWireLimits =
-                properties == null ? com.ash.messaging.pravaha.pgwire.PgWireLimits.DEFAULTS : properties.limits();
+        pgWireLimits = properties == null ? PgWireLimits.DEFAULTS : properties.limits();
     }
 
-    private com.ash.messaging.pravaha.pgwire.PgWireLimits pgWireLimits =
-            com.ash.messaging.pravaha.pgwire.PgWireLimits.DEFAULTS;
+    private PgWireLimits pgWireLimits = PgWireLimits.DEFAULTS;
 
     /** The node's alerts, once it has started (ADR-057). */
     public Optional<com.ash.messaging.pravaha.registry.alert.AlertService> alerts() {
