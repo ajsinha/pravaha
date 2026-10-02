@@ -13,11 +13,15 @@
 > the design rests on is tested in a module nothing imports, one invariant of the served view has an
 > open finding against it, and the engine is one node.
 
-> **This article follows the paper's first edition (28 September 2026).** The paper's second edition,
-> for Pravaha 1.0.0 (the PDF beside this file), supersedes it where they differ: the served-view finding
-> (VIEWW-1), the change-feed replacement (CDCREPL-1), the Kafka seam and shared-lane fate are now closed
-> by tests; the ledger has forty-five claims, thirty-five of them running as stated; and it adds queries
-> on queries and alerts (a seam with no position), governance, the release and the test tiers.
+> **This article follows the paper's first edition (28 September 2026).** The paper's third edition,
+> for Pravaha 2.x (the PDF beside this file), supersedes it where they differ. The second edition (1.0.0)
+> closed the served-view finding (VIEWW-1), the change-feed replacement (CDCREPL-1), the Kafka seam and
+> shared-lane fate by tests, and added queries on queries and alerts (a seam with no position),
+> governance, the release and the test tiers. The third (2.x, Java 25) adds an adversarial test round
+> against 2.0.0 — 322 cases, 46 defects and 4 design notes, all fixed — and states the semantics its fixes
+> changed: an aggregate of only NULLs is NULL, narrow integers overflow rather than wrap, grouping on a
+> DOUBLE follows SQL equality, and a HOP's windows start on multiples of its slide. Its ledger has
+> fifty-five claims, forty-five of them running as stated.
 
 ---
 

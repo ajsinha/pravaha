@@ -120,7 +120,7 @@ in a Single-Node Streaming SQL Engine}}
 \author{Ashutosh Sinha\\[2pt]
 {\normalsize\itshape Independent Researcher}\\[2pt]
 {\normalsize\ttfamily ajsinha@gmail.com}}
-\date{\normalsize Second edition, for \Pv\ 1.0.0 (30 September 2026)}
+\date{\normalsize Third edition, for \Pv\ 2.x (2 October 2026)}
 
 \begin{document}
 
@@ -146,7 +146,7 @@ a checkpoint, a query attaching to a source reader that other queries are alread
 version of a query taking the name from the old one are four such hand-overs, and each is a place
 where a system can be almost right in a way that nothing reports.
 
-We describe how \Pv, a single-node, embeddable continuous-SQL engine written in Java~21, makes each
+We describe how \Pv, a single-node, embeddable continuous-SQL engine written in Java~25, makes each
 of the four exact, and we argue that the four are one problem with one answer: \emph{a seam is a
 position, not a moment}. Each hand-over is made at a point in the input named by source positions
 that are totally ordered and replayable; the positions and the state they describe are read together
@@ -163,7 +163,7 @@ same operation reversed (\Cref{thm:cutover}). Underneath these sit the model the
 in --- rows with integer weights, after DBSP --- and its operator algebra, whose laws we state with
 proofs and with an honest account of where the running engine is and is not held to them.
 
-This second edition describes release 1.0.0, the first with a compatibility promise, and adds a fifth
+The second edition described release 1.0.0, the first with a compatibility promise, and added a fifth
 hand-over that the thesis did not at first cover: a computation that follows another computation's
 \emph{answer} --- a query registered over another query's view, an alert, an upsert sink. A view's
 commits are renumbered by every restart, so there is no ordered position to meet at; we show that the
@@ -173,6 +173,17 @@ that a restore is fed the difference between two answers and is exact whichever 
 bound as policies are applied where rows leave an object and enter the fingerprint, a masked column is
 never an operand, and a filter that restricts nothing is refused by an analysis that is sound though not
 complete (\Cref{prop:mask,prop:vacuity}).
+
+This third edition describes the 2.x line: release 2.0.0 (1 October 2026), which moved every module to
+Java~25, and the fixes made on it since. Its new material is the result of an adversarial test round run
+against 2.0.0 with its cases written before execution: 322 cases, 66 failures, 46 defects (ten of them
+severe) and four design notes, all fixed within two days. None of the defects contradicted a theorem:
+the differential oracles, the crash-and-restore runs and the governance checks held. They were at the
+edges of the model --- what an aggregate of no values is, what 32-bit arithmetic does at its range, which
+windows a hop has --- in the bookkeeping around recovery (which checkpoint or journal byte can be
+trusted, where a shared computation's state lives), and at the network boundary, where an
+unauthenticated client could exhaust the heap. Several fixes change what the engine answers, and the
+sections that state those semantics now state the corrected ones.
 
 Every formal claim is marked with what carries it in the implementation: a named test that runs, a
 test that covers part of it, an argument from the code with no test, or nothing. The markers are not
@@ -341,7 +352,7 @@ Stated precisely, and with the evidence each rests on named in the section that 
 \item A register (\Cref{sec:register}) that states, for every formal claim, whether a named test in
       the repository carries it, carries part of it, or carries none of it; and an account of the test
       tiers and the findings register that stand behind it, including what writing the first edition of
-      this paper found (\Cref{sec:testing}).
+      this paper found and what an adversarial round against release 2.0.0 found (\Cref{sec:testing}).
 \end{enumerate}
 
 \subsection{What is borrowed, and what is not claimed}
@@ -390,11 +401,11 @@ plain. \textsf{Not in \Pv} says the system does not carry the construction. The 
 where a reader would look for the favourable one, and \Cref{sec:register} collects them into a table
 that can be checked against the repository in an afternoon.
 
-\subsection{What changed since the first edition}
+\subsection{What changed in the second and third editions}
 
 The first edition (28 September 2026) described the engine two days after it became feature-complete
-for one node. This edition describes release 1.0.0 (30 September 2026). Four things changed in the
-paper, and we list them so that a reader of the first can find them.
+for one node. The second described release 1.0.0 (30 September 2026). Four things changed in the
+paper then, and we list them so that a reader of the first can find them.
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
 \item \textbf{Its own open items were closed.} The first edition's register carried an open finding
       against the served view (VIEWW-1), an unreproduced interaction between replacement and a change
@@ -409,7 +420,32 @@ paper, and we list them so that a reader of the first can find them.
 \item \textbf{The evidence behind the markers.} \Cref{sec:testing} is new, \Cref{sec:release} is new,
       and \Cref{sec:evaluation} gains the figures re-taken without a coverage agent attached.
 \end{enumerate}
-The four theorems of the first edition, their proofs and their assumptions are unchanged.
+
+This third edition describes the 2.x line: release 2.0.0 (1 October 2026) and the development line
+after it (2.0.1-SNAPSHOT at the commit this paper was built from). Five things changed.
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+\item \textbf{The platform.} 2.0.0 is built, tested, run and released on Java~25 only; every module,
+      the public API and the Java SDKs included, is Java~25 class files (ADR-061). Its other breaking
+      change removes a 1.x setting that let any unfiltered reader administer a view. \Cref{sec:release}
+      says who that breaks.
+\item \textbf{An adversarial round, and what it found.} \Cref{sec:adversarial} is new: its method, its
+      numbers, what held, and the classes of defect it found, each since fixed.
+\item \textbf{Semantics stated where the fixes changed them.} An aggregate of a group with no non-null
+      value is \code{NULL}; narrow-integer arithmetic that leaves its type is an overflow; grouping on a
+      floating-point column follows SQL equality; a hopping window starts on a multiple of its slide; a
+      window too fine for its size is refused; \code{MIN} and \code{MAX} over an input that can retract
+      are refused at registration (\Cref{sec:time,sec:bounds,sec:algebra-runtime}). The lane watermark's
+      definition gains the case every partition is idle (\Cref{def:watermark}).
+\item \textbf{Recovery that refuses visibly.} Checkpoints carry a checksum, a journal damaged in its
+      middle refuses the start, and a registration refused at recovery stays listed with its code;
+      \Cref{rem:a5} records how much of assumption (A5) the engine now enforces.
+\item \textbf{Security at the boundary.} Credentials are verified again before every statement on the
+      PostgreSQL gateway, and what an unauthenticated client can make a node hold is bounded, with the
+      bound replayed against a 1~GiB container (\Cref{sec:security,sec:evaluation}).
+\end{enumerate}
+The theorems of the earlier editions, their proofs and their assumptions are unchanged. One definition
+gained a case (\Cref{def:watermark}), and \Cref{prop:wm} holds of it with the same proof; no theorem
+depends on an aggregate's value over an empty group or on where a hop's windows start.
 
 \section{The objects, in engineering terms}\label{sec:objects}
 
@@ -699,10 +735,18 @@ Two further properties of the running operators bound what the algebra can promi
 the values (finding W8-14 in the repository's register): two groups whose digests collide would be
 merged. The class comment records this as a deliberate simplification on the per-row path, with the
 emitted-results map already keyed by values. The algebra's statements are about exact keys; the
-runtime's are about keys up to a 128-bit collision. Second, \code{MIN} and \code{MAX} are not
-invertible under retraction, so they are never pre-combined at a source; the runtime keeps what it
-needs to recompute them. \Cref{prop:recompute} is the justification for that choice rather than a
-description of it.
+runtime's are about keys up to a 128-bit collision. The digest is of the group's values as SQL compares
+them: \code{-0.0} and \code{0.0} are one group, and every \code{NaN} is one (NANGROUP-1, below). Second,
+\code{MIN} and \code{MAX} are not invertible under retraction, so they are never pre-combined at a
+source. The runtime's windowed and keyed extremes do not keep the multiset of values a retraction of the
+extreme would need, and until 2.0.1 such a retraction stopped the query when it arrived, after the query
+had been accepted over a change feed (MINRETRACT-1). A \code{MIN} or \code{MAX} over an input that can
+retract is now refused at registration (\code{PRV-2076}), and one already journalled is refused at
+recovery, visibly. \Cref{prop:recompute} says what supporting it would take: state that can recompute the
+extreme, which is a decision recorded as declined rather than a gap in the algebra.
+\runs{\cls{RetractedExtremesTest}: \code{aWindowedMinOverADeletingSourceIsRefusedNamingTheAggregateAndTheStream},
+\code{anUnwindowedMaxOverADeletingSourceIsRefusedToo}, \code{anAppendOnlySourceAndARetractingSumAreAccepted},
+\code{aPushedRetractionIsCheckedAgainstTheStreamItReaches}.}
 
 \subsection{The served view}\label{sec:view}
 
@@ -792,7 +836,13 @@ punctuates, for a source that says so). A partition that has delivered nothing f
 \[
 \wm = \max\Bigl(\wm^{\mathrm{prev}},\; \min_{p \text{ not idle}} \wm_p\Bigr),
 \]
-held at its previous value when every partition is idle.
+and, when every partition is idle, $\wm = \max\bigl(\wm^{\mathrm{prev}},\, \min_{p \in P_d} \wm_p\bigr)$,
+where $P_d$ is the set of partitions that have delivered a row: the watermark catches up to what the
+partitions themselves said, never past the lowest of them. (The second and first editions held the
+watermark where it was when everything was idle. A burst into one partition of three, read as a query
+started, then fell idle on the same tick as the two partitions that never produced: no tick ever saw the
+busy partition active with the others excluded, and the watermark never left its initial value, so every
+window stayed open for good --- SEEDWINDOW-1.)
 \end{definition}
 
 \begin{proposition}[The watermark is monotone and a quiet partition does not freeze it]\label{prop:wm}
@@ -802,9 +852,13 @@ back, and rejoins the minimum as soon as it produces again.
 \begin{proof}
 Monotonicity is the outer $\max$ with the previous value; \cls{WatermarkTracker} reports the highest
 watermark it has reached, and a partition whose own generator regresses is counted rather than
-obeyed. Idle exclusion is the restriction of the $\min$ to non-idle partitions.
+obeyed. Idle exclusion is the restriction of the $\min$ to non-idle partitions. The all-idle case is
+also an outer $\max$ with the previous value, so it too never decreases; it never jumps past what a
+partition delivered, so going quiet does not fire every open window at once.
 \end{proof}
 \runs{\cls{WatermarkTrackerTest}: \code{theLaneWatermarkIsTheMinimumAcrossItsPartitions},
+\code{aBurstIntoOnePartitionIsWatermarkedWhenEveryPartitionFallsIdleOnTheSameTick},
+\code{everyPartitionIdleNeverMovesPastTheLowestThatDeliveredNorBackwards},
 \code{oneQuietPartitionDoesNotFreezeEveryWindow}, \code{anIdlePartitionRejoinsAsSoonAsItProducesAgain},
 \code{anOutOfOrderRecordCannotPullTheWatermarkBack},
 \code{aGeneratorThatRegressesIsCountedRatherThanObeyed},
@@ -812,7 +866,25 @@ obeyed. Idle exclusion is the restriction of the $\min$ to non-idle partitions.
 (\cls{FrontierTest}: \code{refusesToRegress}); a view refuses a commit whose frontier goes backwards
 (\cls{ServedViewTest}: \code{aFrontierGoingBackwardsIsRefused}).}
 
-A tumbling or hopping window $[s, e)$ \defn{fires} when the watermark passes $e$: its aggregate is
+A tumbling window of size $z$ has the windows $[kz, (k+1)z)$; a hopping window of size $z$ and slide
+$h$ has the windows $[kh, kh + z)$ for every integer $k$, so a record at time $t$ belongs to the
+$\lceil z/h \rceil$ or $\lfloor z/h \rfloor$ windows whose start lies in $(t - z, t]$. Windows start on
+multiples of the slide, as Calcite's and Flink's \code{HOP} do. Until 2.0.1 a hop whose size was not a
+multiple of its slide aligned its window \emph{ends} to the slide instead: \code{HOP} with a 10-second
+slide and a 25-second size put a record at 12~s in $[-5, 20)$ and $[5, 30)$, where SQL says $[-10, 15)$,
+$[0, 25)$ and $[10, 35)$ (HOPALIGN-1); a tumbling window, and a hop whose size is a multiple of its slide,
+always had the windows above. A window is maintained as slices of length $\gcd(z, h)$, and a scheme in
+which a record lands in more windows, or a window combines more slices, than a configured bound
+(\code{pravaha.lane.max-windows-per-row}, 100{,}000 by default) is refused at registration
+(\code{PRV-3026}): a one-millisecond hop over a day was accepted by 2.0.0, and one row of it held its lane
+and every push to its stream (FINEHOP-1).
+\runs{\cls{SlicedWindowsTest}: \code{aHopWhoseSizeIsNotAMultipleOfTheSlideStartsItsWindowsOnTheSlide},
+\code{everyRecordBelongsToTheRightNumberOfWindows},
+\code{everyRecordLandsInExactlyOneSliceAndThatSliceIsInEveryWindowItBelongsTo};
+\cls{WindowLimitRegistrationTest}: \code{aMillisecondHopOverADayIsRefusedNamingTheArithmeticAndTheBound},
+\code{ordinaryHopsAndTumblesRegister}.}
+
+A window $[s, e)$ \defn{fires} when the watermark passes $e$: its aggregate is
 emitted at weight $+1$. A record for a window that has fired has one of three outcomes, and the
 distinction between the second and third is the one that matters.
 
@@ -894,6 +966,46 @@ could not be (\code{AVG} of a \code{DECIMAL}, \code{PRV-2021}).
 \cls{SlicedAggregateOverflowTest}: \code{theWideArithmeticIsExact},
 \code{aWindowTotalPastTheRangeIsRefusedWhenItsSlicesAreCombined}. The 128-bit path's cost is in
 \Cref{sec:evaluation}.}
+
+The adversarial round of \Cref{sec:adversarial} found the same rule broken at the edges the accumulator
+checks did not reach, and each is now stated as SQL states it.
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+\item \emph{An aggregate of no values is \code{NULL}.} \code{SUM}, \code{AVG}, \code{MIN} and
+      \code{MAX} of a group with no non-null value were published as $0$, indistinguishable from a real
+      total of zero (ALLNULLAGG-1), in a window, a continuous query, over a view and on a read. They are
+      \code{NULL}; \code{COUNT(col)} is $0$ and \code{COUNT(*)} counts rows. The accumulators already
+      kept a count of non-null values, so the answer is decided from state the operator had, and a
+      retraction that leaves only \code{NULL}s makes the answer \code{NULL} again. In the terms of
+      \Cref{sec:model} this is a statement about the output row, not the weights: the group is present
+      with weight $+1$ and its aggregate column is \code{NULL}.
+\item \emph{Narrow integers do not wrap.} An \code{INT}, \code{SMALLINT} or \code{TINYINT} result outside
+      its type --- $+$, $-$, $\times$, unary minus, \code{ABS}, a narrowing \code{CAST} --- was published
+      wrapped: $2\times10^9 \times 2$ as $-294{,}967{,}296$, while \code{WHERE i * 2 > 0} kept the row
+      (NARROWINT-1). It is an overflow, handled as a \code{BIGINT} one is, and a filter meets the same
+      overflow as the projection. A floating-point \code{NaN} or infinity cast to an integer, and
+      $-2^{63} / -1$, are overflows too (NARROWCAST-1, DIVMIN-1).
+\item \emph{Grouping follows SQL equality.} A grouping on a \code{DOUBLE} by its bits made \code{-0.0}
+      and \code{0.0} two groups and two \code{NaN} payloads two more, which a view keyed by the value then
+      showed as one row: five rows in, counts summing to four (NANGROUP-1). Either zero is one group and
+      every \code{NaN} one, on every grouping path; and \code{NOT (d > 5)} is the IEEE complement of
+      \code{d > 5} over present operands, so a \code{NaN} row is in exactly one of a predicate and its
+      negation (NANNOT-1).
+\item \emph{A row whose evaluation fails is dead-lettered.} With a dead-letter queue configured, a row
+      that fails before it reaches state --- a division by zero or an overflow in a \code{WHERE}, a
+      projection or a computed column --- goes to the queue with the code \code{PRV-3027} and the query
+      runs on; a failure above an aggregate, window, join or top-N still stops the query (DLQPROJ-1).
+      Before, every such row stopped the query, whatever the guide said.
+\end{itemize}
+These change answers, and the release notes say so for each. None changes a theorem: the results of
+\Cref{sec:model} and after are about which rows and weights reach state and in what order, not about
+an aggregate's value over an empty group or the width of an integer.
+\runs{\cls{AllNullAggregateTest}: \code{aMaintainedKeyedAnswerGoesBackToNullAndSurvivesACheckpoint},
+\code{aCheckpointWrittenBeforeNullAnswersStillRestores}, and \cls{AllNullWindowAggregateTest};
+\cls{NarrowIntegerOverflowTest}: \code{anIntProductPastTheRangeIsAnOverflowAndNotTheWrappedValue},
+\code{aFilterOnTheExpressionMeetsTheSameOverflowAsItsProjection}; \cls{NarrowCastAndDivisionTest};
+\cls{DoubleGroupingTest}: \code{eitherZeroIsOneGroupAndEveryNanIsOne},
+\code{countDistinctCountsEitherZeroOnceAndEveryNanOnce}; \cls{NegatedFloatingComparisonTest};
+\cls{RowGuardTest}, \cls{EmbeddedRowDeadLetterTest}.}
 
 \section{Reading a maintained answer: commits and subscriptions}\label{sec:reading}
 
@@ -1184,6 +1296,31 @@ refuses to resume from an offset its retention has deleted rather than skip to t
 \end{remark}
 \argued{the exchange refusal is read from \cls{QueryExecution}; no test drives a pipeline that sends on
 the exchange, because none exists.}
+
+\begin{remark}[How much of (A5) the engine enforces]\label{rem:a5}
+(A5) asks that a restore read a checkpoint stored whole. Up to 2.0.0 the engine checked a checkpoint's
+header, counts and trailer, so a torn write was skipped; a single flipped bit inside a window's state was
+not, and the adversarial round restored and published 8 to 10 of 16 such flips (CKPTSUM-1). Every
+checkpoint now ends with a CRC32C of its contents, checked before anything in it is read; one that does
+not match is skipped (\code{PRV-4094}) and the one before it restored, as a torn one is. A checkpoint
+records the output schema it was taken for, and one of another schema --- a query re-registered over a
+column whose type changed --- is not restored; the query rebuilds from its sources (\code{PRV-4095},
+RETYPERESTORE-1). The registry journal, which says which queries exist to be restored, read any length
+that ran past the end of the file as a torn final record, so one damaged length in its middle silently
+dropped every later registration at every start (JOURNALMID-1); damage that has a complete record after it
+now refuses the start (\code{PRV-8005}) naming both offsets. And a registration a restart refuses --- a
+replication slot overtaken, an owner who lost the right --- is listed as failed with its code and turns
+node health \code{DEGRADED}, where before it vanished with one warning (RECOVERYHEALTH-1). None of this
+changes \Cref{thm:cut}; it narrows the ways (A5) can fail without anybody being told.
+\end{remark}
+\runs{\cls{FileCheckpointStoreTest}: \code{aFlippedBitAnywhereInTheBodyIsCaughtByTheChecksum},
+\code{aCheckpointWrittenBeforeChecksumsIsStillRestored}; \cls{RetypedRestoreTest}:
+\code{aCheckpointOfAnotherOutputSchemaIsRebuiltFromNotRestored}; \cls{RegistryJournalTest}:
+\code{aDamagedLengthInTheMiddleIsRefusedNamingTheOffsetAndNotReadAsATornTail},
+\code{anAppendAfterATornTailLandsOnARecordBoundaryAndSurvives}; \cls{SharedComputationRestartTest}:
+\code{theSurvivingNameKeepsTheStateWhenTheStartingNameIsDropped} (SHAREDLOSS-1: two names on one
+computation checkpoint into the first name's directory, and dropping that name left the survivor to come
+back from a restart running and empty); \cls{RecoveryRefusalsTest}.}
 
 \subsection{Output: two-phase sinks}
 
@@ -2330,26 +2467,89 @@ attributes are presented as claims by every credential of theirs, so a policy re
 \code{session\_attribute('region')} applies to people the engine itself authenticated. Multi-factor
 authentication and single sign-on were dropped by the owner's decision.
 
+\paragraph{A credential ends when it is revoked, on every transport.} A grant reaches an open stream
+because \code{SUBSCRIBE} is re-asked every two seconds; the same must hold of the credential itself, or a
+revoked key keeps reading on a connection it opened. The adversarial round found that the PostgreSQL
+gateway checked a password once, at sign-in, so a revoked key, a signed-out session or a disabled user kept
+reading (PGREVOKE-1). The gateway now verifies the credential again before every statement and ends the
+connection (\code{FATAL 28000}, \code{PRV-6218}) when it no longer verifies; a role removed applies from the
+next statement. A Flight subscription's two-second re-verification now also requires the credential to
+verify as the \emph{same} principal (FLIGHTPRINCIPAL-1, found while fixing the first). The console's
+cookie, which had carried the engine session token in a signed but readable payload, now carries an opaque
+id, the secret staying in the console process (COOKIETOKEN-1).
+\runs{\cls{PgWireSignInTest} (pgjdbc against the engine's identity store):
+\code{revokingAKeyEndsTheConnectionItOpenedAtItsNextStatement},
+\code{signingASessionOutEndsTheConnectionItOpened}, \code{disablingTheUserEndsTheConnectionsTheirKeyOpened};
+\cls{PgWireLimitsTest}: \code{aCredentialThatNowVerifiesWithFewerRolesIsTheOneTheNextStatementRunsAs};
+\cls{SubscriptionRevocationTest}.}
+
+\paragraph{What a stranger can make the node hold is bounded.} A continuous-query node is long-lived and
+its state is in its heap and its arenas, so the cheapest attack on it is not a wrong answer but an
+unauthenticated allocation. Two were found. The gateway allocated whatever a client declared for its
+password message, up to 16~MiB, before reading a byte of it, from a pool with no connection cap: sixty
+silent sockets ended the shipped 2.0.0 image in a 1~GiB container (\code{OutOfMemoryError}, exit~3;
+PGPREAUTH-1). The HTTP API read a request body whole, before authentication, up to its JSON parser's
+20-million-character limit, and thirty concurrent 19~MB anonymous sign-ins did the same (HTTPBODY-1). A
+message before sign-in is now at most 16~KiB and refused on its declared length; every message is
+allocated as its bytes arrive; the handshake has one deadline a trickling peer cannot renew; connections,
+unauthenticated connections and connections per principal are capped before a thread is spent; and an HTTP
+body over 16~KB on an open path, or 4~MB on any, is refused on its declared length or as soon as a chunked
+body passes it, with at most eight sign-ins running at once. Replayed against a 1~GiB container, the heap
+stayed at or under 272~MiB for 60 and 300 such sockets and at or under 276~MiB for three bursts of thirty
+19~MB sign-ins, with the node \code{UP} (\Cref{sec:evaluation}). Account lockout, finally, answered a known
+name differently from an unknown one and let anyone lock any account, \code{admin} included, for thirty
+minutes at a time (LOCKENUM-1). An unknown name, a wrong password and a barred sign-in now answer
+identically, after the same password-hash work; five failures from one address bar that address from that
+account, and fifty from any addresses lock the account. The security guide states the risk that remains:
+fifty addresses can still lock an account for thirty minutes at a time. TLS was not exercised by the round.
+\runs{\cls{PgWireLimitsTest}: \code{aPasswordMessageDeclaringSixteenMibIsRefusedOnItsLengthBeforeAnyOfItIsRead},
+\code{theHandshakeDeadlineIsOneDeadlineThatAByteEveryFewHundredMillisecondsDoesNotRenew},
+\code{pastMaxUnauthenticatedANewSocketIsRefusedAtOnceWith53300AndASignedInOneDoesNotCount};
+\cls{PravahaNodePgWireLimitsTest}; \cls{RequestLimitHttpTest}:
+\code{aNineteenMegabyteSignInIsRefused413OnItsContentLengthWithoutSendingTheBody},
+\code{aChunkedSignInBodyIsStoppedAtTheLimitAsItIsRead}; \cls{RequestLimitFilterTest};
+\cls{SignInThrottleTest}: \code{theFifthFailureBarsThatSourceForThatAccountOnly}; \cls{IdentityServiceTest}.
+The container replays are measurements recorded with the findings, not tests a build runs.}
+
 \section{The release, and how it runs}\label{sec:release}
 
-The engine this paper describes is release 1.0.0 (30 September 2026), the first to carry a compatibility
-promise. Nothing in this section is a result; it says what the theorems are theorems \emph{about}.
+The engine this paper describes is the 2.x line: release 2.0.0 (1 October 2026) and the fixes made on
+it since, at version 2.0.1-SNAPSHOT. 1.0.0 (30 September 2026) was the first release to carry a
+compatibility promise. Nothing in this section is a result; it says what the theorems are theorems
+\emph{about}.
 
-\paragraph{One node.} 1.0 is a one-node release. Cluster mode --- the eleventh and last wave of the
-implementation plan --- is on hold by the owner's decision, and when it comes it is to arrive as a 1.x
-addition a single node does not have to adopt. A node refuses to start in partitioned mode
+\paragraph{One node.} 2.0, like 1.0, is a one-node release. Cluster mode --- the eleventh and last wave
+of the implementation plan --- is on hold by the owner's decision, and when it comes it is to arrive as a
+2.x addition a single node does not have to adopt. A node refuses to start in partitioned mode
 (\code{PRV-9002}) rather than pretend.
 
-\paragraph{What 1.x keeps stable.} Semantic versioning from 1.0.0: a minor release adds without
-breaking, a patch fixes without changing what a client may rely on. Stable are the SQL dialect (a
-statement 1.0 accepts is accepted by every 1.x and answers the same), the Java and Python SDKs' public
+\paragraph{Java 25, and what 2.0 breaks.} From 2.0.0 Java~25 is the only JDK \Pv\ is built, tested, run
+and released on, and every module --- the public API, the embedded engine, the Spring Boot starter and the
+Java SDKs included --- is Java~25 class files (ADR-061). 1.x required Java~21, with the API and the thin
+Java SDK at 17, and supported 25: the work 25 needed (Hadoop~3.4.3 for JEP~486's removal of the Security
+Manager, and the launcher options for JEPs~498 and 472) was done in 1.x, and 2.0 removed the 21 path
+rather than adding a 25 one. The cost falls on embedders: an application that embeds the engine, compiles a
+plugin against the API or calls it through a Java SDK must run on 25, and the Spring Boot starter needs
+Boot~3.4 or later, because Boot~3.2 and 3.3 cannot read Java~25 class files. The wire protocols do not
+change, so a 1.x Java client keeps speaking to a 2.0 node while an application moves. The other breaking
+change removes \code{pravaha.security.administer: legacy-read}, deprecated in 1.0.0: it let anyone who may
+read a view unfiltered drop, pause, resume or replace it, and a node that still sets it refuses to start
+(\code{PRV-7004}). The whole reactor ran 4{,}832 tests on Java~25 with no failure before the release.
+
+\paragraph{What 2.x keeps stable.} Semantic versioning from 1.0.0: a minor release adds without
+breaking, a patch fixes without changing what a client may rely on, ``except where the old behaviour was
+the defect''. That exception carries weight in this edition: the fixes of \Cref{sec:bounds,sec:time}
+change answers (an empty group's \code{SUM} is \code{NULL} where it was $0$; a hop's windows start
+elsewhere), and the release notes mark each such change and say what it does to a checkpoint taken
+before it. Stable are the SQL dialect (a statement 1.0 accepts is accepted by every 1.x and 2.x and
+answers the same), the Java and Python SDKs' public
 names, every path and field of the HTTP API (held by a checked-in lock of the OpenAPI document that
 records every body field, so a removed or retyped field fails the build), the Flight SQL verbs and the
 columns of their results, what a psql, pgjdbc, Npgsql or psycopg client may send to the gateway, the
 \code{PRV-nnnn} codes and their SQLSTATEs (a code is never reused), the command lines and their exit
 codes, the configuration keys (deprecated for a minor release before removal in a major), the metric
-names, and state on disk: a 1.x node reads the journals, checkpoints, catalogue and identity stores any
-earlier 1.x node wrote. Going back is not promised, and the upgrade from 0.2 is one-way once a view
+names, and state on disk: a 2.x node reads the journals, checkpoints, catalogue and identity stores any
+earlier 1.x or 2.x node wrote. Going back is not promised, and the upgrade from 0.2 is one-way once a view
 outside the default tenant has been recovered, because the per-tenant names of ADR-060 are journalled in
 a record older builds refuse.
 
@@ -2361,7 +2561,7 @@ preparation, up to three repair turns are allowed and none may change what the q
 person confirms before anything is registered; no row is ever sent to a model. What the model's
 drafts are worth is measured by a harness over a golden set generated from the case studies, and no
 model's score is recorded in the repository, so we make no claim about it. The assistant is marked
-experimental in 1.0 and may change in a minor release.
+experimental in 1.0 and 2.0 and may change in a minor release.
 
 \paragraph{How it runs.} The engine runs in process (no Spring, no network), inside a Spring Boot
 application, or as a server. A server keeps everything under one directory, \code{PRAVAHA\_HOME}
@@ -2403,7 +2603,20 @@ The keyed view shows a row of the Z-set (\Cref{prop:keyfunctional}) & runs & \cl
 was argued and conditional in the first edition (VIEWW-1, since reproduced and fixed) \\
 Sums exact or refused, netted in 128 bits (\Cref{sec:bounds}) & runs & \cls{AggregateOverflowTest},
 \cls{TransientSumOverflowTest}, \cls{SlicedAggregateOverflowTest} \\
-Watermark monotone, idle exclusion (\Cref{prop:wm}) & runs & \cls{WatermarkTrackerTest} \\
+An aggregate of no values is \code{NULL} (\Cref{sec:bounds}) & runs & \cls{AllNullAggregateTest},
+\cls{AllNullWindowAggregateTest}; new in this edition (ALLNULLAGG-1) \\
+Narrow integers overflow, never wrap (\Cref{sec:bounds}) & runs & \cls{NarrowIntegerOverflowTest},
+\cls{NarrowCastAndDivisionTest}; new (NARROWINT-1) \\
+Grouping follows SQL equality on \code{DOUBLE} (\Cref{sec:bounds}) & runs & \cls{DoubleGroupingTest},
+\cls{DoubleKeyViewTest}, \cls{NegatedFloatingComparisonTest}; new (NANGROUP-1, NANNOT-1) \\
+A row whose evaluation fails is dead-lettered (\Cref{sec:bounds}) & runs & \cls{RowGuardTest},
+\cls{EmbeddedRowDeadLetterTest}; new (DLQPROJ-1) \\
+\code{MIN}/\code{MAX} over a retracting input refused (\Cref{sec:algebra-runtime}) & runs &
+\cls{RetractedExtremesTest}; new (MINRETRACT-1) \\
+Watermark monotone, idle exclusion, catch-up when all idle (\Cref{prop:wm}) & runs &
+\cls{WatermarkTrackerTest} \\
+Hop windows start on the slide; too fine refused (\Cref{sec:time}) & runs & \cls{SlicedWindowsTest},
+\cls{WindowLimitRegistrationTest}; new (HOPALIGN-1, FINEHOP-1) \\
 Corrections consolidate; too-late is counted (\Cref{prop:correction}) & runs & \cls{LateDataTest},
 \cls{StreamAllowedLatenessTest} \\
 Commit atomic to readers (\Cref{prop:atomic}) & runs & \cls{ServedViewTest} \\
@@ -2418,6 +2631,9 @@ Checkpoint is one cut; state exactly once (\Cref{thm:cut}) & runs & \cls{Aligned
 \cls{CheckpointRecoveryTest}, \cls{AggregateRestartTest}, \cls{StateRestoreTest} \\
 No checkpoint across the exchange (\Cref{rem:exchange}) & argued & refusal in \cls{QueryExecution};
 unreachable, no pipeline sends on the exchange \\
+A damaged checkpoint or journal is refused, not read (\Cref{rem:a5}) & runs & \cls{FileCheckpointStoreTest},
+\cls{RetypedRestoreTest}, \cls{RegistryJournalTest}, \cls{SharedComputationRestartTest}; new (CKPTSUM-1,
+JOURNALMID-1, SHAREDLOSS-1) \\
 Exactly-once to a transactional sink (\Cref{thm:sink}) & runs & \cls{TransactionalSinkDeliveryTest},
 \cls{KafkaSinkBrokerTest}, \cls{KafkaSinkRegistrationTest}, \cls{DeltaSinkRegistrationTest} \\
 Weakest link (\Cref{prop:weakest}) & runs & \cls{CapabilitiesTest}, \cls{SinkGuaranteeListingTest} \\
@@ -2464,17 +2680,26 @@ against every region \\
 Administration follows ownership (\Cref{sec:security}) & runs & \cls{QueryOwnershipTest} \\
 A name another tenant holds answers as nobody's (\Cref{sec:security}) & runs & \cls{FlightTenantNamesTest},
 \cls{PgTenantNamesTest}, \cls{AlertTenantNamesTest} \\
+A revoked credential ends its open connection (\Cref{sec:security}) & runs & \cls{PgWireSignInTest},
+\cls{PgWireLimitsTest}, \cls{SubscriptionRevocationTest}; new (PGREVOKE-1) \\
+Unauthenticated input is bounded before it is held (\Cref{sec:security}) & runs & \cls{PgWireLimitsTest},
+\cls{PravahaNodePgWireLimitsTest}, \cls{RequestLimitHttpTest}; the 1~GiB replays are measurements \\
+Lockout reveals no user name (\Cref{sec:security}) & runs & \cls{SignInThrottleTest},
+\cls{IdentityServiceTest}; new (LOCKENUM-1) \\
 Cross-view consistent read & not in \Pv & no read returns several views at one frontier \\
 \bottomrule
 \end{longtable}
 \end{center}
 
-Of forty-five rows, thirty-five run as stated; two run with one clause argued; one is proved here,
+Of fifty-five rows, forty-five run as stated; two run with one clause argued; one is proved here,
 with the refusal it justifies running; two run in part; three --- covering seven results --- hold of the
 reference algebra only; one is argued; and one construction is absent. In the first edition the same
 table had thirty-five rows, of which twenty-three ran as stated, three ran in part and two were argued;
 the two claims that moved from ``in part'' and ``argued'' to ``runs'' moved because the paper filed their
-gaps as findings and the findings were closed by tests (\Cref{sec:testing}). The rows that matter most
+gaps as findings and the findings were closed by tests (\Cref{sec:testing}). The second edition's table
+had forty-five rows, thirty-five running as stated. The ten rows this edition adds all run, and all ten
+are there because the adversarial round of \Cref{sec:adversarial} found the behaviour wrong first: they are
+claims the earlier editions did not make, not earlier claims whose evidence improved. The rows that matter most
 to a reader deciding whether to trust the engine are still the algebra-only rows: the design rests on
 DBSP's laws and the tests show those laws of a module the engine does not execute. The seam theorems,
 which are this paper's own contribution, are better carried than the algebra they sit on, and that
@@ -2485,7 +2710,9 @@ asymmetry is the first thing \Cref{sec:limits} proposes to fix.
 A marker that names a test is only as good as the test and the build that runs it. This section says
 what the tiers are, what each needs, how many tests each ran, and what running them found. The counts
 are those the repository records for 29 and 30 September 2026 on the development machine of
-\Cref{sec:evaluation}; they are counts of a build, not measurements of the engine.
+\Cref{sec:evaluation}, on Java~21, except where the table says Java~25: from 2.0 every tier runs on
+Java~25 only, and the repository records the whole reactor and the Python SDK re-run there on 1 October
+and the other tiers' counts as taken on 21. They are counts of a build, not measurements of the engine.
 
 \subsection{The tiers}
 
@@ -2496,12 +2723,15 @@ are those the repository records for 29 and 30 September 2026 on the development
 \textbf{Tier} & \textbf{Needs} & \textbf{Recorded} \\
 \midrule
 \endhead
-The whole reactor, as the gate runs it & JDK~21 & 4{,}688 Java tests, 0 failures, 211 skipped (the
-container-backed ones among them); the gate now also runs the Python SDK's suite \\
+The whole reactor & JDK~25 & 4{,}832 tests, 0 failures, 12 skipped, 2026-10-01 (on JDK~21 at 1.0.0:
+4{,}688, 211 skipped, the container-backed ones among them); the gate also runs the Python SDK's suite \\
 Unit and property tests (jqwik) & JDK~21 & e.g.\ \code{pravaha-algebra} 42, \code{pravaha-registry} 344,
 \code{pravaha-server} 323 \\
 In-process integration (\code{pravaha-it}) & JDK~21 & 960 tests, 2 skipped: real nodes, the documentation
 checks, the case studies against hand-worked answers \\
+Adversarial suites (opt-in) & JDK~25 & the engine round's classes in \code{pravaha-it}, its 28
+reproductions switched on with their fixes; the surface round's checks against a running node
+(\Cref{sec:adversarial}) \\
 Container-backed plugin tests (Testcontainers) & Docker & Kafka 50 (with a schema registry),
 PostgreSQL CDC 60, JDBC 13, MySQL CDC 9, Aerospike 40, Cassandra 39; three more in \code{pravaha-it};
 all green. Delta (82) and Iceberg (47) need no container \\
@@ -2525,9 +2755,17 @@ without anybody knowing (\Cref{sec:evaluation}).
 \subsection{The findings register}
 
 Every defect found is recorded with its status, and a test (\cls{FindingsRegisterTest}) enforces the
-status lines and counts them. At release 1.0.0 the register holds \textbf{482 findings: 464 fixed, 9
-closed as by design, 9 superseded, and none open}. The first round of testing ran 254 cases, of which 75
-failed. A finding is closed as fixed only when the case that found it has been re-run.
+status lines and counts them. At release 1.0.0 the register held 482 findings, none open. At the commit
+this edition was built from it holds \textbf{544 findings: 525 fixed, 10 closed as by design, 9
+superseded, and none open}; the 62 recorded since 1.0.0 are mostly those found moving to Java~25 and
+by the adversarial round below. The first round of testing ran 254 cases, of which
+75 failed. A finding is closed as fixed only when the case that found it has been re-run.
+
+Static analysis joined the build late. Error Prone and NullAway run over the whole reactor, main and test
+code, under a profile the default build does not use (ERRORPRONE-1): the ten findings at error level were
+resolved, nine fixed and one suppressed with its reason, and 3{,}570 warnings remain listed, 2{,}822 of
+them NullAway's, because the code is not annotated for nullness throughout. They are a backlog, not a gate,
+and no workflow runs the profile yet.
 
 The commonest defect in the register is worth naming because no single test finds it: a component that
 is built, correct and tested, and connected to nothing --- a policy asked about a view's name and never
@@ -2569,6 +2807,102 @@ build, inside the process, without the store, with a name the runner did not mat
 one step outside. We do not claim the register is complete. We claim that it is the complete list of
 what was found, and that a claim in this paper whose test did not exist was filed rather than asserted.
 
+\subsection{An adversarial round against release 2.0.0}\label{sec:adversarial}
+
+The tiers above are written by the people who wrote the code, and test what they meant. On the day 2.0.0
+was released two adversarial passes were run against it (the release plus the version bump, with no
+product code changed), on Java~25, with a different stance: each case was written to break a documented
+promise and named the promise it attacked. A case passed when the engine did what its documentation said,
+even where the tester would have designed it otherwise; those were recorded as design notes. A failure
+needed a reproduction.
+
+\paragraph{Method.} The cases were written before execution and kept beside a log of every execution with
+its evidence. The record says plainly where that was not wholly so: an exploratory probe pass ran before
+the expression and window cases took their final form, and the expressions it turned up are what those
+cases were then written to pin; every verdict comes from the committed tests, not from the probe. The
+engine pass drove the embedded engine directly, a child JVM fed by a followed file and killed with
+\code{SIGKILL} at random points, and a real node with four principals in two tenants. Its verdicts on
+answers came from \emph{oracles} written for the round in plain Java --- three-valued predicate
+evaluation, \code{BigInteger} and \code{BigDecimal} arithmetic, per-row lateness, a keyed view as ``the last
+row to gain weight'', aggregates recomputed from the surviving multiset --- so that the engine was compared
+with an independent statement of what SQL and the documentation say, not with another of its own paths.
+The surface pass attacked a node built from a fresh clone and the shipped images in a 1~GiB container,
+through psql, psycopg, pgjdbc, pyarrow, the command line, the console, the compose stack, the Helm chart
+and the connectors under failure.
+
+\begin{center}
+\small
+\begin{tabular}{@{}L{0.36\linewidth}rrrrL{0.20\linewidth}@{}}
+\toprule
+\textbf{Pass} & \textbf{Cases} & \textbf{Pass} & \textbf{Fail} & \textbf{Not run} & \textbf{Defects (high/med/low)}\\
+\midrule
+Engine, data and security & 168 & 124 & 36 & 8 & 24 (6/11/7)\\
+Surfaces, operations and packaging & 154 & 120 & 30 & 4 & 22 (4/6/12)\\
+\midrule
+Total & 322 & 244 & 66 & 12 & 46 (10/17/19)\\
+\bottomrule
+\end{tabular}
+\end{center}
+Four design notes were registered with the 46 defects, fifty findings in all.
+
+\paragraph{What held.} The seams and the governance this paper is about were attacked directly and held.
+420 seeded window runs, about 11{,}000 compared watermark advances among them, and 40 seeds of 150 chained
+operations over queries on queries matched the oracle; nineteen \code{SIGKILL}s across three seeds, at
+random points after appends, never lost or doubled an effect in a projection, a window or a query built on
+another; 9{,}800 random predicates gave the same rows interpreted and generated, apart from one defect
+(NANNOT-1); masks and row filters held on every read path tried, including point reads, both kinds of
+index, subscriptions and queries built on a narrowed view; a tenant could not tell another tenant's names
+from names nobody holds on any surface tried; and every escalation of a grant or of ownership was refused.
+
+\paragraph{What failed, by class.} The ten severe defects, and the medium ones that change answers, fall
+into four classes.
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+\item \emph{The edges of the value domain.} An aggregate of only \code{NULL}s published as $0$
+      (ALLNULLAGG-1); narrow-integer arithmetic and narrowing casts published wrapped or truncated
+      (NARROWINT-1, NARROWCAST-1, DIVMIN-1); \code{-0.0}, \code{0.0} and \code{NaN} payloads grouped by
+      their bits (NANGROUP-1); a hop's windows aligned by their ends (HOPALIGN-1). The 64-bit and decimal
+      cases had been made exact or refused a release earlier (\Cref{sec:bounds}); the same rule had not
+      been carried to the narrower types, the empty group or the floating-point key.
+\item \emph{Bookkeeping around recovery.} A damaged length in the middle of the registry journal read as a
+      torn tail (JOURNALMID-1); a shared computation's surviving name restarted empty (SHAREDLOSS-1);
+      checkpoints carried no checksum (CKPTSUM-1); a checkpoint of another schema was restored
+      (RETYPERESTORE-1); a registration refused at recovery vanished (RECOVERYHEALTH-1); a dropped
+      replication slot or a deleted topic left the query \code{RUNNING} and health \code{UP} while changes
+      were lost (CDCSLOT-1, TOPICGONE-1). No case found the cut of \Cref{thm:cut} wrong; what it was
+      restored from, or whether anybody was told it could not be, sometimes was.
+\item \emph{Resources a configuration or a stranger could exhaust.} A one-millisecond hop over a day
+      accepted (FINEHOP-1); the embedded engine ignoring its lane settings, so a row over 512 bytes stopped
+      every query on its stream (CELLBYTES-1); unauthenticated allocations on the PostgreSQL gateway and the
+      HTTP API (PGPREAUTH-1, HTTPBODY-1).
+\item \emph{Credentials and identities.} A revoked credential kept reading on an open PostgreSQL connection
+      (PGREVOKE-1); lockout told an attacker which user names existed and let anyone lock any account
+      (LOCKENUM-1); the console's cookie carried a usable engine token (COOKIETOKEN-1).
+\end{enumerate}
+The rest were codes, messages and documents that did not say what the engine did, and surfaces that
+refused a reasonable client (\code{SELECT 1} as a connection check, a 4-byte integer parameter against a
+\code{BIGINT} column).
+
+\paragraph{How they were fixed.} In three waves, finished on 2 October: the ten severe defects first,
+then the seventeen medium, then the nineteen low with the four design notes, each with its reproduction
+switched on and passing. Three more were found while fixing them and fixed too: a Flight subscription's
+re-verification that did not compare the principal (FLIGHTPRINCIPAL-1), the one-shot runner's dead-letter
+option not covering evaluation failures (CLIDLQ-1), and a static-analysis profile that set a property
+nothing read (ERRORPRONE-1). Two of the fixes were narrower than the obvious one, and the register says
+why: a per-record checksum in the journal was declined because a 2.0.0 node would read it as a torn tail,
+and retracting \code{MIN} and \code{MAX} was declined in favour of refusing them, because it needs a
+multiset of values per slice and new checkpoint state.
+
+\paragraph{What the round says about the method.} Two things, one of them uncomfortable. The comfortable
+one: the claims this paper proves, and that the register marks as running, survived an attack written to
+break them; what broke was the territory around them that no theorem covers, and a theorem about exact
+seams is no defence against a wrapped integer. The uncomfortable one: a release with one open finding in a
+register of 492 and a green reactor of 4{,}832 tests still had 46 defects in it, ten of them severe,
+and the commonest defect of the register appeared again --- a lane setting the embedded engine never read
+(CELLBYTES-1), a build profile whose property nothing read (ERRORPRONE-1). ``None open'' is a statement about
+what has been looked for. What could not be tested is recorded too: a full disk needed root, spill across a
+restart is not wired into the embedded engine, TLS was not exercised, and with no .NET on the machine the
+real Npgsql client was not run in the round.
+
 \section{Evaluation: what has been measured, and under what conditions}\label{sec:evaluation}
 
 This section reports only figures recorded in the repository, names the file and test each comes from,
@@ -2586,7 +2920,10 @@ kept unchanged as gate criteria, and ADR-042 records that restating the requirem
 
 There is no reference hardware. Every figure below was taken on one development machine: an AMD Ryzen
 AI~9 HX~370 laptop part, 12 physical cores of two designs (Zen~5 and Zen~5c) with SMT2 (24 logical),
-61~GiB of memory, OpenJDK~21.0.12 with G1. On 2026-09-20 it was running other build agents and
+61~GiB of memory, OpenJDK~21.0.12 with G1. Every throughput and cost figure in this section was taken
+on Java~21, before 2.0 moved the engine to 25, and none has been re-taken on 25 (the heap figures of the
+adversarial replays, at the end of \Cref{sec:evaluation}'s figures, are on 25); the repository records
+the performance gates as not measured in the 2.0 pass. On 2026-09-20 the machine was running other build agents and
 containers throughout, with load averages between 5.8 and 77.8 on 24 logical processors, printed beside
 every figure. The evidence pack (\code{docs/project/gates/measured-2026-09-20/README.md}) says in its first
 section that the numbers are a floor for one machine on one afternoon and not the engine's capability,
@@ -2710,6 +3047,32 @@ recorded it, on the same machine.
       global sum, 35.5 and 34.4 keyed, 98.5 and 98.8 windowed, and no load average, so we read them only
       as ``no visible cost'' (TRANSOVF-1).
 \end{itemize}
+
+\paragraph{Figures taken since the second edition.} The adversarial round's resource attacks were run in a
+container limited to 1~GiB with the image's defaults (heap at half the container, exit on the first
+\code{OutOfMemoryError}): against the shipped 2.0.0 image, and replayed after the fixes of
+\Cref{sec:security}.
+These are single replays on Java~25, recorded with the findings; they bound what the attack can do on that
+configuration and say nothing about throughput.
+
+\begin{center}
+\small
+\begin{tabular}{@{}L{0.33\linewidth}L{0.28\linewidth}L{0.29\linewidth}@{}}
+\toprule
+\textbf{Attack} & \textbf{Release 2.0.0} & \textbf{After the fix}\\
+\midrule
+Unauthenticated PostgreSQL sockets, each declaring a 16~MiB password message (PGPREAUTH-1) & 60 sockets:
+JVM terminated, \code{OutOfMemoryError}, container exit~3 & 60 and 300 sockets: heap $\le$ 272~MiB,
+node \code{UP}\\
+Concurrent anonymous sign-ins carrying a 19~MB body (HTTPBODY-1) & 30 at once: JVM terminated, container
+exit~3 & three bursts of 30: heap $\le$ 276~MiB, node \code{UP}\\
+\bottomrule
+\end{tabular}
+\end{center}
+On a 2.0.0 node run outside a container with a 1~GiB heap and no exit on the first error, 100 such
+sockets filled the heap to 1{,}043{,}804 of its 1{,}048{,}576~KiB and raised 42 \code{OutOfMemoryError}s in
+the gateway's session threads, and 30 such sign-ins raised 38, one of them in the engine's own clock
+thread. The record says the engine survived the first by luck.
 
 \subsection{What has not been measured}\label{sec:unmeasured}
 
@@ -2835,9 +3198,12 @@ Every theorem in this paper is a single-node theorem, and a query moved between 
 seam this paper does not treat --- though \Cref{thm:cutover} suggests the shape its answer should take.
 
 \paragraph{No open findings, which is not the same as no defects.} The findings register holds none open
-at release 1.0.0, and the two the first edition listed against its own invariants (VIEWW-1, CDCREPL-1)
-are fixed. That says every defect found has been dealt with, not that none remain: \Cref{sec:testing}
-shows each recent one was found by stepping outside where the previous tests stood. The windowed
+at the commit this edition was built from, and the two the first edition listed against its own invariants
+(VIEWW-1, CDCREPL-1) are fixed. That says every defect found has been dealt with, not that none remain.
+The second edition said so here; the adversarial round then found 46 defects in a release whose register
+had one open, which is the demonstration (\Cref{sec:adversarial}). Each was found by stepping
+outside where the previous tests stood, and the next will be too. Error Prone and NullAway leave 3{,}570
+warnings listed and are not yet a gate. The windowed
 aggregate's 128-bit slice digest (W8-14) remains a bounded, recorded departure from exact keys.
 
 \paragraph{Partial evidence for the seam theorems.} No test races reads against a cutover's catalogue
@@ -2867,11 +3233,12 @@ track of would fill the database's disk.
 \paragraph{SQL.} Session windows, window aggregates over row frames, \code{ORDER BY}, set operations,
 subqueries other than the temporal join, and unwindowed grouping over a stream are refused; outer joins
 between streams need a time bound. Twelve of Nexmark's twenty-three queries run. \code{MIN} and
-\code{MAX} are not retractable incrementally and are never pre-combined at a source.
+\code{MAX} are not retractable incrementally: they are never pre-combined at a source, and over an input
+that can retract they are refused at registration (\code{PRV-2076}).
 
 \paragraph{Performance claims.} The scaling gate is not reached on the only machine available; there is
 no reference hardware and no head-to-head comparison with any other system. None of the throughput
-figures in \Cref{sec:evaluation} is a capability.
+figures in \Cref{sec:evaluation} is a capability, and none has been re-taken on Java~25.
 
 \subsection{How the account could be shown wrong}
 
@@ -2929,13 +3296,20 @@ guard against. The algebra underneath them is carried by tests of a module the e
 That asymmetry is the most useful thing this paper can report to someone deciding whether to rely on
 the engine, and it is the first thing to fix.
 
-The second edition adds a hand-over the first did not see, and it sharpens the thesis rather than
+The second edition added a hand-over the first did not see, and it sharpened the thesis rather than
 breaking it. Where a position exists, the seam is a position. Where none does --- a view read as a
 source, whose history is recomputed on every restart --- the seam is the answer consumed, cut under the
 same freeze, and a restore is a difference of answers; the price is that only operators whose state is a
 function of what their input adds up to may stand on it. The discipline of the markers also turned out
 to be a way of finding defects: the gaps the first edition filed against its own claims were closed
 within two days, and three of them found something wrong.
+
+The third edition adds no theorem. It adds an attack on the engine, written before it was run, that
+the theorems survived and the territory around them did not: an aggregate of nothing, an integer at its
+range, a hop's first window, a flipped bit, a stranger's sixteen megabytes. Each is fixed, and each is now
+a claim in the register with a test behind it. The lesson we draw is the paper's own, one level out: a
+guarantee is a statement about a boundary, and the boundaries nobody has stated are where the defects
+were.
 
 The slogan the project uses is \emph{ask once, answer always}. The theorems in this paper are what
 ``always'' has to mean for it to be worth saying: across a subscriber joining, a restart, a shared
@@ -3095,13 +3469,19 @@ package under \code{com.ash.messaging.pravaha}).
 \end{center}
 
 The decision records cited (ADR-008, 013, 015, 025, 026, 027, 029, 031, 036, 042, 044, 046, 049, 050,
-052, 054, 055, 056, 057, 058, 059, 060) are in \code{docs/design/adr/}; the findings cited (VIEW-1, VIEWW-1,
-CDCREPL-1, CDCREPL-2, SUB-1, STRM-11, LANE-1, LANE-6, SRC-3, W8-14, SEAMKAFKA-1, LANEFATE-1,
+052, 054, 055, 056, 057, 058, 059, 060, 061) are in \code{docs/design/adr/}; the findings cited (VIEW-1,
+VIEWW-1, CDCREPL-1, CDCREPL-2, SUB-1, STRM-11, LANE-1, LANE-6, SRC-3, W8-14, SEAMKAFKA-1, LANEFATE-1,
 DOCSHARE-1, TESTNAME-1, SUMWRAP-1, TRANSOVF-1, SINKKEYROWS-1, SINKKEYROWS-2, TAUTOFILTER-1, DECSCALE-1,
-PGWIRETX-1, AVGINT-1, IDXVIS-1, SDKNETTYMIX-1, SPILL-4, PERF-1) are in \code{docs/project/qa/FINDINGS.md}; the
-measurements are in \code{docs/project/gates/measured-2026-09-20/README.md}, \code{docs/development/TESTING.md},
-\code{docs/RELEASE\_NOTES.md} and the ADRs and commits named beside each figure. What 1.x keeps stable
-is \code{docs/operations/COMPATIBILITY.md}.
+PGWIRETX-1, AVGINT-1, IDXVIS-1, SDKNETTYMIX-1, SPILL-4, PERF-1, and from the adversarial round
+ALLNULLAGG-1, NARROWINT-1, NARROWCAST-1, DIVMIN-1, NANGROUP-1, NANNOT-1, HOPALIGN-1, FINEHOP-1,
+MINRETRACT-1, DLQPROJ-1, SEEDWINDOW-1, CKPTSUM-1, RETYPERESTORE-1, JOURNALMID-1, SHAREDLOSS-1,
+RECOVERYHEALTH-1, CDCSLOT-1, TOPICGONE-1, CELLBYTES-1, PGPREAUTH-1, HTTPBODY-1, PGREVOKE-1,
+FLIGHTPRINCIPAL-1, LOCKENUM-1, COOKIETOKEN-1, CLIDLQ-1, ERRORPRONE-1) are in
+\code{docs/project/qa/FINDINGS.md}, and the round's cases, logs and summary in \code{docs/project/qa/cases/},
+\code{docs/project/qa/logs/} and \code{docs/project/qa/SUMMARY.md}; the measurements are in
+\code{docs/project/gates/measured-2026-09-20/README.md}, \code{docs/development/TESTING.md},
+\code{docs/project/RELEASE\_NOTES.md} and the ADRs and commits named beside each figure. What 2.x keeps
+stable is \code{docs/operations/COMPATIBILITY.md}.
 
 \bigskip
 \noindent{\footnotesize Copyright \copyright\ 2026 Ashutosh Sinha. This paper is licensed under the
