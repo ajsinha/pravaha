@@ -15,7 +15,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **Adversarial QA of 2.0.0** (2026-10-01): 322 cases over the engine, data and security
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
-  50 findings opened — 46 defects (10 HIGH) and 4 design notes. Wave 1 fixed all ten HIGH, below.
+  50 findings opened — 46 defects (10 HIGH) and 4 design notes. Wave 1 fixed all ten HIGH and Wave 2 all seventeen MEDIUM, below.
 - **A PostgreSQL CDC slot dropped under a running query is detected (CDCSLOT-1).** The reader treated
   the slot's `42704` at reconnect as one more transient failure and retried for ever, so the query
   stayed `RUNNING`, health `UP`, and every later change was silently missing. Now a permanent refusal
@@ -209,7 +209,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `idle-after` after it. The idle-exclusion rule is unchanged otherwise. `WatermarkTrackerTest`;
   proved on the compose stack (`--profile seed`: `spend_per_minute` 10 rows, 10:00 to 10:04).
 
-Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
+Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 

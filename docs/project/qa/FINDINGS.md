@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **543 findings carrying a
-status — 482 FIXED, 42 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 42 open, **0 are
-GA-BLOCKER, 9 GA-REQUIRED, 27 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **544 findings carrying a
+status — 499 FIXED, 26 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 26 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 20 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7436,48 +7436,37 @@ Cases and evidence: [cases/ADV-ENGINE.md](cases/ADV-ENGINE.md), [logs/ADV-ENGINE
 > **Status:** FIXED — the embedded engine reads pravaha.lane.* (a bad value is PRV-8104); an embedded push with a row wider than any target's cell is refused PRV-8102 before delivery and every query keeps running; a wide row handed to a query is refused PRV-3002 without failing it; the server's ingest writer is bounded to its cell. A plugin source's oversize row still stops that query (dead-lettering needs the plugin's raw bytes). EmbeddedLaneSettingsTest, AdvResourceTest#qe167_*.
 
 ### NARROWCAST-1 (MEDIUM) — narrowing casts truncate, and NaN/Infinity cast to BIGINT become numbers
-> **Status:** OPEN — `CAST(a AS INT)` publishes `Long.MIN_VALUE → 0`, `Long.MAX_VALUE → -1`; `CAST(i AS SMALLINT)` publishes `2e9 → -27648`; `CAST(d AS BIGINT)` publishes NaN → 0 and +Inf/1e300 → `Long.MAX_VALUE` (so `WHERE CAST(d AS BIGINT) = 0` keeps NaN rows); literals too (`CAST(9223372036854775808 AS BIGINT)` → `Long.MIN_VALUE`). CQ §11 refuses a narrowing `DECIMAL` cast because "rows that do not fit have no answer"; the integer and double casts answer anyway. Reproduction: `AdvExpressionTest#qe007…qe009` (disabled).
-> **Disposition:** POST-GA — range-check narrowing casts and refuse NaN/Infinity, routing the row as an overflow.
+> **Status:** FIXED — floating→integer CAST of NaN/±Inf/out-of-range and DOUBLE→REAL past range are overflows; out-of-BIGINT integer literals refused PRV-2021; NarrowCastAndDivisionTest, BigintLiteralRangeTest, QE-007..009.
 
 ### DIVMIN-1 (MEDIUM) — Long.MIN_VALUE / -1 is published as Long.MIN_VALUE
-> **Status:** OPEN — `Expression.Arithmetic.evaluateLong`'s `DIVIDE` is `l / r`; `+ - *` use `*Exact`. Reproduction: `AdvExpressionTest#qe010_longMinDividedByMinusOneIsNeverPublished` (disabled) / `#qe010_observed`.
-> **Disposition:** POST-GA — one guard (`l == Long.MIN_VALUE && r == -1`).
+> **Status:** FIXED — Long.MIN_VALUE / -1 is a BIGINT overflow (the remainder, 0, is answered); a narrow type's MIN / -1 is caught by NARROWINT-1's range check; NarrowCastAndDivisionTest, QE-010.
 
 ### CKPTSUM-1 (MEDIUM) — a checkpoint has no checksum, so a flipped bit is restored as an answer
-> **Status:** OPEN — `FileCheckpointStore` checks magic, version, counts and trailer, not content. Flipping one bit at 16 evenly spaced offsets of the newest `win` checkpoint (2,021 bytes) and restarting over a replayable file source: 8–10 of 16 restarts publish a corrupted window (e.g. `window_end` `1700000020000000001`, `window_start` `1627942485962072064`) with RUNNING and no complaint, for ever. Truncation is detected (QE-079 PASS). Reproduction: `AdvDurabilityTest#qe080_aFlippedBitInACheckpointIsNeverRestoredAsAnAnswer` (disabled) / `#qe080_observed`.
-> **Disposition:** POST-GA — CRC32C over the body, verified on load; a mismatch falls back to the previous checkpoint as a truncated one does.
+> **Status:** FIXED — every checkpoint ends with a CRC32C tail verified before parsing; a mismatch is skipped with PRV-4094 and the store falls back to the previous checkpoint; 2.0.0 checkpoints are read as unverified, and 2.0.0 can still read new ones; FileCheckpointStoreTest (every single-bit flip), QE-080 (16 of 16 flips give the same answer).
 
 ### PUSHPARTIAL-1 (MEDIUM) — a push one query cannot apply leaves the others applied but unpublished
-> **Status:** OPEN — `DefaultPravahaEngine.deliver` offers every row to every target, then commits target by target; the first target whose lane died throws `PRV-3010` and the remaining targets are never committed. Their views hide the row until some later push commits it, and a caller who retries the push it was told failed gets it twice (`COUNT(*)` of one row = 2). The javadoc promises the push "returns once every running query … has applied and committed them". Reproduction: `AdvChainTest#qe162_aPushOneQueryRefusesIsAllOrNothingForTheOthers` (disabled) / `#qe162_observed`.
-> **Disposition:** POST-GA — commit every healthy target before reporting the failed one, and say in the exception which targets applied the rows.
+> **Status:** FIXED — each query takes a push independently: healthy queries commit a push another cannot take, and PRV-8105 names which have the rows and says not to retry (all-or-nothing was declined: undoing needs a retraction windowed MIN/MAX cannot take); PartlyAppliedPushTest, QE-162.
 
 ### NANGROUP-1 (MEDIUM) — a windowed GROUP BY on a DOUBLE can lose a row
-> **Status:** OPEN — the windowed aggregate keys groups by a hash of the value's bits, the view keys rows by `Double.equals`. Five rows in one window, `d` = −0.0, 0.0, NaN, NaN (payload 0x7ff8000000000001), 1.0: four view rows whose counts sum to **4** — the two NaN groups collapse into one view row. −0.0 and 0.0 are separate groups everywhere (windowed, view-read `GROUP BY`, `COUNT(DISTINCT)`) although `d = 0` keeps both (TY-3). Reproduction: `AdvAggregateTest#qe045_046_windowedGroupsOnADoubleCountEveryRowOnce` (disabled) / `#qe045_046_observed`, `#qe047_048_049_…`.
-> **Disposition:** POST-GA — canonicalise NaN (and decide ±0.0) before hashing a group key, the same way on every path.
+> **Status:** FIXED — on every grouping path ±0.0 is one group (published 0.0) and every NaN one group (published NaN), as SQL equality says; a windowed GROUP BY on REAL no longer reads 8 bytes from a 4-byte slot; a 2.0.0 checkpoint keyed on -0.0 or a non-canonical NaN is refused and rebuilt; DoubleGroupingTest, DoubleKeyViewTest, QE-045..049.
 
 ### HOPALIGN-1 (MEDIUM) — HOP windows are aligned by their end when the size is not a multiple of the slide
-> **Status:** OPEN — `HOP(..., INTERVAL '10' SECOND, INTERVAL '25' SECOND)`, one row at t = 12 s: windows `[-5, 20)` and `[5, 30)`. SQL's HOP (Calcite's `HopEnumerator`, Flink) starts windows at multiples of the slide: `[-10, 15)`, `[0, 25)`, `[10, 35)`. `SlicedWindows.windowEndsContaining` aligns ends; `lastWindowEndFor` assumes starts are aligned, so the two disagree about a row's last window. Reproduction: `AdvAggregateTest#qe065_hopWindowsStartOnMultiplesOfTheSlide` (disabled) / `#qe065_observed`.
-> **Disposition:** POST-GA — align starts, or refuse a size that is not a multiple of the slide and say so in CQ §5.
+> **Status:** FIXED — HOP windows start on multiples of the slide, as Calcite's and Flink's do; TUMBLE and hops whose size is a multiple of the slide are unchanged; open windows fire on the new boundaries after an upgrade; SlicedWindowsTest, QE-065, WIN-020/021/071/076/152.
 
 ### RETYPERESTORE-1 (MEDIUM) — a checkpoint of another output schema is restored into the view
-> **Status:** OPEN — `q = SELECT id, v FROM s` with `v INT64`, a row, a checkpoint; restart with `v` declared `STRING`: `q` recovers RUNNING, its schema says `v VARCHAR`, and its view holds the old `Long` 10 beside new `String`s. A column added elsewhere restores correctly. Reproduction: `AdvDurabilityTest#qe088_aCheckpointOfAnotherOutputSchemaIsNotRestored` (disabled) / `#qe088_observed`.
-> **Disposition:** POST-GA — record the output schema with the checkpoint and refuse (or re-derive) a restore whose schema differs.
+> **Status:** FIXED — a view's checkpoint records its output schema; one of another schema is not restored (PRV-4095) and the query rebuilds from its sources; 2.0.0 checkpoints restore as before; RetypedRestoreTest, QE-088.
 
 ### SAMEPIDCLAIM-1 (MEDIUM) — two engines in one process share a state directory, and the second's close unclaims the first's
-> **Status:** OPEN — `StateOwnership.refuseIfHeldByAnother` returns early for "our own claim, being re-made" when the pid matches, so a second embedded engine in the same JVM with the default node id (`pravaha-embedded`) on the same directories starts, journals and checkpoints beside the first; when it closes it deletes the ownership markers while the first runs, after which an engine with another node id is accepted. A different node id is refused (`PRV-4003`) while the markers stand. Reproduction: `AdvDurabilityTest#qe083_aSecondEngineOnARunningEnginesDirectoryIsRefused` (disabled) / `#qe083_observed`.
-> **Disposition:** POST-GA — track live claims per process (an in-JVM registry), not only per pid.
+> **Status:** FIXED — an in-process claim registry refuses a second engine with the same node id on the same state directory (PRV-4003), and close deletes only a marker it wrote (claim.id); StateOwnershipTest, QE-083.
 
 ### GETTABLES-1 (MEDIUM) — GetTables lists nothing to a non-admin under the catalogue
-> **Status:** OPEN — with `pravaha.catalog.enabled` and `authority: catalog`, `FlightSqlClient.getTables` returns no rows to `ana` (granted `SELECT` on `payments`, whose read returns her two rows) and none to `eve` (who registered her own `payments` in `globex`); `ops` and `gops` (role `admin`) are listed every tenant's views. Nothing leaks, but a BI tool's catalogue is empty for every ordinary user. Reproduction: `AdvSecurityTest#qe168_getTablesListsTheViewsACallerMayRead` (disabled) / `#qe168_observed`.
-> **Disposition:** GA-REQUIRED — list what `SELECT` (or ownership) reaches, resolved in the caller's tenant, as `SHOW CONTINUOUS QUERIES` does.
+> **Status:** FIXED — GetTables asks mayReadThrough of a view's streams, as pravaha.list does, so a reader sees the views they own or were granted and nothing of another tenant's; FlightSqlMetadataTest, AdvSecurityTest QE-168.
 
 ### LISTCOUNT-1 (MEDIUM) — LIST tells a catalogue-filtered reader the view's whole cardinality
-> **Status:** OPEN — `ana`, narrowed by `CREATE ROW FILTER region_scope AS region = session_attribute('region')`, reads 2 of 3 rows of `payments` and is told `ROWS IN = 3` by `pravaha.list`. SX-18 withholds the count (`-1`) for a principal whose `SecurityPolicy` decision carries a row filter; the catalogue's row filters are not consulted. Reproduction: `AdvSecurityTest#qe111_listWithholdsAFilteredReadersCount` (disabled) / `#qe111_observed`.
-> **Disposition:** GA-REQUIRED — the catalogue's narrowing must withhold the count as SX-18 does.
+> **Status:** FIXED — QueryListing withholds the row count (-1) when the catalogue's narrowing carries a row filter or cannot be bound, on pravaha.list, SHOW CONTINUOUS QUERIES and the HTTP listing; QueryListingNarrowingTest, QE-111.
 
 ### DLQPROJ-1 (MEDIUM) — a row that fails evaluation stops the query even with a dead-letter queue
-> **Status:** OPEN — embedded engine with `pravaha.dlq.directory`, `filesystem` source, `SELECT id, a / b FROM z` over `1,10,2 / 2,10,0 / 3,10,5`: the query stops (`PRV-8003 … division by zero in a projection; the record is routed to the DLQ …`) and the DLQ holds 0 entries. CQ §11 says such a row "goes to the dead-letter queue, as a 64-bit overflow does". W8-11 recorded the lane-level poison row as deliberately not done; the guide was not changed with it. Reproduction: `AdvDurabilityTest#qe012_aRowThatDividesByZeroGoesToTheDeadLetterQueue` (disabled) / `#qe012_observed`.
-> **Disposition:** GA-REQUIRED — either dead-letter the row from the lane or correct CQ §11 and the `PRV-3010`/`ArithmeticException` texts.
+> **Status:** FIXED — with a dead-letter directory, an evaluation failure before state (WHERE, projection, computed column: divide by zero and every overflow) is dead-lettered PRV-3027 and the query runs on; a failure above state still stops it; push-only queries get the queue; PRV-3027 is not replayable (PRV-4092); RowGuardTest, EmbeddedRowDeadLetterTest, DeadLetterSurfacesTest, QE-012.
 
 ### NANNOT-1 (LOW) — the negation of a DOUBLE comparison is not its IEEE complement
 > **Status:** OPEN — `PredicateCompiler.negate` turns `NOT (d > 5)` into `d <= 5`, false for NaN, so a NaN row is in neither `d > 5` nor `NOT (d > 5)`; `IS FALSE` and `IS NOT FALSE` over such a comparison go wrong the same way (rows dropped and added). TY-3 chose IEEE 754, under which `NaN > 5` is FALSE and its negation TRUE. 26–33 of 1,500 random predicates per seed differ only on NaN rows for this reason, interpreted and generated alike. Reproduction: `AdvExpressionTest#qe014_notOfAComparisonKeepsANanRowAsIeeeSays` (disabled).
@@ -7575,33 +7564,27 @@ Cases and evidence: [cases/ADV-SURFACE.md](cases/ADV-SURFACE.md), [logs/ADV-SURF
 
 ### PGINTPARAM-1 (MEDIUM) — a 4-byte integer parameter against a BIGINT column is a protocol violation
 
-> **Status:** OPEN — the gateway types a parameter by the column it is compared with and demands 8 bytes, ignoring the type OID the client declared in `Parse`. pgjdbc 42.7.11 `PreparedStatement.setInt(1, 600)` on `… WHERE amount > ?` (amount `BIGINT`) gets `PSQLException 08P01 PRV-6202 a binary parameter declared 4 bytes; this server expected 8`, and so does psycopg with `%b` and a small int. PostgreSQL coerces `int4` to `int8`; the pgwire topic says binary parameters "are decoded for the fixed-width types". Npgsql (Power BI) sends `int` parameters as binary `int4`. Repro: QI-031 (pgjdbc transcript in the log entry), `test_qi031_*`.
-> **Disposition:** GA-REQUIRED — the commonest JDBC call on a numeric filter fails.
+> **Status:** FIXED — binary parameters are read as their Parse-declared type and widened (int2/int4→int8 or DOUBLE, float4→float8; a wider integer only when in range, else PRV-2062); PgTypesTest, JdbcClientTest (pgjdbc setInt/setShort against BIGINT), test_qi031.
 
 ### DECLSTREAM-1 (MEDIUM) — a stream declared over HTTP cannot be registered over
 
-> **Status:** OPEN — on a fresh `pravaha/pravaha-server:2.0.0` (`dev`, catalogue on or off): `pravaha streams declare s2 --schema "k:INT64,v:INT64"` → `declared s2`; `pravaha streams` lists it; `pravaha validate --sql "SELECT k FROM s2"` → `valid`; `pravaha register --name s2v --sql "SELECT k, v FROM s2" --keys 0` → `PRV-2002 Object 's2' not found. This server has 0 stream(s) declared`. The HTTP catalogue and the Flight planner disagree about what exists. Documented as a working path (streams help topic, `Client.declare_stream`, CLI.md). Repro: QI-059, `test_qi059_*`.
-> **Disposition:** GA-REQUIRED — a documented way to create a stream produces one nothing can use.
+> **Status:** FIXED — the registry is told of every stream declared after start (StreamCatalog.registryOver, QueryRegistry.declare); DeclaredStreamTest, DeclaredStreamRegistrationTest, test_qi059; the CLI path verified on the compose stack.
 
 ### LOCKENUM-1 (MEDIUM) — account lockout reveals which user names exist
 
-> **Status:** OPEN — sign-in failures are uniform (401 `PRV-7010`, equal timing within noise: 241/232, 305/244, 225/217 ms medians), but after five failures an existing account answers `423 PRV-7011 this account is locked until <instant>` while a name that does not exist keeps answering `401 PRV-7010` — through the engine and through the console's `/login`. Anyone can therefore confirm a user name with six requests, and lock any known account (the bootstrap `admin` included) for 30 minutes. SECURITY.md: messages "say only that the credential was not accepted". Repro: QI-054, QI-123, `test_qi054_*`.
-> **Disposition:** GA-REQUIRED — the enumeration half; the lock-out-anyone half is the usual trade-off and may be a NOTE once the oracle is closed (answer locked and unknown alike, record the lock server-side).
+> **Status:** FIXED — a barred sign-in reads exactly as a wrong password (401 PRV-7010, same KDF work); five failures from one address bar that address from the account for 30 min, fifty from any addresses lock the account for 30 min; trusted proxies and the console's X-Forwarded-For; IdentityServiceTest, SignInThrottleTest, SignInSourceTest, IdentityHttpTest, console test_identity, test_qi054. SECURITY.md states the remaining risk: fifty or more addresses can still lock an account for 30 minutes at a time.
 
 ### BIGREAD-1 (MEDIUM) — reads over a view near the row ceiling fail with internal errors
 
-> **Status:** OPEN — with `allrows` holding 1 009 786 rows (stopped at its 1 M-key ceiling, PRV-4022, as designed): `SELECT * FROM allrows` over pgwire and Flight → `PRV-3001 the projection's arena is full; raise pravaha.lane.arena.slab-bytes …` (`42000`), where the pgwire topic promises `PRV-4024` / `54000` for more than 1 000 000 result rows; `SELECT COUNT(*) FROM allrows` (and any aggregate over it) → `ERROR: Index -1 out of bounds for length 64`, SQLSTATE `XX000`, `PRV-1041` from the CLI — an unhandled `IndexOutOfBoundsException` text, nothing logged. The same reads over 1 008-row views work. Repro: QI-027 (append 850 000 rows to a followed CSV under an unkeyed view, then read it).
-> **Disposition:** GA-REQUIRED — a count over a large view is a dashboard's first query; the error is not a PRV code at all.
+> **Status:** FIXED — a read ends a batch every 4,096 rows, reclaiming both arenas; SELECT * past 1,000,000 rows is PRV-4024 and COUNT(*) answers; a single row too wide for an empty arena is a coded PRV-3001; LargeViewReadTest.
 
 ### SEEDWINDOW-1 (MEDIUM) — the compose seed's windowed view never fills
 
-> **Status:** OPEN — `--profile seed up` on a fresh stack: `orders_live` answers as in GUIDE_WITH_DOCKER §7, but `spend_per_minute` printed `0 rows` in the seed log and still had 0 rows minutes later and after a container recreate (`pravaha_query_watermark_lag_seconds{query="spend_per_minute"} NaN`). All twelve seed orders land in partition 0 of the 3-partition topic; partitions 1 and 2 go idle (`watermark_partitions_idle 2`) yet the watermark does not advance until another record arrives — one extra order (event time 10:07) produced all twelve windows at once. The guide, the seed SQL's own comment ("10:00 to 10:04 close") and RUNNING_IN_DOCKER show 10 rows. Repro: QI-151, `adv-surface-evidence/stack1.txt`, `stack3.txt`.
-> **Disposition:** GA-REQUIRED — the first thing the Docker walkthrough shows is an empty view; whether the fix is the watermark (idle exclusion should advance it) or the seed (spread the orders), the promise is wrong today.
+> **Status:** FIXED — with every partition idle, the watermark catches up to the lowest delivering partition's own watermark (never past it, never back, so WIN-164 holds); WatermarkTrackerTest; the compose seed shows spend_per_minute with 10 rows, as the Docker guide does.
 
 ### ENVRERUN-1 (MEDIUM) — `tools/docker-env.sh` resets the settings it says are yours
 
-> **Status:** OPEN — the script's header says "SAFE TO RE-RUN … Nothing that exists is overwritten" and the `.env` it writes says "the ports and the image tag below are yours to change". After editing `PRAVAHA_TAG` and every `PRAVAHA_*_PORT`, a re-run put them all back to the defaults (`PRAVAHA_TAG=local`, `18080`, `19090`, `17070`, …) — except `PRAVAHA_PGWIRE_PORT`. Cause: `cat > "$env_file" <<EOF` truncates the file before the heredoc's `$(port …)` substitutions read it, and only `pgwire_port` is computed beforehand. The next `compose up` then binds the default ports (a clash, or another stack's ports). Repro: QI-155.
-> **Disposition:** GA-REQUIRED — small fix, and the failure is silent until something else breaks.
+> **Status:** FIXED — tools/docker-env.sh reads every .env value before writing, writes through a temporary and a rename, and keeps the project name, bind address and any line it does not manage; tools/docker-env-test.sh (8 checks, fails on the old script), run in the packaging workflow.
 
 ### PGCOPY-1 (LOW) — `COPY` is refused with the wrong code
 
@@ -7693,3 +7676,10 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 > **Status:** OPEN — found while fixing PGREVOKE-1: Flight subscriptions re-verify their credential every 2 s (`REAUTHORIZE_EVERY`), but `credentialStillValid` checks only that the credential still verifies, not that it still verifies as the same principal; the gateway's check (PGREVOKE-1) compares both.
 > **Disposition:** POST-GA — needs a credential that changes principal while staying valid, which the identity store does not produce today.
+
+## Found fixing Wave 2 of the adversarial QA (2026-10-02), 1 finding
+
+### CLIDLQ-1 (LOW) — `pravaha run --dlq` does not dead-letter rows that fail evaluation
+
+> **Status:** OPEN — found while fixing DLQPROJ-1: the server and the embedded engine dead-letter an evaluation failure before state (PRV-3027), but the CLI's `QueryRunner` behind `pravaha-engine run --dlq` still dead-letters only records the source could not decode, so the same row stops a one-shot run.
+> **Disposition:** POST-GA — the one-shot runner, not a running node; the documented server path is fixed.
