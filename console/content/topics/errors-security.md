@@ -179,8 +179,8 @@ because the person using them needs it to act.
 
 | Code | Name | What happened | What to do |
 |---|---|---|---|
-| PRV-7010 | IDENTITY_CREDENTIALS_REFUSED | User name and password do not match. The answer is the same for an unknown user and a wrong password | Try again; each failure counts towards the lockout |
-| PRV-7011 | IDENTITY_LOCKED | Five failures within 15 minutes locked the account for 30 | Wait until the stated time, or ask an administrator for a reset |
+| PRV-7010 | IDENTITY_CREDENTIALS_REFUSED | User name and password do not match. The answer is the same for an unknown user, a wrong password and a sign-in barred by too many failures | Try again; five failures from one address bar it for 30 minutes. Try from elsewhere, or ask an administrator |
+| PRV-7011 | IDENTITY_LOCKED | No longer answered to a sign-in: a lock reads as `PRV-7010` (LOCKENUM-1). An engine before 2.0.1 answered it, `423`, after five failures | Wait, or ask an administrator for a reset |
 | PRV-7012 | IDENTITY_PASSWORD_POLICY | A new password breaks a rule; the message names it | At least 12 characters from 3 of lower, upper, digits and symbols, and none of the last 5 |
 | PRV-7013 | IDENTITY_KEY_NOT_VALID | An API key that is unknown, expired, revoked, past its rotation overlap, or had the wrong secret | Issue a new key, or use the rotated successor |
 | PRV-7014 | IDENTITY_KEY_WRONG_ENVIRONMENT | A key minted by another deployment, such as `prv_qa_…` presented to `prod` | Issue a key on this deployment |

@@ -311,6 +311,7 @@ public final class ViewQuery {
                 // the dominant cost of a read that meets it.
                 if (++sinceDeadlineCheck == DEADLINE_CHECK_ROWS) {
                     sinceDeadlineCheck = 0;
+                    endBatch(pipeline, arena);
                     if (System.nanoTime() > expiry) {
                         throw new PravahaException(
                                 ServingErrors.READ_DEADLINE_EXCEEDED,
@@ -323,6 +324,17 @@ public final class ViewQuery {
                     }
                 }
                 long handle = arena.allocate(inputLayout.rowSize(1024));
+                if (handle == com.ash.messaging.pravaha.common.arena.ArenaHandle.NULL) {
+                    // Rows wider than the batch was sized for: end the batch early and try once more.
+                    endBatch(pipeline, arena);
+                    handle = arena.allocate(inputLayout.rowSize(1024));
+                    if (handle == com.ash.messaging.pravaha.common.arena.ArenaHandle.NULL) {
+                        throw new PravahaException(
+                                com.ash.messaging.pravaha.runtime.RuntimeErrors.ARENA_EXHAUSTED,
+                                "a row of '" + view.name() + "' does not fit the read's empty arena of "
+                                        + arena.slabCount() + " x " + arena.slabBytes() + " bytes");
+                    }
+                }
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 write(writer, view.schema(), row);
                 writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
@@ -334,6 +346,20 @@ public final class ViewQuery {
             pipeline.finish();
         }
         return new Result(outputSchema, results);
+    }
+
+    /**
+     * Ends a batch of a read, as a lane ends one (BIGREAD-1): the operators settle, and the rows the
+     * batch wrote -- its input here, its stages' output in the pipeline -- are reclaimed, every one of
+     * them having been pushed downstream already. A read used to be one unbounded batch, so a view of a
+     * million rows filled the projection's arena ({@code PRV-3001}, where {@code PRV-4024} was owed) or
+     * this read's own, whose exhausted handle then indexed slab -1 ({@code Index -1 out of bounds for
+     * length 64}, no code at all, on a {@code COUNT(*)}).
+     */
+    private static void endBatch(InterpretedPipeline pipeline, RowArena arena) {
+        pipeline.endOfBatch();
+        pipeline.resetArena();
+        arena.reset();
     }
 
     /**

@@ -77,6 +77,10 @@ final class PgExtendedSession {
     private Principal principal;
 
     private final Map<String, PgStatement> statements = new HashMap<>();
+    /** The parameter OIDs each statement's {@code Parse} declared; read for binary widths (PGINTPARAM-1). */
+    private final Map<String, int[]> declaredParameterOids = new HashMap<>();
+
+    private static final int[] NONE_DECLARED = new int[0];
     private final Map<String, PgPortal> portals = new HashMap<>();
 
     private boolean errorState;
@@ -122,14 +126,15 @@ final class PgExtendedSession {
             String name = r.cstring();
             String rawSql = r.cstring();
             short declaredParamCount = r.int16();
-            // Read and discarded: a client's declared parameter OIDs are advisory in every real
-            // backend too (zero means "infer"), and Pravaha's own planner is authoritative about
-            // what a placeholder needs -- see PgTypes.decodeParameter's own note. Reading them is
-            // still required to find the end of this message.
+            // Kept, not trusted: Pravaha's own planner decides what a placeholder needs, and a
+            // declared OID decides only how a binary value's bytes are read -- an int4 against a
+            // BIGINT is read as 4 bytes and widened (PGINTPARAM-1); see PgTypes.decodeParameter.
+            int[] declaredOids = new int[Math.max(0, declaredParamCount)];
             for (int i = 0; i < declaredParamCount; i++) {
-                r.int32();
+                declaredOids[i] = r.int32();
             }
             statements.put(name, compile(rawSql));
+            declaredParameterOids.put(name, declaredOids);
             backend.parseComplete();
         } catch (PravahaException refused) {
             fail(backend, refused);
@@ -212,7 +217,11 @@ final class PgExtendedSession {
             short[] resultFormats = readFormatCodes(r);
             requireKnownFormats(resultFormats, statement);
 
-            BoundParameters parameters = bindParameters(statement, paramFormats, rawValues);
+            BoundParameters parameters = bindParameters(
+                    statement,
+                    declaredParameterOids.getOrDefault(statementName, NONE_DECLARED),
+                    paramFormats,
+                    rawValues);
             portals.put(portalName, new PgPortal(statement, parameters, resultFormats));
             backend.bindComplete();
         } catch (PravahaException refused) {
@@ -261,7 +270,8 @@ final class PgExtendedSession {
         }
     }
 
-    private BoundParameters bindParameters(PgStatement statement, short[] paramFormats, byte[][] rawValues) {
+    private BoundParameters bindParameters(
+            PgStatement statement, int[] declaredOids, short[] paramFormats, byte[][] rawValues) {
         List<TypeName> types = statement.parameterTypes();
         if (rawValues.length != types.size()) {
             // Reuses BoundParameters' own arity refusal (PRV-2061) rather than writing a second
@@ -272,7 +282,8 @@ final class PgExtendedSession {
         Object[] values = new Object[rawValues.length];
         for (int i = 0; i < rawValues.length; i++) {
             short format = formatFor(paramFormats, i);
-            values[i] = PgTypes.decodeParameter(types.get(i), format, rawValues[i]);
+            int declared = i < declaredOids.length ? declaredOids[i] : 0;
+            values[i] = PgTypes.decodeParameter(types.get(i), declared, format, rawValues[i]);
         }
         return BoundParameters.of(values);
     }
@@ -404,6 +415,7 @@ final class PgExtendedSession {
         String name = r.cstring();
         if (kind == 'S') {
             statements.remove(name);
+            declaredParameterOids.remove(name);
         } else if (kind == 'P') {
             portals.remove(name);
         }
@@ -419,6 +431,7 @@ final class PgExtendedSession {
      */
     void discardAll() {
         statements.clear();
+        declaredParameterOids.clear();
         portals.clear();
     }
 

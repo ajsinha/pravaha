@@ -7,8 +7,8 @@ The contract the console is written against, kept faithfully enough that a test 
 is a test of the console's use of it:
 
 - ``auth/login`` answers ``{token, expiresAt, mustChangePassword, mfa}``, or ``PRV-7010`` -- one
-  message whether the username or the password was wrong -- or ``PRV-7011`` once 5 failures
-  inside 15 minutes have locked the account for 30;
+  message whether the username or the password was wrong, and for a sign-in barred because 5
+  failures from its address inside 15 minutes bar that address for 30 (LOCKENUM-1);
 - a session is ``prv_s_<32 random bytes>``, kept only as its SHA-256; it ends after 30 minutes
   idle or 12 hours, at logout, on a password change (the others), a reset or a disable, and a
   person holds at most ``max_sessions`` (3), the oldest ending first; a call on an ended one is
@@ -125,6 +125,10 @@ class FakeIdentity:
         self.resets: dict[str, tuple[str, float]] = {}
         #: Every identity call the console made, as (verb, subject): the order a test can assert.
         self.calls: list[tuple[str, str]] = []
+        #: The address each sign-in was made for (X-Forwarded-For from the console).
+        self.addresses: list[str | None] = []
+        self.failed: dict[tuple[str, str | None], list[float]] = {}
+        self.barred: dict[tuple[str, str | None], float] = {}
         self._sequence = itertools.count(1)
         #: Every session token handed out -- which the engine could not list, having kept only
         #: hashes -- so a test can prove the console never repeats one on a page.
@@ -215,20 +219,26 @@ class FakeIdentity:
         return user
 
     # ------------------------------------------------------------------ auth/*
-    def login(self, username: str, password: str) -> dict:
+    def login(self, username: str, password: str, for_address: str | None = None) -> dict:
+        # LOCKENUM-1, as the engine does it: failures bar the address they came from (the console
+        # says whose with X-Forwarded-For), and a barred sign-in reads exactly as a wrong password.
         self.calls.append(("login", username))
+        self.addresses.append(for_address)
         now = self.clock()
         user = self.users.get(username)
-        if user is not None and user.locked_until > now:
-            self._refuse(423, "PRV-7011", f"this account is locked until {_iso(user.locked_until)}")
+        source = (username, for_address)
+        if self.barred.get(source, 0) > now:
+            self._refuse(401, "PRV-7010", "the username or password was not accepted")
         if user is None or user.status != "active" or not self._verify(user, password):
             if user is not None:
                 # Recorded before the refusal is answered, as the engine records it.
-                user.failures = [t for t in user.failures if now - t < LOCK_WINDOW] + [now]
-                if len(user.failures) >= LOCK_AFTER:
-                    user.locked_until, user.failures = now + LOCK_FOR, []
-                    self._refuse(423, "PRV-7011", f"this account is locked until {_iso(user.locked_until)}")
+                failures = [t for t in self.failed.get(source, []) if now - t < LOCK_WINDOW] + [now]
+                self.failed[source] = failures
+                if len(failures) >= LOCK_AFTER:
+                    self.barred[source], self.failed[source] = now + LOCK_FOR, []
+                    user.locked_until = now + LOCK_FOR
             self._refuse(401, "PRV-7010", "the username or password was not accepted")
+        self.failed.pop(source, None)
         user.failures, user.last_login = [], now
         token = "prv_s_" + secrets.token_urlsafe(32)
         self.sessions[_sha(token)] = {"id": "s" + secrets.token_hex(6), "username": username,

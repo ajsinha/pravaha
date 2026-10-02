@@ -216,7 +216,7 @@ public final class QueryListing {
 
     private Optional<Entry> decide(
             Principal principal, String name, RegisteredQuery query, AccessDecision byName, String action) {
-        boolean restricted = byName.rowFilter().isPresent();
+        boolean restricted = byName.rowFilter().isPresent() || narrowedByRows(principal, name);
         for (String stream : query.view().derivedFrom()) {
             if (stream.equals(query.view().name())) {
                 continue;
@@ -245,5 +245,23 @@ public final class QueryListing {
                 registry.rowsWrittenToSink(name),
                 registry.owners().ownerOf(name).map(Principal::id),
                 name));
+    }
+
+    /**
+     * Whether a row filter the policy keeps as an object -- the catalogue's {@code CREATE ROW FILTER}
+     * (ADR-059 §4) -- narrows what this principal reads of {@code name} (LISTCOUNT-1).
+     *
+     * <p>SX-18 withheld the totals only for a filter carried on the {@link AccessDecision}, which is how
+     * {@code pravaha.security.policy} expresses one; the catalogue answers {@code mayRead} with a plain
+     * allow and narrows through {@link SecurityPolicy#narrowing}, so a reader its filter cut to two rows
+     * of three was told "3". A narrowing that cannot be bound to this principal (a claim their
+     * credential does not carry) refuses their read, so their totals are withheld too.
+     */
+    private boolean narrowedByRows(Principal principal, String name) {
+        try {
+            return policy.narrowing(principal, name).rowFilter().isPresent();
+        } catch (PravahaException unbindable) {
+            return true;
+        }
     }
 }

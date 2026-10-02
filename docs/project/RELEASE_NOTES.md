@@ -81,6 +81,73 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   delivered, naming the row, its size and the cell; a row handed to a registered query directly is
   refused `PRV-3002` without failing the query; and a source's writer is bounded to its inbox cell, so
   a wide row is never written into the cells after it.
+- **Flight SQL `GetTables` lists the views a non-admin may read under the catalogue (GETTABLES-1).**
+  The table list asked each stream behind a view for the caller's own `SELECT`, which the catalogue
+  does not require to read a view (ADR-059 §2), so every ordinary user's BI catalogue was empty —
+  even of views they owned. It now asks what `pravaha.list` asks (`mayReadThrough`), so a view the
+  caller owns or was granted is listed, and nothing of another tenant's. `FlightSqlMetadataTest`,
+  `AdvSecurityTest` QE-168 enabled.
+- **A catalogue row filter withholds the view's row count from the reader it narrows (LISTCOUNT-1).**
+  SX-18 withheld `ROWS IN` (`-1`) only for a filter carried by `pravaha.security.policy`; a reader
+  narrowed by `CREATE ROW FILTER` was told the whole view's count by `pravaha.list`,
+  `SHOW CONTINUOUS QUERIES` and `GET /api/v1/queries`. The listing now consults the catalogue's
+  narrowing too (and withholds when it cannot be bound to the caller). `QueryListingNarrowingTest`,
+  `AdvSecurityTest` QE-111 enabled.
+- **A 4- or 2-byte integer parameter against a `BIGINT` column is widened, not refused
+  (PGINTPARAM-1).** The PostgreSQL gateway read every binary parameter at the width of the column it
+  was compared with and ignored the type the client declared in `Parse`, so pgjdbc's `setInt`,
+  psycopg's `%b` with a small `int` and Npgsql's (Power BI's) `int` parameters were `08P01 PRV-6202`.
+  A binary number is now read as its declared type and widened as PostgreSQL widens it (`int2`/`int4`
+  to any wider integer or to `DOUBLE`, `float4` to `DOUBLE`); a wider integer is accepted only when its
+  value is in range (`PRV-2062` otherwise). `PgTypesTest`, `JdbcClientTest` (real pgjdbc `setInt`,
+  `setShort`), ADV-SURFACE `test_qi031` now a passing check.
+- **A stream declared over HTTP can be registered over (DECLSTREAM-1).** `POST /api/v1/streams`
+  (`pravaha streams declare`, `Client.declare_stream`) recorded the stream in the node's catalogue,
+  which listing and validation read, but the registry planned over a copy of the catalogue taken at
+  start, so `pravaha register` over it was `PRV-2002 not found` — catalogue on or off. The registry is
+  now told of every stream declared after start (a new name takes a fresh stream identity, a new
+  version keeps the one it replaces). The declaration, and so a query over it, still lasts until the
+  node restarts. `DeclaredStreamTest`, `DeclaredStreamRegistrationTest` (HTTP declare, validate, Flight
+  register), ADV-SURFACE `test_qi059` now a passing check.
+- **Account lockout no longer tells anyone which user names exist, and cannot be used to lock a user
+  out indefinitely (LOCKENUM-1).** After five failures a real account answered `423 PRV-7011 locked
+  until …` (quickly, without checking the password) while an unknown name kept answering `401`, so
+  six requests enumerated users and anyone could lock any known account — `admin` included — for 30
+  minutes, repeatedly. Now an unknown name, a wrong password and a barred sign-in all answer
+  `401 PRV-7010`, identically and after the same password-hash work; five failures from one address
+  within 15 minutes bar *that address* from the account for 30 minutes, and fifty from any addresses
+  lock the account for 30 minutes. The lock is audited and visible to administrators. New setting
+  `pravaha.identity.lockout.trusted-proxies` (addresses or CIDR blocks; the compose stack trusts
+  `172.16.0.0/12`) whose `X-Forwarded-For` is believed; the console now sends the browser's address
+  (the Python SDK's `RestClient` takes `headers=`). Policy in SECURITY.md. `IdentityServiceTest`,
+  `SignInThrottleTest`, `SignInSourceTest`, `IdentityHttpTest`, console `test_identity`, SDK
+  `test_rest`, ADV-SURFACE `test_qi054` now a passing check.
+- **Reads over a view of a million rows answer, or are refused by their own code (BIGREAD-1).** A
+  read ran as one unbounded batch, so nothing reclaimed its arenas: `SELECT *` over a ~1 M-row view
+  was refused `PRV-3001` (the projection's arena) where the documented answer past 1,000,000 result
+  rows is `PRV-4024` / `54000`, and `COUNT(*)` failed with a bare `Index -1 out of bounds for length 64`
+  (`XX000`, no code) from the read's own exhausted arena. A read now ends a batch every 4,096 rows
+  as a lane does — the operators settle and both arenas are reclaimed — so `COUNT(*)` and other
+  aggregates over the whole view answer, `SELECT *` past the ceiling is `PRV-4024`, and a single row
+  too wide for an empty arena is a coded `PRV-3001`. `LargeViewReadTest` (90,000 wide rows and
+  1,000,010 narrow ones; fails without the fix).
+- **Re-running `tools/docker-env.sh` keeps the settings `.env` says are yours (ENVRERUN-1).** The
+  script wrote `.env` with `cat > .env <<EOF` whose `$(port …)` substitutions read `.env` back — after
+  the redirection had already truncated it — so a re-run reset the image tag and every port but
+  pgwire's to the defaults, and the next `compose up` bound them silently. Every value is now read
+  first, the file is written to a temporary and renamed into place, and `COMPOSE_PROJECT_NAME`,
+  `PRAVAHA_BIND` and lines the script does not write (`COMPOSE_PROFILES`, …) are kept too. New
+  `tools/docker-env-test.sh` (run twice with edited values, then a third time byte-for-byte; no
+  Docker), wired into the packaging workflow.
+- **A windowed query over a burst into one partition of several closes its windows (SEEDWINDOW-1).**
+  The Docker `seed` profile writes twelve orders, all into one partition of the three-partition
+  `orders` topic; the other two never produce. All three crossed `idle-after` on the same tick, and
+  with every partition idle the watermark "stays where it is" — which was nowhere, so
+  `spend_per_minute` stayed empty for good (the guide shows ten rows). With every partition idle the
+  watermark now catches up to the lowest watermark among the partitions that delivered rows — what
+  they themselves said, never past it, never backwards — so the windows the burst has passed close
+  `idle-after` after it. The idle-exclusion rule is unchanged otherwise. `WatermarkTrackerTest`;
+  proved on the compose stack (`--profile seed`: `spend_per_minute` 10 rows, 10:00 to 10:04).
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 

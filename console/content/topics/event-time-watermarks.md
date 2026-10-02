@@ -115,6 +115,13 @@ keep its last watermark for ever and pin the minimum — every window in the que
 nothing errors. Idle exclusion drops a silent partition from the minimum and lets it rejoin the
 moment it speaks.
 
+When **every** partition is idle the watermark does not jump ahead to release every open window; it
+stands at the lowest watermark among the partitions that delivered rows -- what they themselves
+said, never past it. That is also what a burst into one partition of several gets: the Docker seed's
+twelve orders all land in one of the topic's three partitions, the other two never produce, and all
+three fall idle together `idle-after` later; the windows the burst's own watermark has passed then
+close (SEEDWINDOW-1 -- before 2.0.1 the watermark stayed unset and `spend_per_minute` stayed empty).
+
 | Too long | Too short |
 |---|---|
 | A desk trading 09:00–17:00 goes quiet at 17:00 and every window in the query freezes until 09:00 — sixteen hours of growing state and no output | A source that batches every 60 s is excluded while it still has rows coming; the watermark jumps, and its on-time rows arrive late |

@@ -307,7 +307,12 @@ does for every query; the gateway then sends PostgreSQL's own binary format for 
 difference follows from that format: a binary `timestamptz` is a count of **microseconds**, so a
 value's sub-microsecond digits are truncated (toward the past) where the text form keeps all nine.
 A binary **parameter** is decoded for the fixed-width types and text; any other binary parameter is
-refused with PRV-6209.
+refused with PRV-6209. A binary number is read as the type the client declared for it in `Parse` and
+widened to the column it is compared with, as PostgreSQL does: pgjdbc's `setInt`/`setShort`,
+psycopg's `%b` with a small `int` and Npgsql's `int` parameters send `int4`/`int2`, and against a
+`BIGINT` they are read as such; a `float4` widens to `DOUBLE`. A wider integer than the column is
+accepted only when its value is in the column's range (otherwise PRV-2062), and bytes that do not
+match the declared width are PRV-6202 (`08P01`).
 
 ## What it refuses, and the SQLSTATE a client sees
 

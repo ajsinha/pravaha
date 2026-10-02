@@ -464,13 +464,22 @@ final class FlightSqlMetadata {
         return policy.mayRead(principal, name).allowed();
     }
 
+    /**
+     * Whether every stream behind {@code name} may be read through it, asked as the control-plane
+     * listing asks it ({@link SecurityPolicy#mayReadThrough}). GETTABLES-1: this asked {@code mayRead}
+     * of each stream, which the catalogue (ADR-059 §2) answers with the stream's own {@code SELECT} --
+     * a grant a reader of the view does not hold and need not -- so every non-admin was listed nothing,
+     * not even a view they own. A configured policy answers {@code mayReadThrough} as {@code mayRead},
+     * so SX-11's rule there is unchanged.
+     */
     private boolean mayReadEverythingBehind(Principal principal, String name) {
         ServedView view = catalog.find(name).orElse(null);
         if (view == null) {
             return false;
         }
         for (String stream : view.derivedFrom()) {
-            if (!stream.equals(name) && !mayRead(principal, stream)) {
+            if (!stream.equals(name)
+                    && !policy.mayReadThrough(principal, stream).allowed()) {
                 return false;
             }
         }

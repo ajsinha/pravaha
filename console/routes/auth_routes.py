@@ -185,7 +185,8 @@ class AuthRoutes(Routes):
             # refused there like any wrong password -- not by a form validator with a 422.
             where = request.client.host if request.client else "unknown"
             try:
-                answer = services.accounts.login(username.strip(), password)
+                answer = services.accounts.login(username.strip(), password,
+                                                 request.client.host if request.client else None)
             except ServiceError as exc:
                 logger.warning("sign-in refused for '%s' from %s (%s)", username, where, exc.code or "-")
                 return login_form(request, http_status=_login_status(exc), error=self._refusal(exc),

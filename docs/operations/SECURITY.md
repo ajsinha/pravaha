@@ -293,7 +293,17 @@ cardinality is data about rows the caller is not entitled to: a filtered princip
 `sales_view` holds 4 rows while their own read of it returns 2. `-1` rather than an empty field or
 `0`, deliberately: the field stays a decimal long that both SDKs already parse, no counter can ever
 equal it, and an empty field is turned into `0` by both — a lie rather than a refusal. The CLI prints
-it as `-` with a line saying why.
+it as `-` with a line saying why. The same holds under the catalogue (ADR-059): a reader narrowed by a
+`CREATE ROW FILTER` that applies to them is withheld the count exactly as a policy filter withholds it
+(LISTCOUNT-1, where the catalogue's filters were not consulted and a reader cut to two rows of three
+was told `3`).
+
+**What `GetTables` lists.** Flight SQL `GetTables` lists the views of the caller's own tenant that they
+may read, by the same rules as `LIST`: the view's own read right, and whatever may be read *through*
+it. Under the catalogue a view's grant is enough — reading a view does not need `SELECT` on the
+stream behind it (ADR-059 §2) — so an analyst granted `SELECT` on a view, or owning one, sees it in a
+BI tool's table tree (GETTABLES-1, where every non-admin was listed nothing). Nothing of another
+tenant is listed, except to an admin, by catalogue name (ADR-060).
 
 **`LIST` is audited (SX-8).** Every per-view decision the listing makes is recorded, allows as well
 as refusals, under the action `list`. A view hidden because of what it *reads* is recorded against
@@ -689,6 +699,33 @@ first start, from `pravaha.identity.bootstrap-password-file` or with the publish
 outside the dev profile refuses to start while the default is still its password (`PRV-7019`). Every
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
 still work beside all this, logged as deprecated.
+
+**Failed sign-ins and lockout (LOCKENUM-1).** The policy, and why each half is what it is:
+
+- *A lock is never announced to someone who has not signed in.* An unknown name, a wrong password, a
+  disabled account and a barred sign-in all answer `401 PRV-7010` with the same message, after the
+  same password-hash work. In 2.0.0 the sixth failure answered `423 PRV-7011 locked until …` for a
+  real account and `401` for a name nobody holds, so six requests told anyone whether a user name
+  existed, and the lock's fast refusal told them again by its timing. The right password is refused
+  too while barred -- otherwise the lock would be a guessing oracle.
+- *Failures bar the address they come from, not the account.* Five failures from one address within
+  `lockout.window` (15 minutes) bar that address from that account for `lockout.duration` (30
+  minutes); the person signing in from anywhere else is not affected. An account lock counted over
+  every source let anyone who knew a user name -- `admin` included -- lock it for 30 minutes with five
+  requests, and again every 30 minutes, indefinitely.
+- *A bounded account lock stops guessing spread over many addresses.* Ten times as many failures (50)
+  from any addresses within the window lock the account itself for `lockout.duration`, then it opens
+  again. A barred address's further attempts are not counted, so one address cannot reach it alone.
+- *Through a proxy, the person's address counts.* The console signs in for the browser and sends its
+  address as `X-Forwarded-For`; the node believes that header only from
+  `pravaha.identity.lockout.trusted-proxies` (addresses or CIDR blocks; the compose stack trusts
+  `172.16.0.0/12`, Docker's range), so a caller cannot spread guesses over invented addresses.
+  Without it, everyone signing in through one proxy is one address.
+- What is barred is kept in memory (a restart forgets it; at most 10,000 address-and-account pairs);
+  the account-wide lock is in the identity store. Both are audit events (`auth.lockout`, and
+  `auth.login_locked` for each refused attempt), and an administrator sees `lockedUntil` on the user.
+  A password reset clears it. What remains: an attacker with fifty addresses can lock an account for
+  30 minutes at a time -- put sign-in behind a proxy that rate-limits by address if that matters.
 
 **A user's queries after a restart.** A registration is journalled under its owner's id, and at start
 the node replays it as that owner, asking the identity store first and the token table second

@@ -239,11 +239,11 @@ def test_qi004_an_open_connection_stops_reading_once_its_session_signs_out(admin
 
 
 @needs_pgwire
-@open_defect("QI-031: open defect -- an int4 binary parameter against a BIGINT column is PRV-6202 "
-                         "08P01 (pgjdbc setInt, psycopg %b with a small int, Npgsql AddWithValue(int))")
 def test_qi031_int4_binary_parameter_against_a_bigint_column(admin):
+    # PGINTPARAM-1, fixed: a binary int2/int4 parameter is read at its declared width and widened to
+    # the BIGINT it is compared with, answering as the same value bound as text does.
     psycopg = pytest.importorskip("psycopg")
-    from psycopg.types.numeric import Int4
+    from psycopg.types.numeric import Int2, Int4
 
     view = any_view(admin)
     with pg_connect(admin) as conn:
@@ -251,7 +251,12 @@ def test_qi031_int4_binary_parameter_against_a_bigint_column(admin):
         bigint = next((d.name for d in description if d.type_code == 20), None)
         if bigint is None:
             pytest.skip(f"{view} has no BIGINT column")
-        conn.execute(f"SELECT * FROM {view} WHERE {bigint} > %b", [Int4(1)]).fetchall()
+        def rows(param, value):
+            return sorted(conn.execute(f"SELECT * FROM {view} WHERE {bigint} > {param}", [value]).fetchall(), key=repr)
+
+        as_text = rows("%s", "1")
+        assert rows("%b", Int4(1)) == as_text
+        assert rows("%b", Int2(1)) == as_text
 
 
 @needs_pgwire
@@ -320,15 +325,23 @@ def test_qi046_every_error_is_an_api_error(admin, path, headers):
 
 
 @needs_http
-@open_defect("QI-054: open defect -- after five failures an existing account answers 423 PRV-7011 "
-                         "'locked until ...' while an unknown name keeps answering 401 PRV-7010: an enumeration oracle")
 def test_qi054_a_locked_account_reads_like_an_unknown_one(admin):
+    # LOCKENUM-1, fixed: a barred sign-in -- the right password included -- answers exactly as an
+    # unknown name does (401 PRV-7010, the same message); the lock is recorded, not announced.
     name = "qi_" + uuid.uuid4().hex[:8]
-    http_call("POST", "/api/v1/users", admin, {"username": name, "password": "Qi-Lock-Password-2026", "roles": ["reader"]})
+    password = "Qi-Lock-Password-2026"
+    http_call("POST", "/api/v1/users", admin, {"username": name, "password": password, "roles": ["reader"]})
     for _ in range(6):
         locked = http_call("POST", "/api/v1/auth/login", body={"username": name, "password": "wrong-wrong-1A"})
+    right = http_call("POST", "/api/v1/auth/login", body={"username": name, "password": password})
     unknown = http_call("POST", "/api/v1/auth/login", body={"username": name + "_x", "password": "wrong-wrong-1A"})
-    assert locked[0] == unknown[0]
+
+    def said(answer):
+        body = json.loads(answer[2])
+        return answer[0], body.get("code"), body.get("message")
+
+    assert said(locked) == said(right) == said(unknown)
+    assert said(unknown)[:2] == (401, "PRV-7010")
 
 
 def _declared_only(path, length):
@@ -378,9 +391,9 @@ def test_qi045_anonymous_large_login_bodies_leave_the_node_serving():
 
 
 @needs_flight
-@open_defect("QI-REG: open defect -- a stream declared over POST /api/v1/streams (pravaha streams "
-                         "declare) validates over HTTP but is PRV-2002 'not found' to a Flight registration")
 def test_qi059_a_declared_stream_can_be_registered_over(admin):
+    # DECLSTREAM-1, fixed: the registry is told of every stream declared after start, so a stream
+    # declared over POST /api/v1/streams (pravaha streams declare) is registered over by Flight.
     pytest.importorskip("pyarrow")
     from pravaha import connect
     from pravaha.options import ClientOptions

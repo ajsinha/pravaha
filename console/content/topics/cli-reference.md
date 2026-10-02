@@ -463,7 +463,9 @@ pravaha explain  (--sql <query> | --sql-file <path>) [--level physical|logical|c
 ```
 
 `streams` lists the streams you may read with their event-time column, lateness, source and fields;
-`declare` is an administrative act the node refuses to a principal who may not change what it serves.
+`declare` is an administrative act the node refuses to a principal who may not change what it serves;
+a declared stream can be registered over at once, and lasts until the node restarts (see
+[streams](/help/topics/streams)).
 `views` lists every view you may see — each is a registered query's — with its key, retention, sink
 and fingerprint; `views describe` adds the schema. `describe` is one registered query in full:
 state, fingerprint, **lane** (`dedicated`, `own`, or `shared #N`), key, retention, sink and whether it

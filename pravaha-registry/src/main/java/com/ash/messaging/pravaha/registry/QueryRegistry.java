@@ -75,7 +75,8 @@ public final class QueryRegistry implements AutoCloseable {
     private final SecurityPolicy policy;
     private final QueryOwners owners;
     private final AuditSink audit;
-    private final StreamSchema[] streams;
+    /** Replaced whole, never changed in place, when a stream is declared after start (DECLSTREAM-1). */
+    private volatile StreamSchema[] streams;
     /**
      * What a registration keeps when it does not say. Forever, since TY-21.
      *
@@ -368,6 +369,11 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public StreamSchema[] streams() {
         return streams.clone();
+    }
+
+    /** Plans every later registration over {@code stream} too: one declared after start (DECLSTREAM-1). */
+    public synchronized void declare(StreamSchema stream) {
+        streams = StreamIdentities.declare(streams, stream);
     }
 
     /** Dimension tables registered queries may join against, by the name the SQL refers to. */

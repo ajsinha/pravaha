@@ -274,10 +274,10 @@ class FakeEngine:
             raise
 
     # ADR-052: the identity endpoints, as core.engine.Engine calls them
-    def login(self, username, password):
+    def login(self, username, password, for_address=None):
         if self.down:
             raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:18080 did not answer")
-        return self.identity.login(username, password)
+        return self.identity.login(username, password, for_address)
 
     def logout(self):
         return self._as_identity(self.identity.logout)

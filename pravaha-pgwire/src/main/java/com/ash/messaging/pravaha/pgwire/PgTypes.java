@@ -408,14 +408,26 @@ final class PgTypes {
      * <p>The type is the one {@code ParameterMetadata} inferred by planning the statement, not
      * whatever OID a client's {@code Parse} declared -- Pravaha's own planner is authoritative about
      * what a placeholder needs, the same way {@link #oidOf} is authoritative about what a column
-     * is. A client's declared parameter OID is read (see {@code PgExtendedSession}) and never
-     * trusted over this.
+     * is. A client's declared parameter OID decides only how a binary value's bytes are read: an
+     * {@code int2} or {@code int4} against a {@code BIGINT} placeholder, a {@code float4} against a
+     * {@code DOUBLE} one, is read at its own width and widened, as PostgreSQL coerces it
+     * (PGINTPARAM-1: pgjdbc's {@code setInt}, psycopg's {@code %b} and Npgsql all send the narrower
+     * type). A wider integer than the placeholder is accepted only when its value fits; nothing is
+     * ever narrowed by truncation.
      *
      * @throws PravahaException {@link PgWireErrors#UNSUPPORTED_WIRE_FORMAT} for a binary-format
      *     value this gateway does not decode, {@link PgWireErrors#UNSUPPORTED_TYPE} for a
      *     placeholder type this gateway never puts on the wire in either direction
      */
     static Object decodeParameter(TypeName typeName, short format, byte[] bytes) {
+        return decodeParameter(typeName, 0, format, bytes);
+    }
+
+    /**
+     * As {@link #decodeParameter(TypeName, short, byte[])}, reading a binary value as the type the
+     * client declared for it in {@code Parse} ({@code 0}: none, so the placeholder's own width).
+     */
+    static Object decodeParameter(TypeName typeName, int declaredOid, short format, byte[] bytes) {
         if (bytes == null) {
             return null;
         }
@@ -430,7 +442,7 @@ final class PgTypes {
         }
         return format == PgBackend.FORMAT_TEXT
                 ? decodeText(typeName, new String(bytes, StandardCharsets.UTF_8))
-                : decodeBinary(typeName, bytes);
+                : decodeBinary(typeName, declaredOid, bytes);
     }
 
     private static Object decodeText(TypeName typeName, String text) {
@@ -497,7 +509,11 @@ final class PgTypes {
      * only. PostgreSQL's binary {@code date}/{@code timestamptz} count from 2000-01-01 rather than
      * 1970-01-01, which is the one translation here that is not simply "read the bytes".
      */
-    private static Object decodeBinary(TypeName typeName, byte[] bytes) {
+    private static Object decodeBinary(TypeName typeName, int declaredOid, byte[] bytes) {
+        Object declared = decodeAsDeclared(typeName, declaredOid, bytes);
+        if (declared != null) {
+            return declared;
+        }
         return switch (typeName) {
             case BOOLEAN -> bytes.length > 0 && bytes[0] != 0;
             case INT8, INT16 -> readInt(bytes, 2);
@@ -517,6 +533,57 @@ final class PgTypes {
                                 + "binary for the fixed-width primitive types (booleans, integers, floats, "
                                 + "text, date, timestamptz). Bind it as text instead -- every client this "
                                 + "server has been driven by defaults to text unless told otherwise.");
+        };
+    }
+
+    /**
+     * A binary number read at the width the client declared and converted to the placeholder's type,
+     * or {@code null} when the declaration says nothing this method decides (no OID, the placeholder's
+     * own OID, or a type that is not a number) and the placeholder's width governs.
+     *
+     * <p>Exact or refused: an integer widens to any integer placeholder and an {@code int2}/{@code
+     * int4} to a {@code DOUBLE} one (every such value is a double exactly), a {@code float4} to a
+     * {@code DOUBLE}; a wider integer than the placeholder is accepted only when its value is in the
+     * placeholder's range, and a {@code float8} is never narrowed to a {@code REAL}.
+     */
+    private static Object decodeAsDeclared(TypeName typeName, int declaredOid, byte[] bytes) {
+        int declaredWidth =
+                switch (declaredOid) {
+                    case OID_INT2 -> 2;
+                    case OID_INT4 -> 4;
+                    case OID_INT8 -> 8;
+                    default -> 0;
+                };
+        if (declaredWidth > 0) {
+            return switch (typeName) {
+                case INT8, INT16, INT32, INT64 -> {
+                    long value = readInt(bytes, declaredWidth);
+                    int width = typeName == TypeName.INT64 ? 8 : typeName == TypeName.INT32 ? 4 : 2;
+                    if (declaredWidth > width && (value < -(1L << (width * 8 - 1)) || value >= 1L << (width * 8 - 1))) {
+                        throw new PravahaException(
+                                com.ash.messaging.pravaha.sql.SqlErrors.PARAMETER_TYPE,
+                                "a binary " + typeNameOf(declaredOid) + " parameter holds " + value
+                                        + ", outside the range of the " + typeName + " it is compared with");
+                    }
+                    yield value;
+                }
+                case FLOAT64 -> declaredWidth <= 4 ? (Object) (double) readInt(bytes, declaredWidth) : null;
+                case FLOAT32 -> declaredWidth <= 2 ? (Object) (double) readInt(bytes, declaredWidth) : null;
+                default -> null;
+            };
+        }
+        if (declaredOid == OID_FLOAT4 && typeName == TypeName.FLOAT64) {
+            return (double) Float.intBitsToFloat((int) readInt(bytes, 4));
+        }
+        return null;
+    }
+
+    private static String typeNameOf(int oid) {
+        return switch (oid) {
+            case OID_INT2 -> "int2";
+            case OID_INT4 -> "int4";
+            case OID_INT8 -> "int8";
+            default -> "oid " + oid;
         };
     }
 

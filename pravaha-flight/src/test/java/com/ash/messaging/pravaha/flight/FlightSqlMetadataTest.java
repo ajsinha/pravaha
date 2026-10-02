@@ -360,6 +360,57 @@ class FlightSqlMetadataTest {
         }
     }
 
+    @Test
+    void aViewIsListedWhenItsStreamsMayBeReadThroughIt() throws Exception {
+        // GETTABLES-1. The catalogue (ADR-059 §2) grants SELECT on a view without SELECT on the stream
+        // behind it -- mayReadThrough allows, mayRead of the stream denies. The table list asked mayRead
+        // of each stream, so every non-admin was listed nothing; it now asks what pravaha.list asks.
+        ServedView payments = new ServedView("payments", USER_VOLUME, List.of(0), 100).derivedFrom(List.of("txn"));
+        ServedView hidden = new ServedView("hidden", USER_VOLUME, List.of(0), 100).derivedFrom(List.of("payroll"));
+        SecurityPolicy catalogueShaped = new SecurityPolicy() {
+            @Override
+            public AccessDecision mayRead(Principal principal, String view) {
+                return view.equals("payments") || view.equals("hidden")
+                        ? AccessDecision.allow()
+                        : AccessDecision.deny("no SELECT on the stream itself");
+            }
+
+            @Override
+            public AccessDecision mayReadThrough(Principal principal, String source) {
+                return source.equals("txn") ? AccessDecision.allow() : AccessDecision.deny("payroll is not theirs");
+            }
+        };
+
+        try (BufferAllocator own = new RootAllocator(Long.MAX_VALUE)) {
+            PravahaFlightServer restricted = new PravahaFlightServer(
+                            new ViewCatalog().register(payments).register(hidden), own)
+                    .authenticatedBy(StaticTokenVerifier.of(
+                            "analyst-token", new Principal("ana", "public", Set.of("analyst"), Map.of())))
+                    .authorizedBy(catalogueShaped, AuditSink.NONE)
+                    .start("localhost", 0);
+            FlightCallHeaders headers = new FlightCallHeaders();
+            headers.insert("authorization", "Bearer analyst-token");
+            HeaderCallOption bearing = new HeaderCallOption(headers);
+            try (FlightSqlClient restrictedClient = new FlightSqlClient(org.apache.arrow.flight.FlightClient.builder(
+                            own, Location.forGrpcInsecure("localhost", restricted.port()))
+                    .build())) {
+                List<String> visible = rows(
+                                restrictedClient,
+                                restrictedClient.getTables(null, null, null, null, false, bearing),
+                                bearing)
+                        .stream()
+                        .map(row -> row.get(2))
+                        .toList();
+
+                assertThat(visible)
+                        .as("listed through a stream the reader may read through, not one they may not")
+                        .containsExactly("payments");
+            } finally {
+                restricted.close();
+            }
+        }
+    }
+
     // ------------------------------------------------------------------------------------------
     // Reading a metadata stream the way a client does
     // ------------------------------------------------------------------------------------------

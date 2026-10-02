@@ -47,6 +47,32 @@ class WatermarkTrackerTest {
     }
 
     @Test
+    void aBurstIntoOnePartitionIsWatermarkedWhenEveryPartitionFallsIdleOnTheSameTick() {
+        // SEEDWINDOW-1: twelve orders into one partition of three, read as the query starts. p1 and
+        // p2 never produce; all three cross idle-after on the same tick, so no tick saw p0 active with
+        // the others excluded, and the watermark stayed NOT_YET -- every window open for good.
+        WatermarkTracker tracker = trackerWith("p0", "p1", "p2");
+        tracker.observe("p0", 600 * SECOND, 0L);
+        tracker.observe("p0", 610 * SECOND, 0L);
+        assertThat(tracker.advance(SECOND)).isEqualTo(WatermarkGenerator.NOT_YET);
+
+        assertThat(tracker.advance(IDLE_TIMEOUT)).isEqualTo(608 * SECOND);
+        assertThat(tracker.diagnostics().idleNow()).isEqualTo(3);
+    }
+
+    @Test
+    void everyPartitionIdleNeverMovesPastTheLowestThatDeliveredNorBackwards() {
+        WatermarkTracker tracker = trackerWith("p0", "p1");
+        tracker.observe("p0", 100 * SECOND, 0L);
+        tracker.observe("p1", 50 * SECOND, 0L);
+        assertThat(tracker.advance(0L)).isEqualTo(48 * SECOND);
+
+        // Both idle: the lowest of what they said, which is where it already is -- not p0's 98 s.
+        assertThat(tracker.advance(IDLE_TIMEOUT)).isEqualTo(48 * SECOND);
+        assertThat(tracker.advance(10 * IDLE_TIMEOUT)).isEqualTo(48 * SECOND);
+    }
+
+    @Test
     void theLaneWatermarkIsTheMinimumAcrossItsPartitions() {
         WatermarkTracker tracker = trackerWith("p0", "p1");
         tracker.observe("p0", 100 * SECOND, 0L);

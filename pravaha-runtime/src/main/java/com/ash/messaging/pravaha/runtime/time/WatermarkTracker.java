@@ -203,9 +203,15 @@ public final class WatermarkTracker {
     public long advance(long nowNanos) {
         long minimum = Long.MAX_VALUE;
         boolean any = false;
+        // What the partitions that have delivered rows say, idle or not (SEEDWINDOW-1, below).
+        long delivered = Long.MAX_VALUE;
         for (Partition partition : partitions) {
             boolean wasIdle = partition.idle;
             partition.idle = nowNanos - partition.lastActivityNanos >= idleTimeoutNanos;
+            long own = partition.generator.watermark();
+            if (own != WatermarkGenerator.NOT_YET) {
+                delivered = Math.min(delivered, own);
+            }
             if (partition.idle) {
                 if (!wasIdle) {
                     idleExclusions++;
@@ -224,9 +230,18 @@ public final class WatermarkTracker {
         }
 
         if (!any) {
-            // Everything is idle. The watermark stays where it is rather than jumping to infinity:
-            // firing every open window because the source went quiet would turn a lull into a flood
-            // of premature results.
+            // Everything is idle. The watermark does not jump to infinity: firing every open window
+            // because the source went quiet would turn a lull into a flood of premature results. It
+            // does catch up to what the partitions that delivered rows have themselves said -- never
+            // past the lowest of them -- because otherwise the order in which partitions fall idle
+            // decides whether there is a watermark at all (SEEDWINDOW-1). A burst into one partition
+            // of three, read just after the query starts, went idle on the same tick as the two that
+            // never produced anything: no tick ever saw the busy one active with the others excluded,
+            // so the watermark stayed NOT_YET and every window stayed open, for good. One more tick
+            // between the two and it would have been that partition's own watermark.
+            if (delivered != Long.MAX_VALUE && (current == WatermarkGenerator.NOT_YET || delivered > current)) {
+                current = delivered;
+            }
             return current;
         }
         if (current == WatermarkGenerator.NOT_YET || minimum > current) {

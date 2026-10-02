@@ -205,6 +205,39 @@ class JdbcClientTest {
     }
 
     /**
+     * PGINTPARAM-1: {@code setInt} and {@code setShort} against a {@code BIGINT} column. pgjdbc sends
+     * them as binary {@code int4}/{@code int2}, declared so in {@code Parse}; the gateway demanded 8
+     * bytes and answered {@code 08P01}. PostgreSQL widens them, and so does this gateway now -- past
+     * the server-prepare threshold too, where pgjdbc reuses the named statement.
+     */
+    @Test
+    void jdbcSetIntAndSetShortAgainstABigintColumnAreWidened() throws Exception {
+        server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
+
+        try (Connection conn = connectExtended(server.port(), null);
+                PreparedStatement ps = conn.prepareStatement("SELECT user_id FROM user_volume WHERE total > ?")) {
+            for (int run = 0; run < 7; run++) {
+                ps.setInt(1, 40);
+                assertThat(ids(ps)).containsExactlyInAnyOrder("u1", "u2");
+            }
+            ps.setShort(1, (short) 100);
+            assertThat(ids(ps)).containsExactly("u1");
+            ps.setInt(1, -2_000_000_000);
+            assertThat(ids(ps)).containsExactlyInAnyOrder("u1", "u2", "u3");
+        }
+    }
+
+    private static List<String> ids(PreparedStatement ps) throws java.sql.SQLException {
+        List<String> ids = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                ids.add(rs.getString("user_id"));
+            }
+        }
+        return ids;
+    }
+
+    /**
      * SX-5 over JDBC: {@code getTables()} is a read like any other, and a principal denied every
      * view must see an empty catalogue through the driver's own metadata call, not a partial or
      * error-marked one that still names what it would not show.

@@ -63,6 +63,32 @@ final class StreamIdentities {
         return identified;
     }
 
+    /**
+     * {@code known} with {@code declared} added, or put in place of the stream of the same name
+     * (DECLSTREAM-1: a stream declared after the registry was built, by {@code POST /api/v1/streams}).
+     *
+     * <p>A new version of a stream keeps the identity of the one it replaces -- it is the same input,
+     * and a running query keeps the schema it was planned against. A new name takes the next identity
+     * after every one in use, so it cannot collide with a stream already carrying rows.
+     */
+    static StreamSchema[] declare(StreamSchema[] known, StreamSchema declared) {
+        int next = 1;
+        for (int i = 0; i < known.length; i++) {
+            if (known[i].name().equals(declared.name())) {
+                StreamSchema[] replaced = known.clone();
+                replaced[i] = declared.withStreamId(known[i].streamId());
+                return replaced;
+            }
+            next = Math.max(next, known[i].streamId() + 1);
+        }
+        StreamSchema[] grown = java.util.Arrays.copyOf(known, known.length + 1);
+        grown[known.length] = declared.streamId() == StreamSchema.UNASSIGNED_STREAM_ID
+                        || java.util.Arrays.stream(known).anyMatch(s -> s.streamId() == declared.streamId())
+                ? declared.withStreamId(next)
+                : declared;
+        return grown;
+    }
+
     /** An identity for a view read as an input, distinct from every stream's and every other view's. */
     static int nextViewId() {
         int id = NEXT_VIEW_ID.getAndIncrement();

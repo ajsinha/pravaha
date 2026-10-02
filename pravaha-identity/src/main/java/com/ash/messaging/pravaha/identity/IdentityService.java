@@ -60,6 +60,9 @@ public final class IdentityService {
 
     private final IdentityStore store;
     private final IdentitySettings settings;
+    /** Failures per account and source (LOCKENUM-1); guarded by this service's lock. */
+    private final SignInThrottle throttle;
+
     private final PasswordPolicy policy;
     private final AuditSink audit;
     private final Clock clock;
@@ -85,6 +88,7 @@ public final class IdentityService {
         this.initialAdminPassword = initialAdminPassword;
         this.store = store;
         this.settings = settings;
+        this.throttle = new SignInThrottle(settings.lockoutFailures(), settings.lockoutWindow(), settings.lockoutFor());
         this.policy = new PasswordPolicy(settings);
         this.audit = audit == null ? AuditSink.NONE : audit;
         this.clock = clock;
@@ -193,28 +197,44 @@ public final class IdentityService {
     /** What a successful login hands back. The token is shown once and stored only as its hash. */
     public record Login(String token, String sessionId, Instant expiresAt, boolean mustChangePassword) {}
 
+    /**
+     * Signs in, or refuses with {@code PRV-7010} -- one answer, after one password check, for an
+     * unknown name, a wrong password, a disabled account and a barred one (LOCKENUM-1).
+     *
+     * <p>A lock used to answer {@code 423 PRV-7011 locked until ...} before any password was checked,
+     * while an unknown name kept answering 401: six requests told anyone whether a user name existed,
+     * and the fast refusal told them again by its timing. A barred sign-in is now refused exactly as a
+     * wrong password is, and recorded ({@code auth.login_locked}) for an administrator, who sees the lock
+     * on the user. Five failures bar the source they came from, not the account (see {@link
+     * SignInThrottle}); {@link SignInThrottle#ACCOUNT_WIDE_FACTOR} times as many from any sources within
+     * the window lock the account itself, for {@code lockoutFor}.
+     *
+     * @param from the caller's address, which failures are counted against; null counts as one source
+     */
     public Login login(String username, String password, String from) {
         Identities.User user;
+        boolean barred;
         synchronized (this) {
             user = username == null ? null : store.users.get(username);
             Instant now = clock.instant();
-            if (user != null && user.lockedUntil() != null && now.isBefore(user.lockedUntil())) {
-                record(named(username), "auth.login_locked", username, false, "locked", from);
-                throw new PravahaException(
-                        IdentityErrors.LOCKED,
-                        "this account is locked until "
-                                + user.lockedUntil() + " after too many failed sign-ins; try again then, or ask an "
-                                + "administrator");
-            }
+            barred = username != null
+                    && (throttle.barred(username, from, now)
+                            || (user != null && user.lockedUntil() != null && now.isBefore(user.lockedUntil())));
         }
-        // The slow check outside the lock. An unknown user still pays for one, so the time a refusal
-        // takes does not say whether the name exists.
+        // The slow check outside the lock, and always made: an unknown user and a barred one pay for one
+        // too, so the time a refusal takes says nothing about the name either.
         boolean ok = user != null && user.active() && user.passwordHash() != null
                 ? Kdf.verify(password == null ? "" : password, user.passwordHash())
                 : Kdf.verify(password == null ? "" : password, TimingEqualiser.HASH);
         synchronized (this) {
             Instant now = clock.instant();
             Identities.User current = user == null ? null : store.users.get(username);
+            if (barred) {
+                // Not counted again: a barred source adds nothing to the account-wide ceiling, so one
+                // address cannot reach it alone.
+                record(named(username), "auth.login_locked", String.valueOf(username), false, "locked", from);
+                throw refused();
+            }
             if (!ok || current == null || !current.active()) {
                 if (current != null) {
                     recordFailure(current, now, from);
@@ -229,6 +249,7 @@ public final class IdentityService {
             String hash = Kdf.needsRehash(current.passwordHash()) ? Kdf.hash(password) : current.passwordHash();
             Identities.User signedIn = current.withLogin(now, hash, current.mustChangePassword() || expired);
             store.putUser(signedIn);
+            throttle.succeeded(username, from);
             Login login = openSession(signedIn, now);
             record(named(username), "auth.login", username, true, expired ? "password expired" : "ok", from);
             return login;
@@ -241,22 +262,35 @@ public final class IdentityService {
     }
 
     private void recordFailure(Identities.User user, Instant now, String from) {
+        boolean sourceBarred = throttle.failed(user.username(), from, now);
         boolean freshWindow = user.firstFailedAt() == null
                 || user.firstFailedAt().plus(settings.lockoutWindow()).isBefore(now);
         int failed = freshWindow ? 1 : user.failedAttempts() + 1;
         Instant first = freshWindow ? now : user.firstFailedAt();
-        Instant locked = failed >= settings.lockoutFailures() ? now.plus(settings.lockoutFor()) : null;
+        int ceiling = settings.lockoutFailures() * SignInThrottle.ACCOUNT_WIDE_FACTOR;
+        Instant locked = failed >= ceiling ? now.plus(settings.lockoutFor()) : null;
         // Recorded before the refusal is answered: a failure that a later error could roll back is a
         // lockout an attacker could side-step.
         store.putUser(user.withFailures(locked == null ? failed : 0, locked == null ? first : null, locked));
         record(named(user.username()), "auth.login_failed", user.username(), false, "wrong password", from);
+        if (sourceBarred) {
+            record(
+                    named(user.username()),
+                    "auth.lockout",
+                    user.username(),
+                    false,
+                    settings.lockoutFailures() + " failures within " + settings.lockoutWindow() + " from " + from
+                            + "; that source is barred for " + settings.lockoutFor(),
+                    from);
+        }
         if (locked != null) {
             record(
                     named(user.username()),
                     "auth.lockout",
                     user.username(),
                     false,
-                    failed + " failures within " + settings.lockoutWindow(),
+                    failed + " failures within " + settings.lockoutWindow() + " from any source; the account is "
+                            + "locked for " + settings.lockoutFor(),
                     from);
         }
     }
@@ -460,6 +494,7 @@ public final class IdentityService {
         }
         List<String> kept = previous.subList(0, Math.min(previous.size(), Math.max(0, settings.history() - 1)));
         store.putUser(user.withPassword(Kdf.hash(password), kept, mustChange, clock.instant()));
+        throttle.forget(user.username()); // a new password starts every address afresh (LOCKENUM-1)
     }
 
     /** An administrator issues a single-use reset token, shown once. */

@@ -162,8 +162,17 @@ public class IdentityProperties {
         return "password";
     }
 
+    /**
+     * Whose address a sign-in is counted against (LOCKENUM-1), from {@code
+     * pravaha.identity.lockout.trusted-proxies}; a malformed entry is {@code PRV-7004}.
+     */
+    public SignInSource signInSource() {
+        return new SignInSource(lockout.trustedProxies);
+    }
+
     /** The engine's form of these settings, refused with {@code PRV-7004} for an impossible value. */
     public IdentitySettings settings() {
+        signInSource(); // refused at start, not at the first sign-in through a proxy
         try {
             return new IdentitySettings(
                     environment,
@@ -316,6 +325,19 @@ public class IdentityProperties {
         private int failures = 5;
         private Duration window = Duration.ofMinutes(15);
         private Duration duration = Duration.ofMinutes(30);
+        private java.util.List<String> trustedProxies = new java.util.ArrayList<>();
+
+        /**
+         * Proxies -- the console, a load balancer -- whose {@code X-Forwarded-For} names the address a
+         * sign-in is counted against; empty (the default) believes nobody's.
+         */
+        public java.util.List<String> getTrustedProxies() {
+            return trustedProxies;
+        }
+
+        public void setTrustedProxies(java.util.List<String> trustedProxies) {
+            this.trustedProxies = trustedProxies == null ? new java.util.ArrayList<>() : trustedProxies;
+        }
 
         public int getFailures() {
             return failures;

@@ -24,8 +24,11 @@
 # they write is yours too.
 #
 # SAFE TO RE-RUN. Nothing that exists is overwritten: a configuration you edited stays, and every
-# generated credential is kept (they live in .env and secrets/). The uid, gid and home in .env are
-# refreshed each run. Credentials are printed only on the run that generated them.
+# generated credential is kept (they live in .env and secrets/). In .env, the ports, the bind
+# address, the image tag and the compose project name you set are kept, and so is any other line you
+# added; the uid, gid and home are refreshed each run. Credentials are printed only on the run that
+# generated them. Every value is read before .env is written, and it is replaced in one rename, so
+# a re-run never sees -- or leaves -- a half-written file (ENVRERUN-1).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,13 +86,41 @@ if [[ -z "$grafana_password" ]]; then
   new_credentials+="  grafana (profile observability):   admin / $grafana_password"$'\n'
 fi
 
+# ENVRERUN-1: every value is read from the existing .env HERE, before it is written. The heredoc used
+# to call port() itself, after `cat > .env` had already truncated the file it reads -- so a re-run put
+# every port and the image tag back to the defaults (all but the pgwire port, read up here).
 port() { local v; v="$(existing "$1")"; echo "${v:-$2}"; }
+project="$(port COMPOSE_PROJECT_NAME pravaha-stack)"
+tag="$(port PRAVAHA_TAG local)"
+bind="$(port PRAVAHA_BIND 127.0.0.1)"
+http_port="$(port PRAVAHA_HTTP_PORT 18080)"
+flight_port="$(port PRAVAHA_FLIGHT_PORT 19090)"
 pgwire_port="$(port PRAVAHA_PGWIRE_PORT 15432)"
+console_port="$(port PRAVAHA_CONSOLE_PORT 17070)"
+kafka_port="$(port PRAVAHA_KAFKA_PORT 29092)"
+postgres_port="$(port PRAVAHA_POSTGRES_PORT 25432)"
+mysql_port="$(port PRAVAHA_MYSQL_PORT 23306)"
+aerospike_port="$(port PRAVAHA_AEROSPIKE_PORT 23100)"
+cassandra_port="$(port PRAVAHA_CASSANDRA_PORT 29042)"
+prometheus_port="$(port PRAVAHA_PROMETHEUS_PORT 29190)"
+grafana_port="$(port PRAVAHA_GRAFANA_PORT 23030)"
 
-cat > "$env_file" <<EOF
-# Written by tools/docker-env.sh -- re-run it rather than editing the first block; the ports and the
-# image tag below are yours to change. Holds credentials: mode 0600, and never committed (.gitignore).
-COMPOSE_PROJECT_NAME=pravaha-stack
+# Lines you added that this script does not write (COMPOSE_PROFILES, say) are carried over as they are.
+managed='COMPOSE_PROJECT_NAME|PRAVAHA_UID|PRAVAHA_GID|PRAVAHA_HOME_DIR|PRAVAHA_SEED_TOKEN|POSTGRES_PASSWORD'
+managed+='|MYSQL_ROOT_PASSWORD|PRAVAHA_CDC_PASSWORD|GRAFANA_ADMIN_PASSWORD|PRAVAHA_TAG|PRAVAHA_BIND'
+managed+='|PRAVAHA_(HTTP|FLIGHT|PGWIRE|CONSOLE|KAFKA|POSTGRES|MYSQL|AEROSPIKE|CASSANDRA|PROMETHEUS|GRAFANA)_PORT'
+yours=""
+if [[ -f "$env_file" ]]; then
+  yours="$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$env_file" | grep -Ev "^($managed)=" || true)"
+fi
+
+next_env="$(mktemp "$env_file.XXXXXX")"
+trap 'rm -f "$next_env"' EXIT
+cat > "$next_env" <<EOF
+# Written by tools/docker-env.sh -- re-run it rather than editing the first block; the ports, the bind
+# address, the image tag and the project name below are yours to change, and a re-run keeps them.
+# Holds credentials: mode 0600, and never committed (.gitignore).
+COMPOSE_PROJECT_NAME=$project
 PRAVAHA_UID=$(id -u)
 PRAVAHA_GID=$(id -g)
 PRAVAHA_HOME_DIR=$home
@@ -100,21 +131,25 @@ MYSQL_ROOT_PASSWORD=$mysql_password
 PRAVAHA_CDC_PASSWORD=$cdc_password
 GRAFANA_ADMIN_PASSWORD=$grafana_password
 
-PRAVAHA_TAG=$(port PRAVAHA_TAG local)
-PRAVAHA_BIND=$(port PRAVAHA_BIND 127.0.0.1)
-PRAVAHA_HTTP_PORT=$(port PRAVAHA_HTTP_PORT 18080)
-PRAVAHA_FLIGHT_PORT=$(port PRAVAHA_FLIGHT_PORT 19090)
+PRAVAHA_TAG=$tag
+PRAVAHA_BIND=$bind
+PRAVAHA_HTTP_PORT=$http_port
+PRAVAHA_FLIGHT_PORT=$flight_port
 PRAVAHA_PGWIRE_PORT=$pgwire_port
-PRAVAHA_CONSOLE_PORT=$(port PRAVAHA_CONSOLE_PORT 17070)
-PRAVAHA_KAFKA_PORT=$(port PRAVAHA_KAFKA_PORT 29092)
-PRAVAHA_POSTGRES_PORT=$(port PRAVAHA_POSTGRES_PORT 25432)
-PRAVAHA_MYSQL_PORT=$(port PRAVAHA_MYSQL_PORT 23306)
-PRAVAHA_AEROSPIKE_PORT=$(port PRAVAHA_AEROSPIKE_PORT 23100)
-PRAVAHA_CASSANDRA_PORT=$(port PRAVAHA_CASSANDRA_PORT 29042)
-PRAVAHA_PROMETHEUS_PORT=$(port PRAVAHA_PROMETHEUS_PORT 29190)
-PRAVAHA_GRAFANA_PORT=$(port PRAVAHA_GRAFANA_PORT 23030)
+PRAVAHA_CONSOLE_PORT=$console_port
+PRAVAHA_KAFKA_PORT=$kafka_port
+PRAVAHA_POSTGRES_PORT=$postgres_port
+PRAVAHA_MYSQL_PORT=$mysql_port
+PRAVAHA_AEROSPIKE_PORT=$aerospike_port
+PRAVAHA_CASSANDRA_PORT=$cassandra_port
+PRAVAHA_PROMETHEUS_PORT=$prometheus_port
+PRAVAHA_GRAFANA_PORT=$grafana_port
 EOF
-chmod 0600 "$env_file"
+if [[ -n "$yours" ]]; then
+  printf '\n# Yours, kept by tools/docker-env.sh\n%s\n' "$yours" >> "$next_env"
+fi
+chmod 0600 "$next_env"
+mv -f "$next_env" "$env_file"
 
 # ---------------------------------------------------------------- secrets/
 if [[ ! -e "$home/secrets/initial-admin-password" ]]; then
