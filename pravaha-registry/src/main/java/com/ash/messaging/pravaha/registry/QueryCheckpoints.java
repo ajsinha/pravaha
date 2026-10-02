@@ -61,6 +61,11 @@ final class QueryCheckpoints {
         return root == null ? null : root.resolve(directory);
     }
 
+    /** What a journal records for {@code directory}: its path under the checkpoint root (SHAREDLOSS-1). */
+    String nameOf(Path directory) {
+        return root == null ? directory.toString() : root.relativize(directory).toString();
+    }
+
     /**
      * Restores the newest readable checkpoint, returning the offsets its sources should resume from.
      *

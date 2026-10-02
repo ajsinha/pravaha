@@ -142,6 +142,20 @@ public final class RegistryJournal {
      */
     private static final String RENAMED = "N";
 
+    /**
+     * A live name whose computation checkpoints into a directory other than the one its name implies,
+     * from here on (SHAREDLOSS-1): the name, then the directory.
+     *
+     * <p>Two names that ask the same question share one computation, which checkpoints into the
+     * directory of the name that started it. Each name's record implies a directory of its own, so
+     * when the first name was dropped the survivor came back from a restart reading its own, empty,
+     * directory, and the computation's state was lost. The drop writes this beside its {@code D}, in
+     * the same append, for every surviving name. Applied in place, so the name keeps its position, its
+     * indexes and its lane. A kind of its own, so a build that predates it refuses it by name rather
+     * than restoring the survivor from nothing.
+     */
+    private static final String MOVED = "M";
+
     private final Path file;
 
     /**
@@ -427,6 +441,23 @@ public final class RegistryJournal {
     /** Appends a drop, so a query dropped before a restart stays dropped after it. */
     public void recordDrop(String name) {
         append(List.of(DROP, name));
+    }
+
+    /**
+     * Appends a drop of {@code name} whose computation lives on under {@code survivors}, which from here
+     * checkpoint into {@code directory} (SHAREDLOSS-1); one write, so a crash keeps both or neither.
+     */
+    public void recordDrop(String name, java.util.Collection<String> survivors, String directory) {
+        List<List<String>> records = new ArrayList<>();
+        records.add(List.of(DROP, name));
+        if (directory != null) {
+            for (String survivor : survivors) {
+                records.add(List.of(MOVED, survivor, directory));
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<String>[] all = records.toArray(new List[0]);
+        append(all);
     }
 
     /** Appends that the live name {@code from} is {@code to} from now on (ADR-060); see {@link #RENAMED}. */
@@ -759,6 +790,14 @@ public final class RegistryJournal {
         }
         if (RENAMED.equals(kind) && fields.size() >= 3) {
             renamed(live, pending, fields.get(1), fields.get(2));
+            return;
+        }
+        if (MOVED.equals(kind) && fields.size() >= 3) {
+            // In place: a LinkedHashMap keeps a key's position when its value is replaced.
+            Entry moved = live.get(fields.get(1));
+            if (moved != null) {
+                live.put(moved.name(), moved.renamedTo(moved.name(), fields.get(2)));
+            }
             return;
         }
         // W carries the sink name second; lifting it out leaves exactly R's fields.

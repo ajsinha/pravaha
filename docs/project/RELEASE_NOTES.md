@@ -37,6 +37,10 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   ran past the end used to be read as a torn final record, so one damaged prefix silently dropped
   every later registration at every start. A genuinely torn tail is still replayed up to, and is now
   cut off before the next append — a registration appended behind it used to be lost at the next start.
+- **The surviving name of a shared computation keeps its state across a restart** (SHAREDLOSS-1).
+  Two names on one computation checkpoint into the starting name's directory; dropping the starting
+  name now journals, with the drop, that the survivors checkpoint there (a new `M` record, applied in
+  place). They used to come back from a restart RUNNING and empty.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

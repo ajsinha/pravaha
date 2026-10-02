@@ -528,22 +528,15 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-091: when the first name of a shared computation is dropped, the surviving name comes back from a "
-            + "restart with none of the state the computation had")
     void qe091_theSurvivorOfASharedComputationKeepsItsStateAcrossARestart(@TempDir Path dir) throws Exception {
+        // SHAREDLOSS-1, fixed: the drop re-homes the survivor to the computation's checkpoint directory.
         assertThat(sharedAfterRestart(dir, "alias_a")).containsExactly("a|1", "a|2");
     }
 
     @Test
-    void qe091_observed(@TempDir Path dir) throws Exception {
-        List<String> none = sharedAfterRestart(dir.resolve("none"), null);
-        List<String> second = sharedAfterRestart(dir.resolve("second"), "alias_b");
-        List<String> first = sharedAfterRestart(dir.resolve("first"), "alias_a");
-        System.out.println("NOTE QE-091 nothing dropped: " + none + " | second name dropped: " + second
-                + " | first name dropped: " + first);
-        assertThat(none).containsExactly("a|1", "a|2");
-        assertThat(second).containsExactly("a|1", "a|2");
-        assertThat(first).isEmpty();
+    void qe091_droppingTheOtherNameOrNoneStillKeepsTheState(@TempDir Path dir) throws Exception {
+        assertThat(sharedAfterRestart(dir.resolve("none"), null)).containsExactly("a|1", "a|2");
+        assertThat(sharedAfterRestart(dir.resolve("second"), "alias_b")).containsExactly("a|1", "a|2");
     }
 
     // ------------------------------------------------------------------ journal damage

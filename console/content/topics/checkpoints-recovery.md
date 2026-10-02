@@ -91,7 +91,13 @@ recompute**, because it came from a client that may never connect again.
   client expects to find and will not.
 - **The journal records the sink.** A restart re-attaches it; a journalled registration whose sink is
   no longer bound is refused by name rather than recovered writing to nothing.
-- A crash mid-append leaves a truncated final record; replay keeps everything before it.
+- A crash mid-append leaves a truncated final record; replay keeps everything before it, and the
+  next append cuts the torn bytes off first. Damage in the *middle* — a complete record after a bad
+  one — refuses the start (PRV-8005) rather than dropping every registration after it.
+- **A shared computation's state outlives any one of its names.** Two registrations of the same
+  question share one computation, which checkpoints into the directory of the name that started it.
+  Dropping that name records, with the drop, that the surviving names checkpoint there, so a restart
+  brings them back with the state rather than empty (SHAREDLOSS-1).
 - Compaction rewrites the journal with only what is live, through an atomic move.
 
 | You see | It means |

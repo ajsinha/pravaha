@@ -1442,7 +1442,25 @@ public final class QueryRegistry implements AutoCloseable {
         chains.refuseDrop(name);
         // Journal first: see the note below on why this order is the only honest one.
         if (journal != null) {
-            journal.recordDrop(name);
+            // SHAREDLOSS-1: a shared computation checkpoints into the directory of the name that
+            // started it, and each other name's record implies a directory of its own. Dropping the
+            // starting name used to leave the survivors pointing at their own, empty, directories, so a
+            // restart brought them back with none of the computation's state. The drop re-homes them.
+            java.util.Set<String> survivors = new java.util.TreeSet<>(query.names());
+            survivors.remove(name);
+            java.nio.file.Path directory = query.checkpointDirectory().orElse(null);
+            List<String> rehomed = new ArrayList<>();
+            for (String survivor : survivors) {
+                if (directory != null
+                        && !directory.equals(checkpoints.pathOf(QueryCheckpoints.directoryFor(survivor)))) {
+                    rehomed.add(survivor);
+                }
+            }
+            if (rehomed.isEmpty()) {
+                journal.recordDrop(name);
+            } else {
+                journal.recordDrop(name, rehomed, checkpoints.nameOf(directory));
+            }
         }
         policy.dropped(name);
         owners.dropped(name);
