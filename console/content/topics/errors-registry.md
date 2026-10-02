@@ -280,7 +280,10 @@ A row was pushed to a stream this engine was never told about. Declare it first 
 ### PRV-8102 — embedded row rejected
 
 A pushed row does not fit its stream: the wrong number of values, a value of the wrong kind for its
-column, or a null in a `NOT NULL` column. The message names the column.
+column, or a null in a `NOT NULL` column. The message names the column. Or the row is wider than the
+inbox cell of a query on the stream: the message names the row, its size and the cell. Raise
+`pravaha.lane.inbox.cell-bytes` — an embedded engine reads it as a server does. Nothing in the push is
+delivered and every query keeps running.
 
 ### PRV-8103 — embedded backpressure
 

@@ -263,6 +263,10 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 .administering(com.ash.messaging.pravaha.security.Administration.Rule.parse(configuration
                         .getString(com.ash.messaging.pravaha.security.Administration.SETTING)
                         .orElse("")));
+        // CELLBYTES-1: pravaha.lane.*, read as a server reads them. Nothing here read them, so the inbox
+        // cell was 512 bytes whatever was configured, and the refusal of a wider row named a setting
+        // that could not be applied.
+        built.executingWith(laneConfig(configuration), MemoryAccess.best());
         // FINEHOP-1: the finest window a registration may ask for, read as a server reads it.
         built.limitingWindowsPerRow(com.ash.messaging.pravaha.runtime.window.WindowLimits.parse(configuration
                 .getString(com.ash.messaging.pravaha.runtime.window.WindowLimits.SETTING)
@@ -342,6 +346,33 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 continue;
             }
             register(built, query);
+        }
+    }
+
+    /**
+     * {@code pravaha.lane.*} as a lane configuration (CELLBYTES-1): the keys, defaults and threads a
+     * server's {@code LaneProperties} has, so an engine embedded in an application sizes its lanes from
+     * the same settings and the remedy an error names can be applied.
+     */
+    static com.ash.messaging.pravaha.runtime.lane.LaneConfig laneConfig(Configuration configuration) {
+        com.ash.messaging.pravaha.runtime.lane.LaneConfig defaults =
+                com.ash.messaging.pravaha.runtime.lane.LaneConfig.defaults();
+        try {
+            return defaults.withBatchSize(configuration.getInt("pravaha.lane.batch-size", defaults.batchSize()))
+                    .withInbox(
+                            configuration.getInt("pravaha.lane.inbox.cells", defaults.inboxCells()),
+                            configuration.getInt("pravaha.lane.inbox.cell-bytes", defaults.inboxCellBytes()))
+                    .withArena(
+                            configuration.getInt("pravaha.lane.arena.slab-bytes", defaults.arenaSlabBytes()),
+                            configuration.getInt("pravaha.lane.arena.max-slabs", defaults.arenaMaxSlabs()))
+                    .withWaitStrategy(configuration.getEnum(
+                            "pravaha.lane.wait-strategy",
+                            com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.class,
+                            com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.BACKOFF_PARK))
+                    .withThreads("pravaha-query", true);
+        } catch (IllegalArgumentException e) {
+            throw new PravahaException(
+                    EmbeddedErrors.MISCONFIGURED, "a pravaha.lane.* setting cannot be used: " + e.getMessage(), e);
         }
     }
 
@@ -731,6 +762,25 @@ final class DefaultPravahaEngine implements PravahaEngine {
             // it has published. A view restored from a checkpoint comes back at the frontier it was
             // saved at, so numbering from where this process happened to start would commit it
             // backwards (found by the restart test: "frontier went backwards: 1 after 2").
+            // CELLBYTES-1: every row against every query's inbox cell before any row is delivered, as
+            // validation is: a row no query on the stream can take refuses the push, by row and size,
+            // and every query keeps running. It used to stop each query on the stream for good.
+            for (int index = 0; index < validated.size(); index++) {
+                int size = encoder.sizeOf(validated.get(index));
+                for (Target target : targets) {
+                    int cell = target.query().maxRowBytes();
+                    if (size > cell) {
+                        throw new PravahaException(
+                                EmbeddedErrors.ROW_REJECTED,
+                                "row " + (index + 1) + " of this push to '" + stream + "' is " + size + " bytes, and "
+                                        + "query '" + target.query().name() + "' takes rows of at most " + cell
+                                        + " bytes (pravaha.lane.inbox.cell-bytes). Nothing in this push was delivered, "
+                                        + "and every query on the stream keeps running. Raise "
+                                        + "pravaha.lane.inbox.cell-bytes to the widest row the stream carries, or push a "
+                                        + "narrower one.");
+                    }
+                }
+            }
             for (Target target : targets) {
                 long reached = Math.max(
                         target.query().view().committedFrontier(),

@@ -163,8 +163,11 @@ is the builder for a query with retention or a sink.
 | nullable (`?`) | `null` |
 
 **The whole batch is checked first.** One bad row — a string where a number belongs, a missing value
-for a non-nullable column — and the push delivers nothing, refused with PRV-8102. A stream that was
-never declared is PRV-8101.
+for a non-nullable column — and the push delivers nothing, refused with PRV-8102. So does a row wider
+than a query's inbox cell (`pravaha.lane.inbox.cell-bytes`, 512 bytes by default): the message names
+the row, its size and the cell, and every query on the stream keeps running. Until CELLBYTES-1 the
+embedded engine read no `pravaha.lane.*` setting at all, and such a row stopped every query on the
+stream for good. A stream that was never declared is PRV-8101.
 
 ## Closing windows
 
@@ -233,6 +236,7 @@ try (PravahaEngine engine = PravahaEngine.create(configuration)) {
 | `pravaha.queries.<name>.sql` / `.keys` | A query registered at start |
 | `pravaha.registry.journal` | A file; registrations come back after a restart |
 | `pravaha.checkpoint.directory` | A directory; each query's state is checkpointed under it, every `pravaha.checkpoint.interval` |
+| `pravaha.lane.*` | The lanes, as a server sizes them — `inbox.cells`, `inbox.cell-bytes`, `arena.slab-bytes`, `arena.max-slabs`, `batch-size`, `wait-strategy`, `max-windows-per-row`; see [Sizing and lanes](/help/topics/lanes#sizing-lanes). A value that cannot be used refuses the start, PRV-8104 |
 
 Without a journal and a checkpoint directory an engine is memory only — right for a test, wrong for a
 service that must survive a restart. See [Checkpoints and recovery](/help/topics/checkpoints-recovery).

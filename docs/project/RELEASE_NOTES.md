@@ -41,6 +41,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   Two names on one computation checkpoint into the starting name's directory; dropping the starting
   name now journals, with the drop, that the survivors checkpoint there (a new `M` record, applied in
   place). They used to come back from a restart RUNNING and empty.
+- **The embedded engine reads `pravaha.lane.*`, and a row wider than an inbox cell is refused for that
+  row** (CELLBYTES-1). The cell was 512 bytes whatever was configured, and a 600-character string
+  stopped every query on the stream for good with a refusal naming a setting that could not be
+  applied. Now an embedded push wider than a query's cell is refused `PRV-8102` before any of it is
+  delivered, naming the row, its size and the cell; a row handed to a registered query directly is
+  refused `PRV-3002` without failing the query; and a source's writer is bounded to its inbox cell, so
+  a wide row is never written into the cells after it.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

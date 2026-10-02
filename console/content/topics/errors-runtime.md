@@ -79,7 +79,12 @@ pravaha.lane.inbox.cell-bytes; a row that cannot fit is not a runtime condition.
 ```
 
 (The byte counts are the ones the message computes for your stream and lane.) Raise
-`pravaha.lane.inbox.cell-bytes` above the widest row the stream carries. This matters most when you
+`pravaha.lane.inbox.cell-bytes` above the widest row the stream carries. A row whose width the schema
+cannot bound — a long string — and that turns out wider than the cell is refused **for that row**,
+`a row of N bytes does not fit this query's inbox cell of M bytes, so it is refused; the query keeps
+running`: it says nothing about the query, which goes on, and a source's writer is bounded to its
+cell so a wide row is never written into the cells after it (CELLBYTES-1). An embedded engine reads
+the same setting, and refuses such a push with PRV-8102 before delivering any of it. This matters most when you
 have **sized cells down** to save memory on a node with many queries — 256-byte cells hold only
 narrow rows.
 

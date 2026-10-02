@@ -592,7 +592,10 @@ public final class IngestPump implements AutoCloseable {
                             + "another producer is writing to this lane's inbox, which the single-writer ingest "
                             + "path does not allow, or the free-cell calculation is wrong.");
         }
-        writer.begin(lane.inboxRegion(input), lane.cellOffset(input, claimed));
+        // Bounded to the claimed cell (CELLBYTES-1). Unbounded, the writer's limit was the rest of the
+        // inbox region, so a row wider than a cell was written on into the cells after it -- rows not
+        // yet drained among them -- instead of being refused.
+        writer.begin(lane.inboxRegion(input), lane.cellOffset(input, claimed), lane.inboxCellBytes());
         return new DelegatingRowWriter(writer, () -> lane.publish(input, claimed), eventTimeObserver);
     }
 

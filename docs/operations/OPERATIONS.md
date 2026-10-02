@@ -206,7 +206,7 @@ pravaha:
 | `pravaha.lane.batch-size` | 512 | Rows drained from the inbox per step |
 | `pravaha.lane.wait-strategy` | `BACKOFF_PARK` | How a lane waits when its inbox is empty |
 | `pravaha.lane.inbox.cells` | 2048 | Ring cells, so how deep the buffer is |
-| `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all |
+| `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all. A wider row is refused for that row (`PRV-3002`; `PRV-8102` for an embedded push), and the query keeps running. An embedded engine reads every `pravaha.lane.*` key too |
 | `pravaha.lane.arena.slab-bytes` | 4194304 | Off-heap slab size, and the largest single output row |
 | `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
 | `pravaha.lane.max-windows-per-row` | 100000 | The finest window a registration may ask for: a `HOP` whose rows each land in, or whose windows each combine, more windows or slices than this is refused `PRV-3026` (FINEHOP-1) |

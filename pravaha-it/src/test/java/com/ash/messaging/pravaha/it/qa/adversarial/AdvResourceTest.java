@@ -245,21 +245,17 @@ class AdvResourceTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled(
-            "QE-167: the embedded engine ignores pravaha.lane.inbox.cell-bytes, so any row wider "
-                    + "than 512 bytes (a 600-character string) stops every query on the stream for good, and the remedy the "
-                    + "refusal names cannot be applied")
     void qe167_aRowWithinTheConfiguredCellIsAccepted() {
-        assertThat(wideRow(4_000)).startsWith("RUNNING");
+        // CELLBYTES-1, fixed: the embedded engine reads pravaha.lane.* as a server does.
+        assertThat(wideRow(4_000)).isEqualTo("RUNNING | push OK");
     }
 
     @Test
-    void qe167_observed() {
-        String small = wideRow(400);
-        String wide = wideRow(600);
-        System.out.println("NOTE QE-167 400 chars: " + small + " || 600 chars: " + wide);
-        assertThat(small).startsWith("RUNNING");
-        assertThat(wide).startsWith("FAILED PRV-8004").contains("exceeds the cell size of 512");
+    void qe167_aRowWiderThanTheCellIsRefusedForThePushAndTheQueryKeepsRunning() {
+        // Past even the raised cell: refused for that push, by size, naming the setting; the query
+        // keeps running. It used to stop every query on the stream for good (FAILED PRV-8004).
+        String wide = wideRow(70_000);
+        assertThat(wide).startsWith("RUNNING | push PRV-8102").contains("at most 65536 bytes");
     }
 
     @Test
