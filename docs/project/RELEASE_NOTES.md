@@ -237,6 +237,17 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   writes the `ApiError` JSON every other failure has: `400` with new code `PRV-1056`
   (API_MALFORMED_REQUEST); any other status the container produces alone is `PRV-1052`.
   `ApiErrorShapeTest` (raw socket).
+- **The console cookie no longer carries a usable credential (COOKIETOKEN-1).** It was signed, not
+  encrypted, and its readable payload held the engine session token — which works directly against
+  Flight, HTTP and pgwire — and, for one round trip, a just-issued API key or reset secret. The cookie
+  now holds an opaque id; the secrets stay in the console process (`routes/session_vault.py`) and
+  expire with the session. A console restart signs everybody out of the console; several instances
+  need sticky sessions. `test_identity.py`.
+- **A console cookie copied before sign-out reads as signed out (LOGOUTREPLAY-1).** The copy opened
+  `/queries` with the signed-in chrome and `PRV-1041 PRV-7001`: the console looked only at the first
+  code of an SDK-wrapped refusal. Every code is read now, so an engine-ended session goes back to sign
+  in as documented; and a cookie whose session was signed out is cleared and sent to the landing page,
+  where signing out goes. `test_identity.py`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

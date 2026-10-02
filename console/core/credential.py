@@ -5,7 +5,8 @@ Proprietary and confidential. See LICENSE at the repository root.
 
 ADR-052: the engine is the identity authority, and the console holds no shared key. A person
 signs in against the engine (``POST /api/v1/auth/login``); the session token it answers with is
-kept in the console's signed session cookie, and every call the console makes while serving that
+kept by the console under the opaque id its session cookie carries (``routes.session_vault``), and
+every call the console makes while serving that
 person's request carries that token and no other. This module is how the token travels from the
 request to the one adapter that talks to the engine without every service in between passing it
 along: the console's middleware binds a :class:`Credential` to the request's context, and
@@ -26,6 +27,7 @@ import contextlib
 import contextvars
 import dataclasses
 import hashlib
+import re
 from collections.abc import Iterator
 
 #: The engine's codes for a credential that no longer stands (ADR-052): the session has expired
@@ -33,6 +35,8 @@ from collections.abc import Iterator
 EXPIRED_CODES = frozenset({"PRV-7016", "PRV-7001"})
 #: The person must change their password before this session may do anything else.
 MUST_CHANGE_CODE = "PRV-7018"
+
+_ALL_CODES = re.compile(r"PRV-\d{4}")
 
 
 @dataclasses.dataclass
@@ -116,9 +120,14 @@ def note_refusal(exc: BaseException) -> None:
         return
     code = code_of(exc)
     status = getattr(exc, "status", None)
-    if code == MUST_CHANGE_CODE:
+    # Every code the refusal names, not only the first: the SDK wraps a transport failure in its
+    # own code and keeps the engine's after it -- "PRV-1041 PRV-7001 this server requires a
+    # credential" -- and reading only the first is how a signed-out session was drawn as a
+    # signed-in page with an error in it (LOGOUTREPLAY-1).
+    named = {code} | set(_ALL_CODES.findall(str(exc)))
+    if MUST_CHANGE_CODE in named:
         credential.must_change = True
-    elif code in EXPIRED_CODES or (code is None and status == 401) or _unauthenticated(exc):
+    elif named & EXPIRED_CODES or (code is None and status == 401) or _unauthenticated(exc):
         # A 401 with a code of its own is about something else -- PRV-7010 is a current
         # password refused on a change, and ends nothing.
         credential.expired = True

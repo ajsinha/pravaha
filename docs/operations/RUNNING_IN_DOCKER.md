@@ -186,7 +186,7 @@ Every engine setting has an environment spelling by Spring's relaxed binding
 | `PRAVAHA_FLIGHT_PORT`, `SERVER_PORT`, `PRAVAHA_PGWIRE_ENABLED` | engine | `19090`, `18080`, `false` | the ports inside the container |
 | `USE_SYSTEM_CA_CERTS` | engine | — | imports `/certificates/*.crt` into the JVM's trust store at start (the base image's entrypoint) |
 | `PRAVAHA_ENGINE`, `PRAVAHA_ENGINE_HTTP` | console | `grpc://localhost:19090`, `http://localhost:18080` | where the engine is |
-| `CONSOLE_SESSION_SECRET` | console | generated at start | signs the session cookie; without it every restart signs everybody out |
+| `CONSOLE_SESSION_SECRET` | console | generated at start | signs the session cookie (an opaque id; the engine token stays in the console's memory, so a console restart signs everybody out of the console) |
 | `CONSOLE_LOG_FILE` | console | `/opt/pravaha/logs/pravaha-console.log` | the rotated log file; empty for stderr only |
 | `CONSOLE_LOG_FORMAT`, `LOG_LEVEL` | console | `text`, `INFO` | `json` for Loki or Elasticsearch |
 | `PRAVAHA_CONFIG_DIR` | console | `/opt/pravaha/data/console` | the assistant's configuration, ledger and log (and the CLI's saved token) |

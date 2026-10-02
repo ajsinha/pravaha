@@ -4,7 +4,7 @@ Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
 ADR-052, stage 3. The engine is the identity authority; the console signs a person in against
-it, keeps that person's engine session in its signed cookie, and makes every engine call it
+it, keeps that person's engine session under the opaque id its signed cookie carries, and makes every engine call it
 makes for them with that session and no other. These tests drive the real console (routes,
 middleware, templates) against the fake engine's identity authority (``fake_identity``), which
 keeps the engine's contract: one refusal for a wrong user and a wrong password, a lock after
@@ -237,6 +237,73 @@ def test_signing_out_ends_the_engine_session_and_the_consoles(engine):
     assert ("logout", "") in engine.identity.calls
     assert not any(s for s in engine.identity.sessions.values()), token
     assert client.get("/queries", follow_redirects=False).headers["location"].startswith("/login")
+
+
+def _cookie_payload(client) -> dict:
+    """What the signed session cookie says, decoded as anyone holding it could decode it."""
+    import base64
+    import json
+
+    raw = client.cookies.get("pravaha_console")
+    body = raw.strip('"').split(".")[0]
+    return json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
+
+
+def test_the_session_cookie_carries_no_engine_credential(engine):
+    """COOKIETOKEN-1: the cookie is signed, not encrypted; what it carries is readable. The engine
+    session token stays in the console, under an opaque id that means nothing anywhere else."""
+    client = _app(engine)
+    sign_in(client)
+    token = engine.identity.issued_tokens[-1]
+    payload = _cookie_payload(client)
+    assert "token" not in payload and token not in json_text(payload)
+    assert payload.get("sid") and payload["sid"] != token
+    assert client.get("/account").status_code == 200, "still signed in through the id"
+    # A key's secret, shown once on the next page, is not in the cookie between the two either.
+    created = client.post("/account/keys", data={"name": "ci", "roles": ["operator"], "days": "30"},
+                          follow_redirects=False)
+    assert created.headers["location"] == "/account#issued"
+    payload = _cookie_payload(client)
+    assert "issued" not in payload and "secret" not in json_text(payload)
+    shown = client.get("/account").text
+    assert re.search(r'id="issued-secret" type="text" readonly\s+value="([^"]+)"', shown), "shown once"
+
+
+def json_text(value) -> str:
+    import json
+
+    return json.dumps(value)
+
+
+def test_a_cookie_copied_before_signing_out_is_signed_out(engine):
+    """LOGOUTREPLAY-1: the copy reads as signed out -- the landing page, not a signed-in page with
+    an error in it -- and the copy is cleared."""
+    client = _app(engine)
+    sign_in(client)
+    copied = client.cookies.get("pravaha_console")
+    assert client.post("/logout", follow_redirects=False).headers["location"] == "/"
+
+    replay = client  # the same console, as a second browser presenting the copy would reach it
+    replay.cookies.set("pravaha_console", copied)
+    page = replay.get("/queries", follow_redirects=False)
+    assert page.status_code == 303 and page.headers["location"] == "/"
+    cleared = [c for c in page.headers.get_list("set-cookie") if c.startswith("pravaha_console=")]
+    assert cleared and "1970" in cleared[0]
+    # A public page is simply public: no redirect, and no signed-in chrome.
+    replay.cookies.set("pravaha_console", copied)
+    landing = replay.get("/", follow_redirects=False)
+    assert landing.status_code == 200 and "Sign out" not in landing.text
+
+
+def test_a_wrapped_engine_refusal_of_the_credential_ends_the_session():
+    """The SDK keeps the engine's code after its own: PRV-1041 PRV-7001 is still PRV-7001."""
+    held = credential.Credential("prv_s_x")
+    handle = credential.bind(held)
+    try:
+        credential.note_refusal(RuntimeError("PRV-1041 PRV-7001 this server requires a credential"))
+    finally:
+        credential.unbind(handle)
+    assert held.expired
 
 
 def test_signing_out_is_a_post_with_the_form_token(engine):

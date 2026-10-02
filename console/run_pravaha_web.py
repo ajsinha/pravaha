@@ -45,7 +45,8 @@ from core.observability import RequestContext, configure_logging
 from core.services import Services
 from routes import ALL_ROUTES
 from routes.base import use_messages
-from routes.web_security import IdentityMiddleware, SchemeSessions, csrf_protect
+from routes.session_vault import SessionSecrets, TokenVault
+from routes.web_security import SESSION_SECONDS, IdentityMiddleware, SchemeSessions, csrf_protect
 
 logger = logging.getLogger("pravaha.console")
 
@@ -101,8 +102,11 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     # Innermost first: the request's credential is read from the session, so the identity
     # middleware sits inside the session middleware, which decodes the cookie before it runs.
     app.add_middleware(IdentityMiddleware)
-    # The engine's session token lives in this cookie: signed, HttpOnly, SameSite=Lax, and Secure
-    # whenever the console is served over https (or always, with console.secure_cookies).
+    # The engine's session token and any secret the engine has just issued are kept here, in this
+    # process, under an opaque id; the cookie carries only the id (COOKIETOKEN-1).
+    app.add_middleware(TokenVault, store=SessionSecrets(SESSION_SECONDS))
+    # The session cookie: signed, HttpOnly, SameSite=Lax, and Secure whenever the console is served
+    # over https (or always, with console.secure_cookies). It holds no credential.
     app.add_middleware(SchemeSessions, secret_key=secret,
                        secure=config.get_bool("console.secure_cookies", False))
 
