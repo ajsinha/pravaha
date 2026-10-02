@@ -495,9 +495,9 @@ Worth being precise, because the name invites over-reading.
 
 Retention is on the **view** — the published answer. It does nothing for **operator state**: the
 accumulators inside the pipeline (`SlicedAggregateState`, `JoinSide`) are separate, and separately
-bounded. A window bounds an aggregate because the window closes. Nothing yet bounds a
-stream-to-stream join, and retention on its output view would not help — the join's liability is the
-unmatched rows it is holding *upstream*, waiting for partners that may never arrive.
+bounded. A window bounds an aggregate because the window closes. A stream-to-stream join is bounded
+by its match window (next section), and retention on its output view would not help — the join's
+liability is the unmatched rows it is holding *upstream*, waiting for partners that may never arrive.
 
 It is also not durability. Retention decides what is kept hot, never what survives a restart. What
 survives is the checkpoint, and **the view is in it** — `QueryRegistry` snapshots and restores it
@@ -506,6 +506,12 @@ a filter or a projection has no accumulators, so the view *is* the whole answer,
 rewound the offsets without it served an empty view under a query reporting `RUNNING`. With no
 checkpoint directory configured there is no checkpoint, and then a restart is a warm-up: the journal
 brings back the questions and the view fills again as data arrives.
+
+A restore trusts only what proves itself (2.0.1): a checkpoint ends with a CRC32C checked before
+anything is read, and records its output schema, so a damaged checkpoint is skipped for the one
+before it (`PRV-4094`) and one of another schema makes the query rebuild from its sources
+(`PRV-4095`); damage in the middle of the journal refuses the start (`PRV-8005`), and a registration
+the restart refuses stays listed `FAILED`, with node health `DEGRADED`, until it is dropped.
 
 ## Why a join has a clock
 

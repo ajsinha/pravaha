@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; stages 1-3 and 6 built. **Stages 4 (MFA) and 5 (SSO) dropped by the owner on 2026-09-27**: simple authentication -- users, passwords, API keys, sessions -- is what Pravaha needs |
+| Status | Accepted; stages 1-3 and 6 built. **Stages 4 (MFA) and 5 (SSO) dropped by the owner on 2026-09-27**: simple authentication -- users, passwords, API keys, sessions -- is what Pravaha needs. **Amended 2026-10-02** (lockout, the console's cookie, revocation on open connections; below) |
 | Date | 2026-09-27 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-024 (the console reaches the engine only through its API), ADR-031 (authorization at the Pravaha layer), ADR-050 (tenancy), ADR-051 (help) |
@@ -160,3 +160,35 @@ first (only when `force-change` is configured), `PRV-7019` default admin passwor
   volume. The file holds no reversible secret.
 - MAYA's documented policy (12 and 3) is used, not its code's defaults (8 and 2), which disagree with
   its own design document.
+
+## Amendment, 2026-10-02: lockout, the console's cookie, revocation on open connections
+
+The adversarial QA of 2.0.0 found four places where what this record decided was weaker in practice
+than in intent, and Pravaha 2.0.1 changes each. The decisions above are kept as the record; these
+replace them where they disagree.
+
+- **Lockout bars an address, not an account, and is never announced (LOCKENUM-1).** "5 failed
+  logins inside 15 minutes lock the account" let anyone who knew a user name lock it, `admin`
+  included, and `423 PRV-7011` for a real account against `401` for an unknown one told anyone which
+  names existed. Now five failures from one address within `lockout.window` bar that address from the
+  account for `lockout.duration`; ten times as many from any addresses lock the account itself for
+  `lockout.duration`; and an unknown name, a wrong password and a barred sign-in all answer `401
+  PRV-7010` after the same password-hash work. `PRV-7011` is no longer answered to a sign-in.
+  `pravaha.identity.lockout.trusted-proxies` names the proxies, the console among them, whose
+  `X-Forwarded-For` is believed.
+- **The console's cookie carries no credential (COOKIETOKEN-1, LOGOUTREPLAY-1).** "Keeps their
+  engine session token in its signed session cookie" put a token that works directly against Flight,
+  HTTP and pgwire in a readable cookie. The cookie now holds an opaque id; the token stays in the
+  console process (`routes/session_vault.py`), so a console restart signs everybody out of it and
+  several console instances need sticky sessions. A cookie whose session was signed out reads as
+  signed out.
+- **A credential is re-verified on connections already open (PGREVOKE-1, FLIGHTPRINCIPAL-1).** The
+  PostgreSQL gateway checked the password once, at sign-in; it now verifies the credential before
+  every statement and ends the connection `FATAL 28000` (`PRV-6218`). A Flight subscription's
+  two-second re-verification now also requires the same principal.
+- **The `users` profile runs the `authenticated` policy (PERMISSIVEUSERS-1).** Turning this store on
+  had left the default `permissive` policy in force, so every signed-in user could administer every
+  view. A home whose catalogue imported `permissive` under that profile refuses to start with
+  `PRV-7034` until the policy is set explicitly.
+
+[`../../operations/SECURITY.md`](../../operations/SECURITY.md) has the policy as it stands.
