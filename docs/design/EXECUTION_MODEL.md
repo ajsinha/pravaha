@@ -132,8 +132,13 @@ Three properties worth knowing before tuning it:
 
 - **A claim is one cell whatever the row's size.** A 40-byte row still occupies 512. That waste buys
   a constant-time claim with no allocator on the hot path.
-- **`cell-bytes` is a hard ceiling on row width.** A row that does not fit is refused with
-  `PRV-3001`, naming the setting. Sizing down is safe only against a known widest row.
+- **`cell-bytes` is a hard ceiling on row width.** A row that does not fit is refused for that row,
+  naming the setting, and nothing else stops: an embedded push wider than a query's cell is refused
+  `PRV-8102` before any of the push is delivered, a row handed to a registered query directly
+  `PRV-3002` without failing the query, and a source's writer is bounded to its cell so a wide row is
+  never written into the cells after it. Until CELLBYTES-1 (2.0.1) the embedded engine's cell was 512
+  bytes whatever was configured, and one 600-character string stopped every query on the stream.
+  Sizing down is safe only against a known widest row.
 - **A join gets two inboxes, not one buffer with tagged rows.** A tag would let a burst on the left
   fill the shared buffer and starve the right — and a join starved on one side does not slow down,
   it stops producing while still reading. Separate buffers are the only arrangement that survives

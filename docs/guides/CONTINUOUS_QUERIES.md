@@ -825,10 +825,12 @@ a registry schema that cannot be mapped to the columns makes each record carryin
 naming the id. A value that begins with `0x00` while no registry is configured is refused with
 `schema.registry.url` named.
 
-**One consumer per partition per registration.** An exactly-once source is never shared between
-queries, so each registration reading this binding has its own consumer and fetch thread per
-partition. The partition list is read at registration; partitions added to the topic later are read
-after the next restart or re-registration.
+**One consumer per partition per binding.** Every query over the binding shares its reader, exactly:
+a query registered later catches up to the shared reader's position and is then attached
+([ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). The partition list is
+read again every `partitions.refresh` (30 s), and a partition added to the topic is read from its
+first record without a restart. A topic deleted under a running query stops the feed with
+`PRV-5130` once the brokers have not known it for `topic.missing.timeout` (30 s).
 
 **Retention is the limit.** If retention deletes records before a checkpoint has read them — a node
 down longer than the topic's `retention.ms` — the restore is refused (`PRV-5106`) rather than
@@ -1245,7 +1247,11 @@ FROM TABLE(HOP(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND, INTERVAL
 GROUP BY window_start, window_end
 ```
 
-A minute of history, recomputed every ten seconds. Each row belongs to **six** windows.
+A minute of history, recomputed every ten seconds. Each row belongs to **six** windows. Windows
+start on multiples of the slide, as SQL's `HOP` does (`[0, 60)`, `[10, 70)`, …), also when the size
+is not a multiple of the slide (HOPALIGN-1, 2.0.1). A hop so fine that a row would land in more than
+`pravaha.lane.max-windows-per-row` windows or slices (100,000 by default) is refused at
+registration, `PRV-3026` (§13).
 
 ### The descriptor must name the stream's declared event time
 
@@ -2001,8 +2007,9 @@ name** rather than encoding them, and refuses them *before* sending a `RowDescri
 gets a clean error instead of a truncated result set it might treat as complete. That is a gap in
 that gateway's type mapping, not in the engine — Arrow Flight carries both.
 
-`DECIMAL` is refused rather than sent as a floating-point number, because the rounding decision
-belongs to whoever owns the ledger and not to a serialiser. Year–month intervals (`INTERVAL '1'
+`DECIMAL` is refused on the Arrow Flight wire rather than sent as a floating-point number, because the
+rounding decision belongs to whoever owns the ledger and not to a serialiser; the PostgreSQL gateway
+sends it exactly, as `numeric`. Year–month intervals (`INTERVAL '1'
 MONTH`) are refused because a month is not a fixed length of time; day–time intervals work and are
 what windows use.
 
@@ -2023,6 +2030,13 @@ same mistake answers `400`. The message reads
 `stream 'd', column 'amt': unknown type 'DECIMAL'`; it used to name neither, so an operator whose
 node refused to start had one sentence and every declared stream to check it against (TY-9).
 `PRV-5040` still means what it always meant: a line of data a file could not decode.
+
+**A `TIMESTAMP` is nanoseconds since the epoch in 64 bits: 1677-09-21 to 2262-04-11 UTC.** A value
+outside that range is refused where it enters rather than wrapped into the other end of it
+(FARTIME-1, 2.0.1): a file line is `PRV-5040` naming the line, the column and the range
+(dead-lettered when the query has a queue), a Cassandra event time `PRV-5087`, and an embedded push
+of an `Instant` `PRV-8102` naming the column. Until 2.0.1 `3000-01-01T00:00:00Z` from a file was
+stored as a time in 1677.
 
 **An `ARRAY`, `MAP` or `ROW` column can be declared and cannot be selected.** All three reach the
 planner as SQL's `ANY`, and projecting one is refused `PRV-2021` naming the column and saying which
@@ -2060,6 +2074,12 @@ Pravaha types arrive that way — the refusal used to name only `ANY`, a word no
 | A view holds fewer rows than expected | Retention. It defaults to forever now, but an explicit one evicts by event time |
 | `GROUP BY` works on a view and is refused on a stream | Deliberate, and the reason is the input rather than the query (§13) |
 | `COUNT(*)` over a Cassandra or Aerospike binding is refused, a projection of it is not | The default `deletes: ignore` repeats rows, which a keyed view absorbs and a count does not (`PRV-2042`, §2.1) |
+| A `SUM`, `AVG`, `MIN` or `MAX` that read `0` now reads NULL (2.0.1) | Its group has no non-null value; SQL says NULL, and 2.0.0 published 0 (ALLNULLAGG-1, §13). `COALESCE(SUM(x), 0)` asks for the old answer |
+| A query that ran on 2.0.0 now stops, or dead-letters rows, naming an overflow | Narrow-integer arithmetic, a cast with no answer of its type (`NaN`, `±Infinity`, out of range) and the `BIGINT` minimum divided by `-1` are overflows since 2.0.1, never wrapped (§11). Filter the values out, or widen with `CAST(i AS BIGINT)` |
+| A query keeps running but some rows never reach the view | With `pravaha.dlq.directory` set, a row whose evaluation fails before state is dead-lettered with `PRV-3027` and the query goes on (§11); look at its dead-letter queue |
+| Fewer groups on a `DOUBLE` key than 2.0.0 showed | `-0.0` and `0.0` are one group, and every `NaN` one, as SQL equality says (NANGROUP-1, §13) |
+| A `HOP` whose size is not a multiple of its slide has different window bounds | Windows start on multiples of the slide since 2.0.1 (HOPALIGN-1, §5) |
+| `MIN`/`MAX` over a CDC stream refused with `PRV-2076` | The source retracts, and the extreme cannot be retracted; refused at registration rather than stopped at the first delete (§13) |
 
 **When the symptom is not on that list**, the query is doing exactly what it was asked and the
 question is which row and which operator. Fork it: a debug session replays the query from one of

@@ -13,8 +13,24 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 **Done, 2026-09-27.** Tranches A, B and C are built or closed as boundaries (B3). Identity is
 built as the owner scoped it; MFA and SSO were dropped. Pravaha is feature-complete for one node, and
-what follows is the record of how it got there. What remains is hardening: the open findings, the
-scaling gate, the manual accessibility audit, and multi-node when the owner takes it off hold.
+what follows is the record of how it got there. 1.0.0 (2026-09-30) and 2.0.0 (2026-10-01) were cut
+since, and the adversarial QA of 2.0.0 opened 50 findings that Waves 1 to 3 fixed by 2026-10-02.
+
+## What is genuinely left (2026-10-02)
+
+No finding is open ([`../project/qa/FINDINGS.md`](../project/qa/FINDINGS.md)). What is left:
+
+| Item | Kind | Where it is described |
+|---|---|---|
+| Multi-node execution (cluster mode, wave 11) | on hold by the owner; libraries built, no node consumes them (`PRV-9002`) | [ADR-045](../design/adr/045-cluster-mode-assigns-queries-not-rows.md), [`../guides/LIMITS.md`](../guides/LIMITS.md) |
+| The eight-lane scaling criterion | not reached (28–42 % of linear against 90 %), and no reference hardware | [`../project/gates/measured-2026-09-20`](../project/gates/measured-2026-09-20/README.md) |
+| Nexmark: 11 of 23 queries do not run; W5's head-to-head against Flink not run | missing SQL, not speed | README, "Performance" |
+| The manual WCAG 2.2 AA audit | a person's task; the automated axe half is green | [`TESTING.md`](TESTING.md#console) |
+| ADR-059 phases 3–4 | only if wanted | [ADR-059](../design/adr/059-the-pravaha-catalog-governs-live-answers.md) |
+| First versions' follow-ups: `mysql-cdc` initial snapshot and TLS; `iceberg-sink` object stores, catalogs, partitioning; one reader per Delta or JDBC source; showing which access path a read took | buildable | README, "First versions" |
+| Error Prone and NullAway: 3,570 warnings (2,822 NullAway); no workflow runs `-Pep` | a list to work down | [`TESTING.md`](TESTING.md#static-analysis-error-prone-and-nullaway--pep) |
+| A stream declared over HTTP lasts until the node restarts (DECLSTREAM-1); the console's session vault is per process, so several console instances need sticky sessions (COOKIETOKEN-1) | known limits of the fixes | [`../guides/LIMITS.md`](../guides/LIMITS.md), [`../operations/SECURITY.md`](../operations/SECURITY.md) |
+| CI: the workflows parse and are checked; whether each has run as a workflow is recorded in DEPLOYMENT.md | release engineering | [`../operations/DEPLOYMENT.md`](../operations/DEPLOYMENT.md#ci) |
 
 ## The strategy
 
@@ -32,7 +48,7 @@ outright. Larger connectors come after both.
 buildable list, updates the README table, and adds a test that would fail if the claim became untrue.
 The findings register tracks anything found along the way.
 
-### Tranche 0: in flight
+### Tranche 0: identity (was in flight; done)
 
 | Item | Slot | Size |
 |---|---|---|

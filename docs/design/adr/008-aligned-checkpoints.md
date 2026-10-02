@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — barriers built for the inboxes; the exchange is refused rather than cut (2026-09-14) |
+| Status | Accepted — barriers built for the inboxes; the exchange is refused rather than cut (2026-09-14). **Amended 2026-10-02**: checkpoints carry a checksum and their output schema (below) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 
@@ -75,3 +75,14 @@ regardless of what the engine does.
 Earlier gap, since closed: registered continuous queries were not checkpointed at all. `QueryRegistry`
 now constructs a `QueryExecution` and a `PeriodicCheckpointer` per registration, restores before the
 feed opens, and prunes to `pravaha.checkpoint.keep`.
+
+## Amendment, 2026-10-02: a checkpoint proves its own integrity
+
+The decision is unchanged; what a restore trusts is narrower (Pravaha 2.0.1). Only a checkpoint's
+header, counts and trailer used to be checked, so a flipped bit in a window's state was restored and
+published for good (CKPTSUM-1). Every checkpoint now ends with a CRC32C of its contents, checked
+before anything in it is read; one that does not match is skipped with `PRV-4094` and the one before
+it restored, as a truncated one is. A checkpoint also records the query's output schema, and one of
+another schema is not restored: the query rebuilds from its sources (`PRV-4095`, RETYPERESTORE-1).
+A 2.0.0 checkpoint carries neither and restores as before, logged as unverified; the checksum is a
+tail after an unchanged body, so 2.0.0 still reads a 2.0.1 checkpoint.

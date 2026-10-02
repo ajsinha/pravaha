@@ -26,7 +26,7 @@ change carrying a weight so a retraction subtracts exactly what an insertion add
 | `COUNT(DISTINCT col)` | yes | yes | yes | Windowed on a stream; anywhere on a view. Does not count NULL |
 | `SUM(col)` | yes | **refused**, PRV-2020 | no | Accumulates in 64-bit integers. **The result is a `BIGINT`** (`INT64`) over a `TINYINT`, `SMALLINT` or `INT` column too — a running sum outgrows 32 bits |
 | `AVG(col)` | yes | **refused**, PRV-2020 | no | The exact sum over the count, as the column's integer type — except through the PostgreSQL gateway, which answers a `numeric` at sixteen places, as PostgreSQL does (AVGINT-1) |
-| `MIN(col)`, `MAX(col)` | yes | **refused**, PRV-2020 | — | The column's own type: `MIN` of an `INT` is an `INT` |
+| `MIN(col)`, `MAX(col)` | yes | **refused**, PRV-2020 | — | The column's own type: `MIN` of an `INT` is an `INT`. Take no retraction: over a source that retracts (CDC, a file with an operation column) they are refused at registration, [PRV-2076](/help/codes/PRV-2076) |
 | Over an expression — `SUM(qty * price_cents)` | yes | | | |
 
 `SUM`, `AVG`, `MIN` and `MAX` over a float column are all refused because every accumulator reads and
@@ -186,6 +186,12 @@ Two rules that follow SQL rather than convenience:
 - **Aggregates skip NULLs.** `COUNT(col)` and `COUNT(DISTINCT col)` do not count them; `COUNT(*)`
   does. `status` is NULL for one sample payment, so over the four: `COUNT(*) = 4`,
   `COUNT(status) = 3`.
+- **A group with no non-null value has a NULL `SUM`, `AVG`, `MIN` and `MAX`** — in a window, a
+  continuous query, over a view and on a read — and `COUNT(col)` of it is 0. A retraction that
+  leaves a group only NULLs makes them NULL again. Until 2.0.1 (ALLNULLAGG-1) they were published 0,
+  which no reader could tell from a real total of zero; `COALESCE(SUM(x), 0)` asks for that answer.
+- **A `DOUBLE` or `REAL` group follows SQL equality**: `-0.0` and `0.0` are one group, published
+  `0.0`, and every `NaN` is one group (NANGROUP-1, 2.0.1).
 
 ```sql
 SELECT currency, window_start, window_end,

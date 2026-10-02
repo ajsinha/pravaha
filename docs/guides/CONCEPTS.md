@@ -11,7 +11,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-The eight ideas everything else follows from. If you read one page before using Pravaha, this is it —
+The ten ideas everything else follows from. If you read one page before using Pravaha, this is it —
 most surprises people hit are one of these working correctly.
 
 ---
@@ -134,6 +134,9 @@ When late data corrects a window that was already published, the correction is a
 followed by a `+1` for the new one — the same arithmetic as everything else, rather than a special
 message type every consumer has to recognise. That is the Z-set idea from the design doc, and it is
 why an aggregate can be maintained incrementally without a separate "retract" code path to get wrong.
+The exception is `MIN` and `MAX`: the accumulator keeps the extreme, not the values under it, so it
+cannot take a `-1`. Over a stream whose source retracts (a CDC table, a file with an operation column)
+they are refused at registration, `PRV-2076`, rather than stopped at the first delete.
 
 If you maintain your own aggregate from a subscription, **apply the weights** or your total drifts
 from the view's the first time a window is corrected.
@@ -253,7 +256,11 @@ are bounded; only one is allowed to change what you get back.
 
 And where the engine cannot bound something at all, it **refuses the query**: `GROUP BY user_id`
 with no window keeps one accumulator per key forever, so it is rejected at planning (`PRV-2050`)
-rather than deployed to fail months later.
+rather than deployed to fail months later. So is a `HOP` so fine that one row would land in more
+windows than `pravaha.lane.max-windows-per-row` (`PRV-3026`): one such row once held its lane for good.
+The same rule holds at the edges: what a client can make a node hold — PostgreSQL connections and
+messages, HTTP bodies, concurrent sign-ins — is a configured ceiling refused by code, not a heap that
+runs out ([LIMITS.md](LIMITS.md)).
 
 A ceiling you cannot see coming is a ceiling you meet as an outage, so each query now reports what it
 holds against what it may hold — `pravaha_query_state_held`, `_ceiling` and `_fraction`. Alert on the

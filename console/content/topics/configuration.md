@@ -86,6 +86,16 @@ Those lines are the node telling you what it is actually running with. **Read th
 configuration change** — they come from the bound values, not from the file, so they are the
 answer to "did my setting take?".
 
+### The `users` profile
+
+`dev,users` is what the guides start a node with for the console. `users` turns on the engine's own
+user store and token authentication, and sets `pravaha.security.policy: authenticated`: a signed-in
+user reads views and registers queries, drop, pause, resume and replace go by ownership, grants or
+the `admin` role, and only `admin` reads the audit trail. Until 2.0.1 it left `permissive` in force
+(PERMISSIVEUSERS-1). A home whose catalogue imported `permissive` under that profile refuses to
+start with PRV-7034: set `pravaha.security.policy: permissive` to keep it, or
+`pravaha.catalog.authority: catalog`.
+
 ## The ports
 
 | Port | Setting | Speaks | Used by |
@@ -350,8 +360,18 @@ A few keys are bound from configuration classes rather than written out in the s
 | `pravaha.pgwire.port` | `5432` | Its port. Change it if a PostgreSQL server on the host already has 5432 |
 | `pravaha.pgwire.tls.certificate` | *empty* | PEM certificate; `sslmode=require` then negotiates on the same port. Refused at startup if half-set (PRV-6206) |
 | `pravaha.pgwire.tls.key` | *empty* | PEM private key |
+| `pravaha.pgwire.limits.max-connections` | `100` | PostgreSQL connections, signed in or not; past it `FATAL 53300` (PRV-6216) at once, without a thread |
+| `pravaha.pgwire.limits.max-unauthenticated` | `32` | Connections still in their handshake, likewise |
+| `pravaha.pgwire.limits.max-connections-per-principal` | `0` | One credential's share; `0` is no share smaller than `max-connections` |
+| `pravaha.pgwire.limits.authentication-timeout` | `10s` | The whole handshake, as one deadline a trickling peer cannot renew |
+| `pravaha.pgwire.limits.max-message-size` | `1MB` | One message after sign-in (before it, a fixed 16 KiB); past it `54000` (PRV-6217), refused on the declared length |
+| `pravaha.pgwire.limits.idle-timeout` | `0s` (never) | Ends a signed-in connection that sends nothing for this long, `57P05` (PRV-6219). An out-of-range limit stops the node (PRV-6220) |
+| `pravaha.http.max-anonymous-body` | `16KB` | A request body on a path open without a credential (sign-in, reset, the API document); past it `413` (PRV-1054) |
+| `pravaha.http.max-request-body` | `4MB` | Any other request body |
+| `pravaha.http.max-concurrent-sign-ins` | `8` | Sign-ins hashing a password at once; past it `429` (PRV-1055) with `Retry-After` |
 
-The HTTP API and Prometheus are on Spring's `server.port` (`18080`).
+The HTTP API and Prometheus are on Spring's `server.port` (`18080`). Tomcat's own `max-connections`,
+`max-swallow-size` and form-post size are set under `server.tomcat` in `application.yaml`.
 
 ### Security
 
@@ -372,6 +392,10 @@ down as such.
 | `pravaha.security.audit-keep` | `5` | Rotated audit files kept; the oldest is deleted |
 | `pravaha.security.audit-readers` | `[admin]` | Roles whose holders may read the audit trail over `GET /api/v1/audit` under `policy: authenticated` |
 | `pravaha.security.audit-recent` | `10000` | Recent decisions kept readable in memory over `GET /api/v1/audit`; must be at least 1 |
+| `pravaha.identity.lockout.failures` | `5` | Failed sign-ins from one address, within `window`, that bar that address from the account for `duration`; ten times as many from any addresses lock the account. Every refusal answers `401 PRV-7010` alike — see [Authentication](/help/topics/authentication) |
+| `pravaha.identity.lockout.window` | `15m` | The window failures are counted in |
+| `pravaha.identity.lockout.duration` | `30m` | How long a bar, or an account lock, lasts |
+| `pravaha.identity.lockout.trusted-proxies` | *none* | Addresses or CIDR blocks (the console, a load balancer) whose `X-Forwarded-For` is believed; a malformed entry is PRV-7004 at startup |
 
 ### Streams, sources, lookups and sinks
 
@@ -413,7 +437,7 @@ sinks [filesystem](/help/topics/sink-filesystem), [jdbc-sink](/help/topics/sink-
 | `pravaha.checkpoint.interval` | `1m` | How often a query checkpoints. Bounds how much a restart replays — and how far a transactional sink trails the view. **Write the unit**: a bare number is read as milliseconds by Spring and is refused (PRV-1023) |
 | `pravaha.checkpoint.keep` | `3` | Checkpoints kept per query, at least 1 (PRV-1026 at startup). Counted, not timed: an age rule would delete the last fallback after a quiet night |
 | `pravaha.checkpoint.timeout` | `30s` | How long one checkpoint may take before it is abandoned (and counted in `pravaha_query_checkpoint_failures_total`) |
-| `pravaha.dlq.directory` | *empty* | Where records a source cannot decode are written, one file per query, instead of stopping the source. Set and unwritable: the node refuses to start (PRV-4090). See [Dead letters](/help/topics/dead-letters) |
+| `pravaha.dlq.directory` | *empty* | Where records a source cannot decode, and rows whose evaluation fails before state (`PRV-3027`), are written, one file per query, instead of stopping the source or the query. Set and unwritable: the node refuses to start (PRV-4090). See [Dead letters](/help/topics/dead-letters) |
 | `pravaha.dlq.max-bytes` | `268435456` | The largest one query's dead-letter file may grow. Past it the **oldest** entries are evicted, and the loss is written to `<query>.dlq.evicted`, warned about, and counted on every surface. `0` for no byte bound |
 | `pravaha.dlq.max-entries` | `0` | The most entries one query's file may hold. `0` is off |
 | `pravaha.dlq.max-age` | `0` | How long an entry is kept (`30d`, `PT72H`). `0` is off |

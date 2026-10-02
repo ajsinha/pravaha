@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **largely built** (2026-09-15). Shipped: the scan interval (§3, SRC-8), arena and inbox sizing as settings (§1, W9-6/W9-7), lane multiplexing onto shared threads (§2, W9-4/W9-5) and the shared schedulers (§4, W9-3), a descriptor ceiling the node reports (SRC-4), and one reader per source binding feeding many queries (§3's second half, SRC-3 — measured against a real cluster at 1.0 scans/s for four queries over one set, where it was 1.0 *each*). `LaneMultiplexer`, which shares the inbox and arena as well as the thread, is a node setting, off by default (`pravaha.lane.multiplex.*`, W9-8; W9-9 and W9-10 fixed), and since LANE-2 takes any query and one copy of a shared source per lane: 1,000 queries over one source run on 8 lanes, each row written into them 8 times rather than 1,000. The measurements in the tables below are the *before* figures and are kept as the record of what the wave was scoped against; the *after* figures are in `HANDOVER.md` and the findings they cite |
+| Status | Accepted — **largely built** (2026-09-15). Shipped: the scan interval (§3, SRC-8), arena and inbox sizing as settings (§1, W9-6/W9-7), lane multiplexing onto shared threads (§2, W9-4/W9-5) and the shared schedulers (§4, W9-3), a descriptor ceiling the node reports (SRC-4), and one reader per source binding feeding many queries (§3's second half, SRC-3 — measured against a real cluster at 1.0 scans/s for four queries over one set, where it was 1.0 *each*). `LaneMultiplexer`, which shares the inbox and arena as well as the thread, is a node setting, off by default (`pravaha.lane.multiplex.*`, W9-8; W9-9 and W9-10 fixed), and since LANE-2 takes any query and one copy of a shared source per lane: 1,000 queries over one source run on 8 lanes, each row written into them 8 times rather than 1,000. The measurements in the tables below are the *before* figures and are kept as the record of what the wave was scoped against; the *after* figures are in `HANDOVER.md` and the findings they cite. **Amended 2026-10-02**: the windows one row may make are bounded, and the embedded engine reads the lane settings (below) |
 | Date | 2026-09-15 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-004 (partitioned lanes), ADR-027 (lane multiplexing), ADR-029 (Aerospike scan-only), ADR-034 (distribution deferred), ADR-035 (Wave 8) |
@@ -236,3 +236,14 @@ the seam is the *binding*, not the fingerprint, and `QueryRegistry` opens feeds 
 
 And §2's budget is understated for the workload the target names: an Aerospike-backed query is two
 platform threads, not one, because the plugin gives every registration its own client.
+
+## Amendment, 2026-10-02: a bound on the work one row makes, and the embedded engine's lanes
+
+Two lane decisions changed with Pravaha 2.0.1. **A row's fan-out is bounded** (FINEHOP-1): a hop is
+published in `size / slide` windows of `size / gcd(size, slide)` slices, and `HOP(INTERVAL '0.001'
+SECOND, INTERVAL '1' DAY)` registered and wedged its lane and every push to the stream with one
+row. `pravaha.lane.max-windows-per-row` (100,000 by default, server and embedded) now refuses such a
+query at registration, `PRV-3026`. **The embedded engine reads `pravaha.lane.*`** (CELLBYTES-1): its
+inbox cell was 512 bytes whatever was configured; now it is the configured size, an embedded push
+wider than a query's cell is refused `PRV-8102` before any of it is delivered, and a source's writer
+is bounded to its cell so a wide row is never written into the cells after it.

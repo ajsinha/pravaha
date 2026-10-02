@@ -345,8 +345,10 @@ an orchestrator kept it in rotation.
 `PRAVAHA_FLIGHT_ENABLED=false` and requires liveness 200 **and** readiness 503. If that step ever
 passes readiness, the chart's `readinessProbe` is decoration and the chart is wrong.
 
-A `DEGRADED` node — every view still served, at least one source stopped (FEED-1) — answers 200 and
-stays in rotation, on purpose. Alert on `pravaha_query_feed_stopped`, do not take the node out.
+A `DEGRADED` node — every view still served, at least one source stopped (FEED-1: a file gone, a
+Kafka topic deleted, a CDC slot dropped) or a journalled registration refused at recovery
+(RECOVERYHEALTH-1) — answers 200 and stays in rotation, on purpose. Alert on
+`pravaha_query_feed_stopped` and `pravaha_registry_recovery_refused`, do not take the node out.
 
 ### Secrets
 
@@ -505,7 +507,7 @@ node would go on running the old one — an upgrade reporting success and changi
 
 ### How a version is set today
 
-Every one of the reactor's **37 poms** carries the version as a literal — the root as
+Every one of the reactor's **40 poms** (2026-10-02) carries the version as a literal — the root as
 `<project><version>`, each child as `<parent><version>`. There is no `${revision}` property, no
 `flatten-maven-plugin`, and no `<distributionManagement>`. Two wheels
 (`sdk/python/pyproject.toml`, `console/pyproject.toml`) and the chart's `appVersion` carry it too.

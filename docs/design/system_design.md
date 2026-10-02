@@ -27,7 +27,8 @@
 | Changes in 3.9 | Sessions, subscriptions, disconnect handling and query sharing specified (§11.7, §11.8, ADR-025) |
 | Changes in 3.10 | WebSocket as a first-class carrier and the subscriber-scale architecture (§20.3a, §20.3b, ADR-026) |
 | Changes in 3.11 | 2026-10-01: the baseline moves to **Java 25 LTS from Pravaha 2.0**, for every module, `pravaha-api` and the Java SDKs included (ADR-061, superseding ADR-001's baseline). §4.5 and the places below that state 21 carry a dated revision note; their text is kept as the record of the 1.x decision |
-| Version | 3.11 |
+| Changes in 3.12 | 2026-10-02: what the adversarial QA of 2.0.0 and its three fix waves changed (Pravaha 2.0.1), as dated revision notes in §14.5, §15.2, §15.3, §15.6 and §25; the text above each note is kept as the record |
+| Version | 3.12 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
 | Supersedes | `docs/design/initial_req.md` (SRS 1.0-DRAFT) |
@@ -1811,6 +1812,8 @@ client.put(p, key, bins);
 
 On node start or failover: read latest committed checkpoint metadata from Raft → download state handles for assigned partitions (parallel, with local SST reuse when the same node restarts) → restore L0 arenas and RocksDB CFs → reset readers to checkpointed offsets → resume. Target: ≤ 30 s for ≤ 10 GB (NFR-3), verified by a chaos test (§28.5).
 
+> **Revision, 2026-10-02 (v3.12): what a restore trusts.** As built there is no Raft and no RocksDB (ADR-034, ADR-044): checkpoints are files on the node. From 2.0.1 every checkpoint ends with a CRC32C of its contents, checked before anything in it is read, and one that does not match is skipped for the one before it (`PRV-4094`, CKPTSUM-1); a checkpoint records its output schema and one of another schema is not restored, so the query rebuilds from its sources (`PRV-4095`, RETYPERESTORE-1). Damage in the middle of the registry journal refuses the start (`PRV-8005`, JOURNALMID-1), and a registration the restart refuses stays listed `FAILED` with node health `DEGRADED` (RECOVERYHEALTH-1). [OPERATIONS.md](../operations/OPERATIONS.md), "Restarts: what survives".
+
 ---
 
 ## 15. Time, Watermarks, Windows & Changelog Semantics
@@ -1835,6 +1838,8 @@ Each source partition runs a `WatermarkGenerator`:
 
 A lane's watermark is `min` over its input partitions. **Idle partition handling is mandatory**: a partition silent for `idle.timeout` (default 30 s) is excluded from the min, otherwise one quiet Aerospike partition freezes every window in the query — the single most common streaming production incident, and worth stating explicitly.
 
+> **Revision, 2026-10-02 (v3.12): when every partition is idle.** The rule above leaves the watermark where it is when *every* partition is excluded, which for a burst into one partition of several is nowhere: the windows never closed (SEEDWINDOW-1). From 2.0.1 the watermark then catches up to the lowest watermark among the partitions that delivered rows — never past what they said, never backwards. The setting is `pravaha.watermark.idle-after`.
+
 Watermarks propagate as in-band control records through exchanges, so a downstream lane's watermark is the min across all upstream lanes that feed it.
 
 ### 15.3 Window implementation
@@ -1847,6 +1852,8 @@ Watermarks propagate as in-band control records through exchanges, so a downstre
 | Hopping(size, slide) | Slices of `gcd(size, slide)`; combine on fire | Watermark ≥ `windowEnd` |
 | Cumulative(max, step) | Running accumulator + step emissions | Each step boundary |
 | Session(gap) | Per-key interval set with merge-on-insert | Watermark ≥ `lastEvent + gap` |
+
+> **Revision, 2026-10-02 (v3.12): hop alignment, and a bound.** A hopping window starts on a multiple of its slide, as SQL's `HOP` does (Calcite, Flink), also when the size is not a multiple of the slide; until 2.0.1 such a hop aligned window *ends* to the slide (HOPALIGN-1). A row of a hop updates one slice and is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either passes `pravaha.lane.max-windows-per-row` (100,000) the query is refused at registration, `PRV-3026` (FINEHOP-1). Session windows are not built (`PRV-2020`).
 
 Timers use a **hierarchical timing wheel** (Agrona `DeadlineTimerWheel`) per lane — O(1) schedule and cancel, versus O(log n) for a priority queue and far better cache behaviour at millions of timers.
 
@@ -1887,6 +1894,8 @@ Mismatches are caught at **registration**, with a message naming the offending o
 ### 15.6 Dead-letter queue
 
 Records that cannot be decoded, violate schema, or repeatedly fail sink writes are routed to a per-query DLQ (a configured sink, default local file) with the raw bytes, the exception, the source offset and a correlation id — never dropped silently, never allowed to stop the pipeline. `dlq.max.rate` triggers an alert and, past a threshold, moves the query to `DEGRADED`.
+
+> **Revision, 2026-10-02 (v3.12): as built.** The queue is a directory of files per query (`pravaha.dlq.directory`), bounded by `pravaha.dlq.max-bytes`, `.max-entries` and `.max-age`. It takes records a source cannot decode and, from 2.0.1, rows whose evaluation fails before they reach state — a division by zero, an overflow, a cast with no answer — coded `PRV-3027` with their columns (DLQPROJ-1). A failure above an aggregate, window, join or top-N still stops the query, because the row has already changed state. Sink failures are not dead-lettered: a sink that refuses is detached (`PRV-8009`). A source that stops for good turns node health `DEGRADED`; no rate threshold does.
 
 ---
 
@@ -3560,7 +3569,7 @@ for (UserVolumeRow row : query.subscribe()) {
 | Concern | Design |
 |---|---|
 | **Transport** | mTLS between nodes (Raft + data), TLS 1.3 on all external endpoints; certificate rotation without restart |
-| **Human authn** | OIDC (Keycloak/Okta/Entra) via Spring Security; no local password store |
+| **Human authn** | OIDC (Keycloak/Okta/Entra) via Spring Security; no local password store. *Revised: the engine keeps its own users, Argon2id passwords, API keys and sessions (ADR-052); OIDC and MFA were dropped (2026-09-27). From 2.0.1 failed sign-ins bar the address they came from and every refusal answers `401 PRV-7010` alike (LOCKENUM-1), and a credential is re-verified on open PostgreSQL connections before every statement and on Flight subscriptions every two seconds (PGREVOKE-1, FLIGHTPRINCIPAL-1)* |
 | **Service authn** | mTLS client certs or OAuth2 client-credentials JWT; short-lived tokens |
 | **Authz** | RBAC to stream/table/sink/query granularity. Roles: `viewer`, `analyst` (register queries in own namespace), `operator` (lifecycle, rebalance), `admin`. Permissions checked at registration *and* re-checked at deploy. |
 | **Row/column security** | Optional row filters and column masks per role, injected by the planner as an unremovable filter/project above the scan — enforced in the plan, so it cannot be bypassed by clever SQL. Bounded by the soundness rule below (ADR-031) |
@@ -3568,7 +3577,7 @@ for (UserVolumeRow row : query.subscribe()) {
 | **Plugin trust** | Optional jar signature verification; classloader isolation; plugins run with a documented capability list surfaced in the UI before install |
 | **SQL injection** | Not applicable to the engine's own parsing, but the UI/REST layer parameterises everything and the catalog rejects identifiers that are not valid Pravaha identifiers |
 | **Audit** | Append-only audit log of every lifecycle and authz decision: actor, action, target, timestamp, source IP, correlation id, result. Shipped to the configured audit sink. |
-| **Resource abuse** | Admission control on plan cost; per-tenant quotas (§21.4); query timeout for bounded queries; hard cap on generated-class count |
+| **Resource abuse** | Admission control on plan cost; per-tenant quotas (§21.4); query timeout for bounded queries; hard cap on generated-class count. *Revised 2026-10-02: what an unauthenticated client can make a node hold is bounded before it is read — PostgreSQL connections, handshakes and message sizes (`pravaha.pgwire.limits.*`), HTTP bodies and concurrent sign-ins (`pravaha.http.*`) (PGPREAUTH-1, HTTPBODY-1)* |
 | **Supply chain** | `dependency-check` / OSV scanning in CI, SBOM (CycloneDX) per release, reproducible builds via Jib, pinned dependency versions in the BOM |
 
 ### 25.1 Enforced here, not in the store (ADR-031)

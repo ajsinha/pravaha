@@ -585,7 +585,7 @@ PostgreSQL 16 with `wal_level=logical` (Testcontainers).
 | Transaction boundaries | Nothing is handed over before `Commit` (protocol version 1, so PostgreSQL never streams an uncommitted transaction), and a poll takes a transaction only if all of it fits — so a checkpoint, taken between polls, never falls inside one |
 | One enormous transaction | Buffered whole in heap until its `Commit`: the memory bound is the largest transaction. One larger than any poll the engine has offered is handed over in order across polls, and the offset records how far in (`lsn=X/Y;partial=A/B+N`), so a restore inside it delivers exactly the rest. A view can publish between those parts |
 | An idle table fills the disk | `heartbeat.interval` (10s) writes a non-transactional `pg_logical_emit_message` into the WAL; it comes back through the slot behind everything committed before it and becomes a position the engine checkpoints and the slot confirms. `aHeartbeatMovesThePosition…`, and the contrast with it off |
-| Failover, dropped or invalidated slot | Detected, not papered over: a missing slot, or `wal_status = 'lost'`, is refused with the rebuild steps. A restore from a position the slot has already confirmed past — which PostgreSQL would silently skip forward from — is refused, `PRV-5115` |
+| Failover, dropped or invalidated slot | Detected, not papered over: a missing slot, or `wal_status = 'lost'`, is refused with the rebuild steps. A restore from a position the slot has already confirmed past — which PostgreSQL would silently skip forward from — is refused, `PRV-5115`. **Under a running query** too (CDCSLOT-1, 2.0.1): before each reconnect the reader asks `pg_replication_slots` whether the slot exists, is not `lost` and has not been confirmed past where it stopped (recreated under the same name), and a permanent refusal at reconnect is not retried; any of those stops the feed with `PRV-5117`, logged at `ERROR`, node health `DEGRADED`. Until 2.0.1 the reader retried for ever, the query stayed `RUNNING` and every later change was missing. `PostgresCdcSlotDroppedTest` |
 | Publication | Created `FOR TABLE <table>` before the slot (a slot created first would decode changes from before the publication existed); an existing one must publish insert, update and delete and include the table, or is refused naming the `ALTER PUBLICATION` |
 | `TRUNCATE` | **Refused**, `PRV-5116`: the stream stops after delivering everything before it. A truncate carries no rows, so there is nothing to retract, and retracting "what the view holds" would need the table's contents at that LSN, which the log does not have. The remedy is to drop the slot and re-register; use `DELETE FROM` on a captured table to have its rows retracted |
 | The offset is the LSN | The slot is confirmed only from `checkpointed`, at the newest durable checkpoint's LSN, never backwards. `theSlotIsConfirmedOnlyAtCheckpointedPositions…`, `restartingFromACheckpointedPosition…` |
@@ -692,6 +692,9 @@ the database host. A connector that asked you to mount a log directory would be 
 - `wal_level = logical` in `postgresql.conf` — **a server restart**, so it is a change somebody has to
   schedule rather than apply during an incident.
 - A role carrying the `REPLICATION` attribute, and `max_replication_slots` with room for one more.
+  A role without it is refused `PRV-5112` naming `ALTER ROLE <role> REPLICATION;` (`GRANT
+  rds_replication TO <role>;` on Amazon RDS or Aurora), whether the slot, the snapshot or the stream
+  was refused (CDCPRIVCODE-1; it used to be `PRV-5118` with advice about idle transactions).
   For the plugin to create its own publication, that role also owns the table and holds `CREATE` on
   the database (`GRANT CREATE ON DATABASE <db> TO <role>;`); `CREATE PUBLICATION` needs both.
 - `REPLICA IDENTITY FULL` on each captured table — see below, because without it corrections are
@@ -960,7 +963,11 @@ readers behind the engine's back. A reader's position is the next Kafka offset t
 a restore seeks each partition to the offset the checkpoint recorded, the log replays
 deterministically from there, and the engine receives exactly the records the checkpoint does not
 hold. That is the whole of the exactly-once argument ([ADR-008](../design/adr/008-aligned-checkpoints.md)), so
-the source declares `EXACTLY_ONCE` — and is therefore never shared between queries.
+the source declares `EXACTLY_ONCE`. It also declares ordered positions and readers that can stop at
+one, so one reader per binding feeds every query over it, a query joining late catching up to the
+shared reader's exact position before it is attached
+([ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). Until ADR-054 an
+exactly-once source was never shared, and a thousand queries read the topic a thousand times.
 
 What it deliberately does not do:
 

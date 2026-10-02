@@ -105,7 +105,7 @@ GROUP BY region, window_start, window_end;
 | `registry.journal` | none (memory only) | A file: registrations come back after a restart |
 | `checkpoint.directory` | none | A directory: each query's state is checkpointed under it |
 | `checkpoint.interval` / `.keep` / `.timeout` | `1m` / `3` / `30s` | How often, how many to keep, how long one may take |
-| `dlq.directory` | none | Where undecodable source records go instead of stopping the source |
+| `dlq.directory` | none | Where undecodable source records, and rows whose evaluation fails before state (`PRV-3027`), go instead of stopping the source or the query |
 | `watermark.idle-after` / `.tick` | `30s` / `1s` | For queries fed by a bound source |
 | `listener.max-pending` | `10000` | Commits a listener may have waiting before it is detached |
 

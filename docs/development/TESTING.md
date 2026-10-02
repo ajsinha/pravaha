@@ -15,7 +15,9 @@ with other builds running. Treat the times as an order of magnitude, not a bench
 every tier runs on JDK 25 only** ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)); the
 counts below were taken on 21. On 25 the whole reactor (`tools/worktree-build.sh -o clean install`
 in a linked worktree, 2026-10-01) ran **4,832 tests, 0 failures, 12 skipped** in 19 min 14 s, and the
-Python SDK's suite 426 passed. A tier marked
+Python SDK's suite 426 passed. After the adversarial QA's three fix waves (2026-10-02) the main
+checkout's full build ran **5,112 tests, 0 failures, 0 errors, 122 skipped** (summed from its
+surefire and failsafe reports), the SDK suite collects 432 tests and the console's 1,957. A tier marked
 **not run in this pass** is described from its own source and header, not from a run.
 
 ---
@@ -27,12 +29,13 @@ Python SDK's suite 426 passed. A tier marked
 | Unit and module tests | every module's `src/test` (`*Test`) | JDK 25 | `tools/worktree-build.sh -o test -pl <module>` | `pravaha-algebra` 42 tests, 3 s; `pravaha-registry` 344, 44 s; `pravaha-server` 323, 54 s |
 | Property tests (jqwik) | `pravaha-algebra`, `-common`, `-serving`, `-codegen`, `-backfill`, `-bindings`, `-it` | JDK 25 | part of the unit run | included above |
 | In-process integration (`pravaha-it`) | `pravaha-it/src/test` | JDK 25 | `tools/worktree-build.sh -o verify -pl pravaha-it` | 960 tests (2 skipped), 3 min 00 s |
-| Documentation and register checks | `DocumentationFreshnessTest`, `FindingsRegisterTest`, `ErrcCrossCuttingTest`, `QuickstartCommandsTest` … in `pravaha-it` | JDK 25 | `-Dtest=DocumentationFreshnessTest,FindingsRegisterTest` | 28 tests, 7 s |
+| Documentation and register checks | `DocumentationFreshnessTest`, `MarkdownLinksTest`, `FindingsRegisterTest`, `QuickstartCommandsTest`, `ExamplesTest` … in `pravaha-it`; `ErrcCrossCuttingTest`, `ContinuousQueriesClaimsTest`, `DocumentedLimitsTest` in `pravaha-cli` | JDK 25 | `-Dtest=DocumentationFreshnessTest,MarkdownLinksTest,FindingsRegisterTest` | 28 tests, 7 s (the first two) |
+| Adversarial suites | `pravaha-it/.../it/qa/adversarial` (`Adv*Test`, 110 tests); `tests/qa/adv_surface` (21, Python, against a running node) | JDK 25; a node for the surface suite | `-Dpravaha.qa.adversarial=true`; `PRAVAHA_QI_HTTP=… pytest tests/qa/adv_surface` | opt-in, not in any gate; see [below](#the-adversarial-suites) |
 | Container-backed plugin tests | `plugins/*` (`*IT` and `@Testcontainers` `*Test`) | Docker | `sg docker -c 'tools/worktree-build.sh -o verify -Pit -pl <plugin>'` | 211 container tests across 6 plugins and 3 in `pravaha-it`, green; see [below](#with-docker) |
 | Container-backed `pravaha-it` | `AerospikeContinuousQueryIT`, `AerospikeSourceScaleIT` | Docker | as above, `-pl pravaha-it` | 3 tests, 56 s |
 | Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 25, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **not measured in this pass** |
-| Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s |
-| Console | `console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C console test` / `make -C console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)) |
+| Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s (432 collected on 2026-10-02) |
+| Console | `console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C console test` / `make -C console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)); 1,957 collected on 2026-10-02 |
 | SDK, standalone | `tools/sdk-standalone-check.sh`, after `tools/build-sdk.sh` | Docker (or a running node), Maven, Python with venv or uv | `sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` | four clients outside the repository (Maven, `-all` jar, wheel with and without `[flight]`), green on 2026-09-30 ([below](#the-sdks-on-their-own)) |
 | Deck | `tests/deck` | `tools/deck/.venv` (python-pptx) | `tools/deck/.venv/bin/python -m pytest -q tests/deck` | 5 passed, 1 s |
 | The gate | whole reactor | JDK 25, the shared `~/.m2` | `tools/verify-clean.sh` | **not run in this pass**; its header records 5 min 50 s for 2,274 tests |
@@ -378,9 +381,36 @@ this pass.**
 `FindingsRegisterTest` holds `docs/project/qa/FINDINGS.md` to its own rules (a recognised status with
 evidence on every finding, unique identifiers, header totals equal to the entries).
 `DocumentationFreshnessTest` checks that every module is described, every cited ADR exists, the
-README's status agrees with itself, the release notes' defect counts are the register's, and the
-internal links of fifteen named documents resolve. Both are in `pravaha-it` and run in its normal
-test phase; alone they take 7 s.
+README's status agrees with itself, the release notes' defect counts are the register's, every
+setting an engine message names exists, every `pravaha.lane.*` key and per-query gauge is in
+OPERATIONS.md, and the ADR index and HANDOVER's ADR count match the directory. `MarkdownLinksTest`
+resolves every relative link and anchor in every tracked markdown file. `ErrcCrossCuttingTest`
+(`pravaha-cli`) holds TROUBLESHOOTING.md's code table to the `ErrorCode` declarations in both
+directions, so a new `PRV-` code without a row fails the build, as does a row for a code that does
+not exist. All run in their module's normal test phase; the first two alone take 7 s.
+
+## The adversarial suites
+
+The adversarial QA of 2.0.0 (2026-10-01, [summary](../project/qa/SUMMARY.md)) left its
+reproductions in the tree, and Waves 1 to 3 switched every one of them on with its fix. They are
+**opt-in** — long, randomised or destructive — and no gate runs them:
+
+```bash
+# engine, data and security: differential windows, predicates and arithmetic against an oracle,
+# aggregates, chains, durability under SIGKILL, resources, security (110 tests)
+tools/worktree-build.sh -o test -pl pravaha-it -Dtest='Adv*Test' -Dpravaha.qa.adversarial=true
+
+# surfaces against a running node (pgwire, HTTP, Flight, CLI): 21 checks
+PRAVAHA_QI_HTTP=http://127.0.0.1:<http> PRAVAHA_QI_PGWIRE=127.0.0.1:<pgwire> \
+PRAVAHA_QI_FLIGHT=grpc://127.0.0.1:<flight> PRAVAHA_QI_ADMIN_PASSWORD=<admin password> \
+  sdk/python/.venv/bin/python -m pytest tests/qa/adv_surface -q -rs
+```
+
+The surface suite needs a node with the `users` profile and `pravaha.pgwire.enabled`; its
+destructive checks (heap and connection exhaustion) run only with `PRAVAHA_QI_DESTRUCTIVE=1`, against
+a scratch node. `PRAVAHA_QI_REPRODUCE=1` runs a check marked as an open defect as a strict xfail;
+none is marked now. The cases and logs are under [`../project/qa/cases`](../project/qa/cases/) and
+[`../project/qa/logs`](../project/qa/logs/), `ADV-ENGINE` and `ADV-SURFACE`.
 
 ---
 

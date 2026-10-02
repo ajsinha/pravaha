@@ -10,7 +10,7 @@ Everything you can do with Pravaha, task by task, in Java, Python and the shell.
 Python? [`PYTHON_API_GUIDE.md`](PYTHON_API_GUIDE.md) is every SDK call and REST endpoint, one by one,
 with what each returns and refuses.
 
-Read [`CONCEPTS.md`](CONCEPTS.md) first if you have not — most surprises are one of those eight ideas
+Read [`CONCEPTS.md`](CONCEPTS.md) first if you have not — most surprises are one of those ten ideas
 working correctly. [`QUICKSTART.md`](QUICKSTART.md) is the ten-minute version of this page.
 
 ---
@@ -501,10 +501,14 @@ client.query_plan("card_velocity"); client.describe_view("card_velocity"); clien
 They answer by the listing's rules: a name your policy denies is refused whether or not it exists, and
 a query reading a stream you may not read answers exactly as a name that was never registered.
 
-### The records a query could not decode
+### The records a query could not decode, or could not evaluate
 
 With `pravaha.dlq.directory` set, a record a source cannot decode is kept rather than stopping the
-source. Those records are readable, and one can be put back:
+source, and — since 2.0.1 (DLQPROJ-1) — so is a row whose evaluation fails before it reaches state: a
+division by zero, an overflow or a cast with no answer in a `WHERE`, a projection or a computed
+column. Such a row is queued coded `PRV-3027` with its columns as a JSON object, and the query keeps
+running; a failure above an aggregate, window, join or top-N still stops it. Those records are
+readable, and a decoding failure can be put back:
 
 ```bash
 pravaha dlq list   --name card_velocity              # newest first, with the queue's totals
@@ -526,7 +530,8 @@ client.replay_dead_letter("card_velocity", letter_id)
 through the same decoder that refused them and the row is applied to the state the query has now;
 nothing is re-read and no earlier answer is recomputed. A record that fails to decode again returns
 to the queue as a new entry rather than being retried, and a replay that could not be correct is
-refused with `PRV-4092` saying why. Where the source will send the record again, correcting it at
+refused with `PRV-4092` saying why — which is always the answer for a `PRV-3027` row: it was decoded
+and evaluated already, and replaying it would fail the same way. Fix the data or the query. Where the source will send the record again, correcting it at
 the source is better: it then arrives in order.
 
 The bytes are a row of the source, so they are authorized like one: a caller reading the view through
@@ -698,8 +703,8 @@ What the calls do:
 | `declareStream(name, "col:TYPE,...", eventTimeColumn)` / `declareStream(StreamSchema)` | A stream, with the event-time column that lets windows close |
 | `bindSource` / `bindLookup` / `bindSink(name, plugin, options)` | A plugin by the name it reports, with its options — `filesystem` is on the classpath already |
 | `register(name, sql, keyColumns...)` / `register(ContinuousQuery)` | A continuous query over streams or other queries' views, as `CREATE CONTINUOUS QUERY` (QOQAPI-1); `ContinuousQuery.named(..).retaining(..).writingTo(sink)` for retention or a sink. No key column is `PRV-2070` |
-| `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) |
-| `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers |
+| `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) — a value of the wrong type, an `Instant` past 2262, a row wider than a query's inbox cell (`pravaha.lane.inbox.cell-bytes`, CELLBYTES-1). Each query takes the push independently: if one cannot (its lane has stopped) the others commit it and the call throws `PRV-8105` naming which queries have the rows — **do not retry that push**; when no query took it, the failure is reported as it is and a retry is right (PUSHPARTIAL-1) |
+| `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers. A retraction that would reach a `MIN` or `MAX` is refused `PRV-8102` before any row is delivered (MINRETRACT-1) |
 | `advanceEventTime(stream, instant)` | Closes windows over pushed rows; a bound source's watermark advances on its own |
 | `trackEventTime(stream, allowedLateness)` | Opt-in, before `start()`, stream by stream: after each `push` the stream's event time moves to the greatest event time pushed so far less `allowedLateness`, so windows over pushed rows close without `advanceEventTime`. Forward only — an older row or a retraction never moves it back — and `advanceEventTime` still works beside it. The stream needs an event-time column (`TIMESTAMP`, or `BIGINT` nanoseconds), or `start()` is refused `PRV-8104`. Off by default: event time is the host's to declare |
 | `query(sql, params...)` / `query(Class, sql, params...)` | SQL over the views, as rows or as records |
@@ -730,7 +735,10 @@ An embedded engine has no authentication or policy: every call runs as the anony
 the assumption that your application has already decided who may call it. Run the server when that
 is not true. One known limit: an unwindowed `GROUP BY` per key is refused as unbounded state
 (`PRV-2050`, as everywhere). A global aggregate's running total is carried across a restart by its
-checkpoint, as every other operator's state is (CKPT-2).
+checkpoint, as every other operator's state is (CKPT-2). The journal and checkpoint directories are
+claimed by the engine that opens them: a second engine in the same JVM pointed at them — with the
+default node id, `pravaha-embedded`, that is easy to do in tests — is refused `PRV-4003` rather than
+run beside the first (SAMEPIDCLAIM-1). Give each engine its own directories, or close one first.
 
 ## 10. Embed it in a Spring Boot application
 

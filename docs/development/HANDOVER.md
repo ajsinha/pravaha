@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Proprietary and confidential; see [`LICENSE`](../../LICENSE).
 
-**Written 2026-09-09; last swept 2026-09-29.** Everything the design says lives in
+**Written 2026-09-09; last swept 2026-10-02.** Everything the design says lives in
 [`../design/system_design.md`](../design/system_design.md) and the [ADRs](../design/adr/) — this file deliberately does *not*
 repeat it. What is here is the state, the working practices, and the things a fresh session would
 otherwise have to rediscover the hard way.
@@ -22,21 +22,29 @@ pointing at an old path.
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
 | `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) `v1.0.0` (2026-09-30, the first with a compatibility promise) and `v2.0.0` (2026-10-01, JDK 25 only, ADR-061; [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 2.0.1-SNAPSHOT |
-| Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
-| Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
-| Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |
+| Modules | **39** Maven modules (40 reactor projects with the root: 26 engine modules, 11 plugins, the two Java SDKs), plus `sdk/python` and `console`, which are not Maven |
+| Java tests | **5,112** tests, 0 failures, 0 errors, 122 skipped (Docker-only broker and database tests among them) -- the main checkout's full build of 2026-10-02 after Wave 3, summed from its surefire and failsafe reports. The adversarial suites (110 tests) are opt-in and not in that count ([TESTING.md](TESTING.md#the-adversarial-suites)) |
+| Python tests | **432** in `sdk/python` and **1,957** in `console` (browser suites included), collected on 2026-10-02; 21 opt-in surface checks in `tests/qa/adv_surface` |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **61** |
 
-**Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
-11, cluster mode, is on hold. The adversarial QA of 2.0.0 (2026-10-01) opened 46 findings: 544 in the register, 525 fixed,
-0 open; Waves 1 to 3 fixed every finding the round opened; see
-[the QA summary](../project/qa/SUMMARY.md). Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
+**Where it stands, 2026-10-02.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
+11, cluster mode, is on hold. **1.0.0** (2026-09-30) was the first release with a compatibility
+promise and **2.0.0** (2026-10-01) moved the baseline to JDK 25 (ADR-061). The adversarial QA of
+2.0.0 (2026-10-01, 322 cases) opened 46 findings, four design notes among them, and three more were
+found while fixing; Waves 1 to 3 (2026-10-01/02) fixed every one, so the register holds **544
+findings, 525 fixed, 0 open** ([the QA summary](../project/qa/SUMMARY.md)). Those fixes are 2.0.1's
+content and several change answers or refuse what 2.0.0 accepted — NULL aggregates of all-NULL
+groups, overflow instead of wrap on narrow integers and casts, `NaN`/`-0.0` grouping, `HOP` windows
+aligned to the slide, `MIN`/`MAX` over retracting inputs refused (`PRV-2076`), rows that fail
+evaluation dead-lettered (`PRV-3027`); [`RELEASE_NOTES.md`](../project/RELEASE_NOTES.md) "Unreleased"
+lists them all, and [`COMPATIBILITY.md`](../operations/COMPATIBILITY.md) "2.0.1" says how they sit
+with the 2.x promise. Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
 assistant with any model switched at runtime (ADR-058), the governed catalogue with grants, row
 filters and column masks (ADR-059 phases 1–2), Power BI over the PostgreSQL gateway, observability
 (dashboards, rules, JSON logs, tracing), the console in MAYA's design, the help checked against the
-code by tests, and about seventy findings fixed. What remains before GA: the scaling gate, the manual
-WCAG audit and ADR-059 phases 3–4 if wanted.
+code by tests. What remains is in [`REMAINING.md`](REMAINING.md): the scaling gate, the manual
+WCAG audit, ADR-059 phases 3–4 if wanted, and multi-node when the owner takes it off hold.
 
 **2026-09-27** added:
 
@@ -51,8 +59,8 @@ WCAG audit and ADR-059 phases 3–4 if wanted.
 - **Tranche C:** `jdbc-sink` over PostgreSQL's prepared transactions, Avro and Protobuf out of
   `kafka-sink`, `mysql-cdc`, `iceberg-sink`.
 
-**Feature-complete for one node.** What remains is hardening: the open findings, the scaling gate,
-the manual accessibility audit, and multi-node, which is on hold.
+**Feature-complete for one node.** What remains is the scaling gate, the manual accessibility audit,
+and multi-node, which is on hold; no finding is open.
 
 What is left, in order, is [`REMAINING.md`](REMAINING.md). Identity is complete as the owner wants it (stages 1-3 and 6; MFA and SSO dropped 2026-09-27); its REST API and CLI (`pravaha login|user|key|session|password`) are built.
 
@@ -530,7 +538,7 @@ Rewritten and extended in Wave 7. What exists now:
 | | |
 |---|---|
 | [`docs/README.md`](../README.md) | The index: which page to read when |
-| [`../guides/CONCEPTS.md`](../guides/CONCEPTS.md) | **The highest-value page.** Eight ideas; most surprises are one of them working correctly |
+| [`../guides/CONCEPTS.md`](../guides/CONCEPTS.md) | **The highest-value page.** Ten ideas; most surprises are one of them working correctly |
 | [`../guides/QUICKSTART.md`](../guides/QUICKSTART.md) | Clone to a running continuous query |
 | [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | The whole surface, task by task, three clients |
 | [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) | Bounds, what to watch, and what is not solved |
@@ -543,9 +551,11 @@ Rewritten and extended in Wave 7. What exists now:
 studies is planned, built and compiled against the real engine; `ErrcCrossCuttingTest` holds the
 error-code table against the `ErrorCode` declarations in both directions;
 `DocumentationFreshnessTest` verifies every module is described and every decision a document cites
-has an ADR. Its link check is **narrower than it sounds** — thirteen files, and only targets carrying
-a file extension, so roughly a third of the repository's internal links; `docs/design/adr/`, `examples/`,
-`console/` and `sdk/` are outside it and anchors are checked by nothing (DOCX-034, DOCX-050).
+has an ADR. Since 2026-10-01 `MarkdownLinksTest` checks every relative link and image in every
+tracked markdown file, anchors included (it closed DOCX-034 and DOCX-050's gap, where the old check
+read thirteen files and no anchors). `ContinuousQueriesClaimsTest` and `DocumentedLimitsTest`
+(`pravaha-cli`) hold the guide's claims and LIMITS' numbers to the engine, and the console's
+`test_help_accuracy.py` holds its help topics to the code.
 
 **All of it is readable in the console**, with contextual help cards on each page and the five case
 studies alongside the guides. Rendered from `docs/` rather than copied, so it cannot drift.
@@ -673,7 +683,9 @@ humans and visible to agents is worth knowing about before deciding what to trus
 
 ## 5. Open questions for the owner
 
-Unchanged from design Appendix B, and none of them block Wave 3:
+Unchanged from design Appendix B, and none of them block Wave 3. *(2026-10-02: kept as the
+record. Question 1 was settled by [ADR-029](../design/adr/029-aerospike-scan-only.md), which reads
+Aerospike by scan on any edition; 2 and 3 by the build-out itself.)*
 
 1. **Which Aerospike edition** is available in the target deployment. Community Edition has no
    change feed at all; this determines whether the flagship exactly-once path exists. It has
@@ -706,8 +718,8 @@ Made late in the session, so they may not be reflected everywhere yet:
 
 ### Built since those decisions
 
-**The FastAPI console exists** and is in `console/` — a Python process on the published SDK, with 34
-tests of its own. This section read *"not yet built from those decisions: the FastAPI console"*
+**The FastAPI console exists** and is in `console/` — a Python process on the published SDK, with
+(2026-10-02) 1,957 tests of its own, browser suites included. This section read *"not yet built from those decisions: the FastAPI console"*
 through the whole of Waves 7, 8 and 9, which is what a note headed "may not be reflected everywhere
 yet" becomes when nothing makes it expire. What it is *not* is the §23.20 product surface: no
 Storybook, no visual-regression baseline, no WCAG 2.2 AA audit. The README's console section says

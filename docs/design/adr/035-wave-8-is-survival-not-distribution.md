@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **built** — all four items shipped; see *Implementation status* below (2026-09-14) |
+| Status | Accepted; **built** — all four items shipped; see *Implementation status* below (2026-09-14). **Amended 2026-10-02**: the dead-letter queue takes rows that fail evaluation (below) |
 | Date | 2026-09-14 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-034 (distribution deferred), ADR-008 (aligned checkpoints), ADR-009 (embedded Raft metadata), ADR-006 (tiered state) |
@@ -131,3 +131,15 @@ check (W8-13).
 
 **The gate pack this ADR promises does not exist.** `docs/project/gates/` holds waves 1–4 and 7; there is no
 `wave-8`, as there is none for waves 5 or 6. Gate P7 is unrecorded.
+
+## Amendment, 2026-10-02: what the dead-letter queue takes
+
+§4 wired the dead-letter queue for records a source cannot decode. From Pravaha 2.0.1 it also takes
+a row whose *evaluation* fails before it reaches state — a division by zero, an overflow, a cast with
+no answer, in a `WHERE`, a projection or a computed column — coded `PRV-3027` with its columns as a
+JSON object, and the query keeps running (DLQPROJ-1; `pravaha-engine run --dlq` likewise, CLIDLQ-1).
+A failure above an aggregate, window, join or top-N still stops the query, and without a queue every
+one does. Such an entry is not replayable (`PRV-4092`). Survival also gained two refusals in the same
+release: a second engine in one JVM cannot claim a running engine's state (`PRV-4003`,
+SAMEPIDCLAIM-1), and damage in the middle of the registry journal refuses the start (`PRV-8005`,
+JOURNALMID-1).

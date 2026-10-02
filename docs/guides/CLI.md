@@ -210,7 +210,11 @@ exits `2` and asked no model. Which model answered, and its tokens, is a note on
 `pravaha-engine validate`, `explain` and `run` embed the engine and plan or run SQL in their own
 process against the one stream `--schema` describes: no node, no network, no credentials, seconds from
 idea to answer. Their flags are the Java CLI's offline flags, unchanged (`--sql`, `--schema`,
-`--stream`, `--event-time`, `--level`, `--in`, `--out`, `--out-schema`, `--dlq`). Because they know one
+`--stream`, `--event-time`, `--level`, `--in`, `--out`, `--out-schema`, `--dlq`). `run --dlq <file>`
+writes there every line the source cannot decode and, since 2.0.1 (CLIDLQ-1), every row that decodes
+and then fails evaluation — a division by zero, an overflow — with its columns, coded `PRV-3027`;
+both are counted in `N rejected` and the run finishes. Without `--dlq` either one fails the run
+(exit `1`). Because they know one
 stream, a join or a lookup join reports the other side as not found — validate those with
 `pravaha validate` against a node. See the CLI reference help page for each flag and an example.
 

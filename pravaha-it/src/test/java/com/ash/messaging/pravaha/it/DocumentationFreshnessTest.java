@@ -643,6 +643,66 @@ class DocumentationFreshnessTest {
     }
 
     @Test
+    void everyBoundOnWhatAClientCanMakeANodeHoldIsDocumented() throws IOException {
+        // Added in the 2.0.1 documentation sweep. The adversarial QA of 2.0.0 found that an
+        // unauthenticated client could run a node out of heap through pgwire and HTTP, and that
+        // lockout could be turned against any account; the fixes added three families of settings
+        // (pravaha.pgwire.limits.*, pravaha.http.*, pravaha.identity.lockout.*), and the console's
+        // configuration topic, which calls itself the complete list, named none of them. A bound an
+        // operator cannot find is one nobody sizes for a small heap or a proxy. Each key the
+        // shipped file declares in those families must be named where an operator sizing a node
+        // reads: docs/operations/OPERATIONS.md, and the console's configuration topic.
+        Set<String> declared = new LinkedHashSet<>();
+        settingsDeclaredInApplicationYaml().stream()
+                .filter(k -> k.startsWith("pravaha.pgwire.limits.") || k.startsWith("pravaha.identity.lockout."))
+                .forEach(declared::add);
+        // pravaha.http.* is set uncommented, and the commented prose after it would otherwise parse
+        // as keys beneath it.
+        settingsInApplicationYaml(false).stream()
+                .filter(k -> k.startsWith("pravaha.http."))
+                .forEach(declared::add);
+        assertThat(declared)
+                .as("the families this check covers should be declared in application.yaml")
+                .anyMatch(k -> k.startsWith("pravaha.pgwire.limits."))
+                .anyMatch(k -> k.startsWith("pravaha.http."))
+                .anyMatch(k -> k.startsWith("pravaha.identity.lockout."));
+
+        String operations =
+                Files.readString(repoRoot().resolve("docs/operations/OPERATIONS.md"), StandardCharsets.UTF_8);
+        String topic =
+                Files.readString(repoRoot().resolve("console/content/topics/configuration.md"), StandardCharsets.UTF_8);
+        List<String> undocumented = declared.stream()
+                .filter(key -> !operations.contains(key) || !topic.contains(key))
+                .sorted()
+                .toList();
+
+        assertThat(undocumented)
+                .as(
+                        "every pravaha.pgwire.limits.*, pravaha.http.* and pravaha.identity.lockout.* key must be "
+                                + "named in docs/operations/OPERATIONS.md and in the console's configuration topic: %s",
+                        undocumented)
+                .isEmpty();
+    }
+
+    @Test
+    void handoverCountsTheModulesTheBuildHas() throws IOException {
+        // HANDOVER said 37 modules for a release after the reactor had 39 -- a count written once
+        // and carried forward, the same rot as the ADR count below.
+        String handover = Files.readString(repoRoot().resolve("docs/development/HANDOVER.md"), StandardCharsets.UTF_8);
+        Matcher counted = Pattern.compile("\\| Modules \\| \\*\\*(\\d+)\\*\\* Maven modules")
+                .matcher(handover);
+        assertThat(counted.find())
+                .as(
+                        "HANDOVER.md must carry a '| Modules | **N** Maven modules' row for this check to have something to check")
+                .isTrue();
+        assertThat(Integer.parseInt(counted.group(1)))
+                .as(
+                        "HANDOVER.md says %s Maven modules and pom.xml lists %d",
+                        counted.group(1), mavenModules().size())
+                .isEqualTo(mavenModules().size());
+    }
+
+    @Test
     void everyPerQueryGaugeIsDocumented() throws IOException {
         // A gauge nobody documented is a gauge nobody alerts on. The three ADR-037 added are the
         // ones an operator needs *before* PRV-4001, which is the whole point of having added them.
@@ -720,6 +780,16 @@ class DocumentationFreshnessTest {
      * inside the comment is preserved, which is what keeps a commented block's nesting intact.
      */
     private static Set<String> settingsDeclaredInApplicationYaml() throws IOException {
+        return settingsInApplicationYaml(true);
+    }
+
+    /**
+     * The settings {@code application.yaml} reads, dotted: with {@code commented}, the commented
+     * ones too ({@link #settingsDeclaredInApplicationYaml()}); without, only the lines a node
+     * applies as shipped. A comment's prose can parse as a key nested under whatever precedes it,
+     * so a check over one prefix of the file reads the uncommented keys where it can.
+     */
+    private static Set<String> settingsInApplicationYaml(boolean commented) throws IOException {
         Path yaml = repoRoot().resolve("pravaha-server/src/main/resources/application.yaml");
         assertThat(yaml)
                 .as("the shipped configuration file is the declaration of what exists")
@@ -738,6 +808,9 @@ class DocumentationFreshnessTest {
             String content = line.stripLeading();
             int indent = line.length() - content.length();
             if (content.startsWith("#")) {
+                if (!commented) {
+                    continue;
+                }
                 String body = content.substring(1);
                 String trimmed = body.stripLeading();
                 if (trimmed.isBlank() || trimmed.startsWith("#")) {

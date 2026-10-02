@@ -248,7 +248,11 @@ engine answers with -- in the console's memory, under an opaque id its signed, H
 cookie carries, so the cookie itself is never a credential -- and sends that token on every
 Flight and HTTP call it makes for you. So everything you do through the console, the engine sees
 as you: it is authorised by your roles and recorded under your name in the
-[audit trail](/help/topics/audit). The console checks no password, key or session itself.
+[audit trail](/help/topics/audit). The console checks no password, key or session itself. Because
+the token lives in the console process, restarting the console signs everybody out of it, and
+several console instances behind one address need sticky sessions. Every console page carries a
+Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff` and a same-origin referrer policy, so it
+cannot be framed by another site (CONSOLEHDR-1).
 
 A session ends after 30 minutes idle or 12 hours, when you sign out, or when your password changes;
 the console then sends you back to sign in (`PRV-7016`). A copy of the cookie presented after you

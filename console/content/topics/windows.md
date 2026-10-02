@@ -87,7 +87,10 @@ GROUP BY site, window_start, window_end
 
 Five minutes of history, recomputed every thirty seconds: **each row belongs to ten windows**, so a
 hopping window costs roughly size ÷ slide times the state and work of a tumbling one. Pick the
-coarsest slide that answers the question.
+coarsest slide that answers the question. There is a ceiling: a hop where a row would land in more
+than `pravaha.lane.max-windows-per-row` windows (100,000 by default), or a window would combine
+more slices, is refused at registration, [PRV-3026](/help/codes/PRV-3026) — one row of
+`HOP(INTERVAL '0.001' SECOND, INTERVAL '1' DAY)` used to hold its lane for good (FINEHOP-1).
 
 ## The group-window form
 

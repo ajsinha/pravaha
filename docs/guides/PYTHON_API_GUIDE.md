@@ -137,6 +137,10 @@ options = ClientOptions.create(
 )
 ```
 
+**A proxy that signs people in** — as the console does — passes the person's address so the engine's
+sign-in throttle counts it rather than the proxy's: `pravaha.rest.RestClient(url, headers={"X-Forwarded-For":
+address})`. The engine believes the header only from `pravaha.identity.lockout.trusted-proxies`.
+
 **From configuration**, so an operator can change the endpoint, token or TLS without a code change.
 `layered` overlays `PRAVAHA_*` environment variables onto a base map (`PRAVAHA_TOKEN` sets `token`,
 `PRAVAHA_TLS_ENABLED` sets `tls.enabled`):
@@ -748,6 +752,9 @@ over (`PRV-4019` — subscribe again); or, with `overflow="FAIL"`, you fell too 
 
 When a source cannot decode a record and the engine has `pravaha.dlq.directory` set (the QA host
 does), the record is set aside on the query's **dead-letter queue** and the source keeps reading.
+Since 2.0.1 a row whose evaluation fails before state (a division by zero, an overflow, a cast with no
+answer) is queued too, coded `PRV-3027` with its columns as JSON, and the query keeps running; such an
+entry cannot be replayed (`PRV-4092`).
 
 ### `dead_letters(name, *, offset=0, limit=50) -> DeadLetterPage` — Flight
 
@@ -1134,7 +1141,10 @@ environment (on a QA host, `http://<host>:17070/help/codes/`), otherwise `""`.
 | `PRV-4019` | Subscription ended by a cutover | Subscribe again |
 | `PRV-4023` | No such view | Check `queries()` |
 | `PRV-4091` | No such dead letter | The id is stale or was evicted |
-| `PRV-4092` | Replay refused: the source will redeliver | Wait, or fix the record at the source |
+| `PRV-4092` | Replay refused: the source will redeliver, or the entry is a row that failed evaluation (`PRV-3027`) | Wait, or fix the record at the source |
+| `PRV-1054` | Request body too large (HTTP 413) | Send less; the bound is `pravaha.http.max-request-body` (4MB), 16KB on sign-in |
+| `PRV-1055` | Too many sign-ins at once (HTTP 429) | Retry after `Retry-After` |
+| `PRV-7010` | Sign-in refused (HTTP 401) — a wrong password, an unknown user and a barred address answer alike | Check the credentials; after five failures from one address wait 30 minutes or ask for a reset |
 | `PRV-6105` | Subscriber too far behind (`overflow="FAIL"`) | Subscribe again from a snapshot |
 | `PRV-7002` | Not permitted (HTTP 403) | Check `permissions()` |
 | `PRV-8001` | Name already registered | Use it, choose another, or `CREATE OR REPLACE` |

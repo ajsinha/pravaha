@@ -669,8 +669,8 @@ of secrets:
 
 **Revocation reaches connections that are already open.** Revoking a key, ending or signing out a
 session, or disabling a user takes effect on every door at the credential's next use: HTTP verifies
-every request; Flight every call, and a running subscription re-verifies every two seconds and ends
-`UNAUTHENTICATED`; the PostgreSQL gateway verifies the credential again before every statement and
+every request; Flight every call, and a running subscription re-verifies every two seconds — that the
+credential still verifies, and as the same principal (FLIGHTPRINCIPAL-1) — and ends `UNAUTHENTICATED`; the PostgreSQL gateway verifies the credential again before every statement and
 ends the connection `FATAL 28000` (`PRV-6218`) — PGREVOKE-1; it used to check once, at sign-in, and an
 open BI connection kept reading after its key was revoked. A connection that sends nothing reads
 nothing; `pravaha.pgwire.limits.idle-timeout` closes it as well, if that is wanted.
@@ -694,7 +694,9 @@ Restoring a registration now asks the identity store for its owner before the to
 a registration by a store user was refused at every restart.
 The codes are `PRV-7010` to `PRV-7021` ([`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md)). Forcing a change
 of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
-set. So is single sign-on, which is used only when a provider is configured. `admin` is created on
+set. Single sign-on and MFA are not built (the owner dropped them on 2026-09-27): `pravaha.identity.mode`
+accepts `sso` and `hybrid`, but no identity provider can be configured, so the node signs people in
+with passwords whatever it says and logs that it does. `admin` is created on
 first start, from `pravaha.identity.bootstrap-password-file` or with the published default, and a node
 outside the dev profile refuses to start while the default is still its password (`PRV-7019`). Every
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
@@ -774,3 +776,10 @@ session token, and a key or reset secret the engine has just issued (shown once)
 memory under the cookie's opaque id. A console restart therefore signs everyone out of the console
 (their engine sessions expire on their own), and several console instances behind one address need
 sticky sessions.
+
+Every console response carries security headers (CONSOLEHDR-1): a Content-Security-Policy (scripts
+from the console, or inline with the response's nonce; `frame-ancestors 'none'`; `object-src 'none'`;
+forms post only to the console), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: same-origin`, a `Permissions-Policy`, and HSTS over https. The console signs in for
+the browser and sends the browser's address as `X-Forwarded-For`, which the engine believes only from
+`pravaha.identity.lockout.trusted-proxies` (above).

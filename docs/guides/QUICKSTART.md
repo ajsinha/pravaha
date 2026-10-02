@@ -107,7 +107,9 @@ ok  2 in, 2 out
 ```
 
 The counts are of rows the engine saw, so a rejected line is *not* counted in — two in, two out,
-one rejected, from a three-line file.
+one rejected, from a three-line file. A row that decodes and then fails evaluation — a division by
+zero, an overflow — goes to the same file with its columns, coded `PRV-3027`, and is counted in
+`rejected` too; without `--dlq` it fails the run.
 
 ## 3. See a query the engine refuses
 
@@ -436,7 +438,7 @@ with connect("grpc://localhost:19090") as client:
 
 | | |
 |---|---|
-| [Concepts](CONCEPTS.md) | The eight ideas. Read this next |
+| [Concepts](CONCEPTS.md) | The ten ideas. Read this next |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task |
 | [Case studies](../../examples/case-studies/) | Five worked systems — trade processing, banking, finance, trading, biology — with a store to stand up and code to copy |
 | [Streams, queries and SQL](CONTINUOUS_QUERIES.md) | What you write, end to end, and every construct checked by a test |
