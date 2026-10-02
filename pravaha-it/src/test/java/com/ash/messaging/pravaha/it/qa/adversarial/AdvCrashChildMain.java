@@ -43,12 +43,21 @@ public final class AdvCrashChildMain {
         source.put("follow", "true");
         source.put("op.column", "op");
         source.put("event.time", "ts");
-        PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream("f", SCHEMA, "ts")
-                .bindSource("f", "filesystem", source)
-                .declareQuery(ContinuousQuery.named("proj").sql("SELECT id, g, v FROM f").keyedBy("id").build())
-                .declareQuery(ContinuousQuery.named("win").sql(WINDOW).keyedBy("window_start", "window_end", "g").build()));
+        PravahaEngine engine = AdvSupport.engine(
+                settings,
+                e -> e.declareStream("f", SCHEMA, "ts")
+                        .bindSource("f", "filesystem", source)
+                        .declareQuery(ContinuousQuery.named("proj")
+                                .sql("SELECT id, g, v FROM f")
+                                .keyedBy("id")
+                                .build())
+                        .declareQuery(ContinuousQuery.named("win")
+                                .sql(WINDOW)
+                                .keyedBy("window_start", "window_end", "g")
+                                .build()));
         if (engine.find("agg").isEmpty()) {
-            engine.query("CREATE CONTINUOUS QUERY agg KEYED BY (g) AS SELECT g, SUM(v) AS s, COUNT(*) AS c FROM proj GROUP BY g");
+            engine.query(
+                    "CREATE CONTINUOUS QUERY agg KEYED BY (g) AS SELECT g, SUM(v) AS s, COUNT(*) AS c FROM proj GROUP BY g");
         }
         return engine;
     }

@@ -133,7 +133,8 @@ class AdvChainTest {
     }
 
     static PravahaEngine chain(Map<String, String> settings) {
-        PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream("src", "id:INT64,g:STRING,v:INT64", null));
+        PravahaEngine engine =
+                AdvSupport.engine(settings, e -> e.declareStream("src", "id:INT64,g:STRING,v:INT64", null));
         if (engine.find("up").isEmpty()) {
             engine.query(UP);
             engine.query(MID);
@@ -193,7 +194,8 @@ class AdvChainTest {
                 }
             }
         }
-        System.out.println("NOTE QE-066 seeds=" + seeds + " ops=150 comparisons=" + compared + " failures=" + failures.size());
+        System.out.println(
+                "NOTE QE-066 seeds=" + seeds + " ops=150 comparisons=" + compared + " failures=" + failures.size());
         failures.stream().limit(3).forEach(f -> System.out.println("NOTE mismatch " + f));
         assertThat(failures).isEmpty();
     }
@@ -226,10 +228,12 @@ class AdvChainTest {
     @Test
     void qe068_theEmbeddedRegisterCallCannotBuildOnAView() {
         try (PravahaEngine engine = chain(Map.of())) {
-            String api = AdvSupport.attempt(() -> engine.register("down_api", "SELECT g, SUM(v) AS s FROM up GROUP BY g", "g"));
+            String api = AdvSupport.attempt(
+                    () -> engine.register("down_api", "SELECT g, SUM(v) AS s FROM up GROUP BY g", "g"));
             String sql = AdvSupport.attempt(() -> engine.query(
                     "CREATE CONTINUOUS QUERY down_sql KEYED BY (g) AS SELECT g, SUM(v) AS s FROM up GROUP BY g"));
-            System.out.println("NOTE QE-068 register()=" + api.lines().findFirst().orElse("") + " CREATE=" + sql);
+            System.out.println(
+                    "NOTE QE-068 register()=" + api.lines().findFirst().orElse("") + " CREATE=" + sql);
             assertThat(sql).isEqualTo("OK");
             assertThat(api).startsWith("PRV-2002").contains("Object 'up' not found");
         }
@@ -245,19 +249,22 @@ class AdvChainTest {
                 refusedAt = level;
                 String name = "l" + level;
                 String from = previous;
-                deep = AdvSupport.attempt(() -> engine.query("CREATE CONTINUOUS QUERY " + name
-                        + " KEYED BY (g) AS SELECT g, s FROM " + from));
+                deep = AdvSupport.attempt(() ->
+                        engine.query("CREATE CONTINUOUS QUERY " + name + " KEYED BY (g) AS SELECT g, s FROM " + from));
                 previous = name;
             }
-            String cycle = AdvSupport.attempt(() -> engine.query(
-                    "CREATE OR REPLACE CONTINUOUS QUERY up KEYED BY (g) AS SELECT g, s FROM top"));
+            String cycle = AdvSupport.attempt(
+                    () -> engine.query("CREATE OR REPLACE CONTINUOUS QUERY up KEYED BY (g) AS SELECT g, s FROM top"));
             String drop = AdvSupport.attempt(() -> engine.query("DROP CONTINUOUS QUERY up"));
-            String min = AdvSupport.attempt(() -> engine.query(
-                    "CREATE CONTINUOUS QUERY m KEYED BY (g) AS SELECT g, MIN(v) AS m FROM up GROUP BY g"));
-            String retain = AdvSupport.attempt(() -> engine.query(
-                    "CREATE CONTINUOUS QUERY r KEYED BY (id) RETAIN FOR PT1H AS SELECT id, v FROM up"));
-            System.out.println("NOTE QE-069 refused at query #" + refusedAt + " (up=1, mid=2, top=3): " + deep.lines().findFirst().orElse("") + " | QE-070 " + cycle.lines().findFirst().orElse("")
-                    + " | QE-071 " + drop.lines().findFirst().orElse("") + " | QE-072 " + min.lines().findFirst().orElse("")
+            String min = AdvSupport.attempt(() ->
+                    engine.query("CREATE CONTINUOUS QUERY m KEYED BY (g) AS SELECT g, MIN(v) AS m FROM up GROUP BY g"));
+            String retain = AdvSupport.attempt(() ->
+                    engine.query("CREATE CONTINUOUS QUERY r KEYED BY (id) RETAIN FOR PT1H AS SELECT id, v FROM up"));
+            System.out.println("NOTE QE-069 refused at query #" + refusedAt + " (up=1, mid=2, top=3): "
+                    + deep.lines().findFirst().orElse("") + " | QE-070 "
+                    + cycle.lines().findFirst().orElse("")
+                    + " | QE-071 " + drop.lines().findFirst().orElse("") + " | QE-072 "
+                    + min.lines().findFirst().orElse("")
                     + " | QE-073 " + retain.lines().findFirst().orElse(""));
             assertThat(deep).startsWith("PRV-8027");
             assertThat(cycle).matches("PRV-80(25|26).*");
@@ -284,11 +291,13 @@ class AdvChainTest {
             }
             String mid = AdvSupport.state(engine, "mid");
             String top = AdvSupport.state(engine, "top");
-            String topRead = AdvSupport.attempt(() -> AdvSupport.rows(engine, "SELECT * FROM top").forEach(r -> {
-                throw new IllegalStateException(r);
-            }));
-            System.out.println("NOTE QE-074 push=" + outcome.lines().findFirst().orElse("") + " mid=" + mid.lines().findFirst().orElse("")
-                    + " top=" + top + " topRead=" + topRead.lines().findFirst().orElse(""));
+            String topRead = AdvSupport.attempt(
+                    () -> AdvSupport.rows(engine, "SELECT * FROM top").forEach(r -> {
+                        throw new IllegalStateException(r);
+                    }));
+            System.out.println("NOTE QE-074 push=" + outcome.lines().findFirst().orElse("") + " mid="
+                    + mid.lines().findFirst().orElse("") + " top=" + top + " topRead="
+                    + topRead.lines().findFirst().orElse(""));
             assertThat(mid).startsWith("FAILED");
             assertThat(top).startsWith("RUNNING");
             assertThat(topRead).contains("g0|70");
@@ -359,11 +368,17 @@ class AdvChainTest {
             engine.register("cnt", COUNT, "window_start", "window_end");
             Instant ts = Instant.ofEpochSecond(1_700_000_001L);
             String first = AdvSupport.attempt(() -> engine.push("w", new Object[] {1L, Long.MIN_VALUE, ts}));
-            assertThat(first).startsWith("PRV-3010").contains("long overflow");
-            assertThat(AdvSupport.rows(engine, "SELECT * FROM good")).as("applied, never committed").isEmpty();
+            // "long overflow" is not asserted: once the JIT compiles Math.subtractExact the JVM may throw it without a
+            // message.
+            assertThat(first).startsWith("PRV-3010").contains("ArithmeticException");
+            assertThat(AdvSupport.rows(engine, "SELECT * FROM good"))
+                    .as("applied, never committed")
+                    .isEmpty();
             engine.push("w", new Object[] {1L, Long.MIN_VALUE, ts});
             engine.advanceEventTime("w", Instant.ofEpochSecond(1_700_000_100L));
-            assertThat(AdvSupport.rows(engine, "SELECT c FROM cnt")).as("one row, counted twice").containsExactly("2");
+            assertThat(AdvSupport.rows(engine, "SELECT c FROM cnt"))
+                    .as("one row, counted twice")
+                    .containsExactly("2");
         }
     }
 

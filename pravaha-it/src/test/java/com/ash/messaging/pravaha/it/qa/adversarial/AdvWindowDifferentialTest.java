@@ -152,7 +152,8 @@ class AdvWindowDifferentialTest {
                 .build();
         String window = size == slide
                 ? "TABLE(TUMBLE(TABLE w, DESCRIPTOR(ts), INTERVAL '" + size + "' SECOND))"
-                : "TABLE(HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '" + slide + "' SECOND, INTERVAL '" + size + "' SECOND))";
+                : "TABLE(HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '" + slide + "' SECOND, INTERVAL '" + size
+                        + "' SECOND))";
         String select = minMax
                 ? "SELECT window_start, window_end, k, MIN(v) AS mn, MAX(v) AS mx FROM " + window
                 : "SELECT window_start, window_end, k, SUM(v) AS s, COUNT(*) AS c, COUNT(v) AS cv, AVG(v) AS av, "
@@ -227,7 +228,15 @@ class AdvWindowDifferentialTest {
         }
     }
 
-    static void sweep(String label, int seeds, int rows, long size, long slide, long lateness, boolean retractions, boolean minMax) {
+    static void sweep(
+            String label,
+            int seeds,
+            int rows,
+            long size,
+            long slide,
+            long lateness,
+            boolean retractions,
+            boolean minMax) {
         long first = Long.getLong("pravaha.qa.seed", 100L);
         int total = 0;
         List<String> failures = new ArrayList<>();

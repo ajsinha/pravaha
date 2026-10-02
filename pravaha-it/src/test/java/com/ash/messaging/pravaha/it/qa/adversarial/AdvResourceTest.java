@@ -91,19 +91,33 @@ class AdvResourceTest {
             seen.add("QE-141 200 derived tables: " + timed(engine, "p4", derived.toString(), "k", "ts"));
             seen.add("QE-152 " + ors.length() / 1024 + " KiB of OR: " + timed(engine, "p5", ors.toString(), "k", "ts"));
             seen.add("QE-142 cross join: " + timed(engine, "p6", "SELECT a.k, b.v, a.ts FROM w a, w b", "k", "ts"));
-            seen.add("QE-157 unwindowed group: " + timed(engine, "p7", "SELECT k, COUNT(*) AS c FROM w GROUP BY k", "k"));
-            seen.add("QE-158 left join, no bound: " + timed(engine, "p8",
-                    "SELECT a.k, b.v FROM w a LEFT JOIN w b ON a.k = b.k", "k"));
-            seen.add("QE-160 zero window: " + timed(engine, "p9", "SELECT window_start, window_end, COUNT(*) AS c FROM "
-                    + "TABLE(TUMBLE(TABLE w, DESCRIPTOR(ts), INTERVAL '0' SECOND)) GROUP BY window_start, window_end",
-                    "window_start", "window_end"));
-            seen.add("QE-160 negative hop: " + timed(engine, "p10", "SELECT window_start, window_end, COUNT(*) AS c FROM "
-                    + "TABLE(HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '-1' SECOND, INTERVAL '10' SECOND)) "
-                    + "GROUP BY window_start, window_end", "window_start", "window_end"));
+            seen.add("QE-157 unwindowed group: "
+                    + timed(engine, "p7", "SELECT k, COUNT(*) AS c FROM w GROUP BY k", "k"));
+            seen.add("QE-158 left join, no bound: "
+                    + timed(engine, "p8", "SELECT a.k, b.v FROM w a LEFT JOIN w b ON a.k = b.k", "k"));
+            seen.add("QE-160 zero window: "
+                    + timed(
+                            engine,
+                            "p9",
+                            "SELECT window_start, window_end, COUNT(*) AS c FROM "
+                                    + "TABLE(TUMBLE(TABLE w, DESCRIPTOR(ts), INTERVAL '0' SECOND)) GROUP BY window_start, window_end",
+                            "window_start",
+                            "window_end"));
+            seen.add("QE-160 negative hop: "
+                    + timed(
+                            engine,
+                            "p10",
+                            "SELECT window_start, window_end, COUNT(*) AS c FROM "
+                                    + "TABLE(HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '-1' SECOND, INTERVAL '10' SECOND)) "
+                                    + "GROUP BY window_start, window_end",
+                            "window_start",
+                            "window_end"));
             seen.add("QE-151 long name: " + timed(engine, "n".repeat(10_000), "SELECT k, v, ts FROM w", "k", "ts"));
             seen.forEach(s -> System.out.println("NOTE " + s));
-            String push = AdvSupport.attempt(() -> engine.push("w", new Object[] {"a", 5L, "value-7", Instant.ofEpochSecond(BASE)}));
-            System.out.println("NOTE QE-139..152 push after them: " + push.lines().findFirst().orElse(""));
+            String push = AdvSupport.attempt(
+                    () -> engine.push("w", new Object[] {"a", 5L, "value-7", Instant.ofEpochSecond(BASE)}));
+            System.out.println("NOTE QE-139..152 push after them: "
+                    + push.lines().findFirst().orElse(""));
             for (String s : seen) {
                 String outcome = s.substring(s.indexOf(": ") + 2);
                 assertThat(outcome).as(s).matches("(OK|PRV-\\d{4}).*");
@@ -119,8 +133,11 @@ class AdvResourceTest {
             spec.append(",c").append(i).append(":INT64");
             select.append(", c").append(i);
         }
-        String declared = AdvSupport.attempt(() -> AdvSupport.engine(e -> e.declareStream("wide", spec.toString(), null)).close());
-        System.out.println("NOTE QE-148 declaring a 65-column stream: " + declared.lines().findFirst().orElse(""));
+        String declared =
+                AdvSupport.attempt(() -> AdvSupport.engine(e -> e.declareStream("wide", spec.toString(), null))
+                        .close());
+        System.out.println("NOTE QE-148 declaring a 65-column stream: "
+                + declared.lines().findFirst().orElse(""));
         if (!"OK".equals(declared)) {
             assertThat(declared).startsWith("PRV-3030");
             return;
@@ -131,10 +148,13 @@ class AdvResourceTest {
             for (int i = 0; i < 65; i++) {
                 row[i] = (long) i;
             }
-            String pushed = "OK".equals(registered) ? AdvSupport.attempt(() -> engine.push("wide", new Object[][] {row})) : "-";
+            String pushed =
+                    "OK".equals(registered) ? AdvSupport.attempt(() -> engine.push("wide", new Object[][] {row})) : "-";
             String state = "OK".equals(registered) ? AdvSupport.state(engine, "wide65") : "-";
-            System.out.println("NOTE QE-148 register=" + registered.lines().findFirst().orElse("") + " push="
-                    + pushed.lines().findFirst().orElse("") + " state=" + state.lines().findFirst().orElse(""));
+            System.out.println(
+                    "NOTE QE-148 register=" + registered.lines().findFirst().orElse("") + " push="
+                            + pushed.lines().findFirst().orElse("") + " state="
+                            + state.lines().findFirst().orElse(""));
             assertThat(registered + pushed + state).contains("PRV-3030");
         }
     }
@@ -148,26 +168,29 @@ class AdvResourceTest {
             for (int n = 16; n <= 24; n += 2) {
                 String text = "a".repeat(n) + "b";
                 long start = System.nanoTime();
-                String outcome = AdvSupport.attempt(() -> engine.push("w", new Object[] {"k" + text.length(), 1L, text,
-                    Instant.ofEpochSecond(BASE)}));
-                timings.add(n + " a's: " + (System.nanoTime() - start) / 1_000_000 + " ms " + outcome.lines().findFirst().orElse(""));
+                String outcome = AdvSupport.attempt(() ->
+                        engine.push("w", new Object[] {"k" + text.length(), 1L, text, Instant.ofEpochSecond(BASE)}));
+                timings.add(n + " a's: " + (System.nanoTime() - start) / 1_000_000 + " ms "
+                        + outcome.lines().findFirst().orElse(""));
             }
             // One row of 40 a's: 2^40 steps. Pushed on another thread, so the test can watch.
             String evil = "a".repeat(40) + "b";
-            CompletableFuture<String> stuck = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(() ->
-                    engine.push("w", new Object[] {"evil", 1L, evil, Instant.ofEpochSecond(BASE)})));
+            CompletableFuture<String> stuck = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(
+                    () -> engine.push("w", new Object[] {"evil", 1L, evil, Instant.ofEpochSecond(BASE)})));
             String outcome;
             try {
                 outcome = stuck.get(30, TimeUnit.SECONDS);
             } catch (java.util.concurrent.TimeoutException e) {
                 outcome = "still running after 30 s";
             }
-            String afterwards = AdvSupport.attempt(() -> engine.push("w", new Object[] {"z", 2L, "x", Instant.ofEpochSecond(BASE)}));
+            String afterwards = AdvSupport.attempt(
+                    () -> engine.push("w", new Object[] {"z", 2L, "x", Instant.ofEpochSecond(BASE)}));
             boolean otherHasIt = AdvSupport.rows(engine, "SELECT k FROM other").contains("z");
             System.out.println("NOTE QE-149 " + timings);
-            System.out.println("NOTE QE-149 40 a's: " + outcome.lines().findFirst().orElse("") + " | rx state="
-                    + AdvSupport.state(engine, "rx").lines().findFirst().orElse("") + " | next push: "
-                    + afterwards.lines().findFirst().orElse("") + " | the other query got it: " + otherHasIt);
+            System.out.println(
+                    "NOTE QE-149 40 a's: " + outcome.lines().findFirst().orElse("") + " | rx state="
+                            + AdvSupport.state(engine, "rx").lines().findFirst().orElse("") + " | next push: "
+                            + afterwards.lines().findFirst().orElse("") + " | the other query got it: " + otherHasIt);
         }
     }
 
@@ -176,7 +199,8 @@ class AdvResourceTest {
         try (PravahaEngine engine = engine()) {
             engine.register("sub", "SELECT k, v, ts FROM w", "k", "ts");
             java.util.concurrent.atomic.AtomicInteger delivered = new java.util.concurrent.atomic.AtomicInteger();
-            var subscription = engine.subscribe("sub",
+            var subscription = engine.subscribe(
+                    "sub",
                     com.ash.messaging.pravaha.registry.SubscriptionOptions.of(
                             10, com.ash.messaging.pravaha.registry.SubscriptionOptions.Overflow.FAIL),
                     changes -> {
@@ -191,16 +215,20 @@ class AdvResourceTest {
             String pushes = "OK";
             for (int i = 0; i < 200 && "OK".equals(pushes); i++) {
                 int n = i;
-                pushes = AdvSupport.attempt(() -> engine.push("w", new Object[] {"k" + n, 1L, "", Instant.ofEpochSecond(BASE + n)}));
+                pushes = AdvSupport.attempt(() ->
+                        engine.push("w", new Object[] {"k" + n, 1L, "", Instant.ofEpochSecond(BASE + n)}));
             }
             long millis = (System.nanoTime() - start) / 1_000_000;
             Thread.sleep(500);
             String ended = AdvSupport.attempt(() -> {
                 throw new IllegalStateException(String.valueOf(subscription));
             });
-            System.out.println("NOTE QE-155 200 pushes took " + millis + " ms, last=" + pushes.lines().findFirst().orElse("")
-                    + ", delivered=" + delivered.get() + ", subscription=" + ended.lines().findFirst().orElse(""));
-            assertThat(millis).as("a slow subscriber must not hold up the engine").isLessThan(20_000);
+            System.out.println("NOTE QE-155 200 pushes took " + millis + " ms, last="
+                    + pushes.lines().findFirst().orElse("") + ", delivered=" + delivered.get() + ", subscription="
+                    + ended.lines().findFirst().orElse(""));
+            assertThat(millis)
+                    .as("a slow subscriber must not hold up the engine")
+                    .isLessThan(20_000);
         }
     }
 
@@ -209,9 +237,12 @@ class AdvResourceTest {
         try (PravahaEngine engine = engine()) {
             engine.register("big", "SELECT k, t, ts FROM w", "k", "ts");
             String huge = "x".repeat(10 * 1024 * 1024);
-            String outcome = AdvSupport.attempt(() -> engine.push("w", new Object[] {"a", 1L, huge, Instant.ofEpochSecond(BASE)}));
+            String outcome = AdvSupport.attempt(
+                    () -> engine.push("w", new Object[] {"a", 1L, huge, Instant.ofEpochSecond(BASE)}));
             int length = engine.find("big").orElseThrow().view().scan().stream()
-                    .mapToInt(r -> ((String) r[1]).length()).max().orElse(-1);
+                    .mapToInt(r -> ((String) r[1]).length())
+                    .max()
+                    .orElse(-1);
             System.out.println("NOTE QE-150 push=" + outcome.lines().findFirst().orElse("") + " stored length=" + length
                     + " state=" + AdvSupport.state(engine, "big"));
             assertThat(outcome).matches("OK|PRV-\\d{4}.*");
@@ -222,12 +253,19 @@ class AdvResourceTest {
     void qe144_145_146_aMillionGroupsKeysAndDistinctValues() {
         int keys = Integer.getInteger("pravaha.qa.keys", 1_000_050);
         try (PravahaEngine engine = engine()) {
-            engine.register("grp", "SELECT window_start, window_end, k, COUNT(*) AS c FROM TABLE(TUMBLE(TABLE w, "
-                    + "DESCRIPTOR(ts), INTERVAL '10' SECOND)) GROUP BY window_start, window_end, k",
-                    "window_start", "window_end", "k");
-            engine.register("dist", "SELECT window_start, window_end, COUNT(DISTINCT v) AS c FROM TABLE(TUMBLE("
-                    + "TABLE w, DESCRIPTOR(ts), INTERVAL '10' SECOND)) GROUP BY window_start, window_end",
-                    "window_start", "window_end");
+            engine.register(
+                    "grp",
+                    "SELECT window_start, window_end, k, COUNT(*) AS c FROM TABLE(TUMBLE(TABLE w, "
+                            + "DESCRIPTOR(ts), INTERVAL '10' SECOND)) GROUP BY window_start, window_end, k",
+                    "window_start",
+                    "window_end",
+                    "k");
+            engine.register(
+                    "dist",
+                    "SELECT window_start, window_end, COUNT(DISTINCT v) AS c FROM TABLE(TUMBLE("
+                            + "TABLE w, DESCRIPTOR(ts), INTERVAL '10' SECOND)) GROUP BY window_start, window_end",
+                    "window_start",
+                    "window_end");
             engine.register("keys", "SELECT k, v, ts FROM w", "k", "ts");
             long start = System.nanoTime();
             String failure = "OK";
@@ -245,25 +283,37 @@ class AdvResourceTest {
             Runtime runtime = Runtime.getRuntime();
             long usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
             System.out.println("NOTE QE-144..146 pushed=" + pushed + " in " + (System.nanoTime() - start) / 1_000_000
-                    + " ms, push=" + failure.lines().findFirst().orElse("") + " advance=" + advance.lines().findFirst().orElse("")
+                    + " ms, push=" + failure.lines().findFirst().orElse("") + " advance="
+                    + advance.lines().findFirst().orElse("")
                     + " heapUsedMb=" + usedMb + " maxMb=" + runtime.maxMemory() / (1024 * 1024));
             for (String name : List.of("grp", "dist", "keys")) {
-                System.out.println("NOTE QE-144..146 " + name + " state=" + AdvSupport.state(engine, name).lines().findFirst().orElse("")
-                        + " viewSize=" + engine.find(name).orElseThrow().view().size());
+                System.out.println("NOTE QE-144..146 " + name + " state="
+                        + AdvSupport.state(engine, name).lines().findFirst().orElse("") + " viewSize="
+                        + engine.find(name).orElseThrow().view().size());
             }
-            System.out.println("NOTE QE-145 distinct=" + AdvSupport.attempt(() -> {
-                throw new IllegalStateException(AdvSupport.rows(engine, "SELECT c FROM dist").toString());
-            }).lines().findFirst().orElse(""));
+            System.out.println("NOTE QE-145 distinct="
+                    + AdvSupport.attempt(() -> {
+                                throw new IllegalStateException(AdvSupport.rows(engine, "SELECT c FROM dist")
+                                        .toString());
+                            })
+                            .lines()
+                            .findFirst()
+                            .orElse(""));
         }
     }
 
     @Test
     void qe147_topNPastAMillionHeldRows() {
         int rows = Integer.getInteger("pravaha.qa.topn", 1_000_100);
-        try (PravahaEngine engine = AdvSupport.engine(Map.of("pravaha.embedded.push-timeout", "20s"),
+        try (PravahaEngine engine = AdvSupport.engine(
+                Map.of("pravaha.embedded.push-timeout", "20s"),
                 e -> e.declareStream("b", "id:INT64,k:STRING,v:INT64", null))) {
-            engine.register("top", "SELECT k, v, id, rn FROM (SELECT k, v, id, ROW_NUMBER() OVER (PARTITION BY k "
-                    + "ORDER BY v DESC) AS rn FROM b) WHERE rn <= 3", "k", "rn");
+            engine.register(
+                    "top",
+                    "SELECT k, v, id, rn FROM (SELECT k, v, id, ROW_NUMBER() OVER (PARTITION BY k "
+                            + "ORDER BY v DESC) AS rn FROM b) WHERE rn <= 3",
+                    "k",
+                    "rn");
             String failure = "OK";
             int pushed = 0;
             for (int at = 0; at < rows && "OK".equals(failure); at += 10_000) {
@@ -274,8 +324,9 @@ class AdvResourceTest {
                 failure = AdvSupport.attempt(() -> engine.push("b", batch));
                 pushed += batch.size();
             }
-            System.out.println("NOTE QE-147 pushed=" + pushed + " push=" + failure.lines().findFirst().orElse("")
-                    + " state=" + AdvSupport.state(engine, "top").lines().findFirst().orElse(""));
+            System.out.println("NOTE QE-147 pushed=" + pushed + " push="
+                    + failure.lines().findFirst().orElse("") + " state="
+                    + AdvSupport.state(engine, "top").lines().findFirst().orElse(""));
             assertThat(failure + AdvSupport.state(engine, "top")).contains("PRV-4001");
         }
     }
@@ -284,17 +335,22 @@ class AdvResourceTest {
     static List<String> fineHop(String size) throws Exception {
         List<String> seen = new ArrayList<>();
         try (PravahaEngine engine = engine()) {
-            String registered = AdvSupport.attempt(() -> engine.register("hop", "SELECT window_start, window_end, "
-                    + "COUNT(*) AS c FROM TABLE(HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '0.001' SECOND, INTERVAL " + size + ")) "
-                    + "GROUP BY window_start, window_end", "window_start", "window_end"));
+            String registered = AdvSupport.attempt(() -> engine.register(
+                    "hop",
+                    "SELECT window_start, window_end, "
+                            + "COUNT(*) AS c FROM TABLE(HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '0.001' SECOND, INTERVAL "
+                            + size + ")) "
+                            + "GROUP BY window_start, window_end",
+                    "window_start",
+                    "window_end"));
             seen.add("register " + registered.lines().findFirst().orElse(""));
             if (!"OK".equals(registered)) {
                 return seen;
             }
             engine.register("plain", "SELECT k, v, ts FROM w", "k", "ts");
             engine.push("w", new Object[] {"a", 1L, "", Instant.ofEpochSecond(BASE)});
-            CompletableFuture<String> advance = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(() ->
-                    engine.advanceEventTime("w", Instant.ofEpochSecond(BASE + 60))));
+            CompletableFuture<String> advance = CompletableFuture.supplyAsync(
+                    () -> AdvSupport.attempt(() -> engine.advanceEventTime("w", Instant.ofEpochSecond(BASE + 60))));
             String outcome;
             try {
                 outcome = advance.get(45, TimeUnit.SECONDS);
@@ -303,24 +359,31 @@ class AdvResourceTest {
             }
             seen.add("advance " + outcome.lines().findFirst().orElse(""));
             long start = System.nanoTime();
-            String next = AdvSupport.attempt(() -> engine.push("w", new Object[] {"b", 2L, "", Instant.ofEpochSecond(BASE + 61)}));
-            seen.add("next push " + next.lines().findFirst().orElse("") + " after " + (System.nanoTime() - start) / 1_000_000 + " ms");
-            seen.add("plain has b: " + AdvSupport.rows(engine, "SELECT k FROM plain").contains("b"));
-            seen.add("hop rows " + engine.find("hop").orElseThrow().view().size() + " (60000 windows have closed, each holding the row) state "
+            String next = AdvSupport.attempt(() ->
+                    engine.push("w", new Object[] {"b", 2L, "", Instant.ofEpochSecond(BASE + 61)}));
+            seen.add("next push " + next.lines().findFirst().orElse("") + " after "
+                    + (System.nanoTime() - start) / 1_000_000 + " ms");
+            seen.add("plain has b: "
+                    + AdvSupport.rows(engine, "SELECT k FROM plain").contains("b"));
+            seen.add("hop rows " + engine.find("hop").orElseThrow().view().size()
+                    + " (60000 windows have closed, each holding the row) state "
                     + AdvSupport.state(engine, "hop").lines().findFirst().orElse(""));
-            seen.add("heapUsedMb " + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024));
+            seen.add("heapUsedMb "
+                    + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024));
         }
         return seen;
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("QE-159: HOP(slide 1 ms, size 1 day) is accepted; one row and a minute of watermark "
-            + "occupy the lane for tens of seconds and gigabytes of heap, publish nothing, and stall every push to the stream")
+    @org.junit.jupiter.api.Disabled(
+            "QE-159: HOP(slide 1 ms, size 1 day) is accepted; one row and a minute of watermark "
+                    + "occupy the lane for tens of seconds and gigabytes of heap, publish nothing, and stall every push to the stream")
     void qe159_aHopWithMillionsOfWindowsPerRowIsRefusedOrBounded() throws Exception {
         List<String> seen = fineHop("'1' DAY");
-        assertThat(seen.get(0)).satisfiesAnyOf(
-                r -> assertThat(r).startsWith("register PRV-"),
-                r -> assertThat(seen).contains("advance OK", "plain has b: true"));
+        assertThat(seen.get(0))
+                .satisfiesAnyOf(
+                        r -> assertThat(r).startsWith("register PRV-"),
+                        r -> assertThat(seen).contains("advance OK", "plain has b: true"));
     }
 
     @Test
@@ -334,30 +397,43 @@ class AdvResourceTest {
     @Test
     void qe159_161_windowsThatMultiplyWork() throws Exception {
         try (PravahaEngine engine = engine()) {
-            String hop = timed(engine, "hop", "SELECT window_start, window_end, COUNT(*) AS c FROM TABLE(HOP(TABLE w, "
-                    + "DESCRIPTOR(ts), INTERVAL '0.001' SECOND, INTERVAL '1' DAY)) GROUP BY window_start, window_end",
-                    "window_start", "window_end");
+            String hop = timed(
+                    engine,
+                    "hop",
+                    "SELECT window_start, window_end, COUNT(*) AS c FROM TABLE(HOP(TABLE w, "
+                            + "DESCRIPTOR(ts), INTERVAL '0.001' SECOND, INTERVAL '1' DAY)) GROUP BY window_start, window_end",
+                    "window_start",
+                    "window_end");
             String hopPush = "-";
             if (hop.startsWith("OK")) {
-                CompletableFuture<String> push = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(() ->
-                        engine.push("w", new Object[] {"a", 1L, "", Instant.ofEpochSecond(BASE)})));
+                CompletableFuture<String> push = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(
+                        () -> engine.push("w", new Object[] {"a", 1L, "", Instant.ofEpochSecond(BASE)})));
                 try {
                     hopPush = push.get(30, TimeUnit.SECONDS);
                 } catch (java.util.concurrent.TimeoutException e) {
                     hopPush = "still running after 30 s";
                 }
             }
-            System.out.println("NOTE QE-159 register=" + hop + " push=" + hopPush.lines().findFirst().orElse("")
-                    + " state=" + (engine.find("hop").isPresent() ? AdvSupport.state(engine, "hop").lines().findFirst().orElse("") : "-"));
+            System.out.println("NOTE QE-159 register=" + hop + " push="
+                    + hopPush.lines().findFirst().orElse("") + " state="
+                    + (engine.find("hop").isPresent()
+                            ? AdvSupport.state(engine, "hop")
+                                    .lines()
+                                    .findFirst()
+                                    .orElse("")
+                            : "-"));
         }
         try (PravahaEngine engine = engine()) {
-            engine.register("ms", "SELECT window_start, window_end, COUNT(*) AS c FROM TABLE(TUMBLE(TABLE w, "
-                    + "DESCRIPTOR(ts), INTERVAL '0.001' SECOND)) GROUP BY window_start, window_end",
-                    "window_start", "window_end");
+            engine.register(
+                    "ms",
+                    "SELECT window_start, window_end, COUNT(*) AS c FROM TABLE(TUMBLE(TABLE w, "
+                            + "DESCRIPTOR(ts), INTERVAL '0.001' SECOND)) GROUP BY window_start, window_end",
+                    "window_start",
+                    "window_end");
             engine.push("w", new Object[] {"a", 1L, "", Instant.ofEpochSecond(BASE)});
             long start = System.nanoTime();
-            CompletableFuture<String> advance = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(() ->
-                    engine.advanceEventTime("w", Instant.ofEpochSecond(BASE + 365L * 24 * 3600))));
+            CompletableFuture<String> advance = CompletableFuture.supplyAsync(() -> AdvSupport.attempt(
+                    () -> engine.advanceEventTime("w", Instant.ofEpochSecond(BASE + 365L * 24 * 3600))));
             String outcome;
             try {
                 outcome = advance.get(60, TimeUnit.SECONDS);
@@ -365,15 +441,21 @@ class AdvResourceTest {
                 outcome = "still running after 60 s";
             }
             Thread.sleep(500);
-            System.out.println("NOTE QE-161 a year of 1 ms windows: " + outcome.lines().findFirst().orElse("") + " in "
-                    + (System.nanoTime() - start) / 1_000_000 + " ms; rows=" + engine.find("ms").orElseThrow().view().size()
-                    + " state=" + AdvSupport.state(engine, "ms").lines().findFirst().orElse(""));
+            System.out.println("NOTE QE-161 a year of 1 ms windows: "
+                    + outcome.lines().findFirst().orElse("") + " in "
+                    + (System.nanoTime() - start) / 1_000_000 + " ms; rows="
+                    + engine.find("ms").orElseThrow().view().size()
+                    + " state="
+                    + AdvSupport.state(engine, "ms").lines().findFirst().orElse(""));
             assertThat(outcome).doesNotContain("still running");
         }
         try (PravahaEngine engine = engine()) {
-            engine.register("ms", "SELECT window_start, window_end, COUNT(*) AS c FROM TABLE(TUMBLE(TABLE w, "
-                    + "DESCRIPTOR(ts), INTERVAL '0.001' SECOND)) GROUP BY window_start, window_end",
-                    "window_start", "window_end");
+            engine.register(
+                    "ms",
+                    "SELECT window_start, window_end, COUNT(*) AS c FROM TABLE(TUMBLE(TABLE w, "
+                            + "DESCRIPTOR(ts), INTERVAL '0.001' SECOND)) GROUP BY window_start, window_end",
+                    "window_start",
+                    "window_end");
             engine.push("w", new Object[] {"a", 1L, "", Instant.ofEpochSecond(BASE)});
             engine.advanceEventTime("w", Instant.ofEpochSecond(BASE + 1));
             Thread.sleep(300);

@@ -147,7 +147,9 @@ class AdvSecurityTest {
         }
         node.start();
         allocator = new RootAllocator(Long.MAX_VALUE);
-        flight = FlightClient.builder(allocator, Location.forGrpcInsecure("127.0.0.1", node.flightPort().orElseThrow()))
+        flight = FlightClient.builder(
+                        allocator,
+                        Location.forGrpcInsecure("127.0.0.1", node.flightPort().orElseThrow()))
                 .build();
         sql = new FlightSqlClient(flight);
         arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
@@ -236,11 +238,18 @@ class AdvSecurityTest {
     /** The rows as {@code a|b}, sorted -- or the refusal's first line. */
     String as(String who, String statement) {
         try {
-            return run(who, statement).stream().map(r -> String.join("|", r)).sorted().toList().toString();
+            return run(who, statement).stream()
+                    .map(r -> String.join("|", r))
+                    .sorted()
+                    .toList()
+                    .toString();
         } catch (Exception refused) {
             String message = refused.getMessage() == null ? refused.toString() : refused.getMessage();
             int at = message.indexOf("PRV-");
-            return (at >= 0 ? message.substring(at) : message).lines().findFirst().orElse("");
+            return (at >= 0 ? message.substring(at) : message)
+                    .lines()
+                    .findFirst()
+                    .orElse("");
         }
     }
 
@@ -258,18 +267,26 @@ class AdvSecurityTest {
         probes.put("QE-097 is null", "SELECT id FROM payments WHERE card IS NULL");
         probes.put("QE-097 in", "SELECT id FROM payments WHERE card IN ('4111-1111', '4333-3333')");
         probes.put("QE-097 regexp", "SELECT id FROM payments WHERE REGEXP_EXTRACT(card, '^(4)', 1) = '4'");
-        probes.put("QE-097 derived", "SELECT id FROM (SELECT id, SUBSTRING(card FROM 1 FOR 4) AS bin FROM payments) "
-                + "WHERE bin = '4111'");
+        probes.put(
+                "QE-097 derived",
+                "SELECT id FROM (SELECT id, SUBSTRING(card FROM 1 FOR 4) AS bin FROM payments) "
+                        + "WHERE bin = '4111'");
         probes.put("QE-099 group", "SELECT card, COUNT(*) AS n FROM payments GROUP BY card");
         probes.put("QE-099 distinct", "SELECT COUNT(DISTINCT card) AS n FROM payments");
         probes.put("QE-099 min", "SELECT MIN(card) AS m FROM payments");
-        probes.put("QE-100 rank", "SELECT id, rn FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY card) "
-                + "AS rn FROM payments) WHERE rn <= 1");
+        probes.put(
+                "QE-100 rank",
+                "SELECT id, rn FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY card) "
+                        + "AS rn FROM payments) WHERE rn <= 1");
         probes.put("QE-098 case like", "SELECT id, CASE WHEN card LIKE '4111%' THEN 1 ELSE 0 END AS hit FROM payments");
-        probes.put("QE-098 case substring", "SELECT id, CASE WHEN SUBSTRING(card FROM 1 FOR 4) = '4111' THEN 1 ELSE 0 END "
-                + "AS hit FROM payments");
-        probes.put("QE-098 projection", "SELECT id, SUBSTRING(card FROM 1 FOR 4) AS bin, UPPER(card) AS u FROM payments");
-        probes.put("QE-098 having", "SELECT region, COUNT(*) AS n FROM payments GROUP BY region HAVING MAX(card) > 'X'");
+        probes.put(
+                "QE-098 case substring",
+                "SELECT id, CASE WHEN SUBSTRING(card FROM 1 FOR 4) = '4111' THEN 1 ELSE 0 END "
+                        + "AS hit FROM payments");
+        probes.put(
+                "QE-098 projection", "SELECT id, SUBSTRING(card FROM 1 FOR 4) AS bin, UPPER(card) AS u FROM payments");
+        probes.put(
+                "QE-098 having", "SELECT region, COUNT(*) AS n FROM payments GROUP BY region HAVING MAX(card) > 'X'");
         Map<String, String> seen = new LinkedHashMap<>();
         probes.forEach((label, q) -> seen.put(label, as("ana", q)));
         seen.forEach((label, out) -> System.out.println("NOTE " + label + " => " + out));
@@ -343,7 +360,8 @@ class AdvSecurityTest {
                 }
             });
             long millis = (System.nanoTime() - started) / 1_000_000;
-            System.out.println("NOTE QE-128 ended after " + millis + " ms: " + ended.lines().findFirst().orElse(""));
+            System.out.println("NOTE QE-128 ended after " + millis + " ms: "
+                    + ended.lines().findFirst().orElse(""));
             assertThat(ended).contains("PRV-7002");
             assertThat(millis).isLessThan(10_000);
         }
@@ -357,11 +375,18 @@ class AdvSecurityTest {
         run("ops", "GRANT USE, CREATE ON NAMESPACE default TO ROLE analyst");
         run("ops", "GRANT BUILD_ON ON VIEW payments TO ROLE analyst");
         run("ops", "GRANT WRITE ON NOTIFIER ops_log TO ROLE analyst");
-        String created = as("ana", "CREATE CONTINUOUS QUERY ana_copy KEYED BY (id) AS SELECT id, region, card FROM payments");
+        String created =
+                as("ana", "CREATE CONTINUOUS QUERY ana_copy KEYED BY (id) AS SELECT id, region, card FROM payments");
         Thread.sleep(1500);
         String own = as("ana", "SELECT * FROM ana_copy");
-        String held = node.registry().orElseThrow().find("acme.default.ana_copy")
-                .map(q -> q.view().scan().stream().map(AdvSupport::render).sorted().toList().toString())
+        String held = node.registry()
+                .orElseThrow()
+                .find("acme.default.ana_copy")
+                .map(q -> q.view().scan().stream()
+                        .map(AdvSupport::render)
+                        .sorted()
+                        .toList()
+                        .toString())
                 .orElse("-");
         String granted = as("ana", "GRANT SELECT ON VIEW ana_copy TO USER bob");
         String bob = as("bob", "SELECT * FROM ana_copy");
@@ -385,17 +410,22 @@ class AdvSecurityTest {
         run("ops", "GRANT USE, CREATE ON NAMESPACE default TO ROLE analyst");
         run("ops", "GRANT WRITE ON NOTIFIER ops_log TO ROLE analyst");
         List<String> seen = new ArrayList<>();
-        seen.add("create raw: " + as("ana", "CREATE ALERT raw_guess ON payments WHERE card = '4111-1111' NOTIFY ops_log"));
-        seen.add("create masked: " + as("ana", "CREATE ALERT masked_guess ON payments WHERE card = 'XXXX-1111' NOTIFY ops_log"));
+        seen.add("create raw: "
+                + as("ana", "CREATE ALERT raw_guess ON payments WHERE card = '4111-1111' NOTIFY ops_log"));
+        seen.add("create masked: "
+                + as("ana", "CREATE ALERT masked_guess ON payments WHERE card = 'XXXX-1111' NOTIFY ops_log"));
         pay("acme.default.payments");
         Thread.sleep(3000);
-        var service = (com.ash.messaging.pravaha.registry.alert.AlertService) node.registry().orElseThrow().alerting();
+        var service = (com.ash.messaging.pravaha.registry.alert.AlertService)
+                node.registry().orElseThrow().alerting();
         Principal ana = new Principal("ana", "acme", Set.of("analyst"), Map.of("region", "EU"));
         for (String name : List.of("raw_guess", "masked_guess")) {
             String detail = AdvSupport.attempt(() -> {
                 var d = service.detail(ana, name);
-                throw new IllegalStateException("state=" + d.alert().state() + " following=" + d.alert().following()
-                        + " keys=" + d.keys().stream().map(k -> k.key() + ":" + k.state()).toList()
+                throw new IllegalStateException("state=" + d.alert().state() + " following="
+                        + d.alert().following()
+                        + " keys="
+                        + d.keys().stream().map(k -> k.key() + ":" + k.state()).toList()
                         + " sent=" + d.notifications().size());
             });
             seen.add(name + ": " + detail.replace("UNCODED java.lang.IllegalStateException: ", ""));
@@ -420,21 +450,17 @@ class AdvSecurityTest {
         assertThat(seen.get(2)).doesNotContain("FIRING");
     }
 
-    @Test
-    void qe106_deadLettersOfANarrowedReadersQuery() {
-        // A dead letter is the raw source record. Reaching one needs a source binding that rejects a
-        // line on a node with a dead-letter directory, and reading it the HTTP API -- the companion
-        // round's surface. Recorded NOT RUN in the log; this test only documents the setup.
-        assertThat(true).isTrue();
-    }
-
     // ------------------------------------------------------------------ row filters
 
     @Test
     void qe107_to_110_137_aRowFilterHoldsOnEveryAccessPath() throws Exception {
         baseline();
-        run("ops", "CREATE CONTINUOUS QUERY by_region KEYED BY (id) INDEX (region) AS SELECT id, region, amount FROM txn");
-        run("ops", "CREATE CONTINUOUS QUERY ranged KEYED BY (region, amount) RANGE (amount) AS SELECT region, amount, id FROM txn");
+        run(
+                "ops",
+                "CREATE CONTINUOUS QUERY by_region KEYED BY (id) INDEX (region) AS SELECT id, region, amount FROM txn");
+        run(
+                "ops",
+                "CREATE CONTINUOUS QUERY ranged KEYED BY (region, amount) RANGE (amount) AS SELECT region, amount, id FROM txn");
         run("ops", "GRANT SELECT ON VIEW by_region TO ROLE analyst");
         run("ops", "GRANT SELECT ON VIEW ranged TO ROLE analyst");
         run("ops", "ALTER VIEW by_region SET POLICY region_scope");
@@ -446,7 +472,9 @@ class AdvSecurityTest {
         seen.put("QE-107 point read IN", as("ana", "SELECT id FROM payments WHERE id IN ('p1', 'p2')"));
         seen.put("QE-108 index", as("ana", "SELECT id FROM by_region WHERE region = 'US'"));
         seen.put("QE-108 index IN", as("ana", "SELECT id FROM by_region WHERE region IN ('US', 'EU')"));
-        seen.put("QE-109 range", as("ana", "SELECT id FROM ranged WHERE region = 'US' AND amount >= 0 AND amount < 100"));
+        seen.put(
+                "QE-109 range",
+                as("ana", "SELECT id FROM ranged WHERE region = 'US' AND amount >= 0 AND amount < 100"));
         seen.put("QE-109 key", as("ana", "SELECT id FROM ranged WHERE region = 'US' AND amount = 20"));
         seen.put("QE-110 aggregate", as("ana", "SELECT COUNT(*) AS n, SUM(amount) AS s FROM payments"));
         seen.put("QE-137 count probe", as("ana", "SELECT COUNT(*) AS n FROM payments WHERE amount > 15"));
@@ -475,8 +503,9 @@ class AdvSecurityTest {
     }
 
     @Test
-    @Disabled("QE-111: under the catalogue, a reader narrowed by a ROW FILTER is told the view's whole cardinality in "
-            + "pravaha.list (3 rows, while their read returns 2); SX-18 withholds it (-1) only for a SecurityPolicy filter")
+    @Disabled(
+            "QE-111: under the catalogue, a reader narrowed by a ROW FILTER is told the view's whole cardinality in "
+                    + "pravaha.list (3 rows, while their read returns 2); SX-18 withholds it (-1) only for a SecurityPolicy filter")
     void qe111_listWithholdsAFilteredReadersCount() throws Exception {
         baseline();
         assertThat(rowsIn("ana")).containsExactly("payments=-1");
@@ -522,8 +551,9 @@ class AdvSecurityTest {
             String created = as("ops", "CREATE ROW FILTER " + name + " AS " + predicate + " EXCEPT ROLE admin");
             String bound = created.startsWith("PRV-") ? created : as("ops", "ALTER VIEW payments SET POLICY " + name);
             String read = as("ana", "SELECT id FROM payments");
-            System.out.println("NOTE QE-113 [" + predicate + "] create=" + created.lines().findFirst().orElse("")
-                    + " bind=" + bound.lines().findFirst().orElse("") + " ana reads=" + read);
+            System.out.println("NOTE QE-113 [" + predicate + "] create="
+                    + created.lines().findFirst().orElse("") + " bind="
+                    + bound.lines().findFirst().orElse("") + " ana reads=" + read);
             if (!bound.startsWith("PRV-")) {
                 accepted.add(predicate + " -> " + read);
                 as("ops", "ALTER VIEW payments UNSET POLICY " + name);
@@ -553,7 +583,9 @@ class AdvSecurityTest {
         run("gops", "GRANT BUILD_ON ON STREAM txn TO ROLE analyst");
         run("gops", "GRANT WRITE ON NOTIFIER ops_log TO ROLE analyst");
         Map<String, String> seen = new LinkedHashMap<>();
-        seen.put("QE-115 same name", as("eve", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, amount FROM txn"));
+        seen.put(
+                "QE-115 same name",
+                as("eve", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, amount FROM txn"));
         seen.put("QE-115 reads own", as("eve", "SELECT * FROM payments"));
         seen.put("QE-118 qualified, exists", as("eve", "SELECT * FROM \"acme.default.payments\""));
         seen.put("QE-118 qualified, absent", as("eve", "SELECT * FROM \"acme.default.nothing_here\""));
@@ -562,15 +594,29 @@ class AdvSecurityTest {
         seen.put("QE-120 drop absent name", as("eve", "DROP CONTINUOUS QUERY never_was"));
         seen.put("QE-120 pause acme-only name", as("eve", "PAUSE CONTINUOUS QUERY acme_only"));
         seen.put("QE-120 pause absent name", as("eve", "PAUSE CONTINUOUS QUERY never_was"));
-        seen.put("QE-121 build on acme-only", as("eve", "CREATE CONTINUOUS QUERY x1 KEYED BY (id) AS SELECT id FROM acme_only"));
-        seen.put("QE-121 build on absent", as("eve", "CREATE CONTINUOUS QUERY x2 KEYED BY (id) AS SELECT id FROM never_was"));
-        seen.put("QE-116 alert named like acme's query", as("eve", "CREATE ALERT acme_only ON payments WHERE amount > 1 NOTIFY ops_log"));
-        seen.put("QE-116 alert named like acme's alert", as("eve", "CREATE ALERT acme_watch ON payments WHERE amount > 1 NOTIFY ops_log"));
-        seen.put("QE-116 alert named like nothing", as("eve", "CREATE ALERT fresh_name ON payments WHERE amount > 1 NOTIFY ops_log"));
+        seen.put(
+                "QE-121 build on acme-only",
+                as("eve", "CREATE CONTINUOUS QUERY x1 KEYED BY (id) AS SELECT id FROM acme_only"));
+        seen.put(
+                "QE-121 build on absent",
+                as("eve", "CREATE CONTINUOUS QUERY x2 KEYED BY (id) AS SELECT id FROM never_was"));
+        seen.put(
+                "QE-116 alert named like acme's query",
+                as("eve", "CREATE ALERT acme_only ON payments WHERE amount > 1 NOTIFY ops_log"));
+        seen.put(
+                "QE-116 alert named like acme's alert",
+                as("eve", "CREATE ALERT acme_watch ON payments WHERE amount > 1 NOTIFY ops_log"));
+        seen.put(
+                "QE-116 alert named like nothing",
+                as("eve", "CREATE ALERT fresh_name ON payments WHERE amount > 1 NOTIFY ops_log"));
         seen.put("QE-117 policy named like acme's", as("gops", "CREATE ROW FILTER region_scope AS amount > 0"));
-        seen.put("QE-116 alert on acme-only view", as("eve", "CREATE ALERT a3 ON acme_only WHERE amount > 1 NOTIFY ops_log"));
+        seen.put(
+                "QE-116 alert on acme-only view",
+                as("eve", "CREATE ALERT a3 ON acme_only WHERE amount > 1 NOTIFY ops_log"));
         seen.put("QE-123 typo", as("eve", "SELECT * FROM paymnts"));
-        seen.put("QE-136 smuggled name", as("eve", "CREATE CONTINUOUS QUERY \"acme.default.x\" KEYED BY (id) AS SELECT id FROM txn"));
+        seen.put(
+                "QE-136 smuggled name",
+                as("eve", "CREATE CONTINUOUS QUERY \"acme.default.x\" KEYED BY (id) AS SELECT id FROM txn"));
         // acme_only exists in acme only.
         seen.forEach((label, out) -> System.out.println("NOTE " + label + " => " + out));
         String engineNames = node.registry().orElseThrow().names().toString();
@@ -599,21 +645,27 @@ class AdvSecurityTest {
         as("eve", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, amount FROM txn");
         Map<String, String[]> pairs = new LinkedHashMap<>();
         pairs.put("QE-120 drop", new String[] {"DROP CONTINUOUS QUERY acme_only", "DROP CONTINUOUS QUERY never_was"});
-        pairs.put("QE-120 pause", new String[] {"PAUSE CONTINUOUS QUERY acme_only", "PAUSE CONTINUOUS QUERY never_was"});
+        pairs.put(
+                "QE-120 pause", new String[] {"PAUSE CONTINUOUS QUERY acme_only", "PAUSE CONTINUOUS QUERY never_was"});
         pairs.put("QE-121 build", new String[] {
             "CREATE CONTINUOUS QUERY x1 KEYED BY (id) AS SELECT id FROM acme_only",
-            "CREATE CONTINUOUS QUERY x2 KEYED BY (id) AS SELECT id FROM never_was"});
+            "CREATE CONTINUOUS QUERY x2 KEYED BY (id) AS SELECT id FROM never_was"
+        });
         pairs.put("QE-116 alert name = acme query", new String[] {
             "CREATE ALERT acme_only ON payments WHERE amount > 1 NOTIFY ops_log",
-            "CREATE ALERT never_was ON payments WHERE amount > 1 NOTIFY ops_log"});
+            "CREATE ALERT never_was ON payments WHERE amount > 1 NOTIFY ops_log"
+        });
         pairs.put("QE-116 alert name = acme alert", new String[] {
             "CREATE ALERT acme_watch ON payments WHERE amount > 1 NOTIFY ops_log",
-            "CREATE ALERT never_was2 ON payments WHERE amount > 1 NOTIFY ops_log"});
+            "CREATE ALERT never_was2 ON payments WHERE amount > 1 NOTIFY ops_log"
+        });
         pairs.put("QE-116 alert on acme view", new String[] {
             "CREATE ALERT a3 ON acme_only WHERE amount > 1 NOTIFY ops_log",
-            "CREATE ALERT a4 ON never_was WHERE amount > 1 NOTIFY ops_log"});
+            "CREATE ALERT a4 ON never_was WHERE amount > 1 NOTIFY ops_log"
+        });
         pairs.put("QE-117 policy name", new String[] {
-            "CREATE ROW FILTER region_scope AS amount > 0", "CREATE ROW FILTER never_was3 AS amount > 0"});
+            "CREATE ROW FILTER region_scope AS amount > 0", "CREATE ROW FILTER never_was3 AS amount > 0"
+        });
         List<String> distinguishable = new ArrayList<>();
         pairs.forEach((label, pair) -> {
             String who = label.startsWith("QE-117") ? "gops" : "eve";
@@ -642,7 +694,9 @@ class AdvSecurityTest {
         seen.put("QE-127 ana grants herself MANAGE", as("ana", "GRANT MANAGE ON VIEW payments TO USER ana"));
         seen.put("QE-129 ana unbinds", as("ana", "ALTER VIEW payments UNSET POLICY region_scope"));
         seen.put("QE-129 ana takes ownership", as("ana", "ALTER VIEW payments OWNER TO USER ana"));
-        seen.put("QE-129 bob sees ana's effective access", as("bob", "SHOW EFFECTIVE ACCESS FOR USER ana ON VIEW payments"));
+        seen.put(
+                "QE-129 bob sees ana's effective access",
+                as("bob", "SHOW EFFECTIVE ACCESS FOR USER ana ON VIEW payments"));
         seen.put("QE-129 bob shows grants", as("bob", "SHOW GRANTS ON VIEW payments"));
         run("ops", "GRANT MODIFY ON VIEW payments TO USER bob");
         seen.put("QE-129 bob(MODIFY) unbinds", as("bob", "ALTER VIEW payments UNSET POLICY region_scope"));
@@ -667,7 +721,10 @@ class AdvSecurityTest {
         List<String> seen = new ArrayList<>();
         seen.add("before: " + as("ana", "SELECT id, card FROM payments"));
         seen.add("drop: " + as("ops", "DROP CONTINUOUS QUERY payments"));
-        seen.add("create: " + as("ops", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, region, card, amount FROM txn"));
+        seen.add("create: "
+                + as(
+                        "ops",
+                        "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, region, card, amount FROM txn"));
         pay("acme.default.payments");
         seen.add("after: " + as("ana", "SELECT id, card FROM payments"));
         seen.add("policies: " + as("ops", "SHOW POLICIES ON VIEW payments"));
@@ -682,9 +739,10 @@ class AdvSecurityTest {
         String after = seen.get(3);
         // Either the grant went with the dropped view (ana is refused), or the policies came back with
         // the name (ana is filtered and masked). Never: the grant survived and the policies did not.
-        assertThat(after).satisfiesAnyOf(
-                a -> assertThat(a).contains("PRV-7002"),
-                a -> assertThat(a).doesNotContain("4111", "p2"));
+        assertThat(after)
+                .satisfiesAnyOf(
+                        a -> assertThat(a).contains("PRV-7002"),
+                        a -> assertThat(a).doesNotContain("4111", "p2"));
     }
 
     @Test
@@ -710,7 +768,8 @@ class AdvSecurityTest {
                 try {
                     FlightInfo info = prepared.execute(bearer("eve"));
                     List<List<String>> rows = new ArrayList<>();
-                    try (FlightStream stream = sql.getStream(info.getEndpoints().get(0).getTicket(), bearer("eve"))) {
+                    try (FlightStream stream =
+                            sql.getStream(info.getEndpoints().get(0).getTicket(), bearer("eve"))) {
                         while (stream.next()) {
                             rows.addAll(cells(stream.getRoot()));
                         }
@@ -733,7 +792,8 @@ class AdvSecurityTest {
     void qe135_aDebugForkByANonOwnerIsRefused() throws Exception {
         baseline();
         Principal ana = new Principal("ana", "acme", Set.of("analyst"), Map.of("region", "EU"));
-        String fork = AdvSupport.attempt(() -> node.registry().orElseThrow().debugSessions().fork("payments", null, ana));
+        String fork = AdvSupport.attempt(
+                () -> node.registry().orElseThrow().debugSessions().fork("payments", null, ana));
         System.out.println("NOTE QE-135 " + fork.lines().findFirst().orElse(""));
         assertThat(fork).startsWith("PRV-7002");
     }
@@ -749,7 +809,10 @@ class AdvSecurityTest {
         pay("acme.default.q1");
         Thread.sleep(500);
         String two = as("ops", "CREATE CONTINUOUS QUERY q2 KEYED BY (id) AS SELECT id, card FROM txn");
-        String q1 = node.registry().orElseThrow().find("acme.default.q1").map(q -> q.state() + " size=" + q.view().size())
+        String q1 = node.registry()
+                .orElseThrow()
+                .find("acme.default.q1")
+                .map(q -> q.state() + " size=" + q.view().size())
                 .orElse("-");
         System.out.println("NOTE QE-154 first=" + one + " | second after 3 keys held=" + two + " | q1 " + q1);
         assertThat(two).startsWith("PRV-8021");

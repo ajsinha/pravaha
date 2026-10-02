@@ -106,24 +106,25 @@ class AdvArithmeticDifferentialTest {
             if (error != null) {
                 throw error;
             }
-            return fit(switch (op) {
-                case "+" -> a.add(b);
-                case "-" -> a.subtract(b);
-                case "*" -> a.multiply(b);
-                case "/" -> {
-                    if (b.signum() == 0) {
-                        throw new ArithmeticException("division by zero");
-                    }
-                    yield a.divide(b);
-                }
-                case "%" -> {
-                    if (b.signum() == 0) {
-                        throw new ArithmeticException("division by zero");
-                    }
-                    yield a.remainder(b);
-                }
-                default -> throw new IllegalStateException(op);
-            });
+            return fit(
+                    switch (op) {
+                        case "+" -> a.add(b);
+                        case "-" -> a.subtract(b);
+                        case "*" -> a.multiply(b);
+                        case "/" -> {
+                            if (b.signum() == 0) {
+                                throw new ArithmeticException("division by zero");
+                            }
+                            yield a.divide(b);
+                        }
+                        case "%" -> {
+                            if (b.signum() == 0) {
+                                throw new ArithmeticException("division by zero");
+                            }
+                            yield a.remainder(b);
+                        }
+                        default -> throw new IllegalStateException(op);
+                    });
         }
     }
 
@@ -186,29 +187,46 @@ class AdvArithmeticDifferentialTest {
         }
     }
 
-    static final long[] EDGE = {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1L << 40, -3, -1, 0, 1, 2, 3, 1L << 40,
-        Long.MAX_VALUE - 1, Long.MAX_VALUE, 3037000499L, 3037000500L};
+    static final long[] EDGE = {
+        Long.MIN_VALUE,
+        Long.MIN_VALUE + 1,
+        -1L << 40,
+        -3,
+        -1,
+        0,
+        1,
+        2,
+        3,
+        1L << 40,
+        Long.MAX_VALUE - 1,
+        Long.MAX_VALUE,
+        3037000499L,
+        3037000500L
+    };
 
     static E expression(Random random, int depth) {
         if (depth <= 0 || random.nextInt(4) == 0) {
             return switch (random.nextInt(3)) {
                 case 0 -> new Col("x");
                 case 1 -> new Col("y");
-                default -> new Lit(random.nextInt(5) == 0 ? EDGE[random.nextInt(EDGE.length)] : random.nextInt(21) - 10);
+                default ->
+                    new Lit(random.nextInt(5) == 0 ? EDGE[random.nextInt(EDGE.length)] : random.nextInt(21) - 10);
             };
         }
         return switch (random.nextInt(9)) {
-            case 0, 1, 2, 3, 4 -> new Bin(
-                    expression(random, depth - 1),
-                    new String[] {"+", "-", "*", "/", "%"}[random.nextInt(5)],
-                    expression(random, depth - 1));
+            case 0, 1, 2, 3, 4 ->
+                new Bin(
+                        expression(random, depth - 1),
+                        new String[] {"+", "-", "*", "/", "%"}[random.nextInt(5)],
+                        expression(random, depth - 1));
             case 5 -> new Neg(expression(random, depth - 1));
             case 6 -> new Abs(expression(random, depth - 1));
-            default -> new Case(
-                    expression(random, depth - 1),
-                    expression(random, depth - 1),
-                    expression(random, depth - 1),
-                    expression(random, depth - 1));
+            default ->
+                new Case(
+                        expression(random, depth - 1),
+                        expression(random, depth - 1),
+                        expression(random, depth - 1),
+                        expression(random, depth - 1));
         };
     }
 
@@ -222,8 +240,16 @@ class AdvArithmeticDifferentialTest {
         List<Long[]> rows = new ArrayList<>();
         for (int i = 0; i < 60; i++) {
             rows.add(new Long[] {
-                random.nextInt(8) == 0 ? null : (random.nextInt(3) == 0 ? EDGE[random.nextInt(EDGE.length)] : (long) random.nextInt(2001) - 1000),
-                random.nextInt(8) == 0 ? null : (random.nextInt(3) == 0 ? EDGE[random.nextInt(EDGE.length)] : (long) random.nextInt(2001) - 1000)
+                random.nextInt(8) == 0
+                        ? null
+                        : (random.nextInt(3) == 0
+                                ? EDGE[random.nextInt(EDGE.length)]
+                                : (long) random.nextInt(2001) - 1000),
+                random.nextInt(8) == 0
+                        ? null
+                        : (random.nextInt(3) == 0
+                                ? EDGE[random.nextInt(EDGE.length)]
+                                : (long) random.nextInt(2001) - 1000)
             });
         }
         Map<String, E> expressions = new HashMap<>();
@@ -268,11 +294,15 @@ class AdvArithmeticDifferentialTest {
                     boolean present = published.containsKey((long) i);
                     if (error != null) {
                         if (present) {
-                            boolean minOverMinusOne = actual instanceof Long l && l == Long.MIN_VALUE
+                            boolean minOverMinusOne = actual instanceof Long l
+                                    && l == Long.MIN_VALUE
                                     && expression.sql().contains("/");
-                            mismatches.add(new Mismatch(name, expression.sql(),
+                            mismatches.add(new Mismatch(
+                                    name,
+                                    expression.sql(),
                                     "row " + i + " " + java.util.Arrays.toString(row) + " oracle " + error
-                                            + " but published " + actual, minOverMinusOne));
+                                            + " but published " + actual,
+                                    minOverMinusOne));
                         }
                         stopped = true;
                         continue;
@@ -286,8 +316,18 @@ class AdvArithmeticDifferentialTest {
                         if (!present && !query.state().toString().equals("RUNNING")) {
                             continue; // stopped by a row the oracle also refuses later or earlier
                         }
-                        mismatches.add(new Mismatch(name, expression.sql(), "row " + i + " " + java.util.Arrays.toString(row)
-                                + " oracle " + want + " published " + (present ? actual + " (" + (actual == null ? "null" : actual.getClass().getSimpleName()) + ")" : "<absent>"), false));
+                        mismatches.add(new Mismatch(
+                                name,
+                                expression.sql(),
+                                "row " + i + " " + java.util.Arrays.toString(row) + " oracle " + want + " published "
+                                        + (present
+                                                ? actual + " ("
+                                                        + (actual == null
+                                                                ? "null"
+                                                                : actual.getClass()
+                                                                        .getSimpleName()) + ")"
+                                                : "<absent>"),
+                                false));
                     }
                 }
                 if (stopped && !query.state().toString().equals("RUNNING")) {
@@ -297,19 +337,22 @@ class AdvArithmeticDifferentialTest {
         }
         System.out.println("NOTE QE-040 seed=" + seed + " registered=" + expressions.size() + " refused=" + refused
                 + " stoppedOnOracleError=" + failedAsExpected + " mismatches=" + mismatches.size()
-                + " (of which MIN/-1: " + mismatches.stream().filter(Mismatch::minOverMinusOne).count() + ")");
+                + " (of which MIN/-1: "
+                + mismatches.stream().filter(Mismatch::minOverMinusOne).count() + ")");
         java.util.Set<String> seen = new java.util.HashSet<>();
         mismatches.stream().filter(m -> seen.add(m.name())).forEach(m -> System.out.println("NOTE mismatch " + m));
         // Known classes, each recorded under its own case: MIN / -1 (QE-010), and a MIN_VALUE whose
         // negation or absolute value the planner folds or simplifies away (QE-040 note).
         assertThat(mismatches.stream()
                         .filter(m -> !m.minOverMinusOne())
-                        .filter(m -> !m.detail().contains("oracle out of range 9223372036854775808 but published "
-                                + "-9223372036854775808"))
+                        .filter(m -> !m.detail()
+                                .contains("oracle out of range 9223372036854775808 but published "
+                                        + "-9223372036854775808"))
                         // The planner may simplify away a sub-expression whose value is not needed
                         // (CASE with equal branches, -(-x)) and with it the error SQL would raise:
                         // recorded as a NOTE, not a wrong value.
-                        .filter(m -> !(m.detail().contains(" oracle out of range") || m.detail().contains(" oracle division"))
+                        .filter(m -> !(m.detail().contains(" oracle out of range")
+                                        || m.detail().contains(" oracle division"))
                                 || !(m.sql().contains("CASE") || m.sql().contains("(-(-")))
                         .toList())
                 .isEmpty();

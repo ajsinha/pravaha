@@ -237,7 +237,9 @@ class AdvPredicateDifferentialTest {
                     regex.append(Pattern.quote(new String(Character.toChars(cp))));
                 }
             });
-            boolean m = Pattern.compile(regex.toString(), Pattern.DOTALL).matcher((String) v).matches();
+            boolean m = Pattern.compile(regex.toString(), Pattern.DOTALL)
+                    .matcher((String) v)
+                    .matches();
             return negated != m;
         }
 
@@ -269,8 +271,19 @@ class AdvPredicateDifferentialTest {
 
     static final long[] LONGS = {Long.MIN_VALUE, -1_000_000_000_000L, -7, -1, 0, 1, 2, 7, 42, Long.MAX_VALUE};
     static final int[] INTS = {Integer.MIN_VALUE, -7, -1, 0, 1, 7, 42, Integer.MAX_VALUE};
-    static final double[] DOUBLES = {Double.NaN, Double.NEGATIVE_INFINITY, -1e300, -2.5, -0.0, 0.0, 1.0, 2.5,
-        1e300, Double.POSITIVE_INFINITY, Double.MIN_VALUE};
+    static final double[] DOUBLES = {
+        Double.NaN,
+        Double.NEGATIVE_INFINITY,
+        -1e300,
+        -2.5,
+        -0.0,
+        0.0,
+        1.0,
+        2.5,
+        1e300,
+        Double.POSITIVE_INFINITY,
+        Double.MIN_VALUE
+    };
     static final String[] TEXTS = {"", "a", "A", "abc", "a%c", "a_c", "😀", "ß", "ss", " a ", "x'y"};
     static final String[] LIKES = {"%", "_", "a%", "%c", "a_c", "%😀%", "__", "", "%a%", "x'%"};
 
@@ -294,13 +307,17 @@ class AdvPredicateDifferentialTest {
         return switch (pick) {
             case 0, 1 -> comparison(random);
             case 2 -> new IsNull(1 + random.nextInt(5), random.nextBoolean());
-            case 3 -> generatorShapes ? new Bare(false) : new Like(LIKES[random.nextInt(LIKES.length)], random.nextBoolean());
-            case 4 -> new And(predicate(random, depth - 1, generatorShapes), predicate(random, depth - 1, generatorShapes));
-            case 5 -> new Or(predicate(random, depth - 1, generatorShapes), predicate(random, depth - 1, generatorShapes));
+            case 3 ->
+                generatorShapes ? new Bare(false) : new Like(LIKES[random.nextInt(LIKES.length)], random.nextBoolean());
+            case 4 ->
+                new And(predicate(random, depth - 1, generatorShapes), predicate(random, depth - 1, generatorShapes));
+            case 5 ->
+                new Or(predicate(random, depth - 1, generatorShapes), predicate(random, depth - 1, generatorShapes));
             case 6 -> new Not(predicate(random, depth - 1, generatorShapes));
-            case 7 -> new Truth(
-                    predicate(random, depth - 1, generatorShapes),
-                    new String[] {"IS TRUE", "IS FALSE", "IS NOT TRUE", "IS NOT FALSE"}[random.nextInt(4)]);
+            case 7 ->
+                new Truth(
+                        predicate(random, depth - 1, generatorShapes),
+                        new String[] {"IS TRUE", "IS FALSE", "IS NOT TRUE", "IS NOT FALSE"}[random.nextInt(4)]);
             default -> new Bare(random.nextBoolean());
         };
     }
@@ -347,7 +364,8 @@ class AdvPredicateDifferentialTest {
                     live.add(each.getKey());
                 } else {
                     refused++;
-                    System.out.println("NOTE refused " + each.getKey() + " [" + sql + "] " + outcome.lines().findFirst().orElse(""));
+                    System.out.println("NOTE refused " + each.getKey() + " [" + sql + "] "
+                            + outcome.lines().findFirst().orElse(""));
                 }
             }
             engine.push("p", rows);
@@ -379,8 +397,8 @@ class AdvPredicateDifferentialTest {
                     missing.removeAll(actual);
                     TreeSet<Long> extra = new TreeSet<>(actual);
                     extra.removeAll(expected);
-                    String line = name + " [" + p.sql() + "] state=" + query.state() + " missing=" + describe(missing, rows)
-                            + " extra=" + describe(extra, rows);
+                    String line = name + " [" + p.sql() + "] state=" + query.state() + " missing="
+                            + describe(missing, rows) + " extra=" + describe(extra, rows);
                     if (expectedWithoutNan.equals(actualWithoutNan) && p.notOverDouble()) {
                         nanNot.add(line);
                     } else {
@@ -406,7 +424,8 @@ class AdvPredicateDifferentialTest {
 
     static void report(String label, Result result) {
         System.out.println("NOTE " + label + " registered=" + result.registered() + " refused=" + result.refused()
-                + " generated=" + result.generated() + " nanNot=" + result.nanNotMismatches().size()
+                + " generated=" + result.generated() + " nanNot="
+                + result.nanNotMismatches().size()
                 + " other=" + result.mismatches().size());
         result.nanNotMismatches().stream().limit(5).forEach(line -> System.out.println("NOTE nanNot " + line));
         result.mismatches().stream().limit(20).forEach(line -> System.out.println("NOTE mismatch " + line));
@@ -424,7 +443,9 @@ class AdvPredicateDifferentialTest {
     void qe037_039_randomPredicatesGeneratedAgreeWithTheOracle() {
         Result result = differential(SEED + 1, PREDICATES, true);
         report("QE-039 generated seed=" + (SEED + 1), result);
-        assertThat(result.generated()).as("some filters must actually run generated").isPositive();
+        assertThat(result.generated())
+                .as("some filters must actually run generated")
+                .isPositive();
         assertThat(result.mismatches()).isEmpty();
     }
 }

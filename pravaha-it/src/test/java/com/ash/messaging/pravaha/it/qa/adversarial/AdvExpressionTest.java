@@ -45,8 +45,17 @@ class AdvExpressionTest {
 
     /** id, i, a, b, sm, ty, d, t, amt. */
     static final Object[][] ROWS = {
-        {1L, 2_000_000_000, Long.MIN_VALUE, -1L, (short) 30000, (byte) 100, Double.NaN, "a.b",
-            new BigDecimal("99999999999999.9999")},
+        {
+            1L,
+            2_000_000_000,
+            Long.MIN_VALUE,
+            -1L,
+            (short) 30000,
+            (byte) 100,
+            Double.NaN,
+            "a.b",
+            new BigDecimal("99999999999999.9999")
+        },
         {2L, Integer.MIN_VALUE, Long.MAX_VALUE, 2L, (short) -32768, (byte) -128, -0.0, "ß", new BigDecimal("-1")},
         {3L, 5, 7L, -2L, (short) 1, (byte) 1, 0.0, null, null},
         {4L, null, null, null, null, null, 1e300, "😀", null},
@@ -106,8 +115,10 @@ class AdvExpressionTest {
     @Test
     @Disabled("QE-002: INT + INT and INT * INT past 2^31 are published wrapped")
     void qe002_intSumAndSquarePastTheRangeAreNeverPublishedWrapped() {
-        assertThat(run("SELECT id, i + i AS x FROM s").published("1|-294967296")).isFalse();
-        assertThat(run("SELECT id, i * i AS x FROM s").published("1|-1651507200")).isFalse();
+        assertThat(run("SELECT id, i + i AS x FROM s").published("1|-294967296"))
+                .isFalse();
+        assertThat(run("SELECT id, i * i AS x FROM s").published("1|-1651507200"))
+                .isFalse();
     }
 
     @Test
@@ -119,7 +130,8 @@ class AdvExpressionTest {
     @Test
     @Disabled("QE-004: ABS(i) at Integer.MIN_VALUE is published negative; only the BIGINT case is refused (Q-12)")
     void qe004_absOfIntMinIsNeverNegative() {
-        assertThat(run("SELECT id, ABS(i) AS x FROM s").published("2|-2147483648")).isFalse();
+        assertThat(run("SELECT id, ABS(i) AS x FROM s").published("2|-2147483648"))
+                .isFalse();
     }
 
     @Test
@@ -147,7 +159,8 @@ class AdvExpressionTest {
     @Test
     @Disabled("QE-008: CAST(INT AS SMALLINT) out of range truncates: 2e9 -> -27648")
     void qe008_narrowingCastToSmallintIsNeverTruncated() {
-        assertThat(run("SELECT id, CAST(i AS SMALLINT) AS x FROM s").published("1|-27648")).isFalse();
+        assertThat(run("SELECT id, CAST(i AS SMALLINT) AS x FROM s").published("1|-27648"))
+                .isFalse();
     }
 
     @Test
@@ -155,14 +168,18 @@ class AdvExpressionTest {
     void qe009_castOfNanOrInfinityToBigintIsNeverAnInteger() {
         Outcome outcome = run("SELECT id, CAST(d AS BIGINT) AS x FROM s");
         assertThat(outcome.published("1|0")).as("NaN -> 0: " + outcome).isFalse();
-        assertThat(outcome.published("5|9223372036854775807")).as("+Inf -> MAX: " + outcome).isFalse();
+        assertThat(outcome.published("5|9223372036854775807"))
+                .as("+Inf -> MAX: " + outcome)
+                .isFalse();
     }
 
     @Test
     @Disabled("QE-010: Long.MIN_VALUE / -1 is published as Long.MIN_VALUE; + - * use *Exact, / does not")
     void qe010_longMinDividedByMinusOneIsNeverPublished() {
         Outcome outcome = run("SELECT id, a / b AS x FROM s", ROWS[0]);
-        assertThat(outcome.published("1|-9223372036854775808")).as(outcome.toString()).isFalse();
+        assertThat(outcome.published("1|-9223372036854775808"))
+                .as(outcome.toString())
+                .isFalse();
     }
 
     @Test
@@ -175,7 +192,7 @@ class AdvExpressionTest {
     @Test
     void qe011_bigintSubtractionAtMinStopsTheQueryWithACode() {
         Outcome outcome = run("SELECT id, a - 1 AS x FROM s", ROWS[0]);
-        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("long overflow");
+        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("ArithmeticException");
         assertThat(outcome.rows()).isEmpty();
     }
 
@@ -211,8 +228,7 @@ class AdvExpressionTest {
     @Test
     void qe018_anIntColumnAgainstAnOutOfRangeLiteral() {
         assertThat(run("SELECT id FROM s WHERE i < 3000000000").rows()).containsExactly("1", "2", "3", "5", "6", "7");
-        assertThat(run("SELECT id FROM s WHERE i > -3000000000").rows())
-                .containsExactly("1", "2", "3", "5", "6", "7");
+        assertThat(run("SELECT id FROM s WHERE i > -3000000000").rows()).containsExactly("1", "2", "3", "5", "6", "7");
     }
 
     @Test
@@ -224,7 +240,8 @@ class AdvExpressionTest {
     @Test
     void qe020_reversedAndNegatedBetween() {
         assertThat(run("SELECT id FROM s WHERE a BETWEEN 7 AND -7").rows()).isEmpty();
-        assertThat(run("SELECT id FROM s WHERE NOT (a BETWEEN -7 AND 7)").rows()).containsExactly("1", "2");
+        assertThat(run("SELECT id FROM s WHERE NOT (a BETWEEN -7 AND 7)").rows())
+                .containsExactly("1", "2");
     }
 
     @Test
@@ -241,19 +258,23 @@ class AdvExpressionTest {
 
     @Test
     void qe024_substringEdges() {
-        assertThat(run("SELECT id, SUBSTRING(t FROM 0 FOR 2) AS x FROM s").rows()).contains("1|a", "4|😀");
+        assertThat(run("SELECT id, SUBSTRING(t FROM 0 FOR 2) AS x FROM s").rows())
+                .contains("1|a", "4|😀");
         assertThat(run("SELECT id, SUBSTRING(t FROM -1) AS x FROM s").rows()).contains("5|abc");
         // SQL raises "negative substring length"; this engine answers ''. Recorded as a NOTE.
-        assertThat(run("SELECT id, SUBSTRING(t FROM 2 FOR -1) AS x FROM s").rows()).contains("5|");
+        assertThat(run("SELECT id, SUBSTRING(t FROM 2 FOR -1) AS x FROM s").rows())
+                .contains("5|");
     }
 
     @Test
     void qe025_026_027_029_030_stringFunctionsAsDocumented() {
         assertThat(run("SELECT id, UPPER(t) AS x FROM s").rows()).contains("2|SS");
         assertThat(run("SELECT id, TRIM(t) AS x FROM s").rows()).contains("6|tab\t");
-        assertThat(run("SELECT id, REGEXP_EXTRACT(t, '(a)(x)?', 2) AS x FROM s").rows()).contains("5|null");
+        assertThat(run("SELECT id, REGEXP_EXTRACT(t, '(a)(x)?', 2) AS x FROM s").rows())
+                .contains("5|null");
         assertThat(run("SELECT id, t || 'x' AS x FROM s").rows()).contains("3|null", "5|abcx");
-        assertThat(run("SELECT id, CASE WHEN i > 0 THEN 1 END AS x FROM s").rows()).contains("5|null", "3|1");
+        assertThat(run("SELECT id, CASE WHEN i > 0 THEN 1 END AS x FROM s").rows())
+                .contains("5|null", "3|1");
     }
 
     // ------------------------------------------------------------------ decimals and doubles
@@ -271,8 +292,10 @@ class AdvExpressionTest {
 
     @Test
     void qe032_aDecimalLiteralWithMoreScaleThanTheColumnIsComparedExactly() {
-        assertThat(run("SELECT id FROM s WHERE amt > 99999999999999.99985").rows()).containsExactly("1");
-        assertThat(run("SELECT id FROM s WHERE amt > 99999999999999.99995").rows()).isEmpty();
+        assertThat(run("SELECT id FROM s WHERE amt > 99999999999999.99985").rows())
+                .containsExactly("1");
+        assertThat(run("SELECT id FROM s WHERE amt > 99999999999999.99995").rows())
+                .isEmpty();
     }
 
     @Test
@@ -285,7 +308,6 @@ class AdvExpressionTest {
 
     @Test
     void qe035_doubleDivisionByZeroIsIeee() {
-        assertThat(run("SELECT id, d / 0 AS x FROM s").rows())
-                .contains("1|NaN", "3|NaN", "5|Infinity", "6|-Infinity");
+        assertThat(run("SELECT id, d / 0 AS x FROM s").rows()).contains("1|NaN", "3|NaN", "5|Infinity", "6|-Infinity");
     }
 }

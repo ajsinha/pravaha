@@ -157,9 +157,7 @@ class AdvDurabilityTest {
         missing.removeAll(actual);
         TreeSet<String> extra = new TreeSet<>(actual);
         extra.removeAll(expected);
-        return missing.isEmpty() && extra.isEmpty()
-                ? "ok"
-                : "missing " + head(missing) + " extra " + head(extra);
+        return missing.isEmpty() && extra.isEmpty() ? "ok" : "missing " + head(missing) + " extra " + head(extra);
     }
 
     static String head(TreeSet<String> rows) {
@@ -167,8 +165,12 @@ class AdvDurabilityTest {
     }
 
     static void append(Path csv, List<String> lines) throws Exception {
-        Files.writeString(csv, String.join("\n", lines) + "\n", StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        Files.writeString(
+                csv,
+                String.join("\n", lines) + "\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND);
     }
 
     // ------------------------------------------------------------------ QE-077 / QE-078
@@ -182,12 +184,15 @@ class AdvDurabilityTest {
                 "-Djava.io.tmpdir=" + System.getProperty("java.io.tmpdir"),
                 "--add-opens=java.base/java.nio=ALL-UNNAMED",
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
-                "-cp", System.getProperty("java.class.path"),
+                "-cp",
+                System.getProperty("java.class.path"),
                 AdvCrashChildMain.class.getName(),
-                dir.toString(), csv.toString());
+                dir.toString(),
+                csv.toString());
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         List<String> output = new ArrayList<>();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+        BufferedReader reader =
+                new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
         long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
         while (System.nanoTime() < deadline) {
             if (reader.ready()) {
@@ -237,7 +242,9 @@ class AdvDurabilityTest {
         List<String> log = new ArrayList<>();
         for (int k = 0; k < kills && next < workload.chunks.size(); k++) {
             Child child = startChild(state, csv);
-            assertThat(child.output()).as("child started: " + child.output()).anySatisfy(l -> assertThat(l).startsWith("READY"));
+            assertThat(child.output())
+                    .as("child started: " + child.output())
+                    .anySatisfy(l -> assertThat(l).startsWith("READY"));
             int burst = 1 + random.nextInt(5);
             for (int b = 0; b < burst && next < workload.chunks.size() - 1; b++) {
                 append(csv, workload.chunks.get(next++));
@@ -270,13 +277,21 @@ class AdvDurabilityTest {
         source.put("schema", AdvCrashChildMain.SCHEMA);
         source.put("op.column", "op");
         source.put("event.time", "ts");
-        PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream("f", AdvCrashChildMain.SCHEMA, "ts")
-                .bindSource("f", "filesystem", source)
-                .declareQuery(ContinuousQuery.named("proj").sql("SELECT id, g, v FROM f").keyedBy("id").build())
-                .declareQuery(ContinuousQuery.named("win").sql(AdvCrashChildMain.WINDOW)
-                        .keyedBy("window_start", "window_end", "g").build()));
+        PravahaEngine engine = AdvSupport.engine(
+                settings,
+                e -> e.declareStream("f", AdvCrashChildMain.SCHEMA, "ts")
+                        .bindSource("f", "filesystem", source)
+                        .declareQuery(ContinuousQuery.named("proj")
+                                .sql("SELECT id, g, v FROM f")
+                                .keyedBy("id")
+                                .build())
+                        .declareQuery(ContinuousQuery.named("win")
+                                .sql(AdvCrashChildMain.WINDOW)
+                                .keyedBy("window_start", "window_end", "g")
+                                .build()));
         if (engine.find("agg").isEmpty()) {
-            engine.query("CREATE CONTINUOUS QUERY agg KEYED BY (g) AS SELECT g, SUM(v) AS s, COUNT(*) AS c FROM proj GROUP BY g");
+            engine.query(
+                    "CREATE CONTINUOUS QUERY agg KEYED BY (g) AS SELECT g, SUM(v) AS s, COUNT(*) AS c FROM proj GROUP BY g");
         }
         return engine;
     }
@@ -300,8 +315,8 @@ class AdvDurabilityTest {
     static Path newest(List<Path> files, String query) {
         return files.stream()
                 .filter(p -> p.getParent().getFileName().toString().equals(query))
-                .max(Comparator.comparingLong(p -> Long.parseLong(
-                        p.getFileName().toString().replaceAll("\\D", ""))))
+                .max(Comparator.comparingLong(
+                        p -> Long.parseLong(p.getFileName().toString().replaceAll("\\D", ""))))
                 .orElseThrow();
     }
 
@@ -333,16 +348,19 @@ class AdvDurabilityTest {
                     String difference = converge(engine, workload, Duration.ofSeconds(30));
                     String states = AdvSupport.state(engine, "proj") + " / " + AdvSupport.state(engine, "win") + " / "
                             + AdvSupport.state(engine, "agg");
-                    throw new IllegalStateException((difference == null ? "EQUAL" : "DIFFERENT " + difference) + " states " + states);
+                    throw new IllegalStateException(
+                            (difference == null ? "EQUAL" : "DIFFERENT " + difference) + " states " + states);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
             });
             outcomes.add(damage + ": " + started.replace("UNCODED java.lang.IllegalStateException: ", ""));
         }
-        outcomes.forEach(o -> System.out.println("NOTE QE-079/080/095 " + o.lines().findFirst().orElse("")));
+        outcomes.forEach(o -> System.out.println(
+                "NOTE QE-079/080/095 " + o.lines().findFirst().orElse("")));
         // Never a different answer: equal, or a refusal with a code.
-        assertThat(outcomes).allSatisfy(o -> assertThat(o).doesNotContain("DIFFERENT").doesNotContain("UNCODED"));
+        assertThat(outcomes)
+                .allSatisfy(o -> assertThat(o).doesNotContain("DIFFERENT").doesNotContain("UNCODED"));
     }
 
     @Test
@@ -379,22 +397,27 @@ class AdvDurabilityTest {
             bytes[at] ^= 0x01;
             Files.write(target, bytes);
             String outcome = AdvSupport.attempt(() -> {
-                try (PravahaEngine engine = fileEngine(copy, csv, Map.of())) {
-                    String difference = converge(engine, workload, Duration.ofSeconds(8));
-                    throw new IllegalStateException(difference == null ? "EQUAL" : "DIFFERENT " + difference);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }).replace("UNCODED java.lang.IllegalStateException: ", "");
-            String verdict = outcome.startsWith("EQUAL") ? "equal"
-                    : outcome.startsWith("DIFFERENT") ? "DIFFERENT"
-                    : outcome.startsWith("PRV-") ? "refused " + outcome.substring(0, 8) : "uncoded";
+                        try (PravahaEngine engine = fileEngine(copy, csv, Map.of())) {
+                            String difference = converge(engine, workload, Duration.ofSeconds(8));
+                            throw new IllegalStateException(difference == null ? "EQUAL" : "DIFFERENT " + difference);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .replace("UNCODED java.lang.IllegalStateException: ", "");
+            String verdict = outcome.startsWith("EQUAL")
+                    ? "equal"
+                    : outcome.startsWith("DIFFERENT")
+                            ? "DIFFERENT"
+                            : outcome.startsWith("PRV-") ? "refused " + outcome.substring(0, 8) : "uncoded";
             verdicts.merge(verdict, 1, Integer::sum);
             if (!verdict.equals("equal") && !verdict.startsWith("refused")) {
-                different.add("byte " + at + "/" + length + ": " + outcome.lines().findFirst().orElse(""));
+                different.add("byte " + at + "/" + length + ": "
+                        + outcome.lines().findFirst().orElse(""));
             }
         }
-        System.out.println("NOTE QE-080 flips=" + positions + " in " + relative + " (" + length + " bytes): " + verdicts);
+        System.out.println(
+                "NOTE QE-080 flips=" + positions + " in " + relative + " (" + length + " bytes): " + verdicts);
         different.forEach(d -> System.out.println("NOTE QE-080 " + d));
         return different;
     }
@@ -426,15 +449,18 @@ class AdvDurabilityTest {
             Thread.sleep(300);
         }
         String after = AdvSupport.attempt(() -> {
-            try (PravahaEngine engine = fileEngine(state, csv, Map.of())) {
-                String difference = converge(engine, workload, Duration.ofSeconds(30));
-                throw new IllegalStateException((difference == null ? "EQUAL" : "DIFFERENT " + difference)
-                        + " | " + AdvSupport.rows(engine, "SHOW CONTINUOUS QUERIES").stream()
-                                .map(r -> r.split("\\|")[0] + "=" + r.split("\\|")[1]).toList());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }).replace("UNCODED java.lang.IllegalStateException: ", "");
+                    try (PravahaEngine engine = fileEngine(state, csv, Map.of())) {
+                        String difference = converge(engine, workload, Duration.ofSeconds(30));
+                        throw new IllegalStateException((difference == null ? "EQUAL" : "DIFFERENT " + difference)
+                                + " | "
+                                + AdvSupport.rows(engine, "SHOW CONTINUOUS QUERIES").stream()
+                                        .map(r -> r.split("\\|")[0] + "=" + r.split("\\|")[1])
+                                        .toList());
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .replace("UNCODED java.lang.IllegalStateException: ", "");
         System.out.println("NOTE QE-090 replace=" + replaced.lines().findFirst().orElse("") + " | after restart: "
                 + after.lines().findFirst().orElse(""));
         assertThat(after).doesNotContain("DIFFERENT").doesNotStartWith("UNCODED");
@@ -462,14 +488,17 @@ class AdvDurabilityTest {
             for (int i = 0; i < 70; i++) {
                 engine.register("many_" + i, "SELECT k, v, ts FROM w WHERE v > " + (i - 100), "k", "ts");
             }
-            engine.push("w", new Object[] {"a", 1L, Instant.ofEpochSecond(BASE + 1)},
-                    new Object[] {"a", 2L, Instant.ofEpochSecond(BASE + 2)});
+            engine.push("w", new Object[] {"a", 1L, Instant.ofEpochSecond(BASE + 1)}, new Object[] {
+                "a", 2L, Instant.ofEpochSecond(BASE + 2)
+            });
             engine.drop("dropped");
             engine.drop("alias_a");
             Thread.sleep(1500);
         }
         try (PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream(W))) {
-            assertThat(engine.queries()).doesNotContain("dropped", "alias_a").contains("alias_b", "open_windows", "many_69");
+            assertThat(engine.queries())
+                    .doesNotContain("dropped", "alias_a")
+                    .contains("alias_b", "open_windows", "many_69");
             engine.push("w", new Object[] {"a", 3L, Instant.ofEpochSecond(BASE + 3)});
             engine.advanceEventTime("w", Instant.ofEpochSecond(BASE + 20));
             String w0 = (BASE * 1_000_000_000L) + "|" + ((BASE + 10) * 1_000_000_000L);
@@ -484,8 +513,9 @@ class AdvDurabilityTest {
         try (PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream(W))) {
             engine.register("alias_a", "SELECT k, v, ts FROM w WHERE v > 0", "k", "ts");
             engine.register("alias_b", "SELECT k, v, ts FROM w WHERE v > 0", "k", "ts");
-            engine.push("w", new Object[] {"a", 1L, Instant.ofEpochSecond(BASE + 1)},
-                    new Object[] {"a", 2L, Instant.ofEpochSecond(BASE + 2)});
+            engine.push("w", new Object[] {"a", 1L, Instant.ofEpochSecond(BASE + 1)}, new Object[] {
+                "a", 2L, Instant.ofEpochSecond(BASE + 2)
+            });
             if (drop != null) {
                 engine.drop(drop);
             }
@@ -581,8 +611,7 @@ class AdvDurabilityTest {
     void qe082_observed(@TempDir Path dir) throws Exception {
         List<String> seen = damagedMiddleRecord(dir);
         System.out.println("NOTE QE-082 " + seen);
-        assertThat(seen).containsExactly(
-                "after damage: [alpha]", "after registering delta and restarting: [alpha]");
+        assertThat(seen).containsExactly("after damage: [alpha]", "after registering delta and restarting: [alpha]");
     }
 
     // ------------------------------------------------------------------ ownership, permissions, full disk
@@ -593,7 +622,8 @@ class AdvDurabilityTest {
     void qe083_aSecondEngineOnARunningEnginesDirectoryIsRefused(@TempDir Path dir) {
         Map<String, String> settings = AdvSupport.durable(dir);
         try (PravahaEngine first = AdvSupport.engine(settings, e -> e.declareStream(W))) {
-            String same = AdvSupport.attempt(() -> AdvSupport.engine(settings, e -> e.declareStream(W)).close());
+            String same = AdvSupport.attempt(
+                    () -> AdvSupport.engine(settings, e -> e.declareStream(W)).close());
             assertThat(same).startsWith("PRV-4003");
         }
     }
@@ -605,7 +635,8 @@ class AdvDurabilityTest {
         other.put("pravaha.node.id", "intruder");
         try (PravahaEngine first = AdvSupport.engine(settings, e -> e.declareStream(W))) {
             first.register("q", "SELECT k, v, ts FROM w", "k", "ts");
-            String intruderBefore = AdvSupport.attempt(() -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
+            String intruderBefore = AdvSupport.attempt(
+                    () -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
             String same = AdvSupport.attempt(() -> {
                 try (PravahaEngine second = AdvSupport.engine(settings, e -> e.declareStream(W))) {
                     // Both engines now journal and checkpoint into one directory.
@@ -614,8 +645,10 @@ class AdvDurabilityTest {
             });
             boolean markerAfter = Files.exists(dir.resolve(".pravaha-owner"))
                     && Files.exists(dir.resolve("checkpoints").resolve(".pravaha-owner"));
-            String intruderAfter = AdvSupport.attempt(() -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
-            System.out.println("NOTE QE-083 intruder while first runs: " + intruderBefore.lines().findFirst().orElse("")
+            String intruderAfter = AdvSupport.attempt(
+                    () -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
+            System.out.println("NOTE QE-083 intruder while first runs: "
+                    + intruderBefore.lines().findFirst().orElse("")
                     + " | same id, same JVM: " + same + " | markers after the second closed: " + markerAfter
                     + " | intruder after: " + intruderAfter.lines().findFirst().orElse(""));
             assertThat(intruderBefore).startsWith("PRV-4003");
@@ -640,13 +673,17 @@ class AdvDurabilityTest {
             engine.push("w", new Object[] {"a", 1L, Instant.ofEpochSecond(BASE + 1)});
             Thread.sleep(1000);
             var query = engine.find("q").orElseThrow();
-            String checkpointState = "failures=" + query.checkpointFailures() + " last=" + query.lastCheckpointFailure()
-                    .map(s -> s.lines().findFirst().orElse("")).orElse("none");
+            String checkpointState = "failures=" + query.checkpointFailures() + " last="
+                    + query.lastCheckpointFailure()
+                            .map(s -> s.lines().findFirst().orElse(""))
+                            .orElse("none");
             List<String> rows = AdvSupport.rows(engine, "SELECT k, v FROM q");
-            Files.setPosixFilePermissions(dir.resolve("registry.journal"), PosixFilePermissions.fromString("r--------"));
+            Files.setPosixFilePermissions(
+                    dir.resolve("registry.journal"), PosixFilePermissions.fromString("r--------"));
             String register = AdvSupport.attempt(() -> engine.register("q2", "SELECT k, ts FROM w", "k", "ts"));
-            System.out.println("NOTE QE-084 " + checkpointState + " rows=" + rows + " | QE-085 " + register.lines().findFirst().orElse("")
-                    + " present=" + engine.find("q2").isPresent());
+            System.out.println("NOTE QE-084 " + checkpointState + " rows=" + rows + " | QE-085 "
+                    + register.lines().findFirst().orElse("") + " present="
+                    + engine.find("q2").isPresent());
             try (Stream<Path> all = Files.walk(checkpoints)) {
                 for (Path p : all.filter(Files::isDirectory).toList()) {
                     Files.setPosixFilePermissions(p, PosixFilePermissions.fromString("rwx------"));
@@ -667,15 +704,18 @@ class AdvDurabilityTest {
         String full = AdvSupport.attempt(() -> {
             try (PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream(W))) {
                 String outcome = AdvSupport.attempt(() -> engine.register("q", "SELECT k, v, ts FROM w", "k", "ts"));
-                throw new IllegalStateException("started; register=" + outcome.lines().findFirst().orElse("")
-                        + " present=" + engine.find("q").isPresent());
+                throw new IllegalStateException(
+                        "started; register=" + outcome.lines().findFirst().orElse("") + " present="
+                                + engine.find("q").isPresent());
             }
         });
         Path dir2 = dir.resolve("two");
         Files.createDirectories(dir2);
         Files.writeString(dir2.resolve("checkpoints"), "not a directory");
-        String file = AdvSupport.attempt(() -> AdvSupport.engine(AdvSupport.durable(dir2), e -> e.declareStream(W)).close());
-        System.out.println("NOTE QE-086 " + full.lines().findFirst().orElse("") + " | QE-087 " + file.lines().findFirst().orElse(""));
+        String file = AdvSupport.attempt(() -> AdvSupport.engine(AdvSupport.durable(dir2), e -> e.declareStream(W))
+                .close());
+        System.out.println("NOTE QE-086 " + full.lines().findFirst().orElse("") + " | QE-087 "
+                + file.lines().findFirst().orElse(""));
         assertThat(full).doesNotContain("present=true");
         assertThat(file).startsWith("PRV-");
     }
@@ -692,7 +732,11 @@ class AdvDurabilityTest {
             engine.push("s", new Object[] {2L, "abc"});
             List<String> seen = new ArrayList<>();
             seen.add("schema " + engine.find("q").orElseThrow().outputSchema());
-            engine.find("q").orElseThrow().view().scan().forEach(r -> seen.add(r[0] + "=" + r[1].getClass().getSimpleName()));
+            engine.find("q")
+                    .orElseThrow()
+                    .view()
+                    .scan()
+                    .forEach(r -> seen.add(r[0] + "=" + r[1].getClass().getSimpleName()));
             return seen;
         }
     }
@@ -721,7 +765,10 @@ class AdvDurabilityTest {
         try (PravahaEngine engine = divisionEngine(dir)) {
             Thread.sleep(2000);
             assertThat(AdvSupport.state(engine, "q")).isEqualTo("RUNNING");
-            assertThat(engine.deadLetters().counts(engine.find("q").orElseThrow().name()).entries()).isEqualTo(1);
+            assertThat(engine.deadLetters()
+                            .counts(engine.find("q").orElseThrow().name())
+                            .entries())
+                    .isEqualTo(1);
             assertThat(AdvSupport.rows(engine, "SELECT * FROM q")).containsExactly("1|5", "3|2");
         }
     }
@@ -745,9 +792,9 @@ class AdvDurabilityTest {
         Path csv = dir.resolve("z.csv");
         Files.writeString(csv, "1,10,2\n2,10,0\n3,10,5\n");
         Map<String, String> source = Map.of("path", csv.toString(), "schema", "id:INT64,a:INT64,b:INT64");
-        PravahaEngine engine = AdvSupport.engine(AdvSupport.durable(dir.resolve("state")), e -> e
-                .declareStream("z", "id:INT64,a:INT64,b:INT64", null)
-                .bindSource("z", "filesystem", source));
+        PravahaEngine engine = AdvSupport.engine(
+                AdvSupport.durable(dir.resolve("state")),
+                e -> e.declareStream("z", "id:INT64,a:INT64,b:INT64", null).bindSource("z", "filesystem", source));
         engine.register("q", "SELECT id, a / b AS r FROM z", "id");
         return engine;
     }
@@ -758,8 +805,9 @@ class AdvDurabilityTest {
         Files.writeString(csv, "1,10\nnot-a-number,5\n2,20\n");
         Map<String, String> source = Map.of("path", csv.toString(), "schema", "id:INT64,v:INT64");
         Path state = dir.resolve("state");
-        try (PravahaEngine engine = AdvSupport.engine(AdvSupport.durable(state), e -> e
-                .declareStream("b", "id:INT64,v:INT64", null).bindSource("b", "filesystem", source))) {
+        try (PravahaEngine engine = AdvSupport.engine(
+                AdvSupport.durable(state),
+                e -> e.declareStream("b", "id:INT64,v:INT64", null).bindSource("b", "filesystem", source))) {
             engine.register("q", "SELECT id, v FROM b", "id");
             Thread.sleep(1500);
             System.out.println("NOTE QE-094 before: rows=" + AdvSupport.rows(engine, "SELECT * FROM q") + " dlq="
@@ -773,26 +821,31 @@ class AdvDurabilityTest {
             Files.writeString(f, "{\"truncated\": \u0000garbage\n", StandardOpenOption.APPEND);
         }
         String after = AdvSupport.attempt(() -> {
-            try (PravahaEngine engine = AdvSupport.engine(AdvSupport.durable(state), e -> e
-                    .declareStream("b", "id:INT64,v:INT64", null).bindSource("b", "filesystem", source))) {
+            try (PravahaEngine engine = AdvSupport.engine(
+                    AdvSupport.durable(state),
+                    e -> e.declareStream("b", "id:INT64,v:INT64", null).bindSource("b", "filesystem", source))) {
                 String counts = AdvSupport.attempt(() -> {
-                    throw new IllegalStateException(String.valueOf(engine.deadLetters().counts("q")));
+                    throw new IllegalStateException(
+                            String.valueOf(engine.deadLetters().counts("q")));
                 });
                 String page = AdvSupport.attempt(() -> {
-                    throw new IllegalStateException(String.valueOf(engine.deadLetters().page("q", 0, 10)));
+                    throw new IllegalStateException(
+                            String.valueOf(engine.deadLetters().page("q", 0, 10)));
                 });
                 throw new IllegalStateException("started state=" + AdvSupport.state(engine, "q") + " counts=" + counts
                         + " page=" + page.lines().findFirst().orElse(""));
             }
         });
-        System.out.println("NOTE QE-094 files=" + dlqFiles.size() + " after: " + after.lines().findFirst().orElse(""));
+        System.out.println("NOTE QE-094 files=" + dlqFiles.size() + " after: "
+                + after.lines().findFirst().orElse(""));
         assertThat(after).contains("started state=RUNNING");
     }
 
     @Test
     @Disabled("QE-164: a CSV TIMESTAMP after 2262-04-11 overflows nanoseconds silently and the row is stamped in 1677")
     void qe164_aTimestampPastTheNanosecondRangeIsRefusedNotWrapped(@TempDir Path dir) throws Exception {
-        assertThat(farFuture(dir)).doesNotContain("|-");
+        List<String> rows = farFuture(dir);
+        assertThat(rows).isNotEmpty().allSatisfy(r -> assertThat(r).doesNotContain("|-"));
     }
 
     @Test
@@ -806,8 +859,9 @@ class AdvDurabilityTest {
         Path csv = dir.resolve("t.csv");
         Files.writeString(csv, "1,3000-01-01T00:00:00Z\n");
         Map<String, String> source = Map.of("path", csv.toString(), "schema", "id:INT64,ts:TIMESTAMP");
-        try (PravahaEngine engine = AdvSupport.engine(AdvSupport.durable(dir.resolve("state")), e -> e
-                .declareStream("t", "id:INT64,ts:TIMESTAMP", null).bindSource("t", "filesystem", source))) {
+        try (PravahaEngine engine = AdvSupport.engine(
+                AdvSupport.durable(dir.resolve("state")),
+                e -> e.declareStream("t", "id:INT64,ts:TIMESTAMP", null).bindSource("t", "filesystem", source))) {
             engine.register("q", "SELECT id, ts FROM t", "id");
             long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
             List<String> rows = List.of();
@@ -816,8 +870,12 @@ class AdvDurabilityTest {
                 rows = AdvSupport.rows(engine, "SELECT * FROM q");
             }
             List<String> raw = new ArrayList<>();
-            engine.find("q").orElseThrow().view().scan().forEach(r -> raw.add(r[0] + "|" + (r[1] instanceof Instant i
-                    ? i.getEpochSecond() * 1_000_000_000L + i.getNano() : r[1])));
+            engine.find("q")
+                    .orElseThrow()
+                    .view()
+                    .scan()
+                    .forEach(r -> raw.add(r[0] + "|"
+                            + (r[1] instanceof Instant i ? i.getEpochSecond() * 1_000_000_000L + i.getNano() : r[1])));
             return raw;
         }
     }
