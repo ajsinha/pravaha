@@ -2244,7 +2244,7 @@ PRV-4003  the state in /opt/pravaha/data/checkpoints belongs to node 'pravaha-no
 |---|---|
 | `pravaha.node.id` | Who the claim is made by. The directory is namespaced by **node id, not by address**, so a node restarting on a new pod IP still finds its own checkpoints; the address lives in the marker, where it answers the question the id cannot — whether the holder is still running |
 | `pravaha.state.allow-shared` | `false`. Skips every check, for an operator who has read the refusal and meant it |
-| `PRV-4003` | Held by another node, or by a second live instance of this one |
+| `PRV-4003` | Held by another node, or by a second live instance of this one — including a second engine in the same JVM, which the marker alone cannot tell apart (SAMEPIDCLAIM-1) |
 | `PRV-4004` | A marker exists and cannot be read or written. Refused rather than assumed free, because a truncated marker and an absent one mean different things |
 
 **A crash restart is not this.** An expired claim under the *same* node id is taken over

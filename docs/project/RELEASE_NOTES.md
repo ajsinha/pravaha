@@ -83,6 +83,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   a push independently: the healthy ones commit it, and the push throws `PRV-8105` (new) naming the
   queries that have the rows and the ones that do not — do not retry it. When no query took it, the
   failure is reported unchanged and a retry is right.
+- **A second engine in one JVM cannot claim a running engine's state** (SAMEPIDCLAIM-1). The ownership
+  marker names a process, so a second embedded engine with the same node id (the default,
+  `pravaha-embedded`) on a running engine's directories took it for a re-claim, ran beside it, and on
+  close deleted the first engine's marker — after which another node's id was accepted. The claims a
+  process holds are now kept in-process too: the second engine is refused `PRV-4003` (`another engine
+  in this process holds the state`), and a close deletes only the marker that claim wrote. One engine
+  naming a directory twice (a journal in its checkpoint directory) is still one claim.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the

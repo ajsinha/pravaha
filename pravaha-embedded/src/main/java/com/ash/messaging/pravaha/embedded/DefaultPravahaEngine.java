@@ -436,11 +436,12 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     private void claim(Path directory) {
         boolean allowShared = configuration.getBoolean("pravaha.state.allow-shared", false);
-        claims.add(StateOwnership.claim(
+        StateOwnership.claimInto(
+                claims,
                 directory,
                 StateOwnership.Owner.current(instanceId, "embedded", 0),
                 StateOwnership.DEFAULT_LEASE,
-                allowShared));
+                allowShared);
     }
 
     @Override

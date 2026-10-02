@@ -177,6 +177,58 @@ final class StateOwnershipTest {
         }
     }
 
+    @Test
+    void aSecondClaimInThisProcessIsRefusedWhileTheFirstIsHeld(@TempDir Path root) throws Exception {
+        // SAMEPIDCLAIM-1: the marker names this process either way, so it cannot tell two engines in
+        // one JVM apart; the second used to take the "our own claim, being re-made" branch and run
+        // beside the first. Refused now, and the first's marker survives the attempt.
+        try (StateOwnership first = StateOwnership.claim(root, node("node-a"), LEASE, false)) {
+            String written = read(root).getProperty("claim.id");
+            assertThatThrownBy(() -> StateOwnership.claim(root, node("node-a"), LEASE, false))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-4003")
+                    .hasMessageContaining("another engine in this process")
+                    .hasMessageContaining("Close the other engine first");
+            // Another spelling of the same directory is the same directory.
+            Files.createDirectories(root.resolve("x"));
+            assertThatThrownBy(
+                            () -> StateOwnership.claim(root.resolve("x").resolve(".."), node("node-a"), LEASE, false))
+                    .hasMessageContaining("another engine in this process");
+            assertThat(read(root).getProperty("claim.id")).isEqualTo(written);
+        }
+        // Released by close: the next claim is an ordinary one.
+        try (StateOwnership next = StateOwnership.claim(root, node("node-a"), LEASE, false)) {
+            assertThat(Files.exists(root.resolve(StateOwnership.MARKER))).isTrue();
+        }
+    }
+
+    @Test
+    void closeDeletesOnlyTheMarkerThisClaimWrote(@TempDir Path root) throws Exception {
+        // Two claims sharing a directory on purpose (allow-shared): the second rewrote the marker, so
+        // the first closing must leave it -- it is the second's, and the second is still running.
+        StateOwnership first = StateOwnership.claim(root, node("node-a"), LEASE, false);
+        try (StateOwnership second = StateOwnership.claim(root, node("node-a"), LEASE, true)) {
+            String secondId = read(root).getProperty("claim.id");
+            first.close();
+            assertThat(Files.exists(root.resolve(StateOwnership.MARKER))).isTrue();
+            assertThat(read(root).getProperty("claim.id")).isEqualTo(secondId);
+        }
+        assertThat(Files.exists(root.resolve(StateOwnership.MARKER))).isFalse();
+    }
+
+    @Test
+    void oneEngineNamingADirectoryTwiceHoldsOneClaim(@TempDir Path root) {
+        // A journal kept in the checkpoint directory: one engine, one directory, one claim.
+        java.util.List<StateOwnership> held = new java.util.ArrayList<>();
+        try {
+            StateOwnership.claimInto(held, root, node("node-a"), LEASE, false);
+            StateOwnership.claimInto(held, root.resolve("."), node("node-a"), LEASE, false);
+            assertThat(held).hasSize(1);
+        } finally {
+            held.forEach(StateOwnership::close);
+        }
+    }
+
     private static Properties read(Path root) throws Exception {
         Properties properties = new Properties();
         try (var in = Files.newInputStream(root.resolve(StateOwnership.MARKER))) {

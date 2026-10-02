@@ -624,45 +624,29 @@ class AdvDurabilityTest {
     // ------------------------------------------------------------------ ownership, permissions, full disk
 
     @Test
-    @Disabled("QE-083: a second engine in the same JVM with the same node id (the default, pravaha-embedded) claims a "
-            + "running engine's state directory, and closing it deletes the first engine's ownership marker")
     void qe083_aSecondEngineOnARunningEnginesDirectoryIsRefused(@TempDir Path dir) {
-        Map<String, String> settings = AdvSupport.durable(dir);
-        try (PravahaEngine first = AdvSupport.engine(settings, e -> e.declareStream(W))) {
-            String same = AdvSupport.attempt(
-                    () -> AdvSupport.engine(settings, e -> e.declareStream(W)).close());
-            assertThat(same).startsWith("PRV-4003");
-        }
-    }
-
-    @Test
-    void qe083_observed(@TempDir Path dir) {
+        // SAMEPIDCLAIM-1, fixed: a second engine in this JVM with the same node id is refused
+        // PRV-4003, the first engine's markers survive the attempt, and another node's id is still
+        // refused afterwards.
         Map<String, String> settings = AdvSupport.durable(dir);
         Map<String, String> other = new LinkedHashMap<>(settings);
         other.put("pravaha.node.id", "intruder");
         try (PravahaEngine first = AdvSupport.engine(settings, e -> e.declareStream(W))) {
             first.register("q", "SELECT k, v, ts FROM w", "k", "ts");
-            String intruderBefore = AdvSupport.attempt(
+            String same = AdvSupport.attempt(
+                    () -> AdvSupport.engine(settings, e -> e.declareStream(W)).close());
+            assertThat(same).startsWith("PRV-4003").contains("another engine in this process");
+            assertThat(dir.resolve(".pravaha-owner")).exists();
+            assertThat(dir.resolve("checkpoints").resolve(".pravaha-owner")).exists();
+            String intruder = AdvSupport.attempt(
                     () -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
-            String same = AdvSupport.attempt(() -> {
-                try (PravahaEngine second = AdvSupport.engine(settings, e -> e.declareStream(W))) {
-                    // Both engines now journal and checkpoint into one directory.
-                    second.register("q_second", "SELECT k, ts FROM w", "k", "ts");
-                }
-            });
-            boolean markerAfter = Files.exists(dir.resolve(".pravaha-owner"))
-                    && Files.exists(dir.resolve("checkpoints").resolve(".pravaha-owner"));
-            String intruderAfter = AdvSupport.attempt(
-                    () -> AdvSupport.engine(other, e -> e.declareStream(W)).close());
-            System.out.println("NOTE QE-083 intruder while first runs: "
-                    + intruderBefore.lines().findFirst().orElse("")
-                    + " | same id, same JVM: " + same + " | markers after the second closed: " + markerAfter
-                    + " | intruder after: " + intruderAfter.lines().findFirst().orElse(""));
-            assertThat(intruderBefore).startsWith("PRV-4003");
-            assertThat(same).isEqualTo("OK");
-            assertThat(markerAfter).isFalse();
-            assertThat(intruderAfter).isEqualTo("OK");
+            assertThat(intruder).startsWith("PRV-4003");
+            assertThat(AdvSupport.state(first, "q")).isEqualTo("RUNNING");
         }
+        // Closed: the directory is free for the next engine of this node.
+        assertThat(AdvSupport.attempt(() ->
+                        AdvSupport.engine(settings, e -> e.declareStream(W)).close()))
+                .isEqualTo("OK");
     }
 
     @Test

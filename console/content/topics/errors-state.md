@@ -141,6 +141,13 @@ Two nodes sharing a checkpoint root prune each other's checkpoints; two sharing 
 other's registrations and each comes up running queries it never registered. Both used to be reachable
 from two lines of configuration, silently (CFG-13, CFG-14).
 
+**Two engines in one process** are told apart too: a second embedded engine (or node) in the same
+JVM on a directory the first still holds is refused with `another engine in this process holds the
+state`, whatever its node id — the marker names a process, so it could not see the difference, and
+until SAMEPIDCLAIM-1 the second ran beside the first and its close deleted the first's marker. Close
+the first engine, or give the second its own directories. A close deletes only the marker that claim
+wrote.
+
 **Do:** give each node its own directories, stop the other instance, or set
 `pravaha.state.allow-shared` to `true` if sharing is genuinely intended. A node reclaiming **its own**
 state after a crash does not hit this: an expired claim under the same node id is taken over
