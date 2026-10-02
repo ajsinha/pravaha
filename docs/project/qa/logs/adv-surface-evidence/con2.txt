@@ -1,0 +1,70 @@
+### QI-112 plain user (ann) on admin pages
+ann login 303 /home
+303 /admin /admin/access user names visible: []
+403 /admin/users  user names visible: []
+403 /admin/keys  user names visible: []
+200 /admin/audit  user names visible: []
+403 /admin/sessions  user names visible: []
+200 /admin/tenants  user names visible: []
+ann POST /admin/users 303 /admin/users 
+### QI-113 CSRF
+pause without token: 403 <!DOCTYPE html><html lang="en" data-bs-theme="light"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width
+pause with ann's token: 403 <!DOCTYPE html><html lang="en" data-bs-theme="light"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width
+pause with bad token + evil origin: 403
+uni state after CSRF attempts: RUNNING
+QI-129 /preferences/role without token: 403
+QI-129 anonymous /preferences/role: 303
+### QI-115 open redirect via next
+'https://evil.example' -> 303 /home
+'//evil.example' -> 303 /home
+'/\\evil.example' -> 303 /home
+'javascript:alert(1)' -> 303 /home
+'%2F%2Fevil.example' -> 303 /home
+'/%2F%2Fevil.example' -> 303 /home
+'https:evil.example' -> 303 /home
+'/\t/evil.example' -> 303 /%09/evil.example
+'\\\\evil.example' -> 303 /home
+### QI-117/127 logout
+logout: 303 /
+replayed old cookie on /overview: 200 None
+QI-118 GET /logout: 405 None
+### QI-119..122 XSS
+200 /queries/by_user escaped/absent []
+200 /views/by_user escaped/absent []
+200 /overview escaped/absent []
+200 /queries escaped/absent []
+200 /views escaped/absent []
+200 /catalog escaped/absent []
+200 /catalog/objects/by_user escaped/absent []
+404 /catalog/streams/%3Cscript%3E escaped/absent []
+200 /catalog/streams/txn escaped/absent []
+200 /help/search?q=%3Cscript%3Ealert(1)%3C/script%3E escaped/absent []
+405 /queries/%3Cscript%3Ealert(1)%3C%2Fscript%3E escaped/absent []
+404 /help/codes/%3Cscript%3Ealert(1)%3C%2Fscript%3E escaped/absent []
+200 /views/by_user/live escaped/absent []
+workbench error: 400 escaped
+workbench result: 200 escaped
+### QI-124 security headers
+Content-Security-Policy = None
+X-Content-Type-Options = None
+X-Frame-Options = None
+Referrer-Policy = None
+Strict-Transport-Security = None
+Permissions-Policy = None
+### QI-128 other tenant's view
+carl login 303 /home
+404 /queries/by_user mentions by_user: True alice: False
+404 /views/by_user mentions by_user: True alice: False
+200 /queries mentions by_user: False alice: False
+200 /overview mentions by_user: False alice: False
+### QI-130 traversal in help/papers/catalog
+404 /help/..%2F..%2Fetc%2Fpasswd False False
+404 /help/topics/..%2F..%2FREADME False False
+404 /help/decisions/..%2f..%2fLICENSE False False
+404 /about/papers/..%2F..%2Fconfig False False
+503 /catalog/objects/..%2F..%2F..%2Fetc%2Fpasswd False False
+404 /help/topics/....//....//etc/passwd False False
+404 /static/..%2f..%2frun_pravaha_web.py False False
+404 /static/../run_pravaha_web.py False False
+404 /tutorials/..%2F..%2F..%2Fetc%2Fpasswd False False
+404 /help/case-studies/..%2F..%2FREADME False False

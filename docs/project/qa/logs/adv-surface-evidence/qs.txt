@@ -1,0 +1,98 @@
+### QI-097 pravaha-engine --help
+$ pravaha-engine --help
+  exit=0
+  | pravaha-engine 2.0.1-SNAPSHOT  Ask once. Answer always.
+  | 
+  | Usage:  pravaha-engine <command> [options]
+  | 
+  | Commands:
+  |   validate  --sql <query> --schema <spec> [--stream <name>] [--event-time <column>]
+  |             Parse, validate and plan without running anything.
+  |             --event-time marks the stream's event-time column; a windowed
+  |             query over a stream without one is refused, as a node refuses it.
+  | 
+  |   explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]
+  |             [--event-time <column>]
+  |             Show the plan the engine would execute.
+  | 
+  |   run       --sql <### QI-192 §2
+$ pravaha-engine run --sql SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100 --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING --out-schema user_id:STRING,amount:INT64 --stream txn --in transactions.csv --out out.csv
+  exit=0
+  | ok  6 in, 3 out
+  |   plan 757274 us, execute 38733 us
+alice,500
+dave,150
+frank,1200
+$ pravaha-engine run --sql SELECT user_id, amount FROM txn --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING --out-schema user_id:STRING,amount:INT64 --stream txn --in mixed.csv --out mixed-out.csv
+  exit=1
+  ! PRV-5040  line 2, column 'amount' (INT64): 'not-a-number' is not a number
+  !   look PRV-5040 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+$ pravaha-engine run --sql SELECT user_id, amount FROM txn --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING --out-schema user_id:STRING,amount:INT64 --stream txn --in mixed.csv --out mixed-out.csv --dlq rejects.jsonl
+  exit=0
+  | ok  2 in, 2 out
+  |   1 rejected -> rejects.jsonl
+  |   plan 508202 us, execute 52786 us
+### §3
+$ pravaha-engine run --sql SELECT user_id, COUNT(*) FROM txn GROUP BY user_id --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING --out-schema user_id:STRING,n:INT64 --stream txn --in transactions.csv --out out.csv
+  exit=1
+  ! PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows with the number of distinct keys and never shrinks. One row per key is fine at a thousand keys and fatal at a hundred million, and the failure arrives weeks after deployment.
+  !   Bound it with a window -- GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id -- so state is released when each window closes.
+  ! Refusing now ### QI-096 bad input
+$ pravaha-engine run --sql SELECT a FROM t --schema a:INT64 --stream t --out o.csv --out-schema a:INT64
+  exit=2
+  ! --in is required. Supplied: [sql, schema, stream, out, out-schema]
+$ pravaha-engine run --sql SELECT a FROM t --schema a:NOTATYPE --stream t --in transactions.csv --out o.csv --out-schema a:INT64
+  exit=1
+  ! PRV-1028  stream 't', column 'a': PRV-1028  unknown type 'NOTATYPE'. Supported: BOOLEAN, INT8, INT16, INT32, INT64, FLOAT32, FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, DECIMAL(p,s). Suffix with ? for nullable. ARRAY, MAP and ROW are not supported by this engine at all.
+  !   look PRV-1028 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+$ pravaha-engine run --sql SELECT txn_id FROM txn --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING --stream txn --in transactions.csv --out /proc/nope/o.csv --out-schema txn_id:INT64
+  exit=1
+  ! PRV-5040  cannot open /proc/nope/o.csv for writing: /proc/nope
+  !   look PRV-5040 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+$ pravaha-engine run --sql  --schema a:INT64 --stream t --in transactions.csv --out o.csv --out-schema a:INT64
+  exit=2
+  ! --sql is required. Supplied: [sql, schema, stream, in, out, out-schema]
+$ pravaha-engine validate --sql SELECT t.a FROM t JOIN u ON t.a = u.a --schema a:INT64 --stream t
+  exit=1
+  ! PRV-2002  PRV-2002  Object 'u' not found. This command plans against one stream, the one you named: 't' (--stream, default txn), with the columns in --schema.
+  !   look PRV-2002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+$ pravaha-engine explain --sql SELECT a FROM t --schema a:INT64 --stream t --level nonsense
+  exit=2
+  ! --level must be logical, physical, codegen or all; got 'nonsense'
+$ pravaha-engine run --sql SELECT txn_id FROM txn --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING --stream txn --in /nonexistent.csv --out o.csv --out-schema txn_id:INT64
+  exit=1
+  ! PRV-5040  plugin 'txn' cannot read /nonexistent.csv
+  !   look PRV-5040 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+$ pravaha-engine version
+  exit=0
+  | pravaha-engine 2.0.1-SNAPSHOT
+$ pravaha-engine nosuch
+  exit=2
+  | pravaha-engine 2.0.1-SNAPSHOT  Ask once. Answer always.
+  | 
+  | Usage:  pravaha-engine <command> [options]
+  | 
+  | Commands:
+  |   validate  --sql <query> --schema <spec> [--stream <name>] [--event-time <column>]
+  |             Parse, validate and plan without running anything.
+  |             --event-time marks the stream's event-time column; a windowed
+  |             query over a stream without one is refused, as a node refuses it.
+  | 
+  |   explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]
+  |             [--event-time <column>]
+  |             Show the plan the engine would execute.
+  | 
+  |   run       --sql <  ! unknown command: nosuch
+### QI-098 JDK 21
+$ env JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:/usr/bin:/bin pravaha-engine version
+  exit=127
+  ! env: 'pravaha-engine': No such file or directory
+  ! env: use -[v]S to pass options in shebang lines
+$ env JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:/usr/bin:/bin pravaha-server --spring.profiles.active=dev
+  exit=127
+  ! env: 'pravaha-server': No such file or directory
+  ! env: use -[v]S to pass options in shebang lines
+$ env -u JAVA_HOME PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:/usr/bin:/bin pravaha-engine version
+  exit=127
+  ! env: 'pravaha-engine': No such file or directory
+  ! env: use -[v]S to pass options in shebang lines

@@ -1,0 +1,82 @@
+### §6 ps
+SERVICE           STATUS                        PORTS
+kafka             Up About a minute (healthy)   9092/tcp, 127.0.0.1:29496->29092/tcp
+pravaha-console   Up About a minute (healthy)   127.0.0.1:27475->17070/tcp
+pravaha-server    Up About a minute (healthy)   127.0.0.1:26435->5432/tcp, 127.0.0.1:28490->18080/tcp, 127.0.0.1:29495->19090/tcp
+{"status":"UP"}
+{"status":"not-ready","engine":{"reachable":false,"url":"grpc://pravaha-server:19090","queries":0,"error":"PRV-1041  PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'"}}
+pravaha-server-1  | 2026-10-02T01:13:20.740Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : identity: users, API keys and sessions kept in /opt/pravaha/data/identit
+pravaha-server-1  | 2026-10-02T01:13:20.872Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : claimed the checkpoint directory /opt/pravaha/data/checkpoints for node 
+pravaha-server-1  | 2026-10-02T01:13:20.878Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : claimed the registry journal directory /opt/pravaha/data for node 'prava
+pravaha-server-1  | 2026-10-02T01:13:20.880Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : registry recovered 0 of 0 queries from /opt/pravaha/data/registry.journa
+### §7 seed log
+no continuous queries are registered
+registered orders_live  state=RUNNING  fingerprint=09c41f033145
+a query with the same fingerprint is the same computation, shared
+registered spend_per_minute  state=RUNNING  fingerprint=93ae117f9e65
+a query with the same fingerprint is the same computation, shared
+
+seed: pravaha queries
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  12       -
+spend_per_minute  RUNNING  93ae117f9e65  12       -
+
+seed: what each customer has spent, asked of the view orders_live
+customer  orders  spend
+acme      5       1502
+globex    4       834
+initech   3       309
+3 rows
+
+seed: the view spend_per_minute
+Created topic orders.
+seed: wrote 12 orders to topic orders
+window_start  customer  orders  spend
+0 rows
+### §7a cli in container
+ Container pravaha-qa-cli-run-465923bb44f5 Creating 
+ Container pravaha-qa-cli-run-465923bb44f5 Created 
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  12       -
+spend_per_minute  RUNNING  93ae117f9e65  12       -
+ Container pravaha-qa-cli-run-4393e5f04fe9 Created 
+customer  orders  spend
+acme      5       1502
+globex    4       834
+initech   3       309
+3 rows
+### §7b host cli
+3 rows
+customer  orders  spend
+acme      5       1502
+globex    4       834
+initech   3       309
+### §7d psql
+ customer | orders | spend 
+----------+--------+-------
+(0 rows)
+
+### ownership
+/home/ashutosh/.cache/pravaha-qi/stack-home:
+total 24
+drwx------ 2 ashutosh ashutosh 4096 Oct  1 21:12 conf
+drwx------ 7 ashutosh ashutosh 4096 Oct  1 21:13 data
+drwx------ 2 ashutosh ashutosh 4096 Oct  1 21:13 logs
+drwxr-xr-x 2 ashutosh ashutosh 4096 Oct  1 21:12 plugins
+drwx------ 2 ashutosh ashutosh 4096 Oct  1 21:12 secrets
+drwx------ 4 ashutosh ashutosh 4096 Oct  1 21:13 tmp
+
+/home/ashutosh/.cache/pravaha-qi/stack-home/secrets:
+total 12
+-rw------- 1 ashutosh ashutosh 25 Oct  1 21:12 initial-admin-password
+-rw-r--r-- 1 ashutosh ashutosh 41 Oct  1 21:12 prometheus.token
+-rw------- 1 ashutosh ashutosh 41 Oct  1 21:12 seed.token
+### docker diff
+--
+C /opt
+C /opt/pravaha
+C /opt/pravaha/conf
+A /opt/pravaha/conf/console.yaml
+### read-only flag
+/pravaha-qa-pravaha-server-1 ro=true user=1000:1000 restart=unless-stopped
+/pravaha-qa-pravaha-console-1 ro=true user=1000:1000 restart=unless-stopped

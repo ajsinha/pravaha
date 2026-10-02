@@ -1,0 +1,36 @@
+/arrow/cpp/src/arrow/status.cc:186: Close() failed: IOError: Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"PRV-7001  this server requires a credential: send it as the header \'authorization: Bearer <token>\'", grpc_status:16}. Client context: OK. Detail: Unauthenticated
+/arrow/cpp/src/arrow/status.cc:186: Close() failed: IOError: Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"PRV-7001  this server requires a credential: send it as the header \'authorization: Bearer <token>\'", grpc_status:16}. Client context: OK. Detail: Unauthenticated
+list_actions authed: OK ['BeginSavepoint', 'BeginTransaction', 'CreatePreparedStatement', 'ClosePreparedStatement', 'CreatePreparedSubstraitPlan', 'CancelQuery', 'EndSavepoint', 'EndTransaction']
+### QI-072 anonymous on a users node
+list_actions anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+list_flights anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+get_flight_info anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_get anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'. gRPC client debug context: UNKNOWN:Error received from peer ipv4:12
+get_schema anon: OSError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'. Detail: Unauthenticated
+do_action BeginSavepoint anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action BeginTransaction anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action CreatePreparedStatement anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action ClosePreparedStatement anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action CreatePreparedSubstraitPlan anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action CancelQuery anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action EndSavepoint anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_action EndTransaction anon: FlightUnauthenticatedError Flight returned unauthenticated error, with message: PRV-7001  this server requires a credential: send it as the header 'authorization: Bearer <token>'
+do_put anon: OK (<pyarrow._flight.FlightStreamWriter object at 0x73916494b720>, <pyarrow._flight.FlightMetadataReader object at 0x739163f67210>)
+do_exchange anon: OK (<pyarrow._flight.FlightStreamWriter object at 0x73916494b720>, <pyarrow._flight.FlightStreamReader object at 0x73915e9ccb80>)
+### QI-070 unknown action
+do_action nope: ArrowInvalid Flight returned invalid argument error, with message: Unrecognized request: nope
+do_action pravaha.nope: ArrowKeyError Flight returned not found error, with message: PRV-6102  this is not a Pravaha request
+### QI-071 garbage tickets
+do_get b'\x00\xff garbage': FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"There was an error servicing your 
+do_get b'NOPE:x': FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"There was an error servicing your 
+do_get b'xxxxxxxxxxxx': ArrowInvalid Flight returned invalid argument error, with message: The defined request is invalid.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_status:3, grpc_message:"The defined request is
+do_get b'': ArrowInvalid Flight returned invalid argument error, with message: The defined request is invalid.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"The defined request is invalid.", grp
+do_get b'LIST': FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_status:13, grpc_message:"There was an error
+do_get b'pravaha.list': FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"There was an error servicing your 
+get_flight_info garbage cmd: ArrowInvalid Flight returned invalid argument error, with message: Received invalid message from remote.
+get_flight_info path: FlightInternalError Flight returned internal error, with message: There was an error servicing your request.
+list_flights authed: ArrowNotImplementedError Flight returned unimplemented error, with message: Not implemented.
+### QI-077 do_put to a view / undeclared stream
+do_put by_user: FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"There was an error servicing your 
+do_put no_such_stream: FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"There was an error servicing your 
+do_put txn: FlightInternalError Flight returned internal error, with message: There was an error servicing your request.. gRPC client debug context: UNKNOWN:Error received from peer ipv4:127.0.0.1:29490 {grpc_message:"There was an error servicing your 

@@ -1,0 +1,34 @@
+3 rows
+id  customer  amount
+1   acme      500
+2   globex    300
+3   initech   70
+ Container pravaha-qa-pravaha-server-1 Stopped 
+mysql-bin.000003	1534	No
+mysql-bin.000004	552	No
+mysql-bin.000005	197	No
+### QI-170 revoke REPLICATION from pravaha_cdc and drop customers' slot (the registration is gone already)
+ALTER ROLE
+ Container pravaha-qa-pravaha-server-1 Started 
+NAME              STATE    FINGERPRINT   ROWS IN  SINK
+orders_live       RUNNING  09c41f033145  0        -
+spend_per_minute  RUNNING  93ae117f9e65  12       -
+payments_live     RUNNING  2408ac96215a  2        -
+5 rows
+id  customer  amount
+1   acme      500
+2   globex    300
+3   initech   70
+4   hooli     44
+5   aviato    55
+state        RUNNING
+feed         RUNNING
+2026-10-02T01:19:45.688Z  INFO 1 --- [pravaha] [ql-cdc-payments] c.g.shyiko.mysql.binlog.BinaryLogClient  : Database version: 8.0.46 (major=8, minor=0, mariadb=false)
+2026-10-02T01:19:45.702Z  WARN 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : registration not recovered -- customers_live: PRV-5115  plugin 'customers': the checkpoint resumes at 0/19747B8, and slot 'pravaha_customers' has already confirmed 0/197C7E8. PostgreSQL has released the changes in between, and would silently start after them. This happens when recovery falls back to an older checkpoint than the newest, or when the slot was recreated. Drop the registration'
+2026-10-02T01:21:22.801Z  INFO 1 --- [pravaha] [ql-cdc-payments] c.g.shyiko.mysql.binlog.BinaryLogClient  : Database version: 8.0.46 (major=8, minor=0, mariadb=false)
+2026-10-02T01:21:22.820Z  WARN 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : registration not recovered -- customers_live: PRV-5115  plugin 'customers': the checkpoint resumes at 0/19747B8, and slot 'pravaha_customers' has already confirmed 0/197C7E8. PostgreSQL has released the changes in between, and would silently start after them. This happens when recovery falls back to an older checkpoint than the newest, or when the slot was recreated. Drop the registration'
+PRV-5118  plugin 'customers' cannot start the initial snapshot of public.customers: FATAL: permission denied to start WAL sender
+  Detail: Only roles with the REPLICATION attribute may start a WAL sender process.. The snapshot is pinned to the log by a temporary replication slot, which PostgreSQL creates only once every transaction already running has ended: a session idle in a transaction holds it up (SELECT pid, xact_start, state FROM pg_stat_activity WHERE backend_xid IS NOT NULL ORDER BY xact_start), and so does max_replication_slots with no room for one more. start.timeout (30s) bounds the wait.
+  look PRV-5118 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+register exit=1
+ALTER ROLE

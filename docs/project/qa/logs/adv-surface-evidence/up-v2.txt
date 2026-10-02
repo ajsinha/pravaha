@@ -1,0 +1,58 @@
+pravaha-server:2.0.0 ready after 6s
+main] c.a.m.pravaha.server.PravahaNode         : authentication is on and Flight is serving plaintext, so credentials travel in the clear; set pravaha.flight.tls.certificate and .key unless something in front of this node is terminating TLS
+main] c.a.m.pravaha.server.PravahaNode         : identity: the user 'admin' still has the default password; change it before anyone else can reach this node
+main] c.a.m.pravaha.server.PravahaNode         : registry recovered 2 of 2 queries from /opt/pravaha/data/registry.journal
+main] c.a.m.p.registry.alert.AlertService      : alerts: recovered 1 from /opt/pravaha/data/alerts.journal
+===== state as 2.0.0 sees it
+--- queries (admin)
+NAME                 STATE    FINGERPRINT   ROWS IN  SINK
+v_default            RUNNING  6800f1454919  0        -
+acme.default.v_acme  RUNNING  f64a81da9985  0        -
+--- v_default
+1 row
+user_id  amount
+alice    250
+--- users
+USERNAME  ROLES            STATUS  TENANT  LAST LOGIN
+admin     operator,admin   active  public  2026-10-02T01:31:15.513433826Z
+carl      operator,reader  active  acme    2026-10-02T01:31:04.682899410Z
+dana      reader           active  public  2026-10-02T01:30:49.698982800Z
+--- alerts
+NAME   VIEW       STATE   FIRING  PENDING  SEVERITY  CHANNELS  PROBLEM
+a_big  v_default  ACTIVE  1       0        warning   ops-log   -
+--- grants on v_default
+OBJECT                    PRIVILEGE  TO    GRANTEE  BY
+public.default.v_default  SELECT     ROLE  reader   admin
+--- namespaces
+NAME            OWNER       TAGS  DESCRIPTION
+node.notifiers  ROLE admin  -     -
+public.default  ROLE admin  -     -
+public.ns1      USER admin  -     made by 1.0.0
+acme.default    ROLE admin  -     -
+--- carl (tenant acme)
+carl token: prv_s_
+NAME    STATE    FINGERPRINT   ROWS IN  SINK
+v_acme  RUNNING  f64a81da9985  0        -
+2 rows
+user_id  amount
+alice    250
+bob      50
+--- dana's API key
+user              dana
+principal         dana
+tenant            public
+1 row
+n
+1
+2 rows
+user_id  amount
+alice    250
+carol    900
+name       a_big
+view       v_default
+state      ACTIVE
+following  FOLLOWING
+condition  amount > 100
+channels   ops-log
+severity   warning
+options    -

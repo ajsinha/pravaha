@@ -1,0 +1,63 @@
+dist.sh: /home/ashutosh/.cache/pravaha-qi/pravaha/target/dist/pravaha-2.0.1-SNAPSHOT
+dist.sh: /home/ashutosh/.cache/pravaha-qi/pravaha/target/dist/pravaha-2.0.1-SNAPSHOT.tar.gz (185M)
+tarball: target/dist/pravaha-2.0.1-SNAPSHOT.tar.gz (185M)
+pravaha-2.0.1-SNAPSHOT/
+pravaha-2.0.1-SNAPSHOT/lib/
+pravaha-2.0.1-SNAPSHOT/lib/pravaha-engine.jar
+pravaha-2.0.1-SNAPSHOT/lib/pravaha-server.jar
+pravaha-2.0.1-SNAPSHOT/VERSION
+pravaha-2.0.1-SNAPSHOT/bin/
+pravaha-2.0.1-SNAPSHOT/bin/pravaha-server
+pravaha-2.0.1-SNAPSHOT/bin/pravaha-engine
+pravaha-2.0.1-SNAPSHOT/LICENSE
+pravaha-2.0.1-SNAPSHOT/data/
+pravaha-2.0.1-SNAPSHOT/tmp/
+pravaha-2.0.1-SNAPSHOT/logs/
+pravaha-2.0.1-SNAPSHOT/conf/
+pravaha-2.0.1-SNAPSHOT/conf/application.yaml.example
+pravaha-2.0.1-SNAPSHOT/conf/pravaha-server.service
+pravaha-2.0.1-SNAPSHOT/plugins/
+pravaha-2.0.1-SNAPSHOT/secrets/
+home: /home/ashutosh/.cache/pravaha-qi/dist test dir/pravaha-2.0.1-SNAPSHOT
+/home/ashutosh/.cache/pravaha-qi/dist test dir/pravaha-2.0.1-SNAPSHOT:
+total 52
+drwxrwxr-x 10 ashutosh ashutosh 4096 Oct  1 21:29 .
+drwxrwxr-x  3 ashutosh ashutosh 4096 Oct  1 21:29 ..
+-rw-r--r--  1 ashutosh ashutosh 4963 Oct  1 21:29 LICENSE
+-rw-rw-r--  1 ashutosh ashutosh   15 Oct  1 21:29 VERSION
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 bin
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 conf
+drwx------  2 ashutosh ashutosh 4096 Oct  1 21:29 data
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 lib
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 logs
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 plugins
+drwx------  2 ashutosh ashutosh 4096 Oct  1 21:29 secrets
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 tmp
+
+/home/ashutosh/.cache/pravaha-qi/dist test dir/pravaha-2.0.1-SNAPSHOT/bin:
+total 20
+drwxrwxr-x  2 ashutosh ashutosh 4096 Oct  1 21:29 .
+drwxrwxr-x 10 ashutosh ashutosh 4096 Oct  1 21:29 ..
+-rwxr-xr-x  1 ashutosh ashutosh 2638 Oct  1 21:29 pravaha-engine
+-rwxr-xr-x  1 ashutosh ashutosh 6650 Oct  1 21:29 pravaha-server
+### QI-157 JDK 21
+pravaha-server: Java 21 found (/usr/lib/jvm/java-21-openjdk-amd64/bin/java); Pravaha 2.x requires Java 25 or later.
+  Point JAVA_HOME at a JDK or JRE 25, e.g. JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+  (Pravaha 1.x is the line that runs on Java 21; docs/operations/COMPATIBILITY.md).
+exit=1
+### QI-156/158 JDK 25 home mode, dev profile, on 28485/29485
+ready after 5s
+{"instanceId":"pravaha-node-01","version":"2.0.1-SNAPSHOT","engineState":"RUNNING","uptimeSeconds":1,"registeredQueries":0,"plugins":[],"streams":0,"stoppedFeeds":0,"flight":"0.0.0.0:29485"}
+.m.p.server.PravahaServerApplication  : Starting PravahaServerApplication v2.0.1-SNAPSHOT using Java 25.0.4.1 with PID 2119101 (/home/ashutosh/.cache/pravaha-qi/dist test dir/pravah
+.m.pravaha.server.PravahaNode         : claimed the checkpoint directory /home/ashutosh/.cache/pravaha-qi/dist test dir/pravaha-2.0.1-SNAPSHOT/data/checkpoints for node 'pravaha-nod
+.m.pravaha.server.PravahaNode         : claimed the registry journal directory /home/ashutosh/.cache/pravaha-qi/dist test dir/pravaha-2.0.1-SNAPSHOT/data for node 'pravaha-node-01'
+.m.pravaha.server.PravahaNode         : registry recovered 0 of 0 queries from /home/ashutosh/.cache/pravaha-qi/dist test dir/pravaha-2.0.1-SNAPSHOT/data/registry.journal
+--- files newer than the marker outside the home (in $HOME/.cache except pravaha-qi/dist, /tmp owned by me):
+/tmp/hsperfdata_ashutosh
+/tmp/hsperfdata_ashutosh/2119525
+/tmp/hsperfdata_ashutosh/2119217
+--- inside the home:
+/data/.pravaha-owner
+/data/checkpoints/.pravaha-owner
+/tmp/snappy-1.1.10-3796aedd-68ec-4dba-8c5b-4e72a5ad1705-libsnappyjava.so
+/logs/pravaha-server.log

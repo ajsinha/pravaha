@@ -1,0 +1,143 @@
+$ pravaha catalog namespaces
+  exit=0
+  | NAME            OWNER       TAGS  DESCRIPTION
+  | public.default  ROLE admin  -     -
+$ pravaha catalog search by_user
+  exit=0
+  | NAME                    KIND  OWNER       TAGS                          DESCRIPTION
+  | public.default.by_user  VIEW  USER admin  owner=<svg/onload=alert(78)>  <img src=x onerror=alert(77)>
+$ pravaha catalog show by_user
+  exit=0
+  | name         public.default.by_user
+  | kind         VIEW
+  | engine name  by_user
+  | owner        USER admin
+  | description  <img src=x onerror=alert(77)>
+  | tags         owner=<svg/onload=alert(78)>
+  | version      3
+  | created      2026-10-02T00:47:12.481828113Z by admin
+  | updated      2026-10-02T01:10:46.199267043Z by admin
+  | 
+  | grants:
+  |   none you may see
+  | 
+  | you may: SELECT, OWN, MANAGE, SUBSCRIBE, MODIFY, BUILD_ON
+$ pravaha catalog create-namespace qa_ns --comment QI namespace --if-not-exists
+  exit=0
+  | created public.qa_ns, owned by USER admin
+$ pravaha catalog move allrows --namespace qa_ns
+  exit=0
+  | moved to public.qa_ns.allrows, with its grants
+$ pravaha catalog ls --kind VIEW
+  exit=0
+  | NAME                    KIND  OWNER       TAGS                          DESCRIPTION
+  | public.default.by_user  VIEW  USER admin  owner=<svg/onload=alert(78)>  <img src=x onerror=alert(77)>
+  | public.default.uni      VIEW  USER admin  -                             -
+  | public.default.snaprep  VIEW  USER admin  -                             -
+  | public.qa_ns.allrows    VIEW  USER admin  -                       $ pravaha grants --on by_user
+  exit=0
+  ! no grants you may see
+$ pravaha access why ann by_user
+  exit=0
+  | ann on public.default.by_user:
+  | PRIVILEGE  ALLOWED  WHY
+  | SELECT     yes      grant SELECT on * to ROLE public
+  | OWN        no       ann holds no OWN on public.default.by_user: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [reader], and they do not own it
+  | MANAGE     yes      grant MANAGE on * to ROLE public
+  | SUBSCRIBE  yes      grant SUBSCRIBE on * to ROLE publ$ pravaha describe by_user
+  exit=0
+  | name         by_user
+  | state        RUNNING
+  | owner        admin
+  | fingerprint  6800f1454919
+  | lane         own
+  | key          user_id
+  | retention    forever
+  | sink         -
+  | rows in      1
+  | registered   2026-10-02T00:57:58.918862493Z
+  | shared with  -
+  | reads        txn
+  | feed         RUNNING
+  | execution    interpreted: Project[user_id, amount] <- Filter(status = 'COMPLETED') <- Scan(txn) -- not generated: PRV-3101  can$ pravaha explain --sql SELECT user_id, amount FROM txn WHERE amount > 100 --level logical --graph
+  exit=0
+  | LogicalProject(user_id=[$1], amount=[$2])
+  |   LogicalFilter(condition=[>($2, 100)])
+  |     LogicalTableScan(table=[[pravaha, txn]])
+  | 
+$ pravaha lanes list
+  exit=0
+  | mode auto, a lane each until 64, at most 300 per shared lane; 4 hosted, 4 on lanes of their own (0 dedicated)
+  | NAME     STATE    LANE  SHARED LANE
+  | by_user  RUNNING  own   -
+  | uni      RUNNING  own   -
+  | allrows  RUNNING  own   -
+  | snaprep  RUNNING  own   -
+$ pravaha lanes rebalance status
+  exit=0
+  | mode auto, room for 60 more on lanes of their own
+  | nothing to move
+$ pravaha alerts channels
+  exit=0
+  ! no notifier channels are bound
+$ pravaha audit --since 2026-10-01T00:00:00Z
+  exit=0
+  ! This node is configured pravaha.security.audit=none, so no decision was recorded and there is nothing to read. Set it to file for a durable trail.
+$ pravaha dlq list --name by_user
+  exit=0
+  | ID                                    WHEN                      CODE      STREAM  OFFSET  BYTES    STATE  REASON
+  | 33dd4f49-3808-46b0-9f96-1d930ce89bb0  2026-10-02T00:51:22.599Z  PRV-5040  txn     line 8  1048611  NEW    field 'user_id' needs 1048656 bytes and this row was given 512. Writing it would run past the space reserved for the row and into whatever is next, which is how a value comes back w$ pravaha dlq show --name by_user --id 33dd4f49-3808-46b0-9f96-1d930ce89bb0
+  exit=0
+  | id      33dd4f49-3808-46b0-9f96-1d930ce89bb0
+  | query   by_user
+  | stream  txn
+  | offset  line 8
+  | when    2026-10-02T00:51:22.599Z
+  | code    PRV-5040  (look PRV-5040 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md)
+  | reason  field 'user_id' needs 1048656 bytes and this row was given 512. Writing it would run past the space reserved for the row and into whatever is next, which is how $ pravaha debug checkpoints --name by_user
+  exit=0
+  | 288
+  | 287
+  | 286
+SESSION=-1a0fa2a73c3-1
+$ pravaha debug state --session -1a0fa2a73c3-1
+  exit=1
+  ! PRV-8013  there is no debug session '-1a0fa2a73c3-1' on this node. It was ended, or it expired after PT15M untouched -- a session holds a second copy of a query's state, so it is not kept for ever. Fork again from the checkpoint.
+  !   look PRV-8013 up in the console's help under Errors, or in docs/guid$ pravaha debug step --session -1a0fa2a73c3-1 --step row
+  exit=1
+  ! PRV-8013  there is no debug session '-1a0fa2a73c3-1' on this node. It was ended, or it expired after PT15M untouched -- a session holds a second copy of a query's state, so it is not kept for ever. Fork again from the checkpoint.
+  !   look PRV-8013 up in the console's help under Errors, or in docs/guid$ pravaha debug view --session -1a0fa2a73c3-1
+  exit=1
+  ! PRV-8013  there is no debug session '-1a0fa2a73c3-1' on this node. It was ended, or it expired after PT15M untouched -- a session holds a second copy of a query's state, so it is not kept for ever. Fork again from the checkpoint.
+  !   look PRV-8013 up in the console's help under Errors, or in docs/guid$ pravaha debug end --session -1a0fa2a73c3-1
+  exit=1
+  ! PRV-8013  there is no debug session '-1a0fa2a73c3-1' on this node. It was ended, or it expired after PT15M untouched -- a session holds a second copy of a query's state, so it is not kept for ever. Fork again from the checkpoint.
+  !   look PRV-8013 up in the console's help under Errors, or in docs/guid$ pravaha permissions
+  exit=0
+  | principal   admin
+  | tenant      public
+  | roles       admin,operator
+  | policy      permissive
+  | register    allowed
+  | read audit  allowed
+  | 
+  | VIEW     READ  ADMINISTER
+  | allrows  full  allowed
+  | by_user  full  allowed
+  | snaprep  full  allowed
+  | uni      full  allowed
+  | 
+  | STREAM                  READ  ADMINISTER
+  | <svg onload=alert(79)>  full  allowed
+  | empty_s                 full  allowed
+  | s2                      full  allowe$ pravaha views describe by_user
+  exit=0
+  | name         by_user
+  | key          user_id
+  | retention    forever
+  | sink         -
+  | fingerprint  6800f1454919
+  | 
+  | ORDINAL  NAME     TYPE              NULLABLE
+  | 0        user_id  VARCHAR NOT NULL  no
+  | 1        amount   INT64 NOT NULL    no

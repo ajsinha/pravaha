@@ -1,0 +1,43 @@
+### §4 first run
+no continuous queries are registered
+exit=0
+### §4 with application.yaml (path moved from /opt/pravaha/data/incoming to the scratch dir)
+server without --spring.profiles.active=dev: alive=no
+PRV-7004  this node is configured to accept unauthenticated callers and serve them every view (pravaha
+### §4 same, with the dev profile kept
+avahaNode         : stream txn: event-time=event_time, out-of-orderness=PT10S, allowed-lateness=PT0S
+avahaNode         : sources bound: [txn <- filesystem[follow, event.time, schema, path]]
+a query with the same fingerprint is the same computation, shared
+registered by_user  state=RUNNING  fingerprint=6800f1454919
+2 rows
+user_id  amount
+u1       250
+u2       50
+a query with the same fingerprint is the same computation, shared
+registered user_volume  state=RUNNING  fingerprint=36e2280d377e
+NAME         STATE    FINGERPRINT   ROWS IN  SINK
+by_user      RUNNING  6800f1454919  3        -
+user_volume  RUNNING  36e2280d377e  3        -
+### §5
+1 row
+user_id  total
+u1       750
+### §6
+subscribing to user_volume; the view's rows print first, then changes print as they are committed. Ctrl-C to stop.
+WEIGHT	window_end	user_id	txn_count	total
++1	2026-09-29 10:01:00+00:00	u1	2	750
++1	2026-09-29 10:01:00+00:00	u2	1	50
+-- snapshot at frontier 1790676060000000000, 2 rows
+subscribe exit=0
+subscribing to user_volume {'user_id': 'u1'}; the view's rows print first, then changes print as they are committed. Ctrl-C to stop.
+WEIGHT	window_end	user_id	txn_count	total
++1	2026-09-29 10:01:00+00:00	u1	2	750
+-- snapshot at frontier 1790676060000000000, 1 row
+subscribe exit=0
+### From a program (Python)
+750
+### §8
+dropped user_volume
+NAME          STATE    FINGERPRINT   ROWS IN  SINK
+by_user       RUNNING  6800f1454919  4        -
+user_volume2  RUNNING  36e2280d377e  4        -

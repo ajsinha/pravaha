@@ -1,0 +1,40 @@
+### QI-056 password policy at creation
+p1 'short' 400 {"code":"PRV-7012","message":"PRV-7012  a password needs at least 12 characters","helpUrl":"","timestamp":"2026-10-02T00:54:55.542039128Z","path":"/api/v1/users"}
+p2 'alllowercaseletters' 400 {"code":"PRV-7012","message":"PRV-7012  a password needs at least 3 of: lower-case letters, upper-case letters, digits, symbols","helpUrl":"","timestamp":"2026-10-02T00:5
+p3 'Abcdefghijk1' 200 {"username":"p3","displayName":null,"email":null,"tenant":"public","roles":["reader"],"status":"active","service":false,"mustChangePassword":false,"passwordChangedAt":"20
+p4 'Abcdefghij1' 400 {"code":"PRV-7012","message":"PRV-7012  a password needs at least 12 characters","helpUrl":"","timestamp":"2026-10-02T00:54:55.931777246Z","path":"/api/v1/users"}
+p5 'pravaha-dev-admin' 400 {"code":"PRV-7012","message":"PRV-7012  a password needs at least 3 of: lower-case letters, upper-case letters, digits, symbols","helpUrl":"","timestamp":"2026-10-02T00:5
+### QI-058 attributes validation
+{'via': 'x'} 400 {"code":"PRV-7020","message":"PRV-7020  'via' is a claim the engine sets on every credential it resolves [key, mustChangePassword, session, via], so i
+{'region': 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx 400 {"code":"PRV-7020","message":"PRV-7020  the attribute 'region' needs a value of 1 to 256 characters with no control characters; to remove it, leave it
+{'region': 'a\nb'} 400 {"code":"PRV-7020","message":"PRV-7020  the attribute 'region' needs a value of 1 to 256 characters with no control characters; to remove it, leave it
+{'k0': 'v', 'k1': 'v', 'k2': 'v', 'k3':  400 {"code":"PRV-7020","message":"PRV-7020  a user carries at most 32 attributes; 33 were given","helpUrl":"","timestamp":"2026-10-02T00:54:55.962883704Z"
+{'region': ''} 400 {"code":"PRV-7020","message":"PRV-7020  the attribute 'region' needs a value of 1 to 256 characters with no control characters; to remove it, leave it
+{'<b>': 'v'} 400 {"code":"PRV-7020","message":"PRV-7020  an attribute name is 1 to 64 letters, digits, '.', '_' and '-', starting with a letter; '<b>' is not","helpUrl
+{'region': 'EU'} 200 {"username":"ann","displayName":null,"email":null,"tenant":"public","roles":["reader"],"status":"active","service":false,"mustChangePassword":false,"p
+### QI-059 hostile stream names
+'../x' 201 {"name":"../x","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrdernes
+'a b' 201 {"name":"a b","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrderness
+'<script>' 201 {"name":"<script>","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrde
+'' 400 {"code":"PRV-1051","message":"schema name must not be blank","helpUrl":"","timestamp":"2026-10-02T00:54:56.007410350Z","path":"/api/v1/streams"}
+'xxxxxxxxxxxxxxxxxxxxxxxxxxxxx 201 {"name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+'SELECT' 201 {"name":"SELECT","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrdern
+'名前' 201 {"name":"名前","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrderness"
+'a;DROP' 201 {"name":"a;DROP","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrdern
+'a"b' 201 {"name":"a\"b","version":1,"fieldCount":1,"fields":[{"name":"a","type":"INT64 NOT NULL","nullable":false,"ordinal":0}],"eventTime":null,"outOfOrdernes
+### QI-055 enumeration: unknown user vs wrong password (status, body, median ms over 15)
+nosuchuser_zz 332.7ms 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:00.840746371Z","path":"/api/v1/auth
+p3 2.6ms 423 {"code":"PRV-7011","message":"PRV-7011  this account is locked until 2026-10-02T01:25:02.124296102Z after too many failed sign-ins; try again then, or ask an ad
+### QI-054 lockout: create 'lock1', 6 failures, then the right password
+200
+fail 1 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:02.80
+fail 2 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:03.13
+fail 3 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:03.35
+fail 4 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:03.57
+fail 5 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:03.91
+fail 6 423 {"code":"PRV-7011","message":"PRV-7011  this account is locked until 2026-10-02T01:25:03.910384516Z after too many failed sign-ins
+right password after 6 failures: 423 {"code":"PRV-7011","message":"PRV-7011  this account is locked until 2026-10-02T01:25:03.910384516Z after too many failed sign-ins; try again then, or ask an administrato
+unknown user after many: 401 {"code":"PRV-7010","message":"PRV-7010  that user name and password do not match","helpUrl":"","timestamp":"2026-10-02T00:55:04.253573937Z","path":"/api/v1/auth/login"}
+lock1 lockedUntil: ['2026-10-02T01:25:03.910384516Z']
+### QI-057 expired/ended session token
+p3 login 423 {"code":"PRV-7011","message":"PRV-7011  this account is locked until 2026-10-02T01:25:02.124296102Z after too many failed sign-ins; try again then, or ask an administrato

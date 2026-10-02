@@ -1,0 +1,16 @@
+before: subs {'allrows': '0.0', 'by_user': '0.0', 'uni': '0.0'} heap 127989K
+first batch rows 8
+subscribed: subs {'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+t+5s heap=228447K subs={'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+t+10s heap=361209K subs={'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+t+15s heap=287381K subs={'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+t+20s heap=388757K subs={'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+t+25s heap=271010K subs={'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+t+30s heap=372373K subs={'allrows': '2.0', 'by_user': '0.0', 'uni': '0.0'}
+fast consumer last: ['fast got 200000']
+### QI-074 kill -9 the slow client
+after kill t+5s subs={'allrows': '0.0', 'by_user': '0.0', 'uni': '0.0'} heap=239591K
+after kill t+10s subs={'allrows': '0.0', 'by_user': '0.0', 'uni': '0.0'} heap=288892K
+after kill t+15s subs={'allrows': '0.0', 'by_user': '0.0', 'uni': '0.0'} heap=389893K
+after kill t+20s subs={'allrows': '0.0', 'by_user': '0.0', 'uni': '0.0'} heap=491425K
+health 200

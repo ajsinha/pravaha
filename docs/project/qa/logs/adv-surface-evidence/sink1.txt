@@ -1,0 +1,25 @@
+CREATE TABLE
+ Container pravaha-qa-pravaha-server-1 Started 
+NAME     PLUGIN     EMIT            RETRACTIONS  GUARANTEE     WRITERS  PROBLEM
+pay_out  jdbc-sink  RETRACT,UPSERT  yes          EXACTLY_ONCE  -        -
+a query with the same fingerprint is the same computation, shared
+registered pay_sink  state=RUNNING  fingerprint=2408ac96215a  sink=pay_out
+register exit=0
+ALTER TABLE
+pay_sink: sink 'pay_out' detached with PRV-8009: PRV-8009  sink 'pay_out' for query 'pay_sink' failed and has been detached: PRV-5076  sink 'pay_out' could not commit jdbc-sink:v1:2:pay_out: Batch entry 0 INSERT INTO "public"."pay_out" ("id", "customer", "amount") VALUES (('20'::int8), ('post-alter'), ('2000'::int8)) ON CONFLICT ("id") DO UPDATE SET "customer" = EXCLUDED."customer", "amount" = EXCLUDED."amount" was aborted: ERROR: column "amount" of relation "pay_out" does not exist
+  Position: 51  Call getNextException to see other errors in the batch.. Writing later batches over the one that failed would leave the sink missing changes with nothing to say so; the query and its view carry on, and re-registering the query against the sink starts it again from the view's contents.
+a detached sink is not retried either, and the query and its view carry on and stay right. Fix the cause, then drop the query and register it again: the sink is sent the view's whole contents first, so nothing written while it was detached is lost
+NAME      STATE    FINGERPRINT   ROWS IN  SINK
+pay_sink  RUNNING  2408ac96215a  1        pay_out (detached)
+sink pay_out: PRV-8009  PRV-8009  sink 'pay_out' for query 'pay_sink' failed and has been detached: PRV-5076  sink 'pay_out' could not commit jdbc-sink:v1:2:pay_out: Batch entry 0 INSERT INTO "public"."pay_out" ("id", "customer", "amount") VALUES (('20'::int8), ('post-alter'), ('2000'::int8)) ON CONFLICT ("id") DO UPDATE SET "customer" = EXCLUDED."customer", "amount" = EXCLUDED."amount" was aborted: ERROR: column "amount" of relation "pay_out" does not exist
+  Position: 51  Call getNextException to see other errors in the batch.. Writing later batches over the one that failed would leave the sink missing changes with nothing to say so; the query and its view carry on, and re-registering the query against the sink starts it again from the view's contents.
+state        RUNNING
+sink         pay_out (detached, 1 rows written)
+feed         RUNNING
+1 row
+id  amount
+20  2000
+  Position: 51  Call getNextException to see other errors in the batch.. Writing later batches over the one that failed would leave the sink missing changes with nothing to say so; the query and its view carry on, and re-registering the query against the sink starts it again from the view's contents.
+com.ash.messaging.pravaha.api.PravahaException: PRV-5076  sink 'pay_out' could not commit jdbc-sink:v1:2:pay_out: Batch entry 0 INSERT INTO "public"."pay_out" ("id", "customer", "amount") VALUES (('20'::int8), ('post-alter'), ('2000'::int8)) ON CONFLICT ("id") DO UPDATE SET "customer" = EXCLUDED."customer", "amount" = EXCLUDED."amount" was aborted: ERROR: column "amount" of relation "pay_out" does
+Caused by: java.sql.BatchUpdateException: Batch entry 0 INSERT INTO "public"."pay_out" ("id", "customer", "amount") VALUES (('20'::int8), ('post-alter'), ('2000'::int8)) ON CONFLICT ("id") DO UPDATE SET "customer" = EXCLUDED."customer", "amount" = EXCLUDED."amount" was aborted: ERROR: column "amount" of relation "pay_out" does not exist
+Caused by: org.postgresql.util.PSQLException: ERROR: column "amount" of relation "pay_out" does not exist

@@ -1,0 +1,90 @@
+### QI-040 every lock path anonymously
+non-401 anonymous answers:
+POST /api/v1/auth/reset/redeem -> 400 PRV-7017 {"code":"PRV-7017","message":"PRV-7017  this reset token is unknown, already used or expir
+### QI-041 forged tokens
+49 401 {"code":"PRV-7001","message":"PRV-7001  the credential was rejected","helpUrl":"","timestamp":"2026-10-02T00:53:54.144059126Z","path":"/api/ 
+0 401 {"code":"PRV-7001","message":"PRV-7001  the credential was rejected","helpUrl":"","timestamp":"2026-10-02T00:53:54.154787507Z","path":"/api/ 
+10000 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/css">body {font-family:Tahoma,Arial,sans-  LEAK<<html>
+53 401 {"code":"PRV-7001","message":"PRV-7001  the credential was rejected","helpUrl":"","timestamp":"2026-10-02T00:53:54.341283915Z","path":"/api/ 
+49 401 {"code":"PRV-7001","message":"PRV-7001  the credential was rejected","helpUrl":"","timestamp":"2026-10-02T00:53:54.352505413Z","path":"/api/ 
+basic admin:pravaha-dev-admin 401 {"code":"PRV-7001","message":"PRV-7001  the credential was rejected","helpUrl":"","timestamp":"2026-10-02T00:53:54.358828664Z","path":"/api/
+### QI-042 plain user on admin endpoints
+GET /api/v1/users 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.416741650Z"
+POST /api/v1/users 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.456816456Z"
+GET /api/v1/audit 200 {"recording":false,"sink":"none","capacity":0,"retained":0,"evicted":0,"oldestRetained":null,"actions":[],"events":[],"nextCursor":null,"note":"This n
+GET /api/v1/sessions?all=true 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.621170345Z"
+POST /api/v1/lanes/rebalance 403 {"code":"PRV-7002","message":"PRV-7002  ann does not hold the admin role, which a lane rebalance needs","helpUrl":"","timestamp":"2026-10-02T00:53:54.
+GET /api/v1/keys/report 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.628389852Z"
+PUT /api/v1/users/ann/roles 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.634748233Z"
+POST /api/v1/users/admin/password-reset 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.637257691Z"
+GET /api/v1/keys?all=true 403 {"code":"PRV-7002","message":"PRV-7002  administering users and keys needs the 'admin' role","helpUrl":"","timestamp":"2026-10-02T00:53:54.639257192Z"
+GET /api/v1/tenants 200 {"scope":"all","defaults":{"maxQueries":null,"maxStateKeys":null},"tenants":[{"tenant":"public","queries":2,"computations":2,"stateKeys":9,"limits":{"
+POST /api/v1/keys 403 {"code":"PRV-7015","message":"PRV-7015  a key can hold only roles its holder has; ann has [reader], and [admin] was asked for","helpUrl":"","timestamp
+### QI-043 malformed JSON
+b'{' 400 {"code":"PRV-1052","message":"400 Bad Request for POST /api/v1/queries/validate. Every error from this API is an ApiError; this one did not reach an e 
+b'[]' 400 {"code":"PRV-1052","message":"400 Bad Request for POST /api/v1/queries/validate. Every error from this API is an ApiError; this one did not reach an e 
+b'"str"' 200 {"valid":false,"diagnostics":[{"code":"PRV-2001","message":"PRV-2001  Non-query expression encountered in illegal context","helpUrl":"","severity":"er 
+b'{"sql": 5}' 200 {"valid":false,"diagnostics":[{"code":"PRV-2001","message":"PRV-2001  Non-query expression encountered in illegal context","helpUrl":"","severity":"er 
+b'null' 400 {"code":"PRV-1052","message":"400 Bad Request for POST /api/v1/queries/validate. Every error from this API is an ApiError; this one did not reach an e 
+b'' 400 {"code":"PRV-1052","message":"400 Bad Request for POST /api/v1/queries/validate. Every error from this API is an ApiError; this one did not reach an e 
+b'{"sql": "SELECT 1", "sql": "x"}' 200 {"valid":false,"diagnostics":[{"code":"PRV-2001","message":"PRV-2001  Non-query expression encountered in illegal context","helpUrl":"","severity":"er 
+b'\xff\xfe' 400 {"code":"PRV-1052","message":"400 Bad Request for POST /api/v1/queries/validate. Every error from this API is an ApiError; this one did not reach an e 
+### QI-044 wrong content types
+text/plain 415 {"code":"PRV-1052","message":"415 Unsupported Media Type for POST /api/v1/queries/validate -- Content-Type 'text/plain;charset=UTF-8' is not supported 
+application/xml 415 {"code":"PRV-1052","message":"415 Unsupported Media Type for POST /api/v1/queries/validate -- Content-Type 'application/xml;charset=UTF-8' is not supp 
+multipart/form-data; boundary=x 415 {"code":"PRV-1052","message":"415 Unsupported Media Type for POST /api/v1/queries/validate -- Content-Type 'multipart/form-data;boundary=x;charset=UTF 
+application/x-www-form-urlencoded 415 {"code":"PRV-1052","message":"415 Unsupported Media Type for POST /api/v1/queries/validate -- Content-Type 'application/x-www-form-urlencoded;charset= 
+### QI-045 50 MiB body
+admin /api/v1/queries/validate EXC BrokenPipeError(32, 'Broken pipe') 1.2s
+None /api/v1/auth/login EXC BrokenPipeError(32, 'Broken pipe') 1.1s
+### QI-046 traversal and odd names
+/api/v1/queries/..%2f..%2fetc%2fpasswd 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/css">body {font-family:Tahoma,Arial,sans-  LEAK<<html>
+/api/v1/views/%2e%2e 404 {"code":"PRV-4023","message":"PRV-4023  '..' is not a view you may see on this server. The views are not listed here; GET /api/v1/queries li 
+/api/v1/streams/a%00b 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/css">body {font-family:Tahoma,Arial,sans-  LEAK<<html>
+/api/v1/catalog/objects/..;/x 404 {"code":"PRV-1052","message":"404 Not Found for GET /api/v1/catalog/objects/..;/x -- No static resource api/v1/catalog/objects/../x.. Every  
+/api/v1/queries/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 404 {"code":"PRV-8002","message":"PRV-8002  no registered query named 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 
+/api/v1/queries/%3Cscript%3E 404 {"code":"PRV-8002","message":"PRV-8002  no registered query named '<script>' that you may see. The registered queries are not listed here; G 
+/api/v1/../actuator/env 404 {"code":"PRV-1052","message":"404 Not Found for GET /api/v1/../actuator/env -- No static resource api/v1/../actuator/env.. Every error from  
+/api/v1/queries/..%5c..%5cx 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/css">body {font-family:Tahoma,Arial,sans-  LEAK<<html>
+/api/v1/catalog/objects/..%2F..%2F..%2Fetc%2Fpasswd 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/css">body {font-family:Tahoma,Arial,sans-  LEAK<<html>
+### QI-047 method confusion
+DELETE /api/v1/status 405 Allow=GET {"code":"PRV-1052","message":"405 Method Not Allowed for DELETE /api/v1/status -- Method 'DELETE' is not supported.. Eve 
+PUT /api/v1/queries 405 Allow=GET {"code":"PRV-1052","message":"405 Method Not Allowed for PUT /api/v1/queries -- Method 'PUT' is not supported.. Every er 
+TRACE /api/v1/status 405 Allow=HEAD, DELETE, POST, GET, OPTIONS, PUT  
+OPTIONS /api/v1/queries 200 Allow=GET,HEAD,OPTIONS  
+PATCH /api/v1/streams 405 Allow=POST, GET {"code":"PRV-1052","message":"405 Method Not Allowed for PATCH /api/v1/streams -- Method 'PATCH' is not supported.. Ever 
+### QI-048 CORS
+preflight 401 {} {"code":"PRV-7001","message":"this server requires a credential; send it as 'Aut
+simple GET 401 {}
+### QI-049 error leakage
+/api/v1/nope 404 application/json {"code":"PRV-1052","message":"404 Not Found for GET /api/v1/nope -- No static resource api/v1/nope.. Every error from this API is an ApiError; this on 
+/nope 404 application/json {"code":"PRV-1052","message":"404 Not Found for GET /nope -- No static resource nope.. Every error from this API is an ApiError; this one did not reac 
+/api/v1/queries/nope/plan 404 application/json {"code":"PRV-8002","message":"PRV-8002  no registered query named 'nope' that you may see. The registered queries are not listed here; GET /api/v1/que 
+/error 500 application/json {"code":"PRV-1052","message":"500 Internal Server Error for GET /error. Every error from this API is an ApiError; this one did not reach an endpoint,  
+/api/v1/queries/nope/dead-letters/xyz 404 application/json {"code":"PRV-8002","message":"PRV-8002  'nope' is not a query you may see on this server, so it has no dead letters here. GET /api/v1/queries lists th 
+/api/v1/debug/sessions/x/state/y 404 application/json {"code":"PRV-8013","message":"PRV-8013  there is no debug session 'x' on this node. It was ended, or it expired after PT15M untouched -- a session hol 
+### QI-051/052 openapi and docs
+anon /api/v1/openapi.json 200 application/json 78206
+anon /api/docs 302 None 0
+anon /status 401 application/json;charset=ISO-8859-1 184
+anon /api/docs/index.html 404 application/json 333
+anon /swagger-ui/index.html 401 application/json;charset=ISO-8859-1 199
+live-only: [] lock-only: []
+method diffs: []
+### QI-053 actuator anonymously
+/actuator 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/health 200 {"status":"UP","groups":["liveness","readiness"]}
+/actuator/health/liveness 200 {"status":"UP"}
+/actuator/health/readiness 200 {"status":"UP"}
+/actuator/info 200 {"pravaha":{"node":"pravaha-node-01","name":"pravaha","version":"2.0.1-SNAPSHOT"}}
+/actuator/metrics 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/metrics/jvm.memory.used 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/prometheus 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/env 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/heapdump 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/threaddump 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+/actuator/loggers 401 {"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","
+### QI-060 huge header
+64KiB header 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/c
+500 headers 400 <!doctype html><html lang="en"><head><title>HTTP Status 400 – Bad Request</title><style type="text/c
+alive 200
