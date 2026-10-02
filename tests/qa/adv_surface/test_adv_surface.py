@@ -239,11 +239,11 @@ def test_qi004_an_open_connection_stops_reading_once_its_session_signs_out(admin
 
 
 @needs_pgwire
-@open_defect("QI-031: open defect -- an int4 binary parameter against a BIGINT column is PRV-6202 "
-                         "08P01 (pgjdbc setInt, psycopg %b with a small int, Npgsql AddWithValue(int))")
 def test_qi031_int4_binary_parameter_against_a_bigint_column(admin):
+    # PGINTPARAM-1, fixed: a binary int2/int4 parameter is read at its declared width and widened to
+    # the BIGINT it is compared with, answering as the same value bound as text does.
     psycopg = pytest.importorskip("psycopg")
-    from psycopg.types.numeric import Int4
+    from psycopg.types.numeric import Int2, Int4
 
     view = any_view(admin)
     with pg_connect(admin) as conn:
@@ -251,7 +251,12 @@ def test_qi031_int4_binary_parameter_against_a_bigint_column(admin):
         bigint = next((d.name for d in description if d.type_code == 20), None)
         if bigint is None:
             pytest.skip(f"{view} has no BIGINT column")
-        conn.execute(f"SELECT * FROM {view} WHERE {bigint} > %b", [Int4(1)]).fetchall()
+        def rows(param, value):
+            return sorted(conn.execute(f"SELECT * FROM {view} WHERE {bigint} > {param}", [value]).fetchall(), key=repr)
+
+        as_text = rows("%s", "1")
+        assert rows("%b", Int4(1)) == as_text
+        assert rows("%b", Int2(1)) == as_text
 
 
 @needs_pgwire

@@ -93,6 +93,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `SHOW CONTINUOUS QUERIES` and `GET /api/v1/queries`. The listing now consults the catalogue's
   narrowing too (and withholds when it cannot be bound to the caller). `QueryListingNarrowingTest`,
   `AdvSecurityTest` QE-111 enabled.
+- **A 4- or 2-byte integer parameter against a `BIGINT` column is widened, not refused
+  (PGINTPARAM-1).** The PostgreSQL gateway read every binary parameter at the width of the column it
+  was compared with and ignored the type the client declared in `Parse`, so pgjdbc's `setInt`,
+  psycopg's `%b` with a small `int` and Npgsql's (Power BI's) `int` parameters were `08P01 PRV-6202`.
+  A binary number is now read as its declared type and widened as PostgreSQL widens it (`int2`/`int4`
+  to any wider integer or to `DOUBLE`, `float4` to `DOUBLE`); a wider integer is accepted only when its
+  value is in range (`PRV-2062` otherwise). `PgTypesTest`, `JdbcClientTest` (real pgjdbc `setInt`,
+  `setShort`), ADV-SURFACE `test_qi031` now a passing check.
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 

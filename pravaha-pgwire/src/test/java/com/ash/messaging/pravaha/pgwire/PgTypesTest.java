@@ -228,6 +228,55 @@ class PgTypesTest {
     }
 
     @Test
+    void aNarrowerBinaryNumberIsWidenedToThePlaceholdersType() {
+        // PGINTPARAM-1: read at the width the client declared in Parse, then widened, as PostgreSQL does.
+        short binary = PgBackend.FORMAT_BINARY;
+        assertThat(PgTypes.decodeParameter(TypeName.INT64, PgTypes.OID_INT4, binary, new byte[] {0, 0, 2, 0x58}))
+                .isEqualTo(600L);
+        assertThat(PgTypes.decodeParameter(
+                        TypeName.INT64, PgTypes.OID_INT2, binary, new byte[] {(byte) 0xff, (byte) 0x9c}))
+                .isEqualTo(-100L);
+        assertThat(PgTypes.decodeParameter(TypeName.INT32, PgTypes.OID_INT2, binary, new byte[] {0, 100}))
+                .isEqualTo(100L);
+        assertThat(PgTypes.decodeParameter(TypeName.FLOAT64, PgTypes.OID_INT4, binary, new byte[] {0, 0, 0, 7}))
+                .isEqualTo(7.0);
+        byte[] onePointFive = java.nio.ByteBuffer.allocate(4).putFloat(1.5f).array();
+        assertThat(PgTypes.decodeParameter(TypeName.FLOAT64, PgTypes.OID_FLOAT4, binary, onePointFive))
+                .isEqualTo(1.5);
+        // The placeholder's own type, and no declaration at all, read at the placeholder's width as before.
+        byte[] eight = java.nio.ByteBuffer.allocate(8).putLong(9L).array();
+        assertThat(PgTypes.decodeParameter(TypeName.INT64, PgTypes.OID_INT8, binary, eight))
+                .isEqualTo(9L);
+        assertThat(PgTypes.decodeParameter(TypeName.INT64, 0, binary, eight)).isEqualTo(9L);
+    }
+
+    @Test
+    void aWiderBinaryIntegerIsAcceptedOnlyWhenItsValueFits() {
+        short binary = PgBackend.FORMAT_BINARY;
+        byte[] small = java.nio.ByteBuffer.allocate(8).putLong(42L).array();
+        assertThat(PgTypes.decodeParameter(TypeName.INT32, PgTypes.OID_INT8, binary, small))
+                .isEqualTo(42L);
+        byte[] big = java.nio.ByteBuffer.allocate(8).putLong(1L << 40).array();
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.INT32, PgTypes.OID_INT8, binary, big))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2062")
+                .hasMessageContaining("outside the range of the INT32");
+    }
+
+    @Test
+    void aDeclaredWidthTheBytesDoNotHaveIsStillAProtocolViolation() {
+        assertThatThrownBy(() -> PgTypes.decodeParameter(
+                        TypeName.INT64, PgTypes.OID_INT4, PgBackend.FORMAT_BINARY, new byte[] {0, 1}))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-6202")
+                .hasMessageContaining("expected 4");
+        // Undeclared, the placeholder's width governs, as before.
+        assertThatThrownBy(() ->
+                        PgTypes.decodeParameter(TypeName.INT64, 0, PgBackend.FORMAT_BINARY, new byte[] {0, 0, 0, 1}))
+                .hasMessageContaining("PRV-6202");
+    }
+
+    @Test
     void bytesAndTimeAreRefusedAsParametersTooForTheSameReasonAsOutput() {
         assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.BYTES, PgBackend.FORMAT_TEXT, bytes("x")))
                 .isInstanceOf(PravahaException.class)
