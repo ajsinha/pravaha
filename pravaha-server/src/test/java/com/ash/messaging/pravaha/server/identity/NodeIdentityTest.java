@@ -127,6 +127,40 @@ class NodeIdentityTest {
     }
 
     @Test
+    void ssoAndHybridAreRefusedAtStartRatherThanAcceptedAndIgnored() {
+        // SSOMODE-1. Both were accepted and the node signed everyone in with passwords regardless,
+        // saying so only in a startup warning: no identity provider can be configured. Refused at
+        // start, naming the setting and the one value it takes -- with identity on or off, because
+        // the setting is in the file either way and would be believed the day identity is turned on.
+        for (String mode : java.util.List.of("sso", "hybrid", "SSO")) {
+            for (boolean enabled : new boolean[] {true, false}) {
+                IdentityProperties properties = identity(true);
+                properties.setEnabled(enabled);
+                properties.setMode(mode);
+                PravahaNode node = node(tokens(Map.of()), properties);
+                assertThatThrownBy(node::start)
+                        .as("mode %s, identity %s", mode, enabled ? "on" : "off")
+                        .isInstanceOf(PravahaException.class)
+                        .hasMessageContaining("PRV-7004")
+                        .hasMessageContaining("pravaha.identity.mode is '" + mode + "'")
+                        .hasMessageContaining("the only accepted value is password");
+            }
+        }
+    }
+
+    @Test
+    void passwordIsTheOneModeAndAnythingElseIsRefusedByName() {
+        IdentityProperties properties = new IdentityProperties();
+        assertThat(properties.effectiveMode()).isEqualTo("password");
+        properties.setMode(" Password ");
+        assertThat(properties.effectiveMode()).isEqualTo("password");
+        properties.setMode("oidc");
+        assertThatThrownBy(properties::effectiveMode)
+                .hasMessageContaining("PRV-7004")
+                .hasMessageContaining("pravaha.identity.mode is 'oidc'; the only accepted value is password");
+    }
+
+    @Test
     void offByDefault() {
         PravahaNode node = node(tokens(Map.of()), new IdentityProperties());
         assertThat(node.identity()).isEmpty();

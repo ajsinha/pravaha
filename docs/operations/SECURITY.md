@@ -694,9 +694,11 @@ Restoring a registration now asks the identity store for its owner before the to
 a registration by a store user was refused at every restart.
 The codes are `PRV-7010` to `PRV-7021` ([`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md)). Forcing a change
 of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
-set. Single sign-on and MFA are not built (the owner dropped them on 2026-09-27): `pravaha.identity.mode`
-accepts `sso` and `hybrid`, but no identity provider can be configured, so the node signs people in
-with passwords whatever it says and logs that it does. `admin` is created on
+set. Single sign-on and MFA are not built (the owner dropped them on 2026-09-27), so
+`pravaha.identity.mode` takes one value, `password` (the default): `sso` or `hybrid` stops the node at
+start with `PRV-7004`, naming the setting and the value it accepts, whether identity is on or off
+(SSOMODE-1, 2.1). Until 2.1 both were accepted and ignored — the node signed people in with passwords
+and said so only in a startup warning. `admin` is created on
 first start, from `pravaha.identity.bootstrap-password-file` or with the published default, and a node
 outside the dev profile refuses to start while the default is still its password (`PRV-7019`). Every
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`

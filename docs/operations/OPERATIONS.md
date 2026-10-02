@@ -437,6 +437,10 @@ threads, so there is no request thread pool to exhaust, and the engine's lanes, 
 platform threads of their own — and `max-swallow-size` (64KB) is how much of a refused body Tomcat
 reads and discards before it closes the connection.
 
+**How people sign in** is `pravaha.identity.mode`, default `password` and the only value it accepts:
+single sign-on is not built, so `sso` or `hybrid` stops the node at start with `PRV-7004` naming the
+setting (SSOMODE-1; until 2.1 both were accepted and ignored). See [`SECURITY.md`](SECURITY.md).
+
 **Failed sign-ins** are bounded too (LOCKENUM-1); every refusal answers `401 PRV-7010` alike, and the
 policy and its reasons are in [`SECURITY.md`](SECURITY.md):
 

@@ -87,7 +87,9 @@ nothing but change its password (`PRV-7018`). Unset -- the default -- no account
 `password` (the default) is the mechanism above; `sso` signs everyone in through the configured
 identity provider (stage 5), with break-glass `password` accounts named explicitly; `hybrid` offers
 both. **SSO is used only when it is configured**: with no provider configured the mode is `password`
-whatever else is set, and the node says so at startup.
+whatever else is set, and the node says so at startup. *(Superseded in 2.1 — SSOMODE-1, the
+amendment under stage 5 below: SSO was dropped, so `password` is the only value accepted, and `sso`
+or `hybrid` stops the node with `PRV-7004`.)*
 
 **Bootstrap.** When the store has no users, the engine creates `admin` with the password
 `pravaha-dev-admin` (and `must_change_password` when forced change is configured), and says so at
@@ -148,7 +150,7 @@ first (only when `force-change` is configured), `PRV-7019` default admin passwor
 2. Administration: the REST contract above and `pravaha user|key|session` CLI commands.
 3. Console: per-user sign-in, acting as the signed-in user, CSRF, account and admin pages.
 4. ~~MFA: TOTP with sealed seeds, then WebAuthn/passkeys.~~ Dropped by the owner, 2026-09-27.
-5. ~~SSO: OIDC (code flow with PKCE), then SAML.~~ Dropped by the owner, 2026-09-27. `pravaha.identity.mode` accepts only what is built: `sso` and `hybrid` sign people in with passwords, and the node says so at startup.
+5. ~~SSO: OIDC (code flow with PKCE), then SAML.~~ Dropped by the owner, 2026-09-27. `pravaha.identity.mode` accepts only what is built: `password`. **Amended 2.1 (SSOMODE-1):** `sso` and `hybrid` were accepted and signed people in with passwords, saying so only in a startup warning; they now stop the node at start with `PRV-7004`, naming the setting and the value it accepts.
 6. Migration and release: the QA installer bootstraps an admin and issues the console nothing; a check
    that tracked configuration holds no secrets; documentation; 0.2.0.
 
