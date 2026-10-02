@@ -91,12 +91,20 @@ recompute**, because it came from a client that may never connect again.
   client expects to find and will not.
 - **The journal records the sink.** A restart re-attaches it; a journalled registration whose sink is
   no longer bound is refused by name rather than recovered writing to nothing.
-- A crash mid-append leaves a truncated final record; replay keeps everything before it.
+- A crash mid-append leaves a truncated final record; replay keeps everything before it, and the
+  next append cuts the torn bytes off first. Damage in the *middle* — a complete record after a bad
+  one — refuses the start (PRV-8005) rather than dropping every registration after it.
+- **A shared computation's state outlives any one of its names.** Two registrations of the same
+  question share one computation, which checkpoints into the directory of the name that started it.
+  Dropping that name records, with the drop, that the surviving names checkpoint there, so a restart
+  brings them back with the state rather than empty (SHAREDLOSS-1).
 - Compaction rewrites the journal with only what is live, through an atomic move.
 
 | You see | It means |
 |---|---|
 | PRV-8005 `... this version does not understand` | A journal record from a newer version. Refused, not skipped — skipping would silently drop a registration |
+| PRV-8005 `... has a damaged length ..., and a complete record follows` | Damage in the middle of the journal. The start is refused, naming both byte offsets, rather than dropping every later registration; restore from backup or move the journal aside and re-register |
+| `WARN ... ends in a half-written record` | A crash cut the last append short; what precedes it is replayed and the torn bytes are cut off before the next append |
 | PRV-8006 on register | The journal could not be written, so the registration is **refused**: acknowledging one that will not survive a restart would tell the client something untrue |
 | `refused: ... contract ended` | The owner lost the permission they registered under. Working as intended |
 | `refused: ... not a principal this deployment knows` | The owner no longer resolves |

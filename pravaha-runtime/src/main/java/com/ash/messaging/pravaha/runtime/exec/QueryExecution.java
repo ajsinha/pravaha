@@ -417,6 +417,11 @@ public final class QueryExecution implements AutoCloseable {
         return accept(streams.get(0), row);
     }
 
+    /** The widest row {@link #accept} takes: the inbox cell of the lane rows are handed to (CELLBYTES-1). */
+    public int maxRowBytes() {
+        return lanes.lane(0).inboxCellBytes();
+    }
+
     public boolean accept(String streamName, RowView row) {
         int input = streams.indexOf(streamName);
         if (input < 0) {
@@ -433,6 +438,11 @@ public final class QueryExecution implements AutoCloseable {
         // anything reaching here with several lanes is a join, which is fed through a partitioned
         // pump rather than through this method.
         Lane lane = lanes.lane(0);
+        // CELLBYTES-1: refused here, for this row, before anything is copied -- not thrown from the
+        // inbox as an IllegalArgumentException that the registry took for a failure of the query.
+        if (binary.length() > lane.inboxCellBytes()) {
+            throw new RowTooWideException(binary.length(), lane.inboxCellBytes());
+        }
         if (hostedRoutes != null) {
             // A shared lane: stamped with this query's route, or every query on the lane reading
             // this stream would be handed it (LANE-1).

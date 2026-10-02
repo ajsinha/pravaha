@@ -208,9 +208,10 @@ pravaha:
 | `pravaha.lane.batch-size` | 512 | Rows drained from the inbox per step |
 | `pravaha.lane.wait-strategy` | `BACKOFF_PARK` | How a lane waits when its inbox is empty |
 | `pravaha.lane.inbox.cells` | 2048 | Ring cells, so how deep the buffer is |
-| `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all |
+| `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all. A wider row is refused for that row (`PRV-3002`; `PRV-8102` for an embedded push), and the query keeps running. An embedded engine reads every `pravaha.lane.*` key too |
 | `pravaha.lane.arena.slab-bytes` | 4194304 | Off-heap slab size, and the largest single output row |
 | `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
+| `pravaha.lane.max-windows-per-row` | 100000 | The finest window a registration may ask for: a `HOP` whose rows each land in, or whose windows each combine, more windows or slices than this is refused `PRV-3026` (FINEHOP-1) |
 | `pravaha.lane.backpressure.high-watermark` | 0.8 | Inbox fill at which the source feeding a query is paused |
 | `pravaha.lane.backpressure.low-watermark` | 0.5 | Fill at which it is let go again; must be below the high one, or the node refuses to start naming both keys |
 | `pravaha.lane.multiplex.enabled` | `auto` | Whether registered queries share lanes, and so share inboxes (below): `auto` once `auto-from` are hosted, `true` always, `false` never |
@@ -2120,6 +2121,8 @@ disabling an account ends its sessions and keys, not the queries it registered. 
 | You see | It means |
 |---|---|
 | `PRV-8005 ... this version does not understand` | A journal record from a newer version. Refused, not skipped — skipping would silently drop a registration |
+| `PRV-8005 ... has a damaged length ..., and a complete record follows at byte offset N` | Damage in the middle of the journal, not a crash: the node refuses to start rather than replay up to it and drop every registration after it (JOURNALMID-1). Nothing is changed. Restore the journal from a backup, or move it aside and re-register; the records before the named offset are intact |
+| `WARN ... ends in a half-written record` | A crash cut the last append short. The complete records before it are replayed, and the torn bytes are cut off before the next append so it lands on a record boundary |
 | `PRV-8006` on register | The journal could not be written. The registration is **refused**, because acknowledging one that will not survive a restart tells the client something untrue |
 | `refused: ... contract ended` | The owner lost the permission they registered under. Working as intended |
 | `refused: ... not a principal this deployment knows` | The owner no longer resolves — in neither the identity store nor the token table. Recovering it as nobody would run a query under an authority it was never granted |

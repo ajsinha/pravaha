@@ -150,6 +150,55 @@ class SlicedAggregateStateTest {
     }
 
     @Test
+    void aGroupOfOnlyNullsIsNullForSumAvgMinAndMaxAcrossSlicesAndACheckpoint() throws Exception {
+        // ALLNULLAGG-1: the non-null count each accumulator already keeps says the answer is NULL,
+        // across a hop's slices, a retraction back to nothing but nulls, and a checkpoint.
+        SlicedAggregateState.Kind[] kinds = {
+            SlicedAggregateState.Kind.COUNT,
+            SlicedAggregateState.Kind.SUM,
+            SlicedAggregateState.Kind.AVG,
+            SlicedAggregateState.Kind.MIN,
+            SlicedAggregateState.Kind.MAX
+        };
+        SlicedAggregateState state = state(WindowSpec.hopping(20 * SECOND, 10 * SECOND), 100, kinds);
+        boolean[] onlyNulls = {false, false, false, false, false};
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {0, 0, 0, 0, 0}, onlyNulls, 1);
+        state.update(1L, 31L, new Object[] {1L}, 12 * SECOND, new long[] {0, 0, 0, 0, 0}, onlyNulls, 1);
+        SlicedAggregateState.WindowResult fired = state.fire(20 * SECOND).get(0);
+        assertThat(fired.count()).isEqualTo(2);
+        assertThat(fired.nulls()).containsExactly(false, true, true, true, true);
+
+        SlicedAggregateState sums = state(
+                WindowSpec.tumbling(10 * SECOND),
+                100,
+                SlicedAggregateState.Kind.COUNT,
+                SlicedAggregateState.Kind.SUM,
+                SlicedAggregateState.Kind.AVG);
+        boolean[] present = {true, true, true};
+        boolean[] absent = {false, false, false};
+        sums.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {0, 7, 7}, present, 1);
+        sums.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {0, 0, 0}, absent, 1);
+        assertThat(sums.fire(10 * SECOND).get(0).nulls()).containsExactly(false, false, false);
+        sums.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {0, 7, 7}, present, -1);
+
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        sums.writeTo(new java.io.DataOutputStream(bytes));
+        SlicedAggregateState restored = state(
+                WindowSpec.tumbling(10 * SECOND),
+                100,
+                SlicedAggregateState.Kind.COUNT,
+                SlicedAggregateState.Kind.SUM,
+                SlicedAggregateState.Kind.AVG);
+        restored.readFrom(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray())));
+        SlicedAggregateState.WindowResult afterRetraction =
+                restored.fire(10 * SECOND).get(0);
+        assertThat(afterRetraction.count()).isEqualTo(1);
+        assertThat(afterRetraction.nulls())
+                .as("the value retracted, a null row left: SUM and AVG are NULL again, COUNT(*) is 1")
+                .containsExactly(false, true, true);
+    }
+
+    @Test
     void aKeyWhoseWeightsCancelProducesNoResult() {
         // An empty group must not be reported as a present one with zeroes: a consumer cannot tell
         // "no rows" from "rows summing to nothing", and for a COUNT the difference is the answer.

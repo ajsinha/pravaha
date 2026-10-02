@@ -71,8 +71,8 @@ class AdvAggregateTest {
     // ------------------------------------------------------------------ all-NULL groups
 
     @Test
-    @Disabled("QE-163: SUM/AVG/MIN/MAX of a window group whose values are all NULL are published as 0, not NULL")
     void qe163_aggregatesOfAnAllNullWindowGroupAreNull() {
+        // ALLNULLAGG-1, fixed: these were published 0|0|0|0.
         try (PravahaEngine engine = windowed(
                 0,
                 "agg",
@@ -88,42 +88,14 @@ class AdvAggregateTest {
     }
 
     @Test
-    void qe163_observed_allNullWindowGroupIsPublishedAsZeros() {
-        try (PravahaEngine engine = windowed(
-                0,
-                "agg",
-                "SELECT window_start, window_end, k, SUM(v) AS s, AVG(v) AS a, MIN(v) AS mn, MAX(v) AS mx, "
-                        + "COUNT(v) AS c " + TUMBLE + " GROUP BY window_start, window_end, k",
-                "window_start",
-                "window_end",
-                "k")) {
-            engine.push("w", new Object[] {"a", null, null, t(1)}, new Object[] {"a", null, null, t(2)});
-            engine.advanceEventTime("w", t(10));
-            assertThat(AdvSupport.rows(engine, "SELECT * FROM agg")).containsExactly(w(0) + "|a|0|0|0|0|0");
-        }
-    }
-
-    @Test
-    @Disabled("QE-163: the same all-NULL group read from a view (KeyedAggregate) and kept by a query over a view "
-            + "answers SUM/AVG/MIN/MAX with 0")
     void qe163_allNullGroupOnAViewReadAndOverAViewIsNull() {
+        // ALLNULLAGG-1, fixed: the view read answered x|0|0|0|0 and the query over the view x|0|0|0.
         try (PravahaEngine engine = allNullChain()) {
             assertThat(AdvSupport.rows(
                             engine,
                             "SELECT g, SUM(v) AS s, AVG(v) AS a, MIN(v) AS mn, MAX(v) AS mx " + "FROM up GROUP BY g"))
                     .containsExactly("x|null|null|null|null");
             assertThat(settle(engine, "SELECT * FROM down")).containsExactly("x|null|null|0");
-        }
-    }
-
-    @Test
-    void qe163_observed_allNullGroupOnAViewReadAndOverAViewIsZero() {
-        try (PravahaEngine engine = allNullChain()) {
-            assertThat(AdvSupport.rows(
-                            engine,
-                            "SELECT g, SUM(v) AS s, AVG(v) AS a, MIN(v) AS mn, MAX(v) AS mx " + "FROM up GROUP BY g"))
-                    .containsExactly("x|0|0|0|0");
-            assertThat(settle(engine, "SELECT * FROM down")).containsExactly("x|0|0|0");
         }
     }
 

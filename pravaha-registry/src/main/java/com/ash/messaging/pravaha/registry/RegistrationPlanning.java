@@ -128,6 +128,10 @@ final class RegistrationPlanning {
             placements = prepared.placements();
         }
         chains.requireChainable(name, plan, retention, action);
+        // FINEHOP-1: a window whose rows each land in more windows, or whose windows each combine
+        // more slices, than the node allows is refused before it runs -- once running, one row of it
+        // holds the lane and every push to the stream behind it.
+        com.ash.messaging.pravaha.runtime.window.WindowLimits.require(plan, registry.maxWindowsPerRow);
 
         // SINK-3, and the reason it is asked here rather than beside mayRegisterQuery, is in
         // SinkAuthorization's own javadoc.

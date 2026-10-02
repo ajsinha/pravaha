@@ -45,6 +45,8 @@ import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.exec.StageGenerator;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
+import com.ash.messaging.pravaha.runtime.plan.ComputeOperator;
+import com.ash.messaging.pravaha.runtime.plan.Expression;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.Predicate;
@@ -231,6 +233,111 @@ class GeneratedPipelineEquivalenceTest {
 
         GeneratedChains.install(new FilterProjectStageGenerator());
         assertThat(compile(chain, true).executionPaths()).anyMatch(p -> p.startsWith("generated:"));
+    }
+
+    @Test
+    void aNarrowIntegerOverflowIsTheSameGeneratedAsInterpreted() {
+        // NARROWINT-1 behind a generated filter: the computed INT column above it is checked against
+        // INT's range on either path, so 2e9 * 2 is the same INT overflow generated and interpreted
+        // -- never -294967296 on one of them -- and 5 * 2 is 10 on both.
+        StreamSchema schema = StreamSchema.builder("s")
+                .field("i", Types.int32())
+                .field("keep", Types.bool())
+                .build();
+        Expression doubled = new Expression.Arithmetic(
+                new Expression.Column(0, "i", TypeName.INT32),
+                Expression.Operator.MULTIPLY,
+                Expression.Literal.ofLong(2),
+                TypeName.INT32);
+        PhysicalOperator chain = new ComputeOperator(
+                new FilterOperator(ScanOperator.of("s", schema), new Predicate.CompareBoolean(1, "keep", true)),
+                StreamSchema.builder("c").field("x", Types.int32()).build(),
+                List.of(doubled));
+        List<Object[]> rows = List.of(new Object[] {5, true}, new Object[] {2_000_000_000, true});
+
+        List<String> generated = rowsRun(chain, schema, rows, new FilterProjectStageGenerator());
+        assertThat(generated).isEqualTo(rowsRun(chain, schema, rows, null));
+        assertThat(generated.get(0)).endsWith("[i10]");
+        assertThat(generated.get(1)).contains("INT overflow").doesNotContain("-294967296");
+
+        // A filter on the same expression meets the same overflow. The generator refuses a
+        // comparison of computed expressions, so both paths interpret it -- and must agree.
+        PhysicalOperator filtered = new FilterOperator(
+                ScanOperator.of("s", schema),
+                new Predicate.CompareExpressions(doubled, Predicate.Op.LT, Expression.Literal.ofLong(0)));
+        List<String> generatedFilter = rowsRun(filtered, schema, rows, new FilterProjectStageGenerator());
+        assertThat(generatedFilter).isEqualTo(rowsRun(filtered, schema, rows, null));
+        assertThat(generatedFilter).singleElement().asString().contains("INT overflow");
+    }
+
+    @Test
+    void anAllNullSumIsTheSameGeneratedAsInterpreted() {
+        // ALLNULLAGG-1 under a generated filter and projection: SUM of only nulls is NULL on both
+        // paths, and COUNT(*) still counts the rows.
+        StreamSchema schema = StreamSchema.builder("s")
+                .field("amount", Types.int64().withNullable(true))
+                .field("keep", Types.bool())
+                .build();
+        PhysicalOperator chain = new AggregateOperator(
+                new ProjectOperator(
+                        new FilterOperator(ScanOperator.of("s", schema), new Predicate.CompareBoolean(1, "keep", true)),
+                        StreamSchema.builder("p")
+                                .field("amount", Types.int64().withNullable(true))
+                                .build(),
+                        List.of(0)),
+                StreamSchema.builder("o")
+                        .field("total", Types.int64().withNullable(true))
+                        .field("rows", Types.int64())
+                        .build(),
+                List.of(),
+                List.of(
+                        new AggregateOperator.AggregateCall(AggregateOperator.AggregateCall.Kind.SUM, 0, "total"),
+                        new AggregateOperator.AggregateCall(AggregateOperator.AggregateCall.Kind.COUNT, -1, "rows")));
+        List<Object[]> rows = List.of(new Object[] {null, true}, new Object[] {null, true}, new Object[] {9L, false});
+
+        List<String> generated = rowsRun(chain, schema, rows, new FilterProjectStageGenerator());
+        assertThat(generated).isEqualTo(rowsRun(chain, schema, rows, null));
+        assertThat(generated).singleElement().asString().endsWith("[null, l2]");
+        GeneratedChains.install(new FilterProjectStageGenerator());
+        assertThat(compile(chain, true).executionPaths()).anyMatch(p -> p.startsWith("generated:"));
+    }
+
+    /** Runs {@code chain} over rows of INT32, INT64 and BOOLEAN columns as one batch, then ends the input. */
+    private static List<String> rowsRun(
+            PhysicalOperator chain, StreamSchema schema, List<Object[]> rows, StageGenerator generator) {
+        GeneratedChains.install(generator);
+        List<String> answer = new ArrayList<>();
+        RowLayout layout = RowLayout.of(schema);
+        BinaryRowWriter writer = new BinaryRowWriter(layout);
+        BinaryRowView view = new BinaryRowView(layout);
+        try (InterpretedPipeline pipeline = InterpretedPipeline.compile(
+                        chain, () -> new Recorder(chain.outputSchema(), answer), Map.of(), false, true);
+                MemoryRegion region = MemoryAccess.best().allocate(1 << 16)) {
+            try {
+                for (int r = 0; r < rows.size(); r++) {
+                    writer.begin(region, 0);
+                    Object[] row = rows.get(r);
+                    for (int i = 0; i < row.length; i++) {
+                        switch (row[i]) {
+                            case null -> writer.setNull(i);
+                            case Integer value -> writer.setInt(i, value);
+                            case Long value -> writer.setLong(i, value);
+                            case Boolean value -> writer.setBoolean(i, value);
+                            default -> throw new IllegalArgumentException("unexpected " + row[i]);
+                        }
+                    }
+                    writer.weight(1).eventTimestampNanos(r).sequence(r).commit();
+                    pipeline.accept("s", view.wrap(region, 0));
+                }
+                pipeline.endOfBatch();
+                pipeline.finish();
+            } catch (RuntimeException e) {
+                answer.add("FAILED " + e.getClass().getName() + ": " + e.getMessage());
+            }
+        } finally {
+            GeneratedChains.install(null);
+        }
+        return answer;
     }
 
     /** Runs {@code chain} over (amount, keep) pairs as one batch, then ends the input. */

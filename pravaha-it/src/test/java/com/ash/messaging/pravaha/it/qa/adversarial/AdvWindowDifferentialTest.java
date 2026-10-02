@@ -47,12 +47,10 @@ class AdvWindowDifferentialTest {
     static final long NANOS = 1_000_000_000L;
 
     /**
-     * QE-163: the engine answers SUM, AVG, MIN and MAX of a group whose values are all NULL with 0
-     * (reproduced on its own in {@code AdvAggregateTest}). The sweep's oracle says the same unless
-     * {@code -Dpravaha.qa.strictNulls=true}, so the sweep looks past that one defect for others.
+     * QE-163 (ALLNULLAGG-1): SUM, AVG, MIN and MAX of a group whose values are all NULL are NULL, as
+     * SQL says. The oracle once copied the engine's 0 so the sweep could look past that defect; it
+     * is fixed, and the oracle is strict.
      */
-    static final boolean ALL_NULL_AS_ZERO = !Boolean.getBoolean("pravaha.qa.strictNulls");
-
     record Row(String k, Long v, long second) {}
 
     /** One window's groups: k -> each value's multiplicity (null values counted under a null key). */
@@ -126,7 +124,7 @@ class AdvWindowDifferentialTest {
                         return;
                     }
                     String prefix = (BASE + start) * NANOS + "|" + (BASE + end) * NANOS + "|" + k + "|";
-                    String none = ALL_NULL_AS_ZERO ? "0" : "null";
+                    String none = "null";
                     if (minMax) {
                         rows.add(prefix + (min == null ? none : min) + "|" + (max == null ? none : max));
                     } else {

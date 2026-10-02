@@ -366,6 +366,10 @@ public final class RegisteredQuery implements AutoCloseable {
                 return false;
             }
             rowsIn.incrementAndGet();
+        } catch (com.ash.messaging.pravaha.runtime.exec.RowTooWideException e) {
+            // CELLBYTES-1: this row could not be delivered; nothing about the query is wrong. It used
+            // to fail the query -- and every query on the stream, each handed the same row.
+            throw e;
         } catch (PravahaException e) {
             fail(e);
             throw e;
@@ -389,6 +393,11 @@ public final class RegisteredQuery implements AutoCloseable {
      */
     public boolean awaitApplied(java.time.Duration timeout) {
         return execution.awaitQuiescent(timeout);
+    }
+
+    /** The widest row {@link #accept} takes, which is {@code pravaha.lane.inbox.cell-bytes} as its lane has it. */
+    public int maxRowBytes() {
+        return execution.maxRowBytes();
     }
 
     /**

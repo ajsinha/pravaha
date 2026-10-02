@@ -15,7 +15,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **Adversarial QA of 2.0.0** (2026-10-01): 322 cases over the engine, data and security
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
-  50 findings opened — 46 defects (10 HIGH) and 4 design notes. None is fixed yet.
+  50 findings opened — 46 defects (10 HIGH) and 4 design notes. Wave 1 fixed all ten HIGH, below.
 - **A PostgreSQL CDC slot dropped under a running query is detected (CDCSLOT-1).** The reader treated
   the slot's `42704` at reconnect as one more transient failure and retried for ever, so the query
   stayed `RUNNING`, health `UP`, and every later change was silently missing. Now a permanent refusal
@@ -49,8 +49,40 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `pravaha.http.max-concurrent-sign-ins` (8) sign-ins run at once (`429` `PRV-1055`, `Retry-After`);
   Tomcat's `max-connections`, `max-swallow-size` and form-post size are set in `application.yaml`.
   `RequestLimitHttpTest`, `RequestLimitFilterTest`.
+- **`SUM`, `AVG`, `MIN` and `MAX` of a group with no non-null value are NULL** (ALLNULLAGG-1), as
+  SQL says — in a window, a continuous query, over a view and on a read. They were published 0,
+  indistinguishable from a real total of zero. `COUNT(col)` is still 0 and `COUNT(*)` counts rows; a
+  retraction that leaves only NULLs makes the answer NULL again, and checkpoints carry it (one
+  written before still restores).
+- **Narrow-integer arithmetic is never published wrapped** (NARROWINT-1). An `INT`, `SMALLINT` or
+  `TINYINT` result outside its type's range — `+`, `-`, `*`, unary minus, `ABS`, a narrowing `CAST`
+  of an integer — is an overflow, handled as a `BIGINT` one is (the query stops, naming the
+  expression, value and range), and a filter on the expression meets the same overflow as its
+  projection. `2e9 * 2` was published `-294967296` while `WHERE i * 2 > 0` kept the row.
+  `CAST(i AS BIGINT) * 2` asks for the 64-bit answer.
+- **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
+  a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
+  passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the
+  registration is refused naming the size, the slide and both counts. `HOP(INTERVAL '0.001' SECOND,
+  INTERVAL '1' DAY)` used to register, and one row of it held its lane and every push to the stream.
+- **Damage in the middle of the registry journal refuses the start, `PRV-8005`** (JOURNALMID-1),
+  naming the byte offset of the damaged length and of the complete record after it. Any length that
+  ran past the end used to be read as a torn final record, so one damaged prefix silently dropped
+  every later registration at every start. A genuinely torn tail is still replayed up to, and is now
+  cut off before the next append — a registration appended behind it used to be lost at the next start.
+- **The surviving name of a shared computation keeps its state across a restart** (SHAREDLOSS-1).
+  Two names on one computation checkpoint into the starting name's directory; dropping the starting
+  name now journals, with the drop, that the survivors checkpoint there (a new `M` record, applied in
+  place). They used to come back from a restart RUNNING and empty.
+- **The embedded engine reads `pravaha.lane.*`, and a row wider than an inbox cell is refused for that
+  row** (CELLBYTES-1). The cell was 512 bytes whatever was configured, and a 600-character string
+  stopped every query on the stream for good with a refusal naming a setting that could not be
+  applied. Now an embedded push wider than a query's cell is refused `PRV-8102` before any of it is
+  delivered, naming the row, its size and the cell; a row handed to a registered query directly is
+  refused `PRV-3002` without failing the query; and a source's writer is bounded to its inbox cell, so
+  a wide row is never written into the cells after it.
 
-Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
+Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 
