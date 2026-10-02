@@ -163,27 +163,23 @@ class PluginSourceFeedsTest {
 
     @Test
     void aBindingNamingAPluginThatIsNotThereIsRefusedWithWhatIsAvailable() {
-        PluginSourceFeeds feeds = new PluginSourceFeeds().bind(new SourceBinding("txn", "kafka", Map.of("topic", "t")));
-
-        ViewCatalog views = new ViewCatalog();
-        try (QueryRegistry registry = new QueryRegistry(views, TXN).feedingFrom(feeds)) {
-            assertThatThrownBy(() -> registry.register(
-                            "bad", "SELECT user_id, amount FROM txn", List.of(0), Principal.ANONYMOUS))
-                    .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("PRV-5090")
-                    .hasMessageContaining("kafka")
-                    // Naming what *is* there turns "no such plugin" into a one-line fix.
-                    .hasMessageContaining("filesystem")
-                    // CFG-4. On a shipped server that list has ONE entry, so for six of the seven
-                    // plugin names in the documentation the remedy the message offered was not one:
-                    // an operator reading "Available: [filesystem]" beside docs/guides/CONNECTORS.md's
-                    // seven has no way to tell whether they mistyped a name or whether the jar is
-                    // simply absent. The message now says which of the two it is, and what an
-                    // "available" plugin is.
-                    .hasMessageContaining("ServiceLoader")
-                    .hasMessageContaining("classpath")
-                    .hasMessageContaining("docs/guides/CONNECTORS.md");
-        }
+        // PLUGINLATE-1: refused when bound -- at a node's startup -- rather than at the first
+        // registration of a node that had come up UP with a binding that could never feed.
+        PluginSourceFeeds feeds = new PluginSourceFeeds();
+        assertThatThrownBy(() -> feeds.bind(new SourceBinding("txn", "kafka", Map.of("topic", "t"))))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-5090")
+                .hasMessageContaining("kafka")
+                // Naming what *is* there turns "no such plugin" into a one-line fix.
+                .hasMessageContaining("filesystem")
+                // CFG-4: what an "available" plugin is, and where to look up the module.
+                .hasMessageContaining("ServiceLoader")
+                .hasMessageContaining("classpath")
+                .hasMessageContaining("docs/guides/CONNECTORS.md")
+                // PLUGINLATE-1: the message no longer claims the jar carries filesystem alone while
+                // listing everything it carries.
+                .hasMessageNotContaining("filesystem alone");
+        assertThat(feeds.bindings()).isEmpty();
     }
 
     @Test

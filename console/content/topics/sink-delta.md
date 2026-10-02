@@ -228,9 +228,9 @@ great many more, much smaller commits, so read the section above first.
     the Delta application id that makes a commit idempotent. Two queries writing one binding share
     both. Bind one sink per query.
 
-!!! note "Not in the server jar"
-    The first registration that names the sink fails with PRV-5090, listing the plugins that are
-    available, until the `pravaha-plugin-delta` module is on the node's classpath.
+!!! note "In the server jar"
+    `pravaha-plugin-delta` ships inside the server jar. In a process without it on its classpath the
+    sink binding is refused with PRV-5090, listing the plugins that are available.
 
 !!! note "Reading the same table you write"
     A [Delta source](/help/topics/source-delta) can read a table this sink maintains, and each of

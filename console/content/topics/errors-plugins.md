@@ -429,7 +429,9 @@ keeping it fed.
 ### PRV-5090 — ingest: no such plugin
 
 No source or lookup plugin on the classpath answers to the name a binding gave. The message lists what
-is available — or says that no plugin jar of that kind is on the classpath at all.
+is available — every plugin of that kind the process carries — or says that no plugin jar of that kind
+is on the classpath at all. A source binding is checked when the node starts, which stops the node;
+until PLUGINLATE-1 it was found only at the first registration that read the stream.
 
 ### PRV-5091 — ingest: binding failed
 

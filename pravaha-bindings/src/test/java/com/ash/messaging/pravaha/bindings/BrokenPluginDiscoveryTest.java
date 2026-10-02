@@ -206,9 +206,9 @@ class BrokenPluginDiscoveryTest {
 
     @Test
     void aSourceThatResolvesToNothingIsRefusedNamingTheBrokenOnes() {
-        PluginSourceFeeds feeds = new PluginSourceFeeds().bind(new SourceBinding("txn", "cassandra", Map.of()));
-
-        assertThatThrownBy(() -> withBrokenProviders(() -> feeds.retracts("txn")))
+        // Refused when bound (PLUGINLATE-1), which is where a node binds its sources at startup.
+        assertThatThrownBy(() -> withBrokenProviders(
+                        () -> new PluginSourceFeeds().bind(new SourceBinding("txn", "cassandra", Map.of()))))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-5012")
                 .hasMessageContaining("'cassandra'")

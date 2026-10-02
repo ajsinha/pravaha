@@ -221,10 +221,10 @@ Not applicable: the directory is local (or a mounted filesystem). Secure the tra
     A partner who reorders Parquet columns between releases changes nothing. A partner who reorders
     CSV columns silently moves values into other columns if the types happen to parse.
 
-!!! note "Not in the server jar"
-    `sources bound` in the log shows the binding, but the first registration that reads the stream
-    fails with PRV-5090 listing the plugins that *are* available until the module is on the node's
-    classpath.
+!!! note "In the server jar"
+    `pravaha-plugin-feedfile` ships inside the server jar. A process without it on its classpath — an
+    embedded application that did not add the dependency — refuses the binding when it starts, with
+    PRV-5090 listing the plugins that *are* available.
 
 ## Where next
 

@@ -260,6 +260,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   DLQPROJ-1). The runner now attaches the same row-failure path to its queue: the row is written with
   its columns, counted in `N rejected`, and the run finishes; without `--dlq` it still fails the run.
   `PravahaCliTest`.
+- **A source naming a plugin that is not there stops the node at startup (PLUGINLATE-1).** A binding
+  such as `plugin: redis` started the node `UP` (`sources bound: [t <- redis[key]]`) and was refused
+  `PRV-5090` only at the first registration, though CONNECTORS.md said "refused at startup"; and the
+  refusal said the server jar "carries filesystem alone" right after listing the nine source plugins it
+  carries. A source binding is now looked up when it is bound — at the node's (and the embedded
+  engine's) start — and the message lets the list speak: check the name against it, or put the module on
+  the classpath. CONNECTORS.md, QUICKSTART's YAML comment, the build guide and the console topics no
+  longer say the jar carries `filesystem` alone. `UnknownPluginAtStartupTest`, `PluginSourceFeedsTest`.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

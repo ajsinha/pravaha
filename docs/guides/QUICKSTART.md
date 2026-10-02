@@ -169,9 +169,9 @@ pravaha:
                                     # window could ever close, and such a query is refused (PRV-2002)
   sources:
     txn:
-      plugin: filesystem            # the only plugin in the server jar; feedfile, jdbc,
-                                    # delta, aerospike and cassandra are separate modules and must be
-                                    # put on the classpath for a source to name them
+      plugin: filesystem            # one of the plugins the server jar carries (filesystem,
+                                    # feedfile, jdbc, delta, kafka, postgres-cdc, mysql-cdc, aerospike,
+                                    # cassandra); a name it does not carry stops the node (PRV-5090)
       options:
         path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"

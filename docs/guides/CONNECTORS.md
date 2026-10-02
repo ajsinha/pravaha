@@ -33,13 +33,14 @@ your-connector.jar
 Drop it on the classpath, name it in configuration, and a query can read from it.
 
 **"On the classpath" means on the running process's classpath, and the shipped `pravaha-server`
-executable jar carries `filesystem` alone.** Every other name in the tables below — `feedfile`,
-`jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc`, `kafka` and their sink counterparts —
-lives in its own module under `plugins/` and has to be added to the classpath of the node that is
-to use it, which is a packaging decision rather than a configuration one. Naming one that is not
-there is refused at startup with `PRV-5090`, and that refusal now says which of the two mistakes it
-is, because "Available: [filesystem]" read beside this document's seven names looked like a
-contradiction rather than an answer (CFG-4). There is **no drop-a-jar-in directory** yet: see
+executable jar carries every plugin module the project builds**: the sources `filesystem`, `feedfile`,
+`jdbc`, `delta`, `kafka`, `postgres-cdc`, `mysql-cdc`, `aerospike` and `cassandra`, with their sink and
+lookup counterparts. A source naming a plugin nothing on the classpath answers to is refused when the
+node starts, with `PRV-5090` listing every source plugin the process does carry — so the list is the
+answer: a misspelt name is in it under its right spelling, and a plugin from outside the project has to
+be put on the classpath first. Until PLUGINLATE-1 the node started `UP` and only the first registration
+was refused, with a message that said the jar carried `filesystem` alone right after listing the nine it
+carries. There is **no drop-a-jar-in directory** yet: see
 [section 8](#8-what-is-missing-from-this-framework-today).
 
 Three kinds, and a connector may be more than one:
