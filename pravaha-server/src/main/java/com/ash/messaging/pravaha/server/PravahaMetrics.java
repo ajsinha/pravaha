@@ -76,6 +76,8 @@ public final class PravahaMetrics implements AutoCloseable {
     private final com.ash.messaging.pravaha.server.tenancy.TenancyMeters tenancy;
     private final com.ash.messaging.pravaha.server.observe.FeatureMeters features;
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     public PravahaMetrics(MeterRegistry meters, PravahaNode node) {
         this.meters = meters;
         this.node = node;

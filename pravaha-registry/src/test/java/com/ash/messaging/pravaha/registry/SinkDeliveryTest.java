@@ -521,6 +521,8 @@ class SinkDeliveryTest {
             return batch.size();
         }
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void flush() {
             flushes++;

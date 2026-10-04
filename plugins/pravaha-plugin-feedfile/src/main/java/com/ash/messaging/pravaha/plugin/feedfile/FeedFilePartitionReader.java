@@ -190,10 +190,11 @@ final class FeedFilePartitionReader implements PartitionReader {
     }
 
     /** The refusal for a file the cursor names and the directory no longer has. */
+    @SuppressWarnings("ObjectToString") // the test is that toString shows no secret
     private PravahaException gone(String name, String what) {
         return new PravahaException(
                 FeedFileErrors.FILE_GONE,
-                "the feed file '" + name + "' is no longer in " + feed + " and this reader was at record "
+                "the feed file '" + name + "' is no longer in " + feed.directory() + " and this reader was at record "
                         + offset.recordIndex() + " of it, so " + what + " would skip the rest of it without "
                         + "anybody noticing. Feed files must outlive the readers that are still in them: raise "
                         + "the retention on whatever rotates them, or let this query finish the file before it "

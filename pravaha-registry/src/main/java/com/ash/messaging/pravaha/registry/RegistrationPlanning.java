@@ -46,7 +46,7 @@ final class RegistrationPlanning {
 
     /**
      * @param name the engine name the registration would have
-     * @param action the audit action: {@code register}, {@code replace} or {@code explain}
+     * @param action the audit action: {@code "register"}, {@code "replace"} or {@code "explain"}
      */
     static QueryRegistry.Preparation prepare(
             QueryRegistry registry,

@@ -49,6 +49,7 @@ public interface WaitStrategy {
      * <p>Keeps near-spin latency while traffic is flowing and gives the core back when it is not,
      * which is the behaviour a general production deployment wants without being asked.
      */
+    @SuppressWarnings("ThreadPriorityCheck") // yielding is the wait strategy being measured or offered
     WaitStrategy SPIN_THEN_YIELD = idleCount -> {
         if (idleCount < 64) {
             Thread.onSpinWait();
@@ -81,6 +82,7 @@ public interface WaitStrategy {
         BACKOFF_PARK(WaitStrategy.BACKOFF_PARK),
         BLOCKING(WaitStrategy.BLOCKING);
 
+        @SuppressWarnings("ImmutableEnumChecker") // the field is unmodifiable or stateless; it is never changed
         private final WaitStrategy strategy;
 
         Kind(WaitStrategy strategy) {

@@ -258,9 +258,8 @@ class RowStoreTest {
         // above -- PRV-4001, query dead. With one it keeps accepting rows.
         try (MappedFileMemoryAccess overflow = new MappedFileMemoryAccess(dir);
                 RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 2, overflow, 4)) {
-            List<Long> handles = new ArrayList<>();
             for (int i = 0; i < 80; i++) {
-                handles.add(store.allocate(200));
+                store.allocate(200);
             }
             assertThat(store.hasSpilled())
                     .as("400 rows of 200 bytes each do not fit two 4 KiB slabs, so this must have spilled")

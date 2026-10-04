@@ -440,6 +440,7 @@ final class CdcStream implements AutoCloseable {
         return DriverManager.getConnection(options.url(), properties);
     }
 
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     @Override
     public void close() {
         running = false;

@@ -73,10 +73,6 @@ class OffsetSplicedReaderTest {
             records.add(value);
         }
 
-        int size() {
-            return records.size();
-        }
-
         /** The token naming the record at {@code index}, zero-based. */
         SourceOffset at(int index) {
             return index < 0 ? SourceOffset.BEGINNING : new SourceOffset("n=" + index);
@@ -90,7 +86,6 @@ class OffsetSplicedReaderTest {
 
         final class Reader implements PartitionReader {
             private int delivered;
-            private boolean closed;
 
             Reader(int after) {
                 this.delivered = after;
@@ -133,13 +128,7 @@ class OffsetSplicedReaderTest {
             public void resume() {}
 
             @Override
-            public void close() {
-                closed = true;
-            }
-
-            boolean isClosed() {
-                return closed;
-            }
+            public void close() {}
         }
     }
 

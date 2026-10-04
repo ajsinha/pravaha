@@ -165,7 +165,7 @@ class ApiErrorShapeTest {
 
     private void assertContainerRefusalIsAnApiError(String rawRequest) throws Exception {
         String reply;
-        try (java.net.Socket socket = new java.net.Socket("127.0.0.1", port)) {
+        try (java.net.Socket socket = new java.net.Socket(java.net.InetAddress.getLoopbackAddress(), port)) {
             socket.setSoTimeout(10_000);
             socket.getOutputStream().write(rawRequest.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
             socket.getOutputStream().flush();

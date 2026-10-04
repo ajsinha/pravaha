@@ -140,7 +140,7 @@ final class OpenApiLock {
         }
 
         /**
-         * A body's top-level shape: a schema's name (its fields recorded under {@code schemas}),
+         * A body's top-level shape: a schema's name (its fields recorded under {@code "schemas"}),
          * {@code X[]}, {@code map<X>}, or a scalar type.
          */
         private String shape(JsonNode schema, String inlineName) {

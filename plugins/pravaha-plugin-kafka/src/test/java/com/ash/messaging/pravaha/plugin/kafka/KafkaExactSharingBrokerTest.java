@@ -282,6 +282,8 @@ class KafkaExactSharingBrokerTest {
         private final List<String> violations = new CopyOnWriteArrayList<>();
         private volatile long seen;
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void onSnapshot(List<ViewChange> rows, long frontier) {
             for (ViewChange row : rows) {
@@ -290,6 +292,8 @@ class KafkaExactSharingBrokerTest {
             }
         }
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void onCommit(List<ViewChange> changes, long frontier) {
             long before = highest.get();

@@ -15,7 +15,6 @@
  */
 package com.ash.messaging.pravaha.server;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -284,7 +283,6 @@ class PravahaNodeTest {
         node.stop();
 
         assertThat(node.isRunning()).isFalse();
-        assertThat(Files.exists(journal) || true).isTrue();
     }
 
     /**

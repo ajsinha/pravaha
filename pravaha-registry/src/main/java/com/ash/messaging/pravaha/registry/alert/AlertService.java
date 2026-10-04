@@ -230,6 +230,8 @@ public final class AlertService implements Alerting, AutoCloseable {
         }
     }
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     private void start() {
         if (settings.deliveryThreads() > 0) {
             delivery = Executors.newFixedThreadPool(settings.deliveryThreads(), runnable -> {

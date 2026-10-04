@@ -713,6 +713,7 @@ public final class PhysicalPlanBuilder {
      * saves reconstructing it from the window spec in three places. {@link #buildAggregate} adds it
      * to the grouping, which is a no-op semantically for the same reason.
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private PhysicalOperator buildGroupedWindow(Project project, PhysicalOperator input, RexCall window) {
         views.refuseOver(input, "a window");
         String function = window.getOperator().getName().replace("$", "").toUpperCase(java.util.Locale.ROOT);

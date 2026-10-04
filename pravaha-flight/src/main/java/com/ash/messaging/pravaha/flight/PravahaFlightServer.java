@@ -264,6 +264,7 @@ public final class PravahaFlightServer implements AutoCloseable {
      * <p>Called from {@link #start}, so a caller may configure the registry and the policy in
      * either order.
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private void requireOnePolicy() {
         if (registry == null || policy == null) {
             return;
@@ -285,6 +286,7 @@ public final class PravahaFlightServer implements AutoCloseable {
      * @param port the port to listen on, or zero to let the operating system choose -- which is what
      *     a test wants, and the reason {@link #port()} exists
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public PravahaFlightServer start(String host, int port) {
         // Checked here, where configuration is finished, rather than in each setter.
         //
@@ -311,6 +313,8 @@ public final class PravahaFlightServer implements AutoCloseable {
                 .withDeadLetters(deadLetters)
                 .observedBy(observation);
         try {
+            @SuppressWarnings(
+                    "ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
             FlightServer.Builder builder = FlightServer.builder(
                     allocator,
                     requested,

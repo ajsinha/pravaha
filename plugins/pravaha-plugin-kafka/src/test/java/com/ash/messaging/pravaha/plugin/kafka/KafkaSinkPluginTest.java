@@ -214,6 +214,8 @@ class KafkaSinkPluginTest {
         assertThat(mocks.target.commitCount()).isZero();
     }
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     @Test
     void recordsAnotherProcessInterleavedIntoTheRangeAreNotCommitted() {
         Mocks mocks = new Mocks();

@@ -243,6 +243,7 @@ class FlightRegistryTest {
                         }
                     }
                 } catch (Exception e) {
+                    // The reader is cancelled to end it, and a cancelled stream ends by throwing.
                 }
             });
         }

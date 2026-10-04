@@ -88,6 +88,7 @@ class TokenVerifierTest {
         assertThat(verifier.verify("b")).isEqualTo(ops);
     }
 
+    @SuppressWarnings("ObjectToString") // the test is that toString shows no secret
     @Test
     void theTokensThemselvesAreNotRecoverableFromTheVerifier() {
         StaticTokenVerifier verifier = StaticTokenVerifier.of("s3cret", ANALYST);

@@ -283,6 +283,8 @@ class SubscribeFromSnapshotTest {
         volatile boolean outOfOrder;
         private final List<ViewChange> all = new CopyOnWriteArrayList<>();
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void onSnapshot(List<ViewChange> rows, long frontier) {
             snapshots++;

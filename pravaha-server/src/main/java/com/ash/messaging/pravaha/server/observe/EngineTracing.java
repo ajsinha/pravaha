@@ -42,6 +42,7 @@ public class EngineTracing implements DisposableBean {
 
     private final EngineSpans.Backend backend;
 
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public EngineTracing(ObjectProvider<Tracer> tracers) {
         Tracer tracer = tracers.getIfAvailable();
         if (tracer == null || tracer == Tracer.NOOP) {

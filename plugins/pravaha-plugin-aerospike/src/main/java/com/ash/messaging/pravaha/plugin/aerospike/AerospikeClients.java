@@ -81,7 +81,7 @@ final class AerospikeClients {
     private static final Map<Key, Shared> BY_KEY = new HashMap<>();
 
     /** Identity, not equality: two distinct clients could compare equal and must not be confused. */
-    private static final Map<IAerospikeClient, Key> KEY_OF = new IdentityHashMap<>();
+    private static final IdentityHashMap<IAerospikeClient, Key> KEY_OF = new IdentityHashMap<>();
 
     private AerospikeClients() {}
 

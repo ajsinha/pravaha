@@ -71,7 +71,7 @@ class WebhookNotifierTest {
 
     @BeforeEach
     void start() throws IOException {
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server = HttpServer.create(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/hook", exchange -> {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             received.add(new Received(Map.copyOf(exchange.getRequestHeaders()), body));

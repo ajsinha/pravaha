@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -340,7 +341,7 @@ final class DeltaTableFixture {
     }
 
     /** Writes the vector's file and returns its descriptor, as the log's JSON. */
-    private String writeVector(TreeSet<Long> rows) throws IOException {
+    private String writeVector(NavigableSet<Long> rows) throws IOException {
         byte[] data = portableBitmapArray(rows);
         UUID uuid = UUID.randomUUID();
         CRC32 crc = new CRC32();
@@ -357,7 +358,7 @@ final class DeltaTableFixture {
      * {@code RoaringBitmapArray} of one 32-bit bitmap in RoaringBitmap's portable format, all
      * little-endian. Row indexes below 65 536 fit one array container, which is all a test needs.
      */
-    private static byte[] portableBitmapArray(TreeSet<Long> rows) {
+    private static byte[] portableBitmapArray(NavigableSet<Long> rows) {
         if (rows.isEmpty() || rows.last() >= 65_536 || rows.size() > 4096) {
             throw new IllegalArgumentException("the fixture writes one array container: " + rows);
         }

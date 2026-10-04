@@ -699,6 +699,8 @@ public final class QueryReplacements implements AutoCloseable {
      * <p>One thread for the node, started when the first replacement does and never while none is
      * running -- a registry that never replaces anything starts no thread at all.
      */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     private void watch() {
         if (watcher == null) {
             watcher = Executors.newSingleThreadScheduledExecutor(runnable -> {

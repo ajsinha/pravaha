@@ -33,6 +33,8 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 interface KafkaValueDecoder {
 
     /**
+     * One record's value as a row.
+     *
      * @param value the record's value, never null (a tombstone is handled before this)
      * @param recordTimestampMillis the record's Kafka timestamp, or negative when it has none
      */

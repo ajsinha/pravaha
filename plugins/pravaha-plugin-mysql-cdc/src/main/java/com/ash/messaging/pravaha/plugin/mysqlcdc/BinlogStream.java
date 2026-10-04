@@ -104,6 +104,7 @@ final class BinlogStream implements AutoCloseable {
     }
 
     /** Removes {@code head}, when it is still the head, and lets the reading thread go on. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     synchronized void remove(BinlogTransaction head) {
         if (queue.peekFirst() == head) {
             queue.pollFirst();
@@ -135,6 +136,7 @@ final class BinlogStream implements AutoCloseable {
         }
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     private void readUntilClosed() {
         long backoff = 500;
         while (running && !halted) {

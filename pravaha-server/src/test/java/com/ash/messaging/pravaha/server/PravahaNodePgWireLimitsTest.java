@@ -92,14 +92,17 @@ class PravahaNodePgWireLimitsTest {
         node.setPgWireLimits(bound(Map.of(
                 "pravaha.pgwire.limits.max-connections", "1", "pravaha.pgwire.limits.max-unauthenticated", "1")));
         node.start();
-        try (Socket first = new Socket("127.0.0.1", node.pgwirePort().orElseThrow())) {
+        try (Socket first = new Socket(
+                java.net.InetAddress.getLoopbackAddress(), node.pgwirePort().orElseThrow())) {
             first.setSoTimeout(10_000);
             long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
             int type = -1;
             while (System.nanoTime() < deadline) {
                 // The first socket may not have been counted yet when the second arrives; retry
                 // until the second is the one refused.
-                try (Socket second = new Socket("127.0.0.1", node.pgwirePort().orElseThrow())) {
+                try (Socket second = new Socket(
+                        java.net.InetAddress.getLoopbackAddress(),
+                        node.pgwirePort().orElseThrow())) {
                     second.setSoTimeout(1_000);
                     DataInputStream in = new DataInputStream(second.getInputStream());
                     try {

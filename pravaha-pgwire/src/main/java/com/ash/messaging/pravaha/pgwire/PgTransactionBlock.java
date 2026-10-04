@@ -168,33 +168,40 @@ final class PgTransactionBlock {
     static Optional<Command> recognise(String statement) {
         String s = statement.strip();
         Matcher m;
-        if ((m = BEGIN.matcher(s)).matches()) {
+        m = BEGIN.matcher(s);
+        if (m.matches()) {
             String tag = m.group(1).toUpperCase(Locale.ROOT).startsWith("START") ? "START TRANSACTION" : "BEGIN";
             return Optional.of(new Command(Kind.BEGIN, tag, null, false, isolationIn(m.group(2))));
         }
-        if ((m = END.matcher(s)).matches()) {
+        m = END.matcher(s);
+        if (m.matches()) {
             String verb = m.group(1).toUpperCase(Locale.ROOT);
             boolean chain = m.group(0).toUpperCase(Locale.ROOT).endsWith("CHAIN") && m.group(2) == null;
             boolean commit = verb.equals("COMMIT") || verb.equals("END");
             return Optional.of(new Command(
                     commit ? Kind.COMMIT : Kind.ROLLBACK, commit ? "COMMIT" : "ROLLBACK", null, chain, null));
         }
-        if ((m = ROLLBACK_TO.matcher(s)).matches()) {
+        m = ROLLBACK_TO.matcher(s);
+        if (m.matches()) {
             return Optional.of(new Command(Kind.ROLLBACK_TO, "ROLLBACK", name(m.group(1)), false, null));
         }
-        if ((m = SAVEPOINT.matcher(s)).matches()) {
+        m = SAVEPOINT.matcher(s);
+        if (m.matches()) {
             return Optional.of(new Command(Kind.SAVEPOINT, "SAVEPOINT", name(m.group(1)), false, null));
         }
-        if ((m = RELEASE.matcher(s)).matches()) {
+        m = RELEASE.matcher(s);
+        if (m.matches()) {
             return Optional.of(new Command(Kind.RELEASE, "RELEASE", name(m.group(1)), false, null));
         }
         if (SET_SNAPSHOT.matcher(s).matches()) {
             return Optional.of(new Command(Kind.SET_TRANSACTION_SNAPSHOT, "SET", null, false, null));
         }
-        if ((m = SET_TRANSACTION.matcher(s)).matches()) {
+        m = SET_TRANSACTION.matcher(s);
+        if (m.matches()) {
             return Optional.of(new Command(Kind.SET_TRANSACTION, "SET", null, false, isolationIn(m.group(1))));
         }
-        if ((m = SET_CHARACTERISTICS.matcher(s)).matches()) {
+        m = SET_CHARACTERISTICS.matcher(s);
+        if (m.matches()) {
             return Optional.of(
                     new Command(Kind.SET_SESSION_CHARACTERISTICS, "SET", null, false, isolationIn(m.group(1))));
         }

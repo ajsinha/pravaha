@@ -36,11 +36,11 @@ import com.ash.messaging.pravaha.api.data.RowView;
  *
  * <p><strong>Self time is sampled, and the sample is regular.</strong> One row in every {@link
  * OperatorClock#SAMPLE_EVERY} that enters the pipeline is timed at every operator on its path,
- * children subtracted, so {@link #selfNanos()} is that operator's own work and not its subtree's.
+ * children subtracted, so {@link Snapshot#selfNanos()} is that operator's own work and not its subtree's.
  * A regular sample, not a random one: a row whose position is a multiple of 1,024 is not a random
  * row, and a workload whose cost happens to beat in step with that period would be measured wrong.
  * What it buys is that the untimed 1,023 rows pay one field read and a branch, which is the only
- * reason a per-operator timer is affordable at all. {@link #sampledRows()} is published beside the
+ * reason a per-operator timer is affordable at all. {@link Snapshot#sampledRows()} is published beside the
  * time so the ratio can be checked rather than assumed.
  *
  * <p><strong>Nothing here exists when measurement is off.</strong> {@link

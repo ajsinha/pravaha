@@ -58,6 +58,7 @@ public final class FilterProjectGenerator {
      * @param plan a chain of filters and projections rooted at a scan
      * @throws PravahaException {@code PRV-3101} if the chain contains anything not yet generable
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public Fused generate(PhysicalOperator plan, String className) {
         List<PhysicalOperator> chain = flatten(plan);
         ScanOperator scan = (ScanOperator) chain.get(chain.size() - 1);

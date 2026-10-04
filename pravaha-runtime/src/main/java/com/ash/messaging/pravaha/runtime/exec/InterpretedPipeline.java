@@ -211,10 +211,6 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     private final List<OperatorMetrics> operators;
 
-    private InterpretedPipeline(RowArena arena, RowProcessor head, List<ScanOperator> scans, RowOutput output) {
-        this(arena, head, scans, output, List.of());
-    }
-
     private InterpretedPipeline(
             RowArena arena,
             RowProcessor head,

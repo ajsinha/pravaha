@@ -149,9 +149,10 @@ class InMemoryPartitionLeaseCoordinatorTest {
         List<Optional<PartitionLease>> results = new CopyOnWriteArrayList<>();
         ExecutorService pool = Executors.newFixedThreadPool(contenders);
         try {
+            java.util.List<java.util.concurrent.Future<?>> attempts = new java.util.ArrayList<>();
             for (int i = 0; i < contenders; i++) {
                 Member candidate = new Member("m" + i, "host-" + i, 9000 + i);
-                pool.submit(() -> {
+                attempts.add(pool.submit(() -> {
                     ready.countDown();
                     try {
                         go.await();
@@ -160,12 +161,15 @@ class InMemoryPartitionLeaseCoordinatorTest {
                         return;
                     }
                     results.add(leases.acquire(7, candidate));
-                });
+                }));
             }
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
             go.countDown();
             pool.shutdown();
             assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            for (java.util.concurrent.Future<?> attempt : attempts) {
+                attempt.get(); // a contender that threw fails the test instead of vanishing
+            }
 
             long winners = results.stream().filter(Optional::isPresent).count();
             assertThat(winners)
@@ -187,9 +191,10 @@ class InMemoryPartitionLeaseCoordinatorTest {
         AtomicInteger wins = new AtomicInteger();
         ExecutorService pool = Executors.newFixedThreadPool(contenders);
         try {
+            java.util.List<java.util.concurrent.Future<?>> attempts = new java.util.ArrayList<>();
             for (int i = 0; i < contenders; i++) {
                 Member candidate = new Member("m" + i, "host-" + i, 9000 + i);
-                pool.submit(() -> {
+                attempts.add(pool.submit(() -> {
                     ready.countDown();
                     try {
                         go.await();
@@ -200,12 +205,15 @@ class InMemoryPartitionLeaseCoordinatorTest {
                     if (leases.transfer(aOwnsIt, candidate).isPresent()) {
                         wins.incrementAndGet();
                     }
-                });
+                }));
             }
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
             go.countDown();
             pool.shutdown();
             assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            for (java.util.concurrent.Future<?> attempt : attempts) {
+                attempt.get(); // a contender that threw fails the test instead of vanishing
+            }
 
             assertThat(wins.get())
                     .as("exactly one of %s real, concurrent transfer attempts from the same premise wins", contenders)

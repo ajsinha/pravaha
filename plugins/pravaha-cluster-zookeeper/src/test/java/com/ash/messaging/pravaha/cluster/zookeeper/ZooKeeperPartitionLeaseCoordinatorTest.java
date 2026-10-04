@@ -174,9 +174,10 @@ class ZooKeeperPartitionLeaseCoordinatorTest {
         List<Optional<PartitionLease>> results = new CopyOnWriteArrayList<>();
         ExecutorService pool = Executors.newFixedThreadPool(contenders);
         try {
+            java.util.List<java.util.concurrent.Future<?>> attempts = new java.util.ArrayList<>();
             for (int i = 0; i < contenders; i++) {
                 Member candidate = new Member("m" + i, "host-" + i, 9100 + i);
-                pool.submit(() -> {
+                attempts.add(pool.submit(() -> {
                     ready.countDown();
                     try {
                         go.await();
@@ -185,12 +186,15 @@ class ZooKeeperPartitionLeaseCoordinatorTest {
                         return;
                     }
                     results.add(leases.transfer(aOwnsIt, candidate));
-                });
+                }));
             }
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
             go.countDown();
             pool.shutdown();
             assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+            for (java.util.concurrent.Future<?> attempt : attempts) {
+                attempt.get(); // a contender that threw fails the test instead of vanishing
+            }
 
             long winners = results.stream().filter(Optional::isPresent).count();
             assertThat(winners)

@@ -263,6 +263,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
     }
 
     /** The image as it stood at the last {@link #position}, for the checkpoint being cut. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     byte[] cut() {
         synchronized (lock) {
             Map<RowKey, Object> undone = undo == null ? Map.of() : undo;

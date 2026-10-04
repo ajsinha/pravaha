@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Random;
 import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -533,7 +534,7 @@ class AdvAggregateTest {
         return !at.isBefore(other.minusSeconds(5)) && !at.isAfter(other);
     }
 
-    static TreeSet<String> minus(TreeSet<String> a, TreeSet<String> b) {
+    static NavigableSet<String> minus(NavigableSet<String> a, NavigableSet<String> b) {
         TreeSet<String> out = new TreeSet<>(a);
         out.removeAll(b);
         return out.size() > 6 ? new TreeSet<>(out.headSet(out.toArray(new String[0])[6])) : out;

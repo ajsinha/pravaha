@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -74,7 +75,7 @@ class AdvChainTest {
             }
         }
 
-        TreeSet<String> up() {
+        NavigableSet<String> up() {
             TreeSet<String> out = new TreeSet<>();
             keys.forEach((id, rows) -> {
                 List<Object> shown = rows.lastEntry().getKey();
@@ -83,7 +84,7 @@ class AdvChainTest {
             return out;
         }
 
-        TreeSet<String> mid() {
+        NavigableSet<String> mid() {
             Map<String, long[]> groups = new TreeMap<>();
             keys.values().forEach(rows -> {
                 List<Object> shown = rows.lastEntry().getKey();
@@ -96,7 +97,7 @@ class AdvChainTest {
             return out;
         }
 
-        TreeSet<String> top() {
+        NavigableSet<String> top() {
             TreeSet<String> out = new TreeSet<>();
             for (String row : mid()) {
                 String[] cells = row.split("\\|", -1);

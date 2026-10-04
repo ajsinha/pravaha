@@ -178,6 +178,8 @@ final class KafkaBroker {
     }
 
     /** Sends without waiting: inside a transaction, which its commit or abort completes. */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     static void sendAsync(
             KafkaProducer<byte[], byte[]> producer, String topic, int partition, String key, String value) {
         producer.send(new ProducerRecord<>(topic, partition, bytes(key), bytes(value)));

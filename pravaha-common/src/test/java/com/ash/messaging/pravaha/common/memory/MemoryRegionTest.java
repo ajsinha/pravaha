@@ -165,6 +165,7 @@ class MemoryRegionTest {
         }
     }
 
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     @ParameterizedTest
     @MethodSource("implementations")
     void copyFromRejectsAnotherImplementation(MemoryAccess access) {

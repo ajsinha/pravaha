@@ -495,6 +495,7 @@ public final class SqlPlanner {
     }
 
     /** The innermost message, which is nearly always the one that says what is actually wrong. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private static String rootMessage(Throwable t) {
         Throwable cause = t;
         while (cause.getCause() != null && cause.getCause() != cause) {

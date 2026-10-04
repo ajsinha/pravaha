@@ -200,6 +200,7 @@ public final class WatermarkTracker {
      *     event time and must stay independent of how fast the machine is running
      * @return the current lane watermark, or {@link WatermarkGenerator#NOT_YET}
      */
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     public long advance(long nowNanos) {
         long minimum = Long.MAX_VALUE;
         boolean any = false;

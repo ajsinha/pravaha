@@ -260,6 +260,8 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
      * Stages the batch in the open transaction or, not transactional, sends it to the target topic.
      * Sends are asynchronous; {@link #flush} is where a failed one is reported.
      */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     @Override
     public int write(List<RowView> batch) {
         requireOpen();
@@ -440,6 +442,8 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
     }
 
     /** Sends every record of the range this handle's run and label staged to the target topic. */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     private long replay(Staged range) {
         Long beginning = reader.beginningOffsets(List.of(staging)).get(staging);
         if (beginning != null && range.from() < beginning) {

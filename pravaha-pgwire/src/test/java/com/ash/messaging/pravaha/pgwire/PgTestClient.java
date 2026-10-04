@@ -80,7 +80,7 @@ final class PgTestClient implements AutoCloseable {
 
     PgTestClient(int port) throws IOException {
         this.socket = new Socket();
-        this.socket.connect(new InetSocketAddress("127.0.0.1", port), 5_000);
+        this.socket.connect(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), port), 5_000);
         this.socket.setSoTimeout(readBoundMillis(
                 java.lang.management.ManagementFactory.getOperatingSystemMXBean()
                         .getSystemLoadAverage(),

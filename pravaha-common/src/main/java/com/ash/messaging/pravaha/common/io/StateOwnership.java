@@ -145,6 +145,8 @@ public final class StateOwnership implements AutoCloseable {
     /** This claim's key in {@link #LIVE}. */
     private final Path key;
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     private StateOwnership(Path directory, Path marker, Owner owner, Duration lease, Path key) {
         this.directory = directory;
         this.marker = marker;

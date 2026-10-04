@@ -525,6 +525,7 @@ public final class QueryExecution implements AutoCloseable {
      * @param observes accepts the observer to install -- a method reference to the pump's own
      *     {@code observeEventTimeWith}, since the two pump types share no supertype
      */
+    @SuppressWarnings("SynchronizeOnNonFinalField") // set once before any lane starts, never reassigned after
     private void trackEventTimeOf(
             String streamName, int laneIndex, java.util.function.Consumer<java.util.function.LongConsumer> observes) {
         if (watermarks == null) {
@@ -667,6 +668,7 @@ public final class QueryExecution implements AutoCloseable {
         return generatingWatermarks(null, DEFAULT_IDLE_AFTER, DEFAULT_TICK);
     }
 
+    @SuppressWarnings("SynchronizeOnNonFinalField") // set once before any lane starts, never reassigned after
     private void advanceWatermarkQuietly() {
         try {
             long now = System.nanoTime();
@@ -1154,6 +1156,8 @@ public final class QueryExecution implements AutoCloseable {
     public interface OutputCut {
 
         /**
+         * Cuts the output at the checkpoint's marker, on the lane.
+         *
          * @param checkpointId the checkpoint being cut
          * @return entries for the checkpoint's operator state. Keys must not begin with {@code lane-}
          */

@@ -83,7 +83,7 @@ class HelpExamplesSqlTest {
             "(?:<!--\\s*sql:\\s*([a-z-]+)(?:\\s+(PRV-\\d{4}))?\\s*-->\\s*\\n)?```sql[^\\n]*\\n(.*?)\\n```",
             Pattern.DOTALL);
 
-    private record Example(String page, int line, String kind, String code, String sql) {
+    record Example(String page, int line, String kind, String code, String sql) {
 
         String where() {
             return page + ":" + line;

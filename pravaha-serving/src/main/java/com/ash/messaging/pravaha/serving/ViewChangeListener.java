@@ -33,6 +33,8 @@ import java.util.List;
 public interface ViewChangeListener {
 
     /**
+     * One commit's changes.
+     *
      * @param changes the rows that changed in this commit, in the order they were applied
      * @param frontier the frontier now committed; every change in this batch belongs at or before it
      */

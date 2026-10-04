@@ -114,6 +114,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     private boolean deletes;
     private boolean sole;
 
+    @SuppressWarnings("StaticAssignmentOfThrowable") // a test fixture's one-shot failure hook
     static void reset() {
         STORE.clear();
         OPEN.set(0);

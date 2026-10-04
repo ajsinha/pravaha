@@ -253,9 +253,11 @@ class DistinctValueCountsPropertyTest {
             assertThat(state.hasSpilled())
                     .as("seed %d: a two-slice ceiling must put this state in the overflow tier", seed)
                     .isTrue();
-            assertThat(Files.list(dir.resolve("b")).count())
-                    .as("seed %d: the restored state spilled into its own directory", seed)
-                    .isPositive();
+            try (var spilled = Files.list(dir.resolve("b"))) {
+                assertThat(spilled.count())
+                        .as("seed %d: the restored state spilled into its own directory", seed)
+                        .isPositive();
+            }
             for (long end = 10 * SECOND; end <= lastWindowEnd; end += 10 * SECOND) {
                 assertThat(fired(state, end))
                         .as("seed %d, window ending %ds", seed, end / SECOND)

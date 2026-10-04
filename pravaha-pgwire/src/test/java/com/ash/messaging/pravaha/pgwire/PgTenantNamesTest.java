@@ -48,6 +48,7 @@ class PgTenantNamesTest {
             + "pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relname OPERATOR(pg_catalog.~) '^(%s)$' "
             + "AND pg_catalog.pg_table_is_visible(c.oid) ORDER BY 2, 3";
 
+    @SuppressWarnings("InlineFormatString") // the query reads better named than inline in the assertion
     private static final String COLUMNS = "SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), "
             + "(SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) FROM pg_catalog.pg_attrdef d "
             + "WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef), a.attnotnull, "

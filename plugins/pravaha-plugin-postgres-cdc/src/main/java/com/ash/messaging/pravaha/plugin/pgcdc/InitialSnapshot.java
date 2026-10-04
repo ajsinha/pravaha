@@ -329,6 +329,7 @@ final class InitialSnapshot implements AutoCloseable {
         }
     }
 
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     @Override
     public void close() {
         running = false;

@@ -477,11 +477,14 @@ public final class QueryRegistry implements AutoCloseable {
     /** Debug sessions, created with the first fork (ADR-048, design section 16.4). */
     private volatile DebugSessions debugSessions;
 
+    /** Guards the lazily made debug sessions and replacements, for this registry alone. */
+    private final Object lazily = new Object();
+
     /** The time-travel debugger's sessions on this registry (ADR-048, design section 16.4). */
     public DebugSessions debugSessions() {
         DebugSessions open = debugSessions;
         if (open == null) {
-            synchronized (DebugSessions.class) {
+            synchronized (lazily) {
                 open = debugSessions;
                 if (open == null) {
                     open = new DebugSessions(this, policy, audit, configuration);
@@ -1130,7 +1133,7 @@ public final class QueryRegistry implements AutoCloseable {
     public QueryReplacements replacements() {
         QueryReplacements running = replacements;
         if (running == null) {
-            synchronized (QueryReplacements.class) {
+            synchronized (lazily) {
                 running = replacements;
                 if (running == null) {
                     running = new QueryReplacements(this, policy, audit);

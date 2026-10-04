@@ -118,6 +118,8 @@ public final class SocketCoordinator implements ClusterCoordinator {
         return GUARANTEES;
     }
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     @Override
     public void start(Member self) {
         this.self = self;

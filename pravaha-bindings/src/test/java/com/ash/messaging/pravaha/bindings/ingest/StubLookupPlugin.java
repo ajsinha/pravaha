@@ -53,6 +53,7 @@ public final class StubLookupPlugin implements LookupSourcePlugin {
         lastConfig = Map.copyOf(context.config());
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     @Override
     public void open() {
         opens++;

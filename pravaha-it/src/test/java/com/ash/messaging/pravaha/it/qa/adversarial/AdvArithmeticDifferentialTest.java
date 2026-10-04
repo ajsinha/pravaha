@@ -45,7 +45,11 @@ class AdvArithmeticDifferentialTest {
     sealed interface E permits Col, Lit, Bin, Neg, Abs, Case {
         String sql();
 
-        /** @throws ArithmeticException where SQL raises an error */
+        /**
+         * The expression's exact value, or null for SQL NULL.
+         *
+         * @throws ArithmeticException where SQL raises an error
+         */
         BigInteger eval(Long x, Long y);
     }
 

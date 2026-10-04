@@ -335,6 +335,7 @@ final class MySqlSchema {
         return null;
     }
 
+    @SuppressWarnings("EnumOrdinal") // declaration order is the meaning: a range, a precedence or a random pick
     private static boolean isInteger(Kind kind) {
         return kind.ordinal() <= Kind.BIG_UNSIGNED.ordinal();
     }

@@ -803,12 +803,22 @@ public class PravahaNode implements SmartLifecycle {
         // CFG-21. Validated by SecurityProperties, so an unknown name is refused while the
         // properties bean is initialising rather than four Caused-by levels under Tomcat.
         return switch (security.trimmedAudit()) {
-            case "memory" -> audit == null ? (audit = readable(memorySink(), "memory")) : audit;
+            case "memory" -> {
+                if (audit == null) {
+                    audit = readable(memorySink(), "memory");
+                }
+                yield audit;
+            }
             // CFG-23. The setting that produces a trail an operator can read after the fact, and
             // the reason it is a file: an endpoint listing who-read-what is a disclosure surface
             // needing an authorization this codebase's policy SPI cannot express, while a file's
             // readers are already decided by the operating system. See FileAuditSink.
-            case "file" -> audit == null ? (audit = readable(fileSink(), "file")) : audit;
+            case "file" -> {
+                if (audit == null) {
+                    audit = readable(fileSink(), "file");
+                }
+                yield audit;
+            }
             default -> AuditSink.NONE;
         };
     }

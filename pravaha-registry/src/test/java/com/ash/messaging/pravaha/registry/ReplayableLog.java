@@ -172,6 +172,8 @@ final class ReplayableLog implements SourceFeedFactory {
             this.thread.start();
         }
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         private void run() {
             while (!closed) {
                 if (paused) {

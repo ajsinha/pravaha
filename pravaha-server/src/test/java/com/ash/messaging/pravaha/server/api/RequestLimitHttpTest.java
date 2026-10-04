@@ -63,7 +63,7 @@ class RequestLimitHttpTest {
 
     /** The status line and body of the answer to {@code head} followed by {@code body}. */
     private String exchange(String head, byte[] body) throws IOException {
-        try (Socket socket = new Socket("127.0.0.1", port)) {
+        try (Socket socket = new Socket(java.net.InetAddress.getLoopbackAddress(), port)) {
             socket.setSoTimeout(15_000);
             OutputStream out = socket.getOutputStream();
             out.write(head.getBytes(StandardCharsets.US_ASCII));
