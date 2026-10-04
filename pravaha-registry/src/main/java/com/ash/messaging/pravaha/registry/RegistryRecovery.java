@@ -94,8 +94,10 @@ final class RegistryRecovery {
             } catch (RuntimeException failure) {
                 // One bad entry must not stop the rest. A deployment recovering forty queries should
                 // not lose thirty-nine because the fortieth names a stream that has since been removed.
-                refused.add(new QueryRegistry.Recovery.Refusal(
-                        entry.name(), replayRefusalCode(failure), failure.getMessage()));
+                // NULLREFUSAL-1: a failure with no message is refused under its own name rather than
+                // making the refusal throw, which stopped the recovery of every entry after it.
+                String reason = failure.getMessage() == null ? failure.toString() : failure.getMessage();
+                refused.add(new QueryRegistry.Recovery.Refusal(entry.name(), replayRefusalCode(failure), reason));
             }
         }
         // Every name the journal knows has now been registered or refused, so a sink a restored

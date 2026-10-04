@@ -804,7 +804,8 @@ public final class QueryReplacements implements AutoCloseable {
                 refused.add(new QueryRegistry.Recovery.Refusal(
                         each.name() + " (replacement)",
                         failure instanceof PravahaException coded ? Optional.of(coded.errorCode()) : Optional.empty(),
-                        failure.getMessage()));
+                        // NULLREFUSAL-1, as in RegistryRecovery: a failure with no message is named.
+                        failure.getMessage() == null ? failure.toString() : failure.getMessage()));
                 endedInTheJournal(each.name());
             }
         }

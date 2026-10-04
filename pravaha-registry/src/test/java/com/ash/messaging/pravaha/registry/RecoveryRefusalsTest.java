@@ -111,6 +111,41 @@ class RecoveryRefusalsTest {
         }
     }
 
+    /**
+     * NULLREFUSAL-1. A registration that fails at recovery with an exception carrying no message --
+     * an {@code IllegalStateException()}, a bug's {@code NullPointerException} -- used to make the
+     * refusal itself throw (its reason is required), so the one bad entry stopped the recovery of every
+     * entry after it. It is refused like any other, naming the exception.
+     */
+    @Test
+    void aFailureWithNoMessageIsRefusedByNameAndDoesNotStopTheRecovery(@TempDir Path directory) {
+        Path journal = journal(directory);
+        SecurityPolicy failing = new SecurityPolicy() {
+            @Override
+            public com.ash.messaging.pravaha.security.AccessDecision mayRead(Principal principal, String view) {
+                return com.ash.messaging.pravaha.security.AccessDecision.allow();
+            }
+
+            @Override
+            public com.ash.messaging.pravaha.security.AccessDecision mayRegisterQuery(Principal principal) {
+                throw new IllegalStateException();
+            }
+        };
+        try (QueryRegistry second = new QueryRegistry(new ViewCatalog(), failing, AuditSink.NONE, TXN)
+                .journalTo(new RegistryJournal(journal))) {
+            QueryRegistry.Recovery recovery =
+                    second.recover(id -> id.equals("dana") ? Optional.of(DANA) : Optional.empty());
+            assertThat(recovery.recovered()).isEmpty();
+            assertThat(recovery.refused())
+                    .extracting(QueryRegistry.Recovery.Refusal::query)
+                    .containsExactlyInAnyOrder("good", "gone");
+            assertThat(recovery.refused())
+                    .filteredOn(refusal -> refusal.query().equals("good"))
+                    .singleElement()
+                    .satisfies(refusal -> assertThat(refusal.reason()).contains("IllegalStateException"));
+        }
+    }
+
     @Test
     void aRefusedNameRegisteredAgainIsARunningQueryAndNotARefusedOne(@TempDir Path directory) {
         Path journal = journal(directory);

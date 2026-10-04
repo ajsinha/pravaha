@@ -46,8 +46,7 @@ public final class RecoveryRefusals {
      * @param sql the registration's SQL, from the journal; empty when the entry was a replacement
      * @param owner the id the journal recorded as its owner; empty when it recorded none
      */
-    public record Refused(
-            String name, String code, @Nullable String reason, String sql, String owner) {}
+    public record Refused(String name, String code, String reason, String sql, String owner) {}
 
     private final Map<String, Refused> refused = new LinkedHashMap<>();
 

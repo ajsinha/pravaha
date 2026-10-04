@@ -67,7 +67,8 @@ public final class DraftFingerprint {
         synchronized (registry) {
             // In the caller's tenant, as registering it would be (ADR-060).
             String engine = com.ash.messaging.pravaha.security.ViewNames.engineName(principal.tenant(), name);
-            return registry.prepare(engine, sql, keys, principal, kept, BoundParameters.none(), sink, "explain")
+            return RegistrationPlanning.prepare(
+                            registry, engine, sql, keys, principal, kept, BoundParameters.none(), sink, "explain")
                     .fingerprint();
         }
     }

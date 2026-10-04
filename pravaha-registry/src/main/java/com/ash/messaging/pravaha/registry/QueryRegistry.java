@@ -692,20 +692,6 @@ public final class QueryRegistry implements AutoCloseable {
     /** What planning and authorizing a registration produced, before anything is started. */
     record Preparation(PhysicalOperator plan, List<ParameterPlacement> placements, QueryFingerprint fingerprint) {}
 
-    /** Plans and authorizes a registration under the engine name {@code name}: {@link RegistrationPlanning}. */
-    Preparation prepare(
-            String name,
-            String sql,
-            List<Integer> keyColumns,
-            Principal principal,
-            Retention retention,
-            BoundParameters parameters,
-            @Nullable String sinkName,
-            String action) {
-        return RegistrationPlanning.prepare(
-                this, name, sql, keyColumns, principal, retention, parameters, sinkName, action);
-    }
-
     SinkFactory sinks() {
         return sinks;
     }
@@ -730,8 +716,8 @@ public final class QueryRegistry implements AutoCloseable {
         QueryNames.require(local, byName.keySet(), ViewNames.engineName(principal.tenant(), local));
         String name = ViewNames.engineName(principal.tenant(), local);
         return EngineSpans.traced("pravaha.query.register", "pravaha.query", name, () -> {
-            Preparation prepared =
-                    prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
+            Preparation prepared = RegistrationPlanning.prepare(
+                    this, name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
             RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
             tenants.admit(
                     audit,
@@ -795,8 +781,8 @@ public final class QueryRegistry implements AutoCloseable {
             String checkpointDirectory,
             com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
         return EngineSpans.traced("pravaha.query.replace", "pravaha.query", name, () -> {
-            Preparation prepared =
-                    prepare(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
+            Preparation prepared = RegistrationPlanning.prepare(
+                    this, name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
             tenants.requireSameTenant(audit, principal, name, sql);
             tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
             RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
@@ -842,9 +828,7 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {
-        SinkFactory factory = sinks;
-        return new SinkDelivery(
-                name, sinkName, factory.open(sinkName), schema, access, factory::release, factory::redact);
+        return new SinkDelivery(name, sinkName, sinks.open(sinkName), schema, access, sinks::release, sinks::redact);
     }
 
     private RegisteredQuery register(
@@ -1066,10 +1050,7 @@ public final class QueryRegistry implements AutoCloseable {
                 // rather than counting everything before the checkpoint twice (VIEW-2).
                 .checkingViewWith(ServedView::requireReadable);
         if (watermarkIdleAfter != null) {
-            execution.generatingWatermarks(
-                    null,
-                    watermarkIdleAfter,
-                    java.util.Objects.requireNonNull(watermarkTick, "set with watermarkIdleAfter"));
+            execution.generatingWatermarks(null, watermarkIdleAfter, Objects.requireNonNull(watermarkTick));
         }
         RegisteredQuery query =
                 new RegisteredQuery(fingerprint, sql, name, view, sink, execution, Instant.now(), placements);
@@ -1300,10 +1281,7 @@ public final class QueryRegistry implements AutoCloseable {
          *     bare {@link RuntimeException} that {@link #recover} did not itself raise with a code
          * @param reason what the failure said
          */
-        public record Refusal(
-                String query,
-                Optional<ErrorCode> code,
-                @Nullable String reason) {
+        public record Refusal(String query, Optional<ErrorCode> code, String reason) {
 
             public Refusal {
                 Objects.requireNonNull(query, "query");
