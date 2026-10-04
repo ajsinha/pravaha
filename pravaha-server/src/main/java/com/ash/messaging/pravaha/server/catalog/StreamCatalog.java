@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -54,7 +55,7 @@ public class StreamCatalog {
     private final Object declaring = new Object();
 
     /** The registry planning over these streams; told of each stream declared after it was built. */
-    private volatile QueryRegistry registry;
+    private volatile @Nullable QueryRegistry registry;
 
     /**
      * Builds the node's registry over the streams declared now, and tells it of every stream declared
@@ -147,7 +148,8 @@ public class StreamCatalog {
      * @param outOfOrderness how late rows may be, or null for the engine default; meaningless, and
      *     refused, without an event-time column
      */
-    public static StreamSchema withEventTime(StreamSchema parsed, String column, java.time.Duration outOfOrderness) {
+    public static StreamSchema withEventTime(
+            StreamSchema parsed, @Nullable String column, java.time.@Nullable Duration outOfOrderness) {
         return withEventTime(parsed, column, outOfOrderness, null);
     }
 
@@ -159,7 +161,10 @@ public class StreamCatalog {
      *     for none; refused without an event-time column, and refused negative
      */
     public static StreamSchema withEventTime(
-            StreamSchema parsed, String column, java.time.Duration outOfOrderness, java.time.Duration allowedLateness) {
+            StreamSchema parsed,
+            @Nullable String column,
+            java.time.@Nullable Duration outOfOrderness,
+            java.time.@Nullable Duration allowedLateness) {
         if (allowedLateness != null && allowedLateness.isNegative()) {
             throw refused(
                     parsed.name(),

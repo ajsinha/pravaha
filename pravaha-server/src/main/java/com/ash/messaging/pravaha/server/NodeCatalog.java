@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,7 +72,7 @@ final class NodeCatalog {
     private final StreamCatalog streams;
     private final SinkBindingProperties sinks;
     private final SourceBindingProperties sources;
-    private CatalogPolicy policy;
+    private @Nullable CatalogPolicy policy;
 
     NodeCatalog(
             CatalogProperties properties,

@@ -169,7 +169,8 @@ public final class PravahaPgWireServer implements AutoCloseable {
      * @throws PravahaException {@link PgWireErrors#TLS_UNREADABLE} if either file is missing, only
      *     one of the pair is given, or the key is not an unencrypted PKCS#8 PEM key
      */
-    public PravahaPgWireServer encryptedWith(java.io.File certificateChain, java.io.File privateKey) {
+    public PravahaPgWireServer encryptedWith(
+            java.io.@Nullable File certificateChain, java.io.@Nullable File privateKey) {
         this.tls = PgTls.load(certificateChain, privateKey);
         return this;
     }

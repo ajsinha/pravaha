@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server.identity;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -62,7 +63,7 @@ public class IdentityProperties {
     private Duration resetTokenLife = Duration.ofMinutes(60);
     private String bootstrapPasswordFile = "";
 
-    private IdentityService service;
+    private @Nullable IdentityService service;
 
     public boolean isEnabled() {
         return enabled;
@@ -206,7 +207,9 @@ public class IdentityProperties {
                     allowDefaultAdminPassword,
                     dev);
         } catch (IllegalArgumentException wrong) {
-            throw new PravahaException(SecurityErrors.MISCONFIGURED, wrong.getMessage());
+            throw new PravahaException(
+                    SecurityErrors.MISCONFIGURED,
+                    java.util.Objects.requireNonNullElse(wrong.getMessage(), wrong.toString()));
         }
     }
 
@@ -259,7 +262,7 @@ public class IdentityProperties {
      * -- asked for only when the store is empty, so the file can be deleted once the node has started.
      * Null means the published default, which a node outside dev refuses to keep (PRV-7019).
      */
-    private String bootstrapPassword() {
+    private @Nullable String bootstrapPassword() {
         if (bootstrapPasswordFile == null || bootstrapPasswordFile.isBlank()) {
             return null;
         }

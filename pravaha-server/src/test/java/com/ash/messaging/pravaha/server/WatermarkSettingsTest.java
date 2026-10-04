@@ -61,6 +61,12 @@ class WatermarkSettingsTest {
                 .get();
     }
 
+    /** The stream these cases declare, which binding them always gives. */
+    private static StreamDeclarationProperties.Declaration txn(Map<String, String> properties) {
+        return java.util.Objects.requireNonNull(
+                declared(properties).getStreams().get("txn"));
+    }
+
     private static PravahaNode.Builder node(StreamDeclarationProperties streams) {
         SecurityProperties security = new SecurityProperties();
         security.setAllowAnonymous(true);
@@ -81,41 +87,33 @@ class WatermarkSettingsTest {
         // two numbers the ten-second default gives. The operator who meant a minute could not see
         // the difference at the only surface that could have shown it, and no bound can catch it
         // either, because sixty milliseconds is a legitimate out-of-orderness.
-        StreamDeclarationProperties.Declaration unitless = declared(Map.of(
-                        "pravaha.streams.txn.schema", SCHEMA,
-                        "pravaha.streams.txn.event-time", "event_time",
-                        "pravaha.streams.txn.out-of-orderness", "60"))
-                .getStreams()
-                .get("txn");
-        assertThat(unitless.getOutOfOrderness())
+        StreamDeclarationProperties.Declaration unitless = txn(Map.of(
+                "pravaha.streams.txn.schema", SCHEMA,
+                "pravaha.streams.txn.event-time", "event_time",
+                "pravaha.streams.txn.out-of-orderness", "60"));
+        assertThat(java.util.Objects.requireNonNull(unitless).getOutOfOrderness())
                 .as("a unitless number means the unit lateness is discussed in")
                 .isEqualTo(Duration.ofMinutes(1));
 
         // And every explicit spelling is untouched, which is what makes this safe to change.
-        assertThat(declared(Map.of(
+        assertThat(txn(Map.of(
                                 "pravaha.streams.txn.schema", SCHEMA,
                                 "pravaha.streams.txn.event-time", "event_time",
                                 "pravaha.streams.txn.out-of-orderness", "60ms"))
-                        .getStreams()
-                        .get("txn")
                         .getOutOfOrderness())
                 .isEqualTo(Duration.ofMillis(60));
-        assertThat(declared(Map.of(
+        assertThat(txn(Map.of(
                                 "pravaha.streams.txn.schema", SCHEMA,
                                 "pravaha.streams.txn.event-time", "event_time",
                                 "pravaha.streams.txn.out-of-orderness", "PT1M"))
-                        .getStreams()
-                        .get("txn")
                         .getOutOfOrderness())
                 .isEqualTo(Duration.ofMinutes(1));
 
         // Its twin, one key over, had the same defect and gets the same answer.
-        assertThat(declared(Map.of(
+        assertThat(txn(Map.of(
                                 "pravaha.streams.txn.schema", SCHEMA,
                                 "pravaha.streams.txn.event-time", "event_time",
                                 "pravaha.streams.txn.allowed-lateness", "30"))
-                        .getStreams()
-                        .get("txn")
                         .getAllowedLateness())
                 .isEqualTo(Duration.ofSeconds(30));
     }

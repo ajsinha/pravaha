@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server.api;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -42,7 +43,7 @@ public class DtoMapper {
      * @param sourcePlugin the binding's plugin name, or null when the stream is not bound. Only the
      *     name is ever taken from a binding: its options can hold credentials
      */
-    public ApiDtos.StreamSummary toSummary(StreamSchema schema, String sourcePlugin) {
+    public ApiDtos.StreamSummary toSummary(StreamSchema schema, @Nullable String sourcePlugin) {
         java.util.OptionalInt eventTime = schema.eventTimeOrdinal();
         return new ApiDtos.StreamSummary(
                 schema.name(),
@@ -68,7 +69,7 @@ public class DtoMapper {
 
     /** The plan as nodes and edges, with the query-level telemetry the engine measures, if any. */
     public ApiDtos.PlanGraph toPlanGraph(
-            com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan, ApiDtos.QueryTelemetry telemetry) {
+            com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan, ApiDtos.@Nullable QueryTelemetry telemetry) {
         return toPlanGraph(plan, telemetry, java.util.List.of());
     }
 
@@ -85,7 +86,7 @@ public class DtoMapper {
      */
     public ApiDtos.PlanGraph toPlanGraph(
             com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan,
-            ApiDtos.QueryTelemetry telemetry,
+            ApiDtos.@Nullable QueryTelemetry telemetry,
             java.util.List<com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot> operators) {
         var graph = com.ash.messaging.pravaha.sql.plan.PlanGraph.of(plan);
         java.util.Map<String, ApiDtos.OperatorTelemetry> measured = toOperatorMetrics(operators);
@@ -106,7 +107,8 @@ public class DtoMapper {
     }
 
     private static String metricsNote(
-            ApiDtos.QueryTelemetry telemetry, java.util.Map<String, ApiDtos.OperatorTelemetry> measured) {
+            ApiDtos.@Nullable QueryTelemetry telemetry,
+            java.util.@Nullable Map<String, ApiDtos.OperatorTelemetry> measured) {
         if (measured != null) {
             return "Per-operator rows, rows out, state bytes and watermark are measured. Self time is "
                     + "sampled: one row in every 1,024 that enters the pipeline is timed at every operator "
@@ -124,7 +126,7 @@ public class DtoMapper {
     }
 
     /** Each operator's numbers, by node id, or null when nothing was measuring them. */
-    private static java.util.Map<String, ApiDtos.OperatorTelemetry> toOperatorMetrics(
+    private static java.util.@Nullable Map<String, ApiDtos.OperatorTelemetry> toOperatorMetrics(
             java.util.List<com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot> operators) {
         if (operators.isEmpty()) {
             return null;

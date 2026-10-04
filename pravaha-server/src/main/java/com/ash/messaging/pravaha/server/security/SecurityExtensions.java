@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.ListableBeanFactory;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -67,7 +68,8 @@ public final class SecurityExtensions {
     }
 
     /** Extensions given directly: a node built without Spring, and tests. Each may be null. */
-    public static SecurityExtensions of(SecurityPolicy policy, TokenVerifier verifier, AuditSink audit) {
+    public static SecurityExtensions of(
+            @Nullable SecurityPolicy policy, @Nullable TokenVerifier verifier, @Nullable AuditSink audit) {
         Optional<SecurityPolicy> p = Optional.ofNullable(policy);
         Optional<TokenVerifier> v = Optional.ofNullable(verifier);
         Optional<AuditSink> a = Optional.ofNullable(audit);
@@ -119,12 +121,14 @@ public final class SecurityExtensions {
 
     private static <T> Supplier<Optional<T>> memoized(Supplier<Optional<T>> resolve) {
         return new Supplier<>() {
-            private Optional<T> resolved;
+            private Optional<T> resolved = Optional.empty();
+            private boolean done;
 
             @Override
             public synchronized Optional<T> get() {
-                if (resolved == null) {
+                if (!done) {
                     resolved = resolve.get();
+                    done = true;
                 }
                 return resolved;
             }

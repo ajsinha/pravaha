@@ -148,7 +148,8 @@ public final class PravahaFlightServer implements AutoCloseable {
      * <p>Must be called before {@link #start}, because the transport is chosen when the server is
      * built and cannot be upgraded under a listening socket.
      */
-    public PravahaFlightServer encryptedWith(java.io.File certificateChain, java.io.File privateKey) {
+    public PravahaFlightServer encryptedWith(
+            java.io.@Nullable File certificateChain, java.io.@Nullable File privateKey) {
         requireNotStarted("TLS");
         // CFG-6(b). Null-checked before either readability branch, because both of those
         // dereference. A certificate with no key reached `privateKey.isFile()` and threw a

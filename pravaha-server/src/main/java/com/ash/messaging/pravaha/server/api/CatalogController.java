@@ -26,6 +26,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -82,7 +83,7 @@ public class CatalogController {
             String kind,
             String engineName,
             String tenant,
-            String namespace,
+            @Nullable String namespace,
             String shortName,
             GranteeDto owner,
             String description,
@@ -133,7 +134,7 @@ public class CatalogController {
      * @param detail what it binds to for them, or which {@code EXCEPT ROLE} exempts them
      */
     public record PolicyLineDto(
-            String policy, String kind, String column, boolean applies, String boundVia, String detail) {}
+            String policy, String kind, @Nullable String column, boolean applies, String boundVia, String detail) {}
 
     /** What a user may do to an object, privilege by privilege, and the policies that narrow it. */
     public record AccessDto(String object, String user, List<AccessLineDto> privileges, List<PolicyLineDto> policies) {}
@@ -145,7 +146,7 @@ public class CatalogController {
     public record ObjectDetail(
             CatalogObjectDto object,
             List<GrantDto> grants,
-            AccessDto access,
+            @Nullable AccessDto access,
             List<PolicyController.PolicyDto> policies) {}
 
     public record ObjectPage(List<CatalogObjectDto> items) {}
@@ -165,11 +166,11 @@ public class CatalogController {
      * grants.
      */
     public record ObjectChange(
-            String description,
-            Map<String, String> setTags,
-            List<String> unsetTags,
-            GranteeDto owner,
-            String namespace) {}
+            @Nullable String description,
+            @Nullable Map<String, String> setTags,
+            @Nullable List<String> unsetTags,
+            @Nullable GranteeDto owner,
+            @Nullable String namespace) {}
 
     private final SecurityPolicy policy;
     private final HttpAuthorizer authorizer;
@@ -185,9 +186,9 @@ public class CatalogController {
             description = "Filtered to what the caller may USE; q matches names, descriptions, owners and tags")
     public ObjectPage objects(
             HttpServletRequest http,
-            @RequestParam(required = false) String namespace,
-            @RequestParam(required = false) String kind,
-            @RequestParam(required = false) String q) {
+            @RequestParam(required = false) @Nullable String namespace,
+            @RequestParam(required = false) @Nullable String kind,
+            @RequestParam(required = false) @Nullable String q) {
         Principal caller = authorizer.principalOf(http);
         List<CatalogObject> found = q != null && !q.isBlank()
                 ? service().search(caller, q).stream()
@@ -271,9 +272,9 @@ public class CatalogController {
             description = "Give object, or granteeType and grantee")
     public GrantPage grants(
             HttpServletRequest http,
-            @RequestParam(required = false) String object,
-            @RequestParam(required = false) String granteeType,
-            @RequestParam(required = false) String grantee) {
+            @RequestParam(required = false) @Nullable String object,
+            @RequestParam(required = false) @Nullable String granteeType,
+            @RequestParam(required = false) @Nullable String grantee) {
         Principal caller = authorizer.principalOf(http);
         CatalogService service = service();
         List<Grant> found;
@@ -308,7 +309,7 @@ public class CatalogController {
     public ResponseEntity<Void> revoke(
             HttpServletRequest http,
             @RequestParam String object,
-            @RequestParam(required = false) List<String> privileges,
+            @RequestParam(required = false) @Nullable List<String> privileges,
             @RequestParam String granteeType,
             @RequestParam String grantee) {
         Principal caller = authorizer.principalOf(http);
@@ -367,7 +368,7 @@ public class CatalogController {
         return Grantee.parse(request.granteeType(), request.grantee() == null ? "" : request.grantee());
     }
 
-    private static Set<Privilege> privileges(List<String> written) {
+    private static Set<Privilege> privileges(@Nullable List<String> written) {
         Set<Privilege> privileges = EnumSet.noneOf(Privilege.class);
         if (written == null) {
             return privileges;

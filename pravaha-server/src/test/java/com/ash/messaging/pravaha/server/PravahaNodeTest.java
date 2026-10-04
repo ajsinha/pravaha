@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -315,7 +316,7 @@ class PravahaNodeTest {
     }
 
     /** A node that stands by for {@code nodeId} rather than claiming its state at startup. */
-    private static PravahaNode standbyNode(String nodeId, java.nio.file.Path checkpointDirectory) {
+    private static PravahaNode standbyNode(String nodeId, java.nio.file.@Nullable Path checkpointDirectory) {
         PersistenceProperties persistence = persistence("");
         if (checkpointDirectory != null) {
             persistence.getCheckpoint().setDirectory(checkpointDirectory.toString());

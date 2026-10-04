@@ -26,6 +26,7 @@ import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.jspecify.annotations.Nullable;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
@@ -79,7 +80,7 @@ public final class RequestLimitFilter extends OncePerRequestFilter {
     }
 
     /** The same open set {@link BearerTokenFilter} computes from the configured documentation paths. */
-    public static Set<String> openPaths(String apiDocs, String swaggerUi) {
+    public static Set<String> openPaths(@Nullable String apiDocs, @Nullable String swaggerUi) {
         return BearerTokenFilter.openPaths(apiDocs, swaggerUi);
     }
 
@@ -163,7 +164,7 @@ public final class RequestLimitFilter extends OncePerRequestFilter {
 
         private final long limit;
         private final String setting;
-        private ServletInputStream stream;
+        private @Nullable ServletInputStream stream;
 
         Bounded(HttpServletRequest request, long limit, String setting) {
             super(request);
@@ -173,10 +174,12 @@ public final class RequestLimitFilter extends OncePerRequestFilter {
 
         @Override
         public ServletInputStream getInputStream() throws IOException {
-            if (stream == null) {
-                stream = new Counted(super.getInputStream(), limit, setting);
+            ServletInputStream counted = stream;
+            if (counted == null) {
+                counted = new Counted(super.getInputStream(), limit, setting);
+                stream = counted;
             }
-            return stream;
+            return counted;
         }
 
         @Override

@@ -20,6 +20,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -241,8 +242,8 @@ public class QueryController {
     @Operation(summary = "Show the plan for a query; format=graph adds it as nodes and edges")
     public ApiDtos.ExplainResult explain(
             @RequestBody ValidateRequest request,
-            @RequestParam(required = false) String level,
-            @RequestParam(required = false) String format,
+            @RequestParam(required = false) @Nullable String level,
+            @RequestParam(required = false) @Nullable String format,
             HttpServletRequest http) {
 
         requireSql(request);
@@ -529,7 +530,8 @@ public class QueryController {
                 .toList();
         ApiDtos.Problem first = status.firstStopped()
                 .map(source -> mapper.toProblem(
-                        source.stop().failure(), withheldOr(entry, source.stop().failure())))
+                        stopOf(source).failure(),
+                        withheldOr(entry, stopOf(source).failure())))
                 .orElse(null);
         return new ApiDtos.QueryFeed(
                 status.state().name(),
@@ -590,10 +592,21 @@ public class QueryController {
      * registration's default), the sink it would write to and the name it would be registered under.
      * Without {@code keys} there is no fingerprint, since one is part of it.
      */
-    public record ValidateRequest(String sql, List<Integer> keys, String retention, String sink, String name) {
+    public record ValidateRequest(
+            String sql,
+            @Nullable List<Integer> keys,
+            @Nullable String retention,
+            @Nullable String sink,
+            @Nullable String name) {
 
         public ValidateRequest(String sql) {
             this(sql, null, null, null, null);
         }
+    }
+
+    /** A stopped source's stop, which its record requires. */
+    private static com.ash.messaging.pravaha.registry.FeedStatus.Stop stopOf(
+            com.ash.messaging.pravaha.registry.FeedStatus.Source source) {
+        return java.util.Objects.requireNonNull(source.stop(), "a stopped source says why");
     }
 }

@@ -23,6 +23,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -68,7 +69,7 @@ public class CorrelationFilter extends OncePerRequestFilter {
     }
 
     /** The query a path is about, when it is one and its name is plain; else null. */
-    static String queryOf(String path) {
+    static @Nullable String queryOf(@Nullable String path) {
         if (path == null) {
             return null;
         }

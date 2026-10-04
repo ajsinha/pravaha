@@ -19,6 +19,8 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 
@@ -72,7 +74,7 @@ public final class SignInSource {
      * -- the one the nearest untrusted hop connected from; each hop appends, so anything to its left is
      * the client's own word. Otherwise the peer.
      */
-    public String of(String peer, String forwardedFor) {
+    public String of(String peer, @Nullable String forwardedFor) {
         if (forwardedFor == null || forwardedFor.isBlank() || !isTrusted(peer)) {
             return peer;
         }

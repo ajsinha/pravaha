@@ -21,6 +21,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,12 +72,12 @@ public class ReplacementController {
 
     /** What a caller asks for when starting a replacement. Everything but the SQL has a default. */
     public record StartReplacement(
-            String sql,
-            List<Integer> keyColumns,
-            String backfill,
-            Long rateLimit,
-            String cutover,
-            String rollbackRetention) {}
+            @Nullable String sql,
+            @Nullable List<Integer> keyColumns,
+            @Nullable String backfill,
+            @Nullable Long rateLimit,
+            @Nullable String cutover,
+            @Nullable String rollbackRetention) {}
 
     @GetMapping("/replacements")
     @Operation(summary = "Every replacement this node knows about that the caller may administer")

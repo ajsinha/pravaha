@@ -23,6 +23,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.transport.ReceiverContext;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
@@ -69,7 +70,7 @@ public class NodeFlightObservation implements FlightObservation {
     }
 
     @Override
-    public Call begin(String operation, String query, UnaryOperator<String> header) {
+    public Call begin(String operation, @Nullable String query, UnaryOperator<String> header) {
         ReceiverContext<UnaryOperator<String>> context = new ReceiverContext<>((carrier, key) -> carrier.apply(key));
         context.setCarrier(header);
         Observation observation = Observation.createNotStarted("pravaha.flight.calls", () -> context, observations)
@@ -114,7 +115,7 @@ public class NodeFlightObservation implements FlightObservation {
         return value == null ? "" : value;
     }
 
-    private static void put(String key, String value) {
+    private static void put(String key, @Nullable String value) {
         if (value == null || value.isEmpty()) {
             MDC.remove(key);
         } else {

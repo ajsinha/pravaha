@@ -18,11 +18,13 @@ package com.ash.messaging.pravaha.server.api;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -61,7 +63,8 @@ import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 public class PolicyController {
 
     /** Where a policy is bound: one object, or every object carrying a tag. */
-    public record BindingDto(String object, String tag, String boundBy, Instant boundAt) {
+    public record BindingDto(
+            @Nullable String object, @Nullable String tag, String boundBy, Instant boundAt) {
         static BindingDto of(PolicyBinding binding) {
             return new BindingDto(
                     binding.byTag() ? null : binding.object(),
@@ -75,7 +78,7 @@ public class PolicyController {
     public record PolicyDto(
             String name,
             String kind,
-            String column,
+            @Nullable String column,
             String expression,
             List<String> exceptRoles,
             CatalogController.GranteeDto owner,
@@ -107,10 +110,16 @@ public class PolicyController {
      * Nothing is narrowed until it is bound.
      */
     public record NewPolicy(
-            String name, String kind, String column, String expression, List<String> exceptRoles, String description) {}
+            String name,
+            String kind,
+            @Nullable String column,
+            String expression,
+            @Nullable List<String> exceptRoles,
+            @Nullable String description) {}
 
     /** A binding: exactly one of {@code object} (a stream or view) and {@code tag} ({@code key[=value]}). */
-    public record BindRequest(String object, String tag) {}
+    public record BindRequest(
+            @Nullable String object, @Nullable String tag) {}
 
     /** What an unbinding did: whether the policy was bound there. */
     public record Unbound(String policy, String target, boolean unbound) {}
@@ -127,7 +136,7 @@ public class PolicyController {
     @Operation(
             summary = "Row filters and masks the caller may see",
             description = "With object, the policies reaching that stream or view -- bound to it or to one of its tags")
-    public PolicyPage list(HttpServletRequest http, @RequestParam(required = false) String object) {
+    public PolicyPage list(HttpServletRequest http, @RequestParam(required = false) @Nullable String object) {
         Principal caller = authorizer.principalOf(http);
         CatalogService service = service();
         List<PolicyService.PolicyView> views = object == null || object.isBlank()
@@ -174,8 +183,12 @@ public class PolicyController {
         Principal caller = authorizer.principalOf(http);
         CatalogService service = service();
         PolicyBinding bound = tagged(body)
-                ? service.policies().bindTag(caller, parts(name), body.tag())
-                : service.policies().bindObject(caller, parts(name), service.resolveWritten(caller, body.object()));
+                ? service.policies().bindTag(caller, parts(name), Objects.requireNonNull(body.tag(), "tagged"))
+                : service.policies()
+                        .bindObject(
+                                caller,
+                                parts(name),
+                                service.resolveWritten(caller, Objects.requireNonNull(body.object(), "not tagged")));
         return ResponseEntity.status(HttpStatus.CREATED).body(BindingDto.of(bound));
     }
 
@@ -184,17 +197,19 @@ public class PolicyController {
     public Unbound unbind(
             HttpServletRequest http,
             @PathVariable String name,
-            @RequestParam(required = false) String object,
-            @RequestParam(required = false) String tag) {
+            @RequestParam(required = false) @Nullable String object,
+            @RequestParam(required = false) @Nullable String tag) {
         Principal caller = authorizer.principalOf(http);
         CatalogService service = service();
         BindRequest place = new BindRequest(object, tag);
         String policyName = service.policies().fullNameOf(caller, parts(name));
         if (tagged(place)) {
             return new Unbound(
-                    policyName, "TAG '" + tag + "'", service.policies().unbindTag(caller, parts(name), tag));
+                    policyName,
+                    "TAG '" + tag + "'",
+                    service.policies().unbindTag(caller, parts(name), Objects.requireNonNull(tag, "tagged")));
         }
-        CatalogObject target = service.resolveWritten(caller, object);
+        CatalogObject target = service.resolveWritten(caller, Objects.requireNonNull(object, "not tagged"));
         return new Unbound(policyName, target.fullName(), service.policies().unbindObject(caller, parts(name), target));
     }
 

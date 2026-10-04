@@ -30,6 +30,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.catalog.CatalogPolicy;
 import com.ash.messaging.pravaha.catalog.CatalogStatistics;
@@ -55,13 +56,13 @@ public final class FeatureMeters {
     private final MeterRegistry meters;
     private final Supplier<Optional<AlertService>> alerts;
 
-    private AlertService publishedAlerts;
+    private @Nullable AlertService publishedAlerts;
     private final Map<String, List<Meter.Id>> perAlert = new HashMap<>();
     private final List<Meter.Id> alertNode = new ArrayList<>();
     private final List<Meter.Id> perChannel = new ArrayList<>();
     private Set<String> channelsPublished = Set.of();
 
-    private CatalogPolicy publishedCatalog;
+    private @Nullable CatalogPolicy publishedCatalog;
     private final List<Meter.Id> catalogMeters = new ArrayList<>();
 
     public FeatureMeters(MeterRegistry meters, Supplier<Optional<AlertService>> alerts) {
@@ -70,14 +71,14 @@ public final class FeatureMeters {
     }
 
     /** Brings the meters in line with the node's alerts and catalogue. */
-    public synchronized void sync(QueryRegistry registry) {
+    public synchronized void sync(@Nullable QueryRegistry registry) {
         syncAlerts(alerts.get().orElse(null));
         syncCatalog(registry != null && registry.policy() instanceof CatalogPolicy catalog ? catalog : null);
     }
 
     // ------------------------------------------------------------------ alerts
 
-    private void syncAlerts(AlertService service) {
+    private void syncAlerts(@Nullable AlertService service) {
         if (service != publishedAlerts) {
             removeAll(alertNode);
             removeAll(perChannel);
@@ -104,7 +105,7 @@ public final class FeatureMeters {
         }
         for (String gone :
                 perAlert.keySet().stream().filter(a -> !firing.containsKey(a)).toList()) {
-            removeAll(perAlert.remove(gone));
+            removeAll(java.util.Objects.requireNonNull(perAlert.remove(gone), "a key of the map"));
         }
     }
 
@@ -177,7 +178,7 @@ public final class FeatureMeters {
 
     // ------------------------------------------------------------------ the catalogue
 
-    private void syncCatalog(CatalogPolicy catalog) {
+    private void syncCatalog(@Nullable CatalogPolicy catalog) {
         if (catalog == publishedCatalog) {
             return;
         }

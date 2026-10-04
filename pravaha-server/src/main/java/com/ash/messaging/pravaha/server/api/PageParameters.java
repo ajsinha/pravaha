@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.server.api;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A whole-number query parameter that is either absent, and takes its default, or present and a
  * number.
@@ -29,7 +31,7 @@ final class PageParameters {
 
     private PageParameters() {}
 
-    static int intOrDefault(String name, String raw, int absent) {
+    static int intOrDefault(String name, @Nullable String raw, int absent) {
         if (raw == null) {
             return absent;
         }

@@ -20,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -146,6 +147,7 @@ public class ConfigurationCheck {
      *
      * @return the line, or null on a node that does not authenticate
      */
+    @Nullable
     String credentialCountLine() {
         if (!security.authenticates()) {
             return null;

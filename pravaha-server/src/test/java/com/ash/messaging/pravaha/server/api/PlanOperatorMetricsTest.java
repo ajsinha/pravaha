@@ -117,7 +117,7 @@ class PlanOperatorMetricsTest {
 
         ApiDtos.PlanGraph plan = queries.plan("orders_view", as(ANALYST));
         assertThat(plan.operatorMetrics()).isNotNull();
-        assertThat(plan.operatorMetrics().keySet())
+        assertThat(java.util.Objects.requireNonNull(plan.operatorMetrics()).keySet())
                 .as("keyed by the graph's own node ids, so a console can hang them on its boxes")
                 .containsExactlyInAnyOrderElementsOf(
                         plan.nodes().stream().map(ApiDtos.PlanNode::id).toList());
@@ -128,11 +128,13 @@ class PlanOperatorMetricsTest {
                 .orElseThrow()
                 .id();
         ApiDtos.OperatorTelemetry scan = plan.operatorMetrics().get(scanId);
-        assertThat(scan.rowsIn()).isEqualTo(20);
+        assertThat(java.util.Objects.requireNonNull(scan).rowsIn()).isEqualTo(20);
         assertThat(scan.rowsOut()).isEqualTo(20);
 
         ApiDtos.OperatorTelemetry root = plan.operatorMetrics().get("n0");
-        assertThat(root.rowsOut()).as("amounts 1..20, kept above 10").isEqualTo(10);
+        assertThat(java.util.Objects.requireNonNull(root).rowsOut())
+                .as("amounts 1..20, kept above 10")
+                .isEqualTo(10);
         assertThat(scan.stateBytes())
                 .as("a scan holds no state and says so rather than reporting zero bytes")
                 .isNull();
@@ -149,7 +151,7 @@ class PlanOperatorMetricsTest {
                 .as("rows past a filter this caller may not see is still a count of rows it may not see")
                 .isNull();
         assertThat(plan.bottleneck()).isNull();
-        assertThat(plan.query().rowsIn()).isEqualTo(-1);
+        assertThat(java.util.Objects.requireNonNull(plan.query()).rowsIn()).isEqualTo(-1);
     }
 
     private void feed(int rows) {

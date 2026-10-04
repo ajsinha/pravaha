@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Whether the two native libraries this node carries actually load here (ADR-053).
  *
@@ -69,7 +71,7 @@ public final class NativeCodecs {
                 + "noexec is the usual cause on a supported platform (docs/operations/DEPLOYMENT.md, 'Native code')");
     }
 
-    private static Status roundTrip(String codec, String type, String compress, String uncompress) {
+    private static Status roundTrip(String codec, String type, String compress, @Nullable String uncompress) {
         Class<?> c;
         try {
             c = Class.forName(type, true, NativeCodecs.class.getClassLoader());
@@ -88,7 +90,7 @@ public final class NativeCodecs {
             }
             return new Status(codec, "loaded", packed.length + " bytes");
         } catch (java.lang.reflect.InvocationTargetException wrapped) {
-            Throwable cause = wrapped.getCause();
+            Throwable cause = java.util.Objects.requireNonNullElse(wrapped.getCause(), wrapped);
             return new Status(codec, "failed", cause.getClass().getSimpleName() + ": " + cause.getMessage());
         } catch (ReflectiveOperationException | LinkageError broken) {
             return new Status(codec, "failed", broken.getClass().getSimpleName() + ": " + broken.getMessage());

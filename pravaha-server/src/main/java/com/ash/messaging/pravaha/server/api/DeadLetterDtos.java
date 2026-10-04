@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.jspecify.annotations.Nullable;
 
 /**
  * What the dead-letter endpoints answer with.
@@ -67,12 +68,12 @@ public final class DeadLetterDtos {
             String offset,
             String code,
             String reason,
-            Instant at,
+            @Nullable Instant at,
             int size,
-            String raw,
-            String withheld,
+            @Nullable String raw,
+            @Nullable String withheld,
             String replay,
-            Instant replayedAt) {}
+            @Nullable Instant replayedAt) {}
 
     /**
      * A page of a query's dead letters, newest first, with the counts beside it.
@@ -95,8 +96,8 @@ public final class DeadLetterDtos {
             long evictedBytes,
             long replayed,
             long failedAgain,
-            Instant oldest,
-            Instant newest,
+            @Nullable Instant oldest,
+            @Nullable Instant newest,
             String retention,
             boolean configured) {}
 
@@ -116,8 +117,8 @@ public final class DeadLetterDtos {
             long evictedBytes,
             long replayed,
             long failedAgain,
-            Instant oldest,
-            Instant newest,
+            @Nullable Instant oldest,
+            @Nullable Instant newest,
             String retention,
             boolean configured) {}
 

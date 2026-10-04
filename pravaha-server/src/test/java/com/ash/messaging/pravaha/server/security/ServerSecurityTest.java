@@ -127,7 +127,7 @@ class ServerSecurityTest {
         properties.setTokens(Map.of("s3cret", spec));
 
         TokenVerifier verifier = properties.verifier();
-        Principal principal = verifier.verify("s3cret");
+        Principal principal = java.util.Objects.requireNonNull(verifier).verify("s3cret");
         assertThat(principal.id()).isEqualTo("ann");
         assertThat(principal.tenant()).isEqualTo("acme");
         assertThat(principal.hasRole("reader")).isTrue();
@@ -142,7 +142,8 @@ class ServerSecurityTest {
         SecurityProperties properties = new SecurityProperties();
         properties.setAuthentication("token");
 
-        assertThatThrownBy(() -> properties.verifier().verify("anything"))
+        assertThatThrownBy(() ->
+                        java.util.Objects.requireNonNull(properties.verifier()).verify("anything"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-7001");
     }
@@ -593,7 +594,10 @@ class ServerSecurityTest {
         security.setTokens(Map.of("s3cr3t-value", ann));
 
         assertThatCode(security::validate).doesNotThrowAnyException();
-        assertThat(security.verifier().verify("s3cr3t-value").id()).isEqualTo("ann");
+        assertThat(java.util.Objects.requireNonNull(security.verifier())
+                        .verify("s3cr3t-value")
+                        .id())
+                .isEqualTo("ann");
         assertThat(security.principalFor("ann")).isPresent();
         assertThat(security.principalFor("s3cr3t-value"))
                 .as("the credential is not an identity, and must not resolve as one")

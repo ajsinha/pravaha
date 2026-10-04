@@ -467,13 +467,13 @@ public final class IdentityService {
     // ------------------------------------------------------------------ passwords
 
     /** A signed-in person changing their own password. Ends every other session of theirs. */
-    public synchronized void changePassword(Principal who, String current, String replacement) {
+    public synchronized void changePassword(Principal who, @Nullable String current, @Nullable String replacement) {
         Identities.User user = requireUser(who.id());
         if (!Kdf.verify(current == null ? "" : current, user.passwordHash())) {
             recordFailure(user, clock.instant(), null);
             throw refused();
         }
-        if (current.equals(replacement)) {
+        if (java.util.Objects.equals(current, replacement)) {
             throw new PravahaException(IdentityErrors.PASSWORD_POLICY, "the new password must differ from the old one");
         }
         accept(requireUser(who.id()), replacement, false);
@@ -487,7 +487,7 @@ public final class IdentityService {
     }
 
     /** The one place a new password is accepted: the policy, then the history, then the hash. */
-    private void accept(Identities.User user, String password, boolean mustChange) {
+    private void accept(Identities.User user, @Nullable String password, boolean mustChange) {
         List<String> previous = new ArrayList<>();
         if (user.passwordHash() != null) {
             previous.add(user.passwordHash());
@@ -497,8 +497,9 @@ public final class IdentityService {
         if (refusal.isPresent()) {
             throw new PravahaException(IdentityErrors.PASSWORD_POLICY, refusal.get());
         }
+        String accepted = java.util.Objects.requireNonNull(password, "the policy refuses a missing password");
         List<String> kept = previous.subList(0, Math.min(previous.size(), Math.max(0, settings.history() - 1)));
-        store.putUser(user.withPassword(Kdf.hash(password), kept, mustChange, clock.instant()));
+        store.putUser(user.withPassword(Kdf.hash(accepted), kept, mustChange, clock.instant()));
         throttle.forget(user.username()); // a new password starts every address afresh (LOCKENUM-1)
     }
 

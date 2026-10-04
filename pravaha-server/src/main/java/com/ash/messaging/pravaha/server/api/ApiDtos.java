@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.server.api;
 import java.time.Instant;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The wire types of the public API.
  *
@@ -52,10 +54,10 @@ public final class ApiDtos {
             int version,
             int fieldCount,
             List<FieldInfo> fields,
-            String eventTime,
-            String outOfOrderness,
-            String source,
-            String allowedLateness) {
+            @Nullable String eventTime,
+            @Nullable String outOfOrderness,
+            @Nullable String source,
+            @Nullable String allowedLateness) {
 
         public StreamSummary(String name, int version, int fieldCount, List<FieldInfo> fields) {
             this(name, version, fieldCount, fields, null, null, null, null);
@@ -79,7 +81,12 @@ public final class ApiDtos {
      * <p>Carries the stable {@code PRV-nnnn} code and a documentation link, so the console can render
      * an actionable fix rather than a wall of text (design section 24.4).
      */
-    public record Diagnostic(String code, String message, String helpUrl, String severity, SourceRange range) {
+    public record Diagnostic(
+            String code,
+            String message,
+            String helpUrl,
+            String severity,
+            @Nullable SourceRange range) {
 
         public Diagnostic(String code, String message, String helpUrl, String severity) {
             this(code, message, helpUrl, severity, null);
@@ -110,9 +117,9 @@ public final class ApiDtos {
             String level,
             String plan,
             List<FieldInfo> outputFields,
-            PlanGraph graph,
-            String fingerprint,
-            Diagnostic fingerprintRefusal) {
+            @Nullable PlanGraph graph,
+            @Nullable String fingerprint,
+            @Nullable Diagnostic fingerprintRefusal) {
 
         public ExplainResult(String level, String plan, List<FieldInfo> outputFields) {
             this(level, plan, outputFields, null, null, null);
@@ -145,10 +152,10 @@ public final class ApiDtos {
     public record PlanGraph(
             List<PlanNode> nodes,
             List<PlanEdge> edges,
-            java.util.Map<String, OperatorTelemetry> operatorMetrics,
-            String bottleneck,
+            java.util.@Nullable Map<String, OperatorTelemetry> operatorMetrics,
+            @Nullable String bottleneck,
             String metricsNote,
-            QueryTelemetry query) {}
+            @Nullable QueryTelemetry query) {}
 
     /**
      * What one operator of a running query has done.
@@ -169,8 +176,8 @@ public final class ApiDtos {
     public record OperatorTelemetry(
             long rowsIn,
             long rowsOut,
-            Long stateBytes,
-            String watermark,
+            @Nullable Long stateBytes,
+            @Nullable String watermark,
             long selfNanos,
             long sampledRows,
             double selfTimeShare) {}
@@ -207,7 +214,7 @@ public final class ApiDtos {
             long stateHeld,
             long stateCeiling,
             long viewSize,
-            String watermark,
+            @Nullable String watermark,
             int subscribers,
             long backpressureWaits,
             double backpressureWaitSeconds,
@@ -226,10 +233,14 @@ public final class ApiDtos {
      * @param failure why it was detached, or null while it is writing
      * @param rowsWritten rows the sink accepted, {@code -1} when withheld
      */
-    public record QuerySink(String name, boolean attached, Problem failure, long rowsWritten) {}
+    public record QuerySink(
+            String name, boolean attached, @Nullable Problem failure, long rowsWritten) {}
 
     /** A refusal or failure, by code and message. */
-    public record Problem(String code, String message, String helpUrl) {}
+    public record Problem(
+            @Nullable String code,
+            @Nullable String message,
+            @Nullable String helpUrl) {}
 
     /**
      * Whether rows are still reaching a registered query (FEED-1).
@@ -246,7 +257,11 @@ public final class ApiDtos {
      *     PRV-5092} -- or null while every source is reading
      */
     public record QueryFeed(
-            String state, String description, List<FeedSource> sources, int stoppedSources, Problem failure) {}
+            String state,
+            @Nullable String description,
+            List<FeedSource> sources,
+            int stoppedSources,
+            @Nullable Problem failure) {}
 
     /**
      * One partition of one bound stream.
@@ -264,8 +279,8 @@ public final class ApiDtos {
             String state,
             boolean shared,
             boolean origin,
-            Problem failure,
-            Instant stoppedAt) {}
+            @Nullable Problem failure,
+            @Nullable Instant stoppedAt) {}
 
     /**
      * How a backfill is getting on (design section 16.2).
@@ -318,17 +333,17 @@ public final class ApiDtos {
             String sql,
             String candidate,
             String replacing,
-            String sink,
+            @Nullable String sink,
             String options,
             String owner,
             Instant startedAt,
-            Instant cutOverAt,
-            Instant rollbackUntil,
+            @Nullable Instant cutOverAt,
+            @Nullable Instant rollbackUntil,
             boolean rollbackAvailable,
             BackfillProgress backfill,
             List<String> history,
             List<HistoryEntry> historyEntries,
-            Problem failure) {}
+            @Nullable Problem failure) {}
 
     /**
      * One version that has served a name, and where it took over.
@@ -337,7 +352,7 @@ public final class ApiDtos {
      *     which has served from the beginning
      * @param version the version's fingerprint
      */
-    public record HistoryEntry(Long fromFrontier, String version) {}
+    public record HistoryEntry(@Nullable Long fromFrontier, String version) {}
 
     /**
      * One registered query, as the caller may see it.
@@ -381,21 +396,21 @@ public final class ApiDtos {
             List<String> sharedWith,
             List<KeyColumn> keyColumns,
             String retention,
-            QuerySink sink,
+            @Nullable QuerySink sink,
             long rowsIn,
             boolean countsWithheld,
-            Instant registeredAt,
-            Problem failure,
+            @Nullable Instant registeredAt,
+            @Nullable Problem failure,
             List<String> reads,
             QueryFeed feed,
             List<String> execution,
             String lane,
-            Integer sharedLane,
+            @Nullable Integer sharedLane,
             List<String> readsFrom,
             List<String> dependants,
-            AccessPaths accessPaths,
-            String owner,
-            QueryCheckpoint checkpoint) {}
+            @Nullable AccessPaths accessPaths,
+            @Nullable String owner,
+            @Nullable QueryCheckpoint checkpoint) {}
 
     /**
      * A registered query's checkpoints (CKPTWHY-1): the failure count was a metric and the reason was
@@ -406,7 +421,11 @@ public final class ApiDtos {
      * @param failures checkpoints that failed since it started, a restore that could not be used included
      * @param lastFailure the most recent failure's reason, or null when none has failed
      */
-    public record QueryCheckpoint(boolean enabled, Instant last, long failures, String lastFailure) {}
+    public record QueryCheckpoint(
+            boolean enabled,
+            @Nullable Instant last,
+            long failures,
+            @Nullable String lastFailure) {}
 
     /**
      * How the reads of one view found their rows (IDXVIS-1): every read of a view -- Flight SQL,
@@ -432,7 +451,7 @@ public final class ApiDtos {
             List<FieldInfo> schema,
             List<KeyColumn> keyColumns,
             String retention,
-            String sink,
+            @Nullable String sink,
             String fingerprint) {}
 
     /**
@@ -460,9 +479,9 @@ public final class ApiDtos {
             List<String> keyColumns,
             List<String> emitModes,
             boolean acceptsRetractions,
-            String guarantee,
+            @Nullable String guarantee,
             List<String> writers,
-            Problem problem) {}
+            @Nullable Problem problem) {}
 
     /**
      * How the node places queries on lanes ({@code GET /api/v1/lanes}), as in effect in its registry.
@@ -479,7 +498,7 @@ public final class ApiDtos {
      */
     public record LaneSummary(
             String mode,
-            Integer autoFrom,
+            @Nullable Integer autoFrom,
             int maxQueriesPerLane,
             List<SharedLane> sharedLanes,
             int ownLaneQueries,
@@ -535,6 +554,7 @@ public final class ApiDtos {
             String code,
 
             @io.swagger.v3.oas.annotations.media.Schema(description = "What went wrong, and what to do about it.")
+            @Nullable
             String message,
 
             @io.swagger.v3.oas.annotations.media.Schema(

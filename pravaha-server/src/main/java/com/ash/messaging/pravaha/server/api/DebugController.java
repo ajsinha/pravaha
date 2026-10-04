@@ -23,6 +23,7 @@ import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -87,7 +88,7 @@ public class DebugController {
             long steps,
             long rowsConsumed,
             int viewSize,
-            Long watermarkNanos,
+            @Nullable Long watermarkNanos,
             boolean sinksDisabled,
             List<String> streams) {}
 
@@ -109,7 +110,7 @@ public class DebugController {
             List<InputRow> rowsIn,
             List<Operator> operators,
             List<Change> viewChanges,
-            Long watermarkNanos,
+            @Nullable Long watermarkNanos,
             long rowsConsumed,
             int viewSize,
             boolean exhausted,
@@ -122,7 +123,7 @@ public class DebugController {
     public record StatePage(
             String id,
             String kind,
-            String key,
+            @Nullable String key,
             int offset,
             int limit,
             long total,
@@ -160,7 +161,9 @@ public class DebugController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Fork a debug session from a query's checkpoint, with every sink disabled")
     public Session fork(
-            @PathVariable String name, @RequestBody(required = false) StartSession request, HttpServletRequest http) {
+            @PathVariable String name,
+            @RequestBody(required = false) @Nullable StartSession request,
+            HttpServletRequest http) {
         Long checkpoint = request == null ? null : request.checkpointId();
         return session(sessions().fork(name, checkpoint, principal(http)));
     }
@@ -207,9 +210,9 @@ public class DebugController {
     public StatePage inspect(
             @PathVariable String id,
             @PathVariable String operator,
-            @RequestParam(value = "key", required = false) String key,
-            @RequestParam(value = "offset", required = false) String offset,
-            @RequestParam(value = "limit", required = false) String limit,
+            @RequestParam(value = "key", required = false) @Nullable String key,
+            @RequestParam(value = "offset", required = false) @Nullable String offset,
+            @RequestParam(value = "limit", required = false) @Nullable String limit,
             HttpServletRequest http) {
         OperatorState.Page page = sessions()
                 .inspect(

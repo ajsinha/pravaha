@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.server.state;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
@@ -62,7 +63,7 @@ public class StateSpillProperties {
      * by a directory left over from a previous configuration -- is a mistake this project's own
      * connector TLS loader made once already; it is not repeated here.
      */
-    private Boolean enabled;
+    private @Nullable Boolean enabled;
 
     /** Where slab files are created. Required, and validated by {@link SpillSettings}, when this
      * resolves to enabled. */
@@ -90,11 +91,11 @@ public class StateSpillProperties {
      */
     private DataSize maxBytes = DataSize.ofBytes(0);
 
-    public Boolean getEnabled() {
+    public @Nullable Boolean getEnabled() {
         return enabled;
     }
 
-    public void setEnabled(Boolean enabled) {
+    public void setEnabled(@Nullable Boolean enabled) {
         this.enabled = enabled;
     }
 

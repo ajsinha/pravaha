@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.server;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.SmartLifecycle;
@@ -159,7 +160,7 @@ public class PravahaServerApplication {
      * <p>Null rather than the default path, so an operator who disabled the UI does not leave an
      * unauthenticated opening onto the address it used to occupy.
      */
-    private static String documentationPath(
+    private static @Nullable String documentationPath(
             Environment environment, String enabledKey, String pathKey, String fallback) {
         if (!environment.getProperty(enabledKey, Boolean.class, Boolean.TRUE)) {
             return null;

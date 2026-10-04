@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -62,7 +63,7 @@ class RequestLimitHttpTest {
     }
 
     /** The status line and body of the answer to {@code head} followed by {@code body}. */
-    private String exchange(String head, byte[] body) throws IOException {
+    private String exchange(String head, byte @Nullable [] body) throws IOException {
         try (Socket socket = new Socket(java.net.InetAddress.getLoopbackAddress(), port)) {
             socket.setSoTimeout(15_000);
             OutputStream out = socket.getOutputStream();

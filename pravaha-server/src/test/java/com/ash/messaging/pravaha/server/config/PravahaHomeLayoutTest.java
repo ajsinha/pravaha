@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -219,7 +220,7 @@ class PravahaHomeLayoutTest {
         return keys;
     }
 
-    private static String rawValue(String resource, String key) throws IOException {
+    private static @Nullable String rawValue(String resource, String key) throws IOException {
         for (PropertySource<?> source :
                 new YamlPropertySourceLoader().load(resource, new ClassPathResource(resource))) {
             Object value = source.getProperty(key);

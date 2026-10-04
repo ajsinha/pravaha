@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.identity;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Whether a new password may be used. One place, called by every path that sets a password --
  * creation, change, an administrator's reset, a reset token -- so no surface can skip it.
@@ -34,7 +36,7 @@ final class PasswordPolicy {
      * Empty when {@code candidate} is acceptable; otherwise the rule it breaks, in a sentence a
      * person can act on. {@code previous} is the user's current hash first, then older ones.
      */
-    Optional<String> refusal(String username, String candidate, List<String> previous) {
+    Optional<String> refusal(String username, @Nullable String candidate, List<String> previous) {
         if (candidate == null || candidate.length() < settings.minLength()) {
             return Optional.of("a password needs at least " + settings.minLength() + " characters");
         }

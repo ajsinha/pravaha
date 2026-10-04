@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.server.api;
 import java.time.Instant;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The wire types of the administrative endpoints: the audit trail, the plugin manifests and a
  * principal's own permissions.
@@ -53,10 +55,10 @@ public final class AdminDtos {
             int capacity,
             int retained,
             long evicted,
-            Instant oldestRetained,
+            @Nullable Instant oldestRetained,
             List<String> actions,
             List<AuditEntry> events,
-            String nextCursor,
+            @Nullable String nextCursor,
             String note) {}
 
     /**
@@ -78,7 +80,7 @@ public final class AdminDtos {
             String target,
             String decision,
             String reason,
-            String detail) {}
+            @Nullable String detail) {}
 
     /**
      * A plugin this node can load, as its manifest and its code declare it.
@@ -97,12 +99,12 @@ public final class AdminDtos {
      */
     public record PluginInfo(
             String name,
-            String version,
-            String requiredApiVersion,
+            @Nullable String version,
+            @Nullable String requiredApiVersion,
             boolean compatible,
             boolean loaded,
             List<String> kinds,
-            PluginCapabilities capabilities,
+            @Nullable PluginCapabilities capabilities,
             List<String> settings,
             PluginHealth health,
             List<PluginBinding> bindings) {}
@@ -112,7 +114,10 @@ public final class AdminDtos {
      *
      * @param note why a part is missing, or that a binding's configuration can narrow what is here
      */
-    public record PluginCapabilities(SourceCapabilities source, SinkCapabilities sink, String note) {}
+    public record PluginCapabilities(
+            @Nullable SourceCapabilities source,
+            @Nullable SinkCapabilities sink,
+            @Nullable String note) {}
 
     public record SourceCapabilities(
             boolean replayableOffsets,
@@ -121,7 +126,7 @@ public final class AdminDtos {
             boolean emitsBeforeImage,
             String guarantee,
             List<String> pushdown,
-            String typicalLatency) {}
+            @Nullable String typicalLatency) {}
 
     public record SinkCapabilities(
             List<String> emitModes,
@@ -165,7 +170,7 @@ public final class AdminDtos {
             List<ObjectPermission> views,
             List<ObjectPermission> streams) {}
 
-    public record Decision(boolean allowed, String reason) {}
+    public record Decision(boolean allowed, @Nullable String reason) {}
 
     /**
      * What one principal may do with one object.

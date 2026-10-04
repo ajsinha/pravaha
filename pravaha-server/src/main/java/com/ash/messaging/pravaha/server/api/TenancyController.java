@@ -23,6 +23,7 @@ import java.util.function.Supplier;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -53,13 +54,14 @@ import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 public class TenancyController {
 
     /** One limit: {@code null} is no limit, which is not the same as zero. */
-    public record Limits(Long maxQueries, Long maxStateKeys) {
+    public record Limits(
+            @Nullable Long maxQueries, @Nullable Long maxStateKeys) {
 
         static Limits of(TenantQuotas.Limits limits) {
             return new Limits(boxed(limits.maxQueries()), boxed(limits.maxStateKeys()));
         }
 
-        private static Long boxed(OptionalLong limit) {
+        private static @Nullable Long boxed(OptionalLong limit) {
             return limit.isPresent() ? limit.getAsLong() : null;
         }
     }
