@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,7 +78,7 @@ class PostgresCdcSourceTest {
         return plugin(Map.of());
     }
 
-    private PartitionReader reader(PostgresCdcSourcePlugin plugin, SourceOffset from) {
+    private PartitionReader reader(PostgresCdcSourcePlugin plugin, @Nullable SourceOffset from) {
         PartitionReader reader = plugin.createReader(new SourcePartition(table, 0, Map.of()), from);
         open.add(reader);
         return reader;

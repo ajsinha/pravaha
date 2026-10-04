@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.pgcdc;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
@@ -66,7 +67,7 @@ class PublicationPrivilegeRefusalTest {
     }
 
     private static String database() {
-        return PgServer.scalar("SELECT current_database()");
+        return Objects.requireNonNull(PgServer.scalar("SELECT current_database()"));
     }
 
     private static void nothingCreatedFor(String table) {

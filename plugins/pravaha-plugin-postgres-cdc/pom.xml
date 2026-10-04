@@ -20,6 +20,13 @@
       <artifactId>pravaha-api</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- JSpecify's nullness annotations, compile-only (see pravaha-api's pom). -->
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>${jspecify.version}</version>
+      <scope>provided</scope>
+    </dependency>
     <!-- Provided, not bundled: ADR-041's whole argument. The replication API
          (PGReplicationConnection, PGReplicationStream, LogSequenceNumber) ships inside the
          PostgreSQL JDBC driver a deployment already supplies for the jdbc source, so this plugin
@@ -75,4 +82,27 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <!-- Error Prone and NullAway gate this module (-Pep). It was brought to zero findings (NullAway,
+       Error Prone's WARNING checks and javac's -Xlint) and is held there: NullAway at ERROR, and any
+       warning at all fails the compile, main and test code alike. -->
+  <profiles>
+    <profile>
+      <id>ep</id>
+      <properties>
+        <ep.nullaway.level>ERROR</ep.nullaway.level>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

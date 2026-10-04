@@ -15,6 +15,11 @@
  */
 package com.ash.messaging.pravaha.plugin.pgcdc;
 
+import java.util.List;
+import java.util.Objects;
+
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -47,11 +52,11 @@ final class PostgresCdcReader implements PartitionReader {
 
     private final CdcStream stream;
     private final StreamSchema schema;
-    private final InitialSnapshot.CatchUp catchUp;
+    private final InitialSnapshot.@Nullable CatchUp catchUp;
 
     private volatile CdcOffset position;
     private volatile boolean paused;
-    private volatile InitialSnapshot snapshot;
+    private volatile @Nullable InitialSnapshot snapshot;
     private volatile long snapshotEstimate = -1L;
     private int headTaken;
     private int largestOffered;
@@ -63,8 +68,8 @@ final class PostgresCdcReader implements PartitionReader {
             CdcStream stream,
             StreamSchema schema,
             CdcOffset start,
-            InitialSnapshot snapshot,
-            InitialSnapshot.CatchUp catchUp) {
+            @Nullable InitialSnapshot snapshot,
+            InitialSnapshot.@Nullable CatchUp catchUp) {
         this.stream = stream;
         this.schema = schema;
         this.position = start;
@@ -87,14 +92,15 @@ final class PostgresCdcReader implements PartitionReader {
      * @param key the table's primary key; needed only when {@code start} is inside a snapshot
      */
     static PostgresCdcReader open(
-            CdcOptions options, CdcSchema.Mapping mapping, int tableOid, CdcOffset start, SnapshotKey key) {
+            CdcOptions options, CdcSchema.Mapping mapping, int tableOid, CdcOffset start, @Nullable SnapshotKey key) {
         InitialSnapshot snapshot = null;
         InitialSnapshot.CatchUp catchUp = null;
         if (start.inSnapshot()) {
-            snapshot = InitialSnapshot.begin(
-                    options, mapping, key, start.snapshot().after());
-            catchUp = new InitialSnapshot.CatchUp(
-                    options, key, snapshot.consistentPoint(), start.snapshot().after());
+            SnapshotKey tableKey = Objects.requireNonNull(key, "a start inside a snapshot comes with the table's key");
+            List<String> after =
+                    Objects.requireNonNull(start.snapshot(), "inSnapshot()").after();
+            snapshot = InitialSnapshot.begin(options, mapping, tableKey, after);
+            catchUp = new InitialSnapshot.CatchUp(options, tableKey, snapshot.consistentPoint(), after);
         }
         CdcStream stream = new CdcStream(options, mapping, tableOid, start, catchUp);
         try {
@@ -102,7 +108,9 @@ final class PostgresCdcReader implements PartitionReader {
         } catch (RuntimeException e) {
             if (snapshot != null) {
                 snapshot.close();
-                catchUp.close();
+                if (catchUp != null) {
+                    catchUp.close();
+                }
             }
             throw e;
         }
@@ -130,11 +138,12 @@ final class PostgresCdcReader implements PartitionReader {
                     askForMarker();
                 } else if (head.endLsn() > reading.consistentPoint()) {
                     // Everything before the snapshot's point is delivered: its rows go next.
-                    if (reading.failure() != null) {
+                    PravahaException stopped = reading.failure();
+                    if (stopped != null) {
                         if (taken > 0) {
                             return written;
                         }
-                        throw reading.failure();
+                        throw stopped;
                     }
                     long point = reading.consistentPoint();
                     while (taken < maxRecords) {
@@ -142,11 +151,18 @@ final class PostgresCdcReader implements PartitionReader {
                         if (row == null) {
                             break;
                         }
-                        CdcOffset.Snapshot reached = position.snapshot();
+                        CdcOffset.Snapshot reached = Objects.requireNonNull(
+                                position.snapshot(), "reading the snapshot, the position is in it");
                         written += deliver(sink, row, "snapshot@" + row.key());
                         reading.take();
                         taken++;
-                        position = new CdcOffset(point, 0L, 0L, new CdcOffset.Snapshot(reached.rows() + 1, row.key()));
+                        position = new CdcOffset(
+                                point,
+                                0L,
+                                0L,
+                                new CdcOffset.Snapshot(
+                                        reached.rows() + 1,
+                                        Objects.requireNonNull(row.key(), "a snapshot row carries its key")));
                     }
                     if (reading.finished()) {
                         // The whole table is in the engine, as of the point: from here, the stream.
@@ -282,6 +298,7 @@ final class PostgresCdcReader implements PartitionReader {
     }
 
     /** The unfinished initial snapshot, or null. For tests of its memory bound. */
+    @Nullable
     InitialSnapshot snapshot() {
         return snapshot;
     }

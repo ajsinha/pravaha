@@ -25,8 +25,11 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -92,12 +95,18 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
 
     private static final String DRIVER = "org.postgresql.Driver";
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private CdcOptions options;
-    private Connection control;
+
+    /** Null until open() and after close(). */
+    private @Nullable Connection control;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before any reader
     private CdcSchema.Mapping mapping;
+
     private int tableOid;
-    private SnapshotKey snapshotKey;
-    private volatile HealthStatus cachedHealth;
+    private @Nullable SnapshotKey snapshotKey;
+    private volatile @Nullable HealthStatus cachedHealth;
     private volatile long cachedAt;
 
     /** Readers this plugin opened, so health can say when one is reconnecting or has failed. */
@@ -216,8 +225,8 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
-        requireOpen();
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
+        Connection control = requireOpen();
         CdcOffset requested = CdcOffset.parse(resumeFrom);
         CdcOffset start;
         SnapshotKey key = snapshotKey;
@@ -250,7 +259,7 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
      * @return empty when the slot does not exist
      */
     public Optional<SlotStatus> slotStatus() {
-        requireOpen();
+        Connection control = requireOpen();
         try {
             return Preflight.slotStatus(control, options);
         } catch (SQLException e) {
@@ -383,11 +392,13 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
         }
     }
 
-    private void requireOpen() {
+    private Connection requireOpen() {
         requireConfigured();
-        if (control == null) {
+        Connection open = control;
+        if (open == null) {
             throw new IllegalStateException("postgres-cdc plugin '" + options.instanceName() + "' is not open");
         }
+        return open;
     }
 
     static Properties credentials(CdcOptions options) {
@@ -432,8 +443,8 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
 
     /** Package-private for tests: the slot's confirmed position, parsed. */
     long confirmedFlush() throws SQLException {
-        try (PreparedStatement statement = control.prepareStatement(
-                "SELECT confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name = ?")) {
+        try (PreparedStatement statement = Objects.requireNonNull(control, "open() first")
+                .prepareStatement("SELECT confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name = ?")) {
             statement.setString(1, options.slot());
             try (ResultSet rows = statement.executeQuery()) {
                 return rows.next() && rows.getString(1) != null ? CdcOffset.parseLsn(rows.getString(1)) : 0L;

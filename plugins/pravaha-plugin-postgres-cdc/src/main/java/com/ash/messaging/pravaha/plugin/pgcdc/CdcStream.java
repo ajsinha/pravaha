@@ -21,6 +21,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
+import org.jspecify.annotations.Nullable;
 import org.postgresql.PGConnection;
 import org.postgresql.PGProperty;
 import org.postgresql.replication.LogSequenceNumber;
@@ -81,18 +83,18 @@ final class CdcStream implements AutoCloseable {
     private final AtomicLong reconnects = new AtomicLong();
 
     private volatile boolean running = true;
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
     private volatile String syncSeen = "";
     private volatile String lastProblem = "";
     private volatile long confirmed;
     private volatile boolean markerRequested;
 
-    private Connection replication;
-    private PGReplicationStream stream;
-    private Connection control;
+    private @Nullable Connection replication;
+    private @Nullable PGReplicationStream stream;
+    private @Nullable Connection control;
     private long acked;
     private long heartbeats;
-    private Thread thread;
+    private @Nullable Thread thread;
 
     CdcStream(CdcOptions options, CdcSchema.Mapping mapping, int tableOid, CdcOffset resume) {
         this(options, mapping, tableOid, resume, null);
@@ -104,7 +106,7 @@ final class CdcStream implements AutoCloseable {
             CdcSchema.Mapping mapping,
             int tableOid,
             CdcOffset resume,
-            TransactionAssembler.CatchUp catchUp) {
+            TransactionAssembler.@Nullable CatchUp catchUp) {
         this.options = options;
         this.assembler =
                 new TransactionAssembler(options, mapping, tableOid, resume, this::enqueue, this::sawMessage, catchUp);
@@ -168,6 +170,7 @@ final class CdcStream implements AutoCloseable {
         queuedRows.addAndGet(-rows);
     }
 
+    @Nullable
     PravahaException failure() {
         return failure;
     }
@@ -220,13 +223,15 @@ final class CdcStream implements AutoCloseable {
                 if (queuedRows.get() >= options.bufferRows()) {
                     // Full: stop reading, keep talking, or the server hangs up on a quiet client.
                     if (now - lastStatus >= statusNanos / 2) {
-                        stream.forceUpdateStatus();
+                        Objects.requireNonNull(stream, "connected while running")
+                                .forceUpdateStatus();
                         lastStatus = now;
                     }
                     LockSupport.parkNanos(5_000_000L);
                     continue;
                 }
-                ByteBuffer message = stream.readPending();
+                ByteBuffer message = Objects.requireNonNull(stream, "connected while running")
+                        .readPending();
                 if (message == null) {
                     LockSupport.parkNanos(5_000_000L);
                     continue;
@@ -322,7 +327,7 @@ final class CdcStream implements AutoCloseable {
      * Why the slot can no longer give this reader the changes after where it stopped, or null when it
      * still can. Asked of {@code pg_replication_slots} on the control connection.
      */
-    private synchronized String slotGone() throws SQLException {
+    private synchronized @Nullable String slotGone() throws SQLException {
         if (control == null || control.isClosed()) {
             control = PostgresCdcSourcePlugin.connect(options, false);
         }
@@ -354,7 +359,7 @@ final class CdcStream implements AutoCloseable {
     }
 
     /** Ends the stream with PRV-5117; the reader throws it at its next poll, which stops the feed. */
-    private void fail(String message, Exception cause) {
+    private void fail(String message, @Nullable Exception cause) {
         PravahaException failed = cause == null
                 ? new PravahaException(CdcErrors.STREAM_FAILED, message)
                 : new PravahaException(CdcErrors.STREAM_FAILED, message, cause);

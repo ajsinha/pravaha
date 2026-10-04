@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.plugin.pgcdc;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -38,7 +40,11 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  *     table, a key-only before-image. Refused whole: delivering the part before the problem would
  *     publish a state the database never committed.
  */
-record CdcTransaction(long endLsn, int alreadyDelivered, List<Change> changes, PravahaException failure) {
+record CdcTransaction(
+        long endLsn,
+        int alreadyDelivered,
+        List<Change> changes,
+        @Nullable PravahaException failure) {
 
     /**
      * One row with its weight.
@@ -49,7 +55,13 @@ record CdcTransaction(long endLsn, int alreadyDelivered, List<Change> changes, P
      * @param key the row's primary key as text, when an initial snapshot needs it; otherwise null
      */
     @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
-    record Change(Object[] values, long weight, long eventTimeNanos, String rejected, byte[] raw, List<String> key) {
+    record Change(
+            @Nullable Object[] values,
+            long weight,
+            long eventTimeNanos,
+            @Nullable String rejected,
+            byte[] raw,
+            @Nullable List<String> key) {
 
         /**
          * A row from its columns' text, one per stream field, as {@code pgoutput} and a snapshot
@@ -57,7 +69,11 @@ record CdcTransaction(long endLsn, int alreadyDelivered, List<Change> changes, P
          * the dead-letter queue with its text, rather than a guess.
          */
         static Change fromText(
-                CdcSchema.Mapping mapping, String[] texts, long weight, long defaultEventNanos, List<String> key) {
+                CdcSchema.Mapping mapping,
+                @Nullable String[] texts,
+                long weight,
+                long defaultEventNanos,
+                @Nullable List<String> key) {
             StreamSchema schema = mapping.schema();
             Object[] values = new Object[schema.fieldCount()];
             StringBuilder raw = new StringBuilder();
