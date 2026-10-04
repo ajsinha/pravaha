@@ -65,9 +65,12 @@ public class MemoryAccessBenchmark {
     private static final byte[] LITERAL = "COMPLETED".getBytes(StandardCharsets.UTF_8);
 
     @Param({"bytebuffer", "agrona"})
+    @SuppressWarnings("NullAway.Init") // JMH injects each @Param before the trial
     public String implementation;
 
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private MemoryRegion region;
+
     private int index;
 
     /** PERF-1: a benchmark run under a coverage agent measures the agent; refused, by name. */

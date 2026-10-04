@@ -75,15 +75,34 @@ public class ProfileABenchmark {
     /** A realistic batch: large enough to amortise the call, small enough to stay in cache. */
     private static final int BATCH = 512;
 
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private MemoryRegion input;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private MemoryRegion output;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private long[] offsets;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private long[] outOffsets;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private FusedStage generated;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private Predicate predicate;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private BinaryRowView view;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private RowLayout inputLayout;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private RowLayout outputLayout;
+
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private BinaryRowWriter outputWriter;
 
     /** Twelve fields, roughly 200 bytes encoded, as design 28.4 specifies. */
