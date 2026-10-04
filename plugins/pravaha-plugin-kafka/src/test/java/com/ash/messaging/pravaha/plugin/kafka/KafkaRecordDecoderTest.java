@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.Objects;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -91,8 +92,10 @@ class KafkaRecordDecoderTest {
                 .encode(rows.row(ALL, -2, values))
                 .value();
 
-        KafkaValueDecoder.Row plain = new KafkaRecordDecoder(ALL, false, -1).decode(upsert, 5_000L);
-        KafkaValueDecoder.Row change = new KafkaRecordDecoder(ALL, true, -1).decode(changelog, 5_000L);
+        KafkaValueDecoder.Row plain =
+                new KafkaRecordDecoder(ALL, false, -1).decode(Objects.requireNonNull(upsert), 5_000L);
+        KafkaValueDecoder.Row change =
+                new KafkaRecordDecoder(ALL, true, -1).decode(Objects.requireNonNull(changelog), 5_000L);
 
         for (KafkaValueDecoder.Row row : new KafkaValueDecoder.Row[] {plain, change}) {
             Object[] read = row.values();

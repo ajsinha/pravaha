@@ -31,6 +31,7 @@ import org.apache.kafka.clients.producer.MockProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -158,7 +159,7 @@ class KafkaUpsertKeyRowsTest {
         }
 
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
             return configured().capabilities();
         }
 
@@ -169,7 +170,7 @@ class KafkaUpsertKeyRowsTest {
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
+        public StreamSinkPlugin open(@Nullable String sinkName) {
             KafkaSinkPlugin plugin = configured();
             plugin.open();
             return plugin;

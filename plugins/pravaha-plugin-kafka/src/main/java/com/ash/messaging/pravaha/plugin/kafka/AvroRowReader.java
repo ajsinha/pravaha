@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -199,7 +201,7 @@ final class AvroRowReader {
     }
 
     /** The record a field holds, directly or as the one non-null branch of a union; else null. */
-    private static AvroSchema.Node nestedRecord(AvroSchema.Node type) {
+    private static AvroSchema.@Nullable Node nestedRecord(AvroSchema.Node type) {
         if (type.kind == AvroSchema.Kind.RECORD) {
             return type;
         }
@@ -220,7 +222,7 @@ final class AvroRowReader {
     }
 
     /** The targets under the reader record at {@code depth} of the chosen paths sharing {@code prefix}. */
-    private static AvroResolver.Group group(Path[] chosen, int depth, List<Integer> prefix) {
+    private static AvroResolver.Group group(Path[] chosen, int depth, @Nullable List<Integer> prefix) {
         Map<Integer, List<Integer>> byField = new java.util.TreeMap<>();
         List<Integer> all = new ArrayList<>();
         for (int ordinal = 0; ordinal < chosen.length; ordinal++) {
@@ -251,7 +253,7 @@ final class AvroRowReader {
     }
 
     /** Why {@code node} cannot fill a {@code type} column, or null when it can. */
-    private static String why(AvroSchema.Node node, PravahaType type) {
+    private static @Nullable String why(AvroSchema.Node node, PravahaType type) {
         if (node.kind == AvroSchema.Kind.UNION) {
             boolean anyValue = false;
             for (AvroSchema.Node branch : node.branches) {

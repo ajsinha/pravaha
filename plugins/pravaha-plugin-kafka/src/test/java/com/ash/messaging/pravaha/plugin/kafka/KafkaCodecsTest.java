@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.kafka;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
@@ -42,6 +43,8 @@ class KafkaCodecsTest {
     private static final TopicPartition P0 = new TopicPartition("txn", 0);
 
     private final FakeTopic topic = new FakeTopic("txn", 1);
+
+    @SuppressWarnings("NullAway.Init") // set by the test that uses it; @AfterEach closes what was set
     private KafkaSourcePlugin plugin;
 
     @AfterEach
@@ -93,8 +96,8 @@ class KafkaCodecsTest {
         PravahaException refused =
                 KafkaCodecs.readRefusal(P0, new KafkaException("fetch", new NoClassDefFoundError("net/jpountz/lz4")));
 
-        assertThat(refused.errorCode()).isEqualTo(KafkaErrors.READ_FAILED);
-        assertThat(refused.getMessage())
+        assertThat(Objects.requireNonNull(refused).errorCode()).isEqualTo(KafkaErrors.READ_FAILED);
+        assertThat(Objects.requireNonNull(refused).getMessage())
                 .contains("records in txn-0 are compressed with lz4")
                 .contains("ADR-053")
                 .contains("none, gzip, snappy or zstd");
@@ -105,7 +108,7 @@ class KafkaCodecsTest {
         PravahaException refused = KafkaCodecs.readRefusal(
                 P0, new UnsatisfiedLinkError("org.xerial.snappy.SnappyNative.maxCompressedLength"));
 
-        assertThat(refused.getMessage())
+        assertThat(Objects.requireNonNull(refused).getMessage())
                 .contains("compressed with snappy")
                 .contains("does not load on this platform")
                 .contains("Native code");

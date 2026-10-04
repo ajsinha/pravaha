@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.kafka;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
@@ -140,7 +141,9 @@ class KafkaSourceOptionsTest {
         SourceOffset token = KafkaSourceOffset.at(partition, 42).toSourceOffset();
 
         assertThat(token.token()).isEqualTo("orders.v2-eu/3@42");
-        assertThat(KafkaSourceOffset.parse(token, partition).next()).isEqualTo(42);
+        assertThat(Objects.requireNonNull(KafkaSourceOffset.parse(token, partition))
+                        .next())
+                .isEqualTo(42);
         assertThat(KafkaSourceOffset.parse(SourceOffset.BEGINNING, partition)).isNull();
         assertThat(KafkaSourceOffset.parse(null, partition)).isNull();
         for (String bad : new String[] {"42", "orders.v2-eu/x@1", "orders.v2-eu/3@-1", "/3@1", "orders.v2-eu@3"}) {

@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.kafka;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Undecodable;
 
@@ -163,7 +164,7 @@ final class AvroBinary {
             case ARRAY -> {
                 for (long count = blockCount(); count > 0; count = blockCount()) {
                     for (long i = 0; i < count; i++) {
-                        skip(node.element);
+                        skip(Objects.requireNonNull(node.element, "an array has items"));
                     }
                 }
             }
@@ -171,7 +172,7 @@ final class AvroBinary {
                 for (long count = blockCount(); count > 0; count = blockCount()) {
                     for (long i = 0; i < count; i++) {
                         readFixed(length("a map key"), "a map key");
-                        skip(node.values);
+                        skip(Objects.requireNonNull(node.values, "a map has values"));
                     }
                 }
             }

@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.DynamicMessage;
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -60,6 +61,8 @@ class KafkaSourceFormatBrokerTest {
             + "{\"name\":\"note\",\"type\":[\"null\",\"string\"]}]}";
 
     private final List<KafkaSourcePlugin> plugins = new ArrayList<>();
+
+    @SuppressWarnings("NullAway.Init") // set by the test that uses it; @AfterEach closes what was set
     private HttpServer registry;
 
     @TempDir
@@ -253,15 +256,15 @@ class KafkaSourceFormatBrokerTest {
         }
     }
 
-    private static byte[] avro(String user, long amount, String note) {
+    private static byte[] avro(String user, long amount, @Nullable String note) {
         return note(new AvroWriter().text(user).number(amount), note).bytes();
     }
 
-    private static byte[] framedAvro(int schemaId, String user, long amount, String note) {
+    private static byte[] framedAvro(int schemaId, String user, long amount, @Nullable String note) {
         return note(new AvroWriter().text(user).number(amount), note).framed(schemaId);
     }
 
-    private static AvroWriter note(AvroWriter writer, String note) {
+    private static AvroWriter note(AvroWriter writer, @Nullable String note) {
         return note == null ? writer.union(0) : writer.union(1).text(note);
     }
 

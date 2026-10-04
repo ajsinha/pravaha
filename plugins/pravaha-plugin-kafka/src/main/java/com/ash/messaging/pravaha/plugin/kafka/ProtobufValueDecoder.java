@@ -35,6 +35,7 @@ import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.UninitializedMessageException;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.PravahaType;
@@ -127,7 +128,7 @@ final class ProtobufValueDecoder implements KafkaValueDecoder {
         return new ProtobufValueDecoder(schema, eventTimeOrdinal, message, fields, registryFramed);
     }
 
-    private static FieldDescriptor caseInsensitive(Descriptor message, String column) {
+    private static @Nullable FieldDescriptor caseInsensitive(Descriptor message, String column) {
         for (FieldDescriptor field : message.getFields()) {
             if (field.getName().equalsIgnoreCase(column)) {
                 return field;
@@ -144,7 +145,7 @@ final class ProtobufValueDecoder implements KafkaValueDecoder {
     }
 
     /** Why {@code field} cannot fill a {@code type} column, or null when it can. */
-    private static String why(FieldDescriptor field, PravahaType type) {
+    private static @Nullable String why(FieldDescriptor field, PravahaType type) {
         if (field.isRepeated()) {
             return "a repeated field or a map is many values, and a column is one";
         }
@@ -262,7 +263,7 @@ final class ProtobufValueDecoder implements KafkaValueDecoder {
         return indexes.position();
     }
 
-    private Object value(DynamicMessage decoded, FieldDescriptor field, int ordinal) throws Undecodable {
+    private @Nullable Object value(DynamicMessage decoded, FieldDescriptor field, int ordinal) throws Undecodable {
         // A field that carries presence and is absent is SQL NULL; one that does not (a plain proto3
         // scalar) is its type's default, which is a value and not an absence. See the class comment.
         if (field.hasPresence() && !decoded.hasField(field)) {

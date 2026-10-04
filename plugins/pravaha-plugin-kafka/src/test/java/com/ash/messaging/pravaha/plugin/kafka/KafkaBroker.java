@@ -36,6 +36,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.jspecify.annotations.Nullable;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 
 /**
@@ -49,7 +50,7 @@ final class KafkaBroker {
     private static final String IMAGE = "confluentinc/cp-kafka:7.6.0";
 
     private static final AtomicInteger TOPICS = new AtomicInteger();
-    private static ConfluentKafkaContainer container;
+    private static @Nullable ConfluentKafkaContainer container;
 
     private KafkaBroker() {}
 
@@ -83,7 +84,7 @@ final class KafkaBroker {
     }
 
     /** One record as a test reads it: key and value as text, the value null for a tombstone. */
-    record Seen(String key, String value) {
+    record Seen(@Nullable String key, @Nullable String value) {
         @Override
         public String toString() {
             return key + "=" + value;
@@ -132,7 +133,7 @@ final class KafkaBroker {
     }
 
     /** A producer of its own; {@code transactionalId} null for a plain idempotent one. */
-    static KafkaProducer<byte[], byte[]> producer(String transactionalId) {
+    static KafkaProducer<byte[], byte[]> producer(@Nullable String transactionalId) {
         Map<String, Object> config = new java.util.HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap());
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
@@ -150,7 +151,7 @@ final class KafkaBroker {
     }
 
     /** Sends {@code value} under {@code key} to one partition, and waits until it is written. */
-    static void send(String topic, int partition, String key, String value) {
+    static void send(String topic, int partition, String key, @Nullable String value) {
         try (KafkaProducer<byte[], byte[]> producer = producer(null)) {
             send(producer, topic, partition, key, value);
         }
@@ -168,7 +169,8 @@ final class KafkaBroker {
         }
     }
 
-    static void send(KafkaProducer<byte[], byte[]> producer, String topic, int partition, String key, String value) {
+    static void send(
+            KafkaProducer<byte[], byte[]> producer, String topic, int partition, String key, @Nullable String value) {
         try {
             producer.send(new ProducerRecord<>(topic, partition, bytes(key), bytes(value)))
                     .get(30, TimeUnit.SECONDS);
@@ -185,11 +187,11 @@ final class KafkaBroker {
         producer.send(new ProducerRecord<>(topic, partition, bytes(key), bytes(value)));
     }
 
-    private static byte[] bytes(String text) {
+    private static byte @Nullable [] bytes(@Nullable String text) {
         return text == null ? null : text.getBytes(StandardCharsets.UTF_8);
     }
 
-    private static String text(byte[] bytes) {
+    private static @Nullable String text(byte @Nullable [] bytes) {
         return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
     }
 }

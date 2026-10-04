@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -36,6 +37,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.record.TimestampType;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A topic in memory, and consumers that read it the way the real client does: assigned, seeked, and
@@ -54,8 +56,8 @@ final class FakeTopic implements KafkaClients {
     private final Map<Integer, Long> next = new HashMap<>();
     final List<FakeConsumer> consumers = new CopyOnWriteArrayList<>();
     private volatile boolean exists = true;
-    private volatile RuntimeException unreachable;
-    private volatile Error pollError;
+    private volatile @Nullable RuntimeException unreachable;
+    private volatile @Nullable Error pollError;
 
     FakeTopic(String name, int partitions) {
         this.name = name;
@@ -68,10 +70,10 @@ final class FakeTopic implements KafkaClients {
     }
 
     /** Appends a record, its timestamp {@code 1000 * (offset + 1)} milliseconds; returns its offset. */
-    synchronized long append(int partition, String key, String value) {
-        long offset = next.get(partition);
+    synchronized long append(int partition, String key, @Nullable String value) {
+        long offset = at(next, partition);
         next.put(partition, offset + 1);
-        log.get(partition)
+        at(log, partition)
                 .add(new ConsumerRecord<>(
                         name,
                         partition,
@@ -89,21 +91,21 @@ final class FakeTopic implements KafkaClients {
 
     /** Leaves {@code count} offsets with no record a consumer is given, as transaction markers do. */
     synchronized void gap(int partition, int count) {
-        next.put(partition, next.get(partition) + count);
+        next.put(partition, at(next, partition) + count);
     }
 
     /** Retention: every record before {@code offset} is deleted. */
     synchronized void deleteBefore(int partition, long offset) {
-        log.get(partition).removeIf(record -> record.offset() < offset);
+        at(log, partition).removeIf(record -> record.offset() < offset);
         logStart.put(partition, offset);
-        next.put(partition, Math.max(next.get(partition), offset));
+        next.put(partition, Math.max(at(next, partition), offset));
     }
 
     void drop() {
         exists = false;
     }
 
-    void unreachable(RuntimeException failure) {
+    void unreachable(@Nullable RuntimeException failure) {
         unreachable = failure;
     }
 
@@ -123,12 +125,12 @@ final class FakeTopic implements KafkaClients {
     }
 
     synchronized long end(int partition) {
-        return next.get(partition);
+        return at(next, partition);
     }
 
     private synchronized List<ConsumerRecord<byte[], byte[]>> from(int partition, long position) {
         List<ConsumerRecord<byte[], byte[]>> found = new ArrayList<>();
-        for (ConsumerRecord<byte[], byte[]> record : log.get(partition)) {
+        for (ConsumerRecord<byte[], byte[]> record : at(log, partition)) {
             if (record.offset() >= position) {
                 found.add(record);
             }
@@ -262,6 +264,11 @@ final class FakeTopic implements KafkaClients {
     }
 
     private synchronized long logStartOf(int partition) {
-        return logStart.get(partition);
+        return at(logStart, partition);
+    }
+
+    /** A partition's entry: every partition has one from the constructor on. */
+    private static <V> V at(java.util.Map<Integer, V> byPartition, int partition) {
+        return Objects.requireNonNull(byPartition.get(partition), "no partition " + partition);
     }
 }

@@ -21,11 +21,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -90,6 +92,8 @@ class KafkaExactSharingBrokerTest {
 
     private final List<QueryRegistry> registries = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
+
+    @SuppressWarnings("NullAway.Init") // set by the test that uses it; @AfterEach closes what was set
     private KafkaProducer<byte[], byte[]> producer;
 
     @AfterEach
@@ -193,7 +197,7 @@ class KafkaExactSharingBrokerTest {
 
     // ---------------------------------------------------------------------------------------
 
-    private QueryRegistry registry(String topic, Path checkpoints) {
+    private QueryRegistry registry(String topic, @Nullable Path checkpoints) {
         Map<String, String> options = new HashMap<>();
         options.put("bootstrap.servers", KafkaBroker.bootstrap());
         options.put("topic", topic);
@@ -296,7 +300,7 @@ class KafkaExactSharingBrokerTest {
                 "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void onCommit(List<ViewChange> changes, long frontier) {
-            long before = highest.get();
+            long before = Objects.requireNonNull(highest.get());
             for (ViewChange change : changes) {
                 if (change.weight() <= 0) {
                     violations.add("a retraction from an append-only topic: " + change);

@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
@@ -163,7 +164,8 @@ class KafkaSinkKeyAndRegistryTest {
                 "schema.id", "21",
                 "schema.message", "Order"));
         StreamSchema schema = KafkaSchema.parse("orders", COLUMNS);
-        byte[] value = records(options).encode(rows.row(schema, 1, 7L, "tea")).value();
+        byte[] value = Objects.requireNonNull(
+                records(options).encode(rows.row(schema, 1, 7L, "tea")).value());
 
         assertThat(Arrays.copyOf(value, 5)).containsExactly(0, 0, 0, 0, 21);
         assertThat(ProtobufRegistryDecoder.messageIndexes(value))
@@ -191,7 +193,9 @@ class KafkaSinkKeyAndRegistryTest {
                         "t.Order")))
                 .encode(rows.row(schema, 1, 7L, "tea"))
                 .value();
-        assertThat(firstMessage[5]).as("the file's first message is the lone 0").isEqualTo((byte) 0);
+        assertThat(Objects.requireNonNull(firstMessage)[5])
+                .as("the file's first message is the lone 0")
+                .isEqualTo((byte) 0);
     }
 
     // ---- KSF-3: every id checked --------------------------------------------------------------

@@ -17,6 +17,9 @@ package com.ash.messaging.pravaha.plugin.kafka;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
@@ -53,16 +56,17 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 final class AvroValueDecoder implements KafkaValueDecoder {
 
     /** A schema id's mapping: a reader, or the reason there is none. */
-    private record Mapped(AvroRowReader reader, String failure) {}
+    private record Mapped(
+            @Nullable AvroRowReader reader, @Nullable String failure) {}
 
     private final String instanceName;
     private final StreamSchema schema;
     private final int eventTimeOrdinal;
-    private final AvroRowReader configured;
+    private final @Nullable AvroRowReader configured;
     /** {@code schema.reader.file}'s schema, or null to read each registry schema as itself. */
-    private final AvroSchema.Node readerSchema;
+    private final AvroSchema.@Nullable Node readerSchema;
 
-    private final SchemaRegistry registry;
+    private final @Nullable SchemaRegistry registry;
     /** Per fetch thread; the registry's own cache is what is shared. */
     private final Map<Integer, Mapped> byId = new HashMap<>();
 
@@ -70,9 +74,9 @@ final class AvroValueDecoder implements KafkaValueDecoder {
             String instanceName,
             StreamSchema schema,
             int eventTimeOrdinal,
-            AvroRowReader configured,
-            AvroSchema.Node readerSchema,
-            SchemaRegistry registry) {
+            @Nullable AvroRowReader configured,
+            AvroSchema.@Nullable Node readerSchema,
+            @Nullable SchemaRegistry registry) {
         this.instanceName = instanceName;
         this.schema = schema;
         this.eventTimeOrdinal = eventTimeOrdinal;
@@ -94,10 +98,12 @@ final class AvroValueDecoder implements KafkaValueDecoder {
             if (mapped.failure() != null) {
                 throw new Undecodable(mapped.failure());
             }
-            return mapped.reader().read(value, SchemaRegistry.SCHEMA_ID_BYTES + 1, recordTimestampMillis);
+            return Objects.requireNonNull(mapped.reader(), "mapped without a failure")
+                    .read(value, SchemaRegistry.SCHEMA_ID_BYTES + 1, recordTimestampMillis);
         }
         try {
-            return configured.read(value, 0, recordTimestampMillis);
+            return Objects.requireNonNull(configured, "without a registry, schema.file")
+                    .read(value, 0, recordTimestampMillis);
         } catch (Undecodable e) {
             if (SchemaRegistry.framed(value)) {
                 throw new Undecodable(e.getMessage() + ". The value begins with 0x00 and the four-byte schema id "
@@ -117,7 +123,8 @@ final class AvroValueDecoder implements KafkaValueDecoder {
         }
         // A registry that cannot be reached is PravahaException PRV-5109 from here: not this
         // record's fault, so it stops the reader rather than becoming a dead letter.
-        String text = registry.schemaText(id);
+        String text = Objects.requireNonNull(registry, "only a registry's ids are looked up")
+                .schemaText(id);
         Mapped mapped;
         try {
             AvroSchema.Node writer = AvroSchema.parse(text);

@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.kafka;
 
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
@@ -45,7 +46,7 @@ record KafkaSourceOffset(String topic, int partition, long next) {
      * @return null for {@code null} or {@link SourceOffset#BEGINNING}: no checkpoint, so the binding's
      *     {@code start.from} decides
      */
-    static KafkaSourceOffset parse(SourceOffset offset, TopicPartition expected) {
+    static @Nullable KafkaSourceOffset parse(@Nullable SourceOffset offset, TopicPartition expected) {
         if (offset == null || offset.isBeginning()) {
             return null;
         }

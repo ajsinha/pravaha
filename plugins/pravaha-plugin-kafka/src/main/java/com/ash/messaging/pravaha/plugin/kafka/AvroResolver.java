@@ -20,7 +20,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Undecodable;
 import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
@@ -99,7 +102,7 @@ final class AvroResolver {
 
     // ---- compiling ----------------------------------------------------------------------------
 
-    private Step step(AvroSchema.Node w, AvroSchema.Node r, Target t, String where) {
+    private Step step(AvroSchema.Node w, AvroSchema.Node r, @Nullable Target t, String where) {
         if (t == null) {
             validate(w, r, where);
             return (in, out) -> in.skip(w);
@@ -313,13 +316,19 @@ final class AvroResolver {
                 if (r.kind != AvroSchema.Kind.ARRAY) {
                     throw unresolved(where, "the writer's array is the reader's " + r);
                 }
-                validate(w.element, r.element, where + " (its items)");
+                validate(
+                        Objects.requireNonNull(w.element, "an array has items"),
+                        Objects.requireNonNull(r.element, "an array has items"),
+                        where + " (its items)");
             }
             case MAP -> {
                 if (r.kind != AvroSchema.Kind.MAP) {
                     throw unresolved(where, "the writer's map is the reader's " + r);
                 }
-                validate(w.values, r.values, where + " (its values)");
+                validate(
+                        Objects.requireNonNull(w.values, "a map has values"),
+                        Objects.requireNonNull(r.values, "a map has values"),
+                        where + " (its values)");
             }
             case ENUM -> enumMapping(w, r, where);
             default -> {
@@ -337,7 +346,7 @@ final class AvroResolver {
      * Why a non-union writer type cannot be read as a non-union reader type, or null when it can:
      * names for named types, promotions for primitives, and the logical type on both sides.
      */
-    private static String mismatch(AvroSchema.Node w, AvroSchema.Node r) {
+    private static @Nullable String mismatch(AvroSchema.Node w, AvroSchema.Node r) {
         boolean kinds =
                 switch (w.kind) {
                     case INT ->
@@ -462,7 +471,12 @@ final class AvroResolver {
      * and fixed are strings of code points 0 to 255, a record's is an object of its fields.
      */
     private void defaults(
-            AvroSchema.Node r, Object json, Target target, List<Integer> ordinals, List<Object> values, String where) {
+            AvroSchema.Node r,
+            @Nullable Object json,
+            Target target,
+            List<Integer> ordinals,
+            List<Object> values,
+            String where) {
         AvroSchema.Node type = r.kind == AvroSchema.Kind.UNION ? r.branches.get(0) : r;
         if (type.kind == AvroSchema.Kind.NULL) {
             if (json != null) {
@@ -541,7 +555,7 @@ final class AvroResolver {
         return target instanceof Leaf leaf ? new int[] {leaf.ordinal()} : ((Group) target).ordinals();
     }
 
-    private static Unmappable unresolved(String where, String why) {
+    private static Unmappable unresolved(String where, @Nullable String why) {
         return new Unmappable(
                 "the writer schema cannot be resolved against the reader schema at " + where + ": " + why);
     }

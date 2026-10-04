@@ -20,6 +20,9 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
@@ -68,7 +71,7 @@ import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
 final class AvroRowWriter implements KafkaRecords.ValueEncoder {
 
     /** How one field of the writer record is filled: from column {@code ordinal}, or null when -1. */
-    private record Slot(int ordinal, AvroSchema.Node node, int valueBranch, int nullBranch) {}
+    private record Slot(int ordinal, AvroSchema.@Nullable Node node, int valueBranch, int nullBranch) {}
 
     private final StreamSchema schema;
     private final Slot[] slots;
@@ -144,7 +147,11 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
                     nullBranch,
                     schema.field(ordinal).type(),
                     schema.field(ordinal).name());
-            requirePrecision(slots[i].node(), schema.field(ordinal), field, precisions[ordinal]);
+            requirePrecision(
+                    Objects.requireNonNull(slots[i].node(), "a column's slot"),
+                    schema.field(ordinal),
+                    field,
+                    precisions[ordinal]);
         }
         long[] floorNanos = new long[schema.fieldCount()];
         for (int ordinal = 0; ordinal < floorNanos.length; ordinal++) {
@@ -244,7 +251,7 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
     }
 
     /** Why {@code node} cannot hold every value of a {@code type} column exactly, or null when it can. */
-    static String why(AvroSchema.Node node, PravahaType type) {
+    static @Nullable String why(AvroSchema.Node node, PravahaType type) {
         AvroSchema.Kind kind = node.kind;
         boolean plain = node.logical.isEmpty();
         boolean fits =
@@ -324,7 +331,7 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
             if (slot.valueBranch() >= 0) {
                 out.writeLong(slot.valueBranch());
             }
-            write(out, slot.node(), value, slot.ordinal());
+            write(out, Objects.requireNonNull(slot.node(), "a value has a column's slot"), value, slot.ordinal());
         }
         return out.toByteArray();
     }

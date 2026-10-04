@@ -42,6 +42,7 @@ import org.apache.kafka.common.errors.OutOfOrderSequenceException;
 import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -144,15 +145,26 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
 
     private final KafkaClients clients;
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private KafkaSinkOptions options;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private KafkaRecords records;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private TopicPartition staging;
 
+    @SuppressWarnings("NullAway.Init") // set by open(); closeQuietly() clears it and requireOpen() guards every use
     private Producer<byte[], byte[]> stagingProducer;
+
+    @SuppressWarnings("NullAway.Init") // set by open(); closeQuietly() clears it and requireOpen() guards every use
     private Producer<byte[], byte[]> targetProducer;
+
+    @SuppressWarnings("NullAway.Init") // set by open(); closeQuietly() clears it and requireOpen() guards every use
     private Consumer<byte[], byte[]> reader;
 
     /** Names this process's staged records, so a range never includes another process's. */
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before any write
     private String runId;
 
     /** The open transaction's label, or -1 when none is open. */
@@ -163,7 +175,7 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
     private final AtomicReference<Exception> sendFailure = new AtomicReference<>();
     private final AtomicLong rowsSent = new AtomicLong();
     private final AtomicLong rowsCommitted = new AtomicLong();
-    private volatile PravahaException fatal;
+    private volatile @Nullable PravahaException fatal;
 
     /** What {@code ServiceLoader} constructs. */
     public KafkaSinkPlugin() {
@@ -632,6 +644,7 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
         closeQuietly();
     }
 
+    @SuppressWarnings("NullAway") // lets go of the clients; requireOpen() stands before every later use
     private void closeQuietly() {
         for (AutoCloseable client : new AutoCloseable[] {stagingProducer, targetProducer, reader}) {
             if (client == null) {

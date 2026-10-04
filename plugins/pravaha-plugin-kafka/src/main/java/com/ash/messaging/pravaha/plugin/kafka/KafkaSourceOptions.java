@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeSet;
 
 import javax.net.ssl.SSLContext;
@@ -33,6 +34,7 @@ import com.google.protobuf.Descriptors.Descriptor;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -120,19 +122,19 @@ final class KafkaSourceOptions {
     private final Map<String, Object> shared;
 
     /** {@code format: avro} with {@code schema.file}: the mapping, made and refused here. */
-    private final AvroRowReader avroReader;
+    private final @Nullable AvroRowReader avroReader;
 
     /**
      * {@code format: avro} with {@code schema.reader.file}: the reader schema every writer schema is
      * resolved against, or null to read each writer schema as itself.
      */
-    private final AvroSchema.Node avroReaderSchema;
+    private final AvroSchema.@Nullable Node avroReaderSchema;
 
     /**
      * {@code format: protobuf}: the message {@code schema.message} names in {@code schema.descriptor},
      * or null when the registry describes each record's message instead.
      */
-    private final Descriptor protobufMessage;
+    private final @Nullable Descriptor protobufMessage;
 
     /** {@code schema.message}, or empty; with the registry's descriptors, what a record must select. */
     private final String protobufMessageName;
@@ -140,7 +142,7 @@ final class KafkaSourceOptions {
     /** {@code schema.registry.url}, or empty; with what it takes to dial it, checked at configure. */
     private final String registryUrl;
 
-    private final SSLContext registryTls;
+    private final @Nullable SSLContext registryTls;
     private final String registryAuthorization;
     private final Duration registryTimeout;
 
@@ -150,7 +152,7 @@ final class KafkaSourceOptions {
      * thread opens a reader and closed when the source closes, and a source that is opened again
      * after that makes a new one rather than using a client somebody shut.
      */
-    private SchemaRegistry registry;
+    private @Nullable SchemaRegistry registry;
 
     KafkaSourceOptions(PluginContext context) {
         this.instanceName = context.instanceName();
@@ -327,7 +329,7 @@ final class KafkaSourceOptions {
      * Checks {@code schema.registry.url} is dialable and returns the TLS the JDK's client will use
      * for it -- the same {@code tls.*} as the brokers', so one trust decision covers both.
      */
-    private SSLContext registryTls(PluginContext context) {
+    private @Nullable SSLContext registryTls(PluginContext context) {
         if (!registryUrl.startsWith("http://") && !registryUrl.startsWith("https://")) {
             throw refusal("schema.registry.url '" + registryUrl + "' is not an http:// or https:// URL");
         }
@@ -349,7 +351,7 @@ final class KafkaSourceOptions {
     }
 
     /** The one registry client of this binding, made when a reader first needs it. */
-    private synchronized SchemaRegistry registry() {
+    private synchronized @Nullable SchemaRegistry registry() {
         if (registryUrl.isEmpty()) {
             return null;
         }
@@ -365,7 +367,7 @@ final class KafkaSourceOptions {
      * which is what every writer schema is resolved into -- so a reader schema with no field for a
      * column is a registration that fails, not a reader that dead-letters every record.
      */
-    private AvroSchema.Node readerSchema(String path) {
+    private AvroSchema.@Nullable Node readerSchema(String path) {
         if (path.isEmpty()) {
             return null;
         }
@@ -446,7 +448,11 @@ final class KafkaSourceOptions {
             case PROTOBUF ->
                 protobufMessage != null
                         ? ProtobufValueDecoder.map(schema, eventTimeOrdinal, protobufMessage, !registryUrl.isEmpty())
-                        : new ProtobufRegistryDecoder(schema, eventTimeOrdinal, protobufMessageName, registry());
+                        : new ProtobufRegistryDecoder(
+                                schema,
+                                eventTimeOrdinal,
+                                protobufMessageName,
+                                Objects.requireNonNull(registry(), "no descriptor means a registry"));
         };
     }
 

@@ -22,6 +22,8 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Base64;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.MutableSlice;
@@ -60,9 +62,9 @@ final class KafkaRecords {
     private final StreamSchema schema;
     private final int[] keyOrdinals;
     private final boolean changelog;
-    private final ValueEncoder valueEncoder;
+    private final @Nullable ValueEncoder valueEncoder;
     /** The key writer over the key columns (every column when there are none), or null for JSON. */
-    private final ValueEncoder keyEncoder;
+    private final @Nullable ValueEncoder keyEncoder;
 
     /**
      * An upsert value in a format other than JSON ({@link AvroRowWriter}, {@link ProtobufRowWriter}):
@@ -77,7 +79,7 @@ final class KafkaRecords {
     }
 
     /** With {@code valueEncoder} null the value is JSON; otherwise upsert mode only, tombstones as ever. */
-    KafkaRecords(StreamSchema schema, int[] keyOrdinals, boolean changelog, ValueEncoder valueEncoder) {
+    KafkaRecords(StreamSchema schema, int[] keyOrdinals, boolean changelog, @Nullable ValueEncoder valueEncoder) {
         this(schema, keyOrdinals, changelog, valueEncoder, null);
     }
 
@@ -89,8 +91,8 @@ final class KafkaRecords {
             StreamSchema schema,
             int[] keyOrdinals,
             boolean changelog,
-            ValueEncoder valueEncoder,
-            ValueEncoder keyEncoder) {
+            @Nullable ValueEncoder valueEncoder,
+            @Nullable ValueEncoder keyEncoder) {
         if (changelog && valueEncoder != null) {
             throw new IllegalArgumentException("the changelog envelope is JSON only");
         }
@@ -103,7 +105,7 @@ final class KafkaRecords {
 
     /** A record's key and value; the value is null for a tombstone. */
     @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
-    record Encoded(byte[] key, byte[] value) {}
+    record Encoded(byte[] key, byte @Nullable [] value) {}
 
     Encoded encode(RowView row) {
         Object[] values = read(row);

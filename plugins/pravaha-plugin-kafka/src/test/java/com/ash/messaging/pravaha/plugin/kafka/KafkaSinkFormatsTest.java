@@ -23,8 +23,10 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import com.google.protobuf.Descriptors.Descriptor;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -96,7 +98,9 @@ class KafkaSinkFormatsTest {
 
         for (Object[] row : new Object[][] {allTypes("u1", 1, "a note"), allTypes("ü-2", -1, null), extremes()}) {
             byte[] value = records.encode(rows.row(schema, 1, row)).value();
-            assertThat(reader.read(value, 0, 0L).values()).as("row %s", row[0]).containsExactly(row);
+            assertThat(reader.read(Objects.requireNonNull(value), 0, 0L).values())
+                    .as("row %s", row[0])
+                    .containsExactly(row);
         }
     }
 
@@ -263,7 +267,9 @@ class KafkaSinkFormatsTest {
         };
         for (Object[] row : written) {
             byte[] value = records.encode(rows.row(schema, 1, row)).value();
-            assertThat(decoder.decode(value, 0L).values()).as("row %s", row[0]).containsExactly(row);
+            assertThat(decoder.decode(Objects.requireNonNull(value), 0L).values())
+                    .as("row %s", row[0])
+                    .containsExactly(row);
         }
     }
 
@@ -378,7 +384,7 @@ class KafkaSinkFormatsTest {
     // ---------------------------------------------------------------------------------------
 
     /** Every column of {@link #ALL_COLUMNS}, as the source reads them back. */
-    private static Object[] allTypes(String id, int sign, String note) {
+    private static @Nullable Object[] allTypes(String id, int sign, @Nullable String note) {
         return new Object[] {
             id,
             sign > 0,

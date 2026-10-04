@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -209,7 +210,7 @@ class KafkaSourceRegistrationTest {
 
     // ---------------------------------------------------------------------------------------
 
-    private QueryRegistry sourcedFrom(String topic, Path checkpoints, Path deadLetters) {
+    private QueryRegistry sourcedFrom(String topic, Path checkpoints, @Nullable Path deadLetters) {
         Map<String, String> options = new HashMap<>();
         options.put("bootstrap.servers", KafkaBroker.bootstrap());
         options.put("topic", topic);

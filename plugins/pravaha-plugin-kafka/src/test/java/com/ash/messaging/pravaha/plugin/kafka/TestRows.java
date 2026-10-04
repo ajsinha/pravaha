@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.plugin.kafka;
 
 import java.math.BigDecimal;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -33,7 +35,7 @@ final class TestRows implements AutoCloseable {
     private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
 
     /** A row of {@code values} in {@code schema}'s layout, with {@code weight}; a null is a null. */
-    RowView row(StreamSchema schema, long weight, Object... values) {
+    RowView row(StreamSchema schema, long weight, @Nullable Object... values) {
         RowLayout layout = RowLayout.of(schema);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
         long handle = arena.allocate(layout.rowSize(256));

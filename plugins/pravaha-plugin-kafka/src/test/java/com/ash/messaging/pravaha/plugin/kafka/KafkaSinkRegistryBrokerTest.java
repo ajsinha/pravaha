@@ -40,6 +40,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -241,7 +242,8 @@ class KafkaSinkRegistryBrokerTest {
     }
 
     /** Registers {@code schema} under {@code subject} the way a producer's serializer would. */
-    private static int register(String subject, String schema, String type) throws IOException, InterruptedException {
+    private static int register(String subject, String schema, @Nullable String type)
+            throws IOException, InterruptedException {
         StringBuilder body = new StringBuilder("{");
         if (type != null) {
             body.append("\"schemaType\":\"").append(type).append("\",");
