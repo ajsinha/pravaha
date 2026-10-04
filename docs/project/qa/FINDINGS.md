@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **566 findings carrying a
-status — 547 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **567 findings carrying a
+status — 547 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7758,3 +7758,11 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 ### CERTEXP-1 (LOW) — a node starts on an expired certificate without a word
 
 > **Status:** FIXED — CertificateValidity checks the leaf certificate of both listeners at start: expired or not yet valid is refused under each listener's TLS code (PRV-6104 Flight, PRV-6206 pgwire) naming the date and setting, and a certificate expiring within 30 days starts with a WARN. PgTlsTest; the Flight TLS tests.
+
+## Found re-measuring performance on JDK 25 (2026-10-04), 1 finding
+
+### SKIPFAILSAFE-1 (LOW) — `-DskipTests` does not skip pravaha-it's integration tests under `-Pbench`
+
+> **Status:** OPEN — `tools/worktree-build.sh -o install -DskipTests -Pbench` still ran pravaha-it's `*IT` classes in failsafe's phase, including the Aerospike ITs that start their own Testcontainers; a build asked to skip tests started containers and spent minutes. Failsafe honours `skipITs`/`skipTests` unless a profile overrides it — find what binds it under `-Pbench` and make `-DskipTests` skip every test, as the docs say.
+> **Disposition:** POST-GA — build tooling; no product behaviour.
+

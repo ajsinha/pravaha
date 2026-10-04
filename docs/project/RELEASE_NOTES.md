@@ -103,7 +103,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   query (the planner starting) outran 30 s in the build; 60 s keeps the bound without failing a slow
   first call. `requestTimeout` / `request_timeout_seconds` / `--timeout` still set it.
 
-Register: **566 findings — 547 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **567 findings — 547 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.1.0 — 2026-10-03
 
