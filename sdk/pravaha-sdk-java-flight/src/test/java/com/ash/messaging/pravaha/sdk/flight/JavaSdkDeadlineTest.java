@@ -78,6 +78,8 @@ class JavaSdkDeadlineTest {
     private final CountDownLatch released = new CountDownLatch(1);
     private volatile StreamMode streamMode = StreamMode.SILENT;
     private volatile boolean answerFlightInfo;
+    /** Between the slow stream's batches; one test lengthens it to outlast a longer deadline. */
+    private volatile long batchIntervalMillis = 300;
 
     private @Nullable BufferAllocator allocator;
     private @Nullable FlightServer server;
@@ -160,17 +162,25 @@ class JavaSdkDeadlineTest {
     }
 
     @Test
-    void aSubscriptionThatOpenedRunsPastTheDeadline() {
+    void aSubscriptionThatOpenedRunsPastTheDeadline() throws Exception {
         streamMode = StreamMode.SLOW_BUT_ALIVE;
+        // A deadline the open can meet on a loaded build machine (0.5 s could not: opening alone
+        // outran it), and batches slow enough that the stream outlives it twice over.
+        Duration deadline = Duration.ofSeconds(2);
+        batchIntervalMillis = 1_000;
         AtomicLong rows = new AtomicLong();
         long started = System.nanoTime();
-        try (Subscription subscription =
-                live().subscribe("v", batch -> rows.addAndGet(batch.rows().size()))) {
+        try (PravahaFlightClient patient = PravahaFlightClient.connect(ClientOptions.builder("grpc://localhost:"
+                                + Objects.requireNonNull(server).getPort())
+                        .requestTimeout(deadline)
+                        .build());
+                Subscription subscription = patient.subscribe(
+                        "v", batch -> rows.addAndGet(batch.rows().size()))) {
             subscription.run();
         }
-        // Five batches, 300 ms apart: three deadlines' worth, and every one of them delivered.
+        // Five batches, a second apart: well past the deadline, and every one of them delivered.
         assertThat(rows.get()).isEqualTo(5);
-        assertThat(Duration.ofNanos(System.nanoTime() - started)).isGreaterThan(DEADLINE.multipliedBy(2));
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isGreaterThan(deadline.multipliedBy(2));
     }
 
     @Test
@@ -211,7 +221,7 @@ class JavaSdkDeadlineTest {
                 listener.start(root);
                 BigIntVector n = (BigIntVector) root.getVector(0);
                 for (int i = 0; i < 5; i++) {
-                    Thread.sleep(300);
+                    Thread.sleep(batchIntervalMillis);
                     n.setSafe(0, i);
                     root.setRowCount(1);
                     listener.putNext();
