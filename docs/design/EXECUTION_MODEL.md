@@ -187,8 +187,8 @@ whole operators, because sampling per operator would charge an untimed child's w
 parent. That is what makes "the bottleneck operator" a measurement rather than a guess from
 selectivity.
 
-The wrappers are not free — about 12 % of a narrow query's throughput on the reference machine
-(8 % as first measured, under a coverage agent: PERF-1) — so they
+The wrappers are not free — about 10–13 % of a narrow query's throughput on the reference machine
+on JDK 25 (2026-10-04; 12 % on JDK 21, and 8 % as first measured, under a coverage agent: PERF-1) — so they
 are compiled in only when the switch is on, and off means there is no wrapper at all rather than a
 wrapper that checks a flag. The number and the method are in `OPERATIONS.md`.
 
@@ -245,6 +245,10 @@ cores with a thousand registered queries:
 | Off-heap per lane | 1,024 KiB | 62 KiB |
 | Heap | 66 MiB | — |
 | Registration | 3.7 ms each | — |
+
+Those were on JDK 21. `ThousandQueryTest` on JDK 25 (2026-10-04, same machine): +24 threads, 1,001 MiB
+default and 62 MiB advised, 48 KiB of heap per query, and **2.6 ms** a registration
+([gate pack](../project/gates/measured-2026-10-04-jdk25/README.md)).
 
 So "how many lanes" is a division rather than a constant. At the advised sizing, tens of thousands
 fit in a few gigabytes. **Threads stopped being the constraint and the inbox became it**, which is

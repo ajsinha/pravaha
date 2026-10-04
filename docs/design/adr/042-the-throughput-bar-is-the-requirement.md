@@ -40,8 +40,8 @@ This matters, because it stops the new bar reading as a retreat.
 
 | | Measured here | Source |
 |---|---|---|
-| Lane machinery, single lane | **21 M rows/s** | Gate P2 pack (wave 3) |
-| Generated vs interpreted operator | **~10×** | Gate P2 pack (wave 3) |
+| Lane machinery, single lane | **21 M rows/s** on JDK 21; **68 M** on JDK 25 (2026-10-04) | Gate P2 pack (wave 3); `LaneScalingBenchmark`, [JDK 25 pack](../../project/gates/measured-2026-10-04-jdk25/README.md) |
+| Generated vs interpreted operator | **~10×** on JDK 21; **~3.5×** on JDK 25 (2026-10-04), the interpreter having stopped decoding text per row in between | Gate P2 pack (wave 3); `ProfileABenchmark`, JDK 25 pack |
 | Cost per query — threads, off-heap, descriptors | counted, not rated | `NodeScaleTest`, `SourceScaleTest` |
 
 **The loop, inbox, arena and handoff already run at roughly seventeen thousand times the new bar.**

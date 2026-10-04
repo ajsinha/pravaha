@@ -78,7 +78,15 @@ validation (design §5.2) needs dedicated hardware and is a Wave 3 activity.
 
 | File | What it records |
 |---|---|
-| `memory-access.json` | `MemoryAccessBenchmark` — per-accessor cost for each `MemoryAccess` implementation |
+| `memory-access.json` | `MemoryAccessBenchmark` — per-accessor cost for each `MemoryAccess` implementation; JDK 21.0.12, 2026-09-09. History |
+| `profile-a.json` | `ProfileABenchmark` — generated against interpreted; JDK 21.0.12, 2026-09-09. History |
+| `memory-access-jdk25-2026-10.json` | The same benchmark and settings (1 fork, 3 × 1 s warm-up, 3 × 1 s measured, `bytebuffer`), JDK 25.0.4.1, 2026-10-04 |
+| `profile-a-jdk25-2026-10.json` | The same benchmark and settings (2 forks, 3 × 1 s warm-up, 5 × 1 s measured), JDK 25.0.4.1, 2026-10-04. Adds the `predicateOnly` arm, which the JDK 21 file predates |
+
+The JDK 21 files are kept as history and not overwritten. From 2.0 the engine builds and runs on JDK
+25 only (ADR-061), so the `-jdk25-` files are the ones to read; the two pairs were taken on the same
+machine (below) and differ in the JDK **and** in a month of code, and the class files are Java 25, so
+a run on 21 to separate the two is no longer possible.
 
 **`LaneScalingBenchmark` deliberately has no committed baseline.** A baseline is a regression bar CI
 enforces, and enforcing one against a number this hardware cannot measure reliably would fail builds
@@ -91,16 +99,24 @@ Design §28.4's Profile A shape: filter and project over twelve fields, 512-row 
 selectivity is **3-4 %, not the 10 % the design specifies and this page used to claim** (PF-13):
 `status = 'COMPLETED'` passes one row in three and `amount > 900` one in ten, and 23 of the 512
 rows pass both. A narrower filter means fewer rows downstream, so the figure below is flattered by
-it. Measured on this machine -- a 12-core laptop part, not the "24-core workstation" this line
-said -- JDK 21, generational ZGC, 2 forks.
+it. **Measured on JDK 25 (25.0.4.1, ZGC, which is generational only on 25) on 2026-10-04**, on this
+machine -- a 12-core laptop part, not the "24-core workstation" this line said -- 2 forks, 3 × 1 s
+warm-up, 5 × 1 s measured, load average 1.6–1.9 (`baselines/profile-a-jdk25-2026-10.json`):
 
 | Arm | batches/s | rows/s | error |
 |---|---|---|---|
-| Generated (fused) | 570 510 | **292 M** | ±5 % |
-| Interpreted | 55 971 | 28.7 M | ±28 % |
+| Generated (fused) | 618 952 | **317 M** | ±2 % |
+| Interpreted | 177 940 | 91.1 M | ±1 % |
+| Predicate only (interpreted `WHERE`, no projection) | 199 464 | 102 M | ±1 % |
 
-**Roughly 10×**, and at least 8× taking the interpreted arm's upper bound. That is the number
-that decides whether whole-stage generation earns the risk it carries (R2). It does.
+**Roughly 3.5×.** The same benchmark on JDK 21 on 2026-09-09 (`baselines/profile-a.json`) gave
+570 510 and 55 971 batches/s -- 292 M against 28.7 M rows/s, ±5 % and ±28 % -- and this page called it
+roughly 10×. The generated arm is 8 % faster on 25; the interpreted arm is 3.2× faster, and most of
+that is very likely the code rather than the JDK: since 2026-09-26 the interpreted `status =
+'COMPLETED'` compares the ASCII literal in place instead of decoding the column for every row
+(`CompareString`; gate pack 2026-09-20, re-measured section). The two cannot be separated now that
+the class files are Java 25. Generation still wins on the fused operator, by less: the
+ten-times figure is retired.
 
 ### What this is not
 
@@ -133,14 +149,16 @@ differ in dispatch cost rather than in algorithm.
 padding fields are deleted; only hardware can say whether they are still separating anything, since
 declared padding is not laid-out padding and HotSpot arranges fields as it likes.
 
-Two threads advancing two cursors, on one cache line and a line apart:
+Two threads advancing two cursors, on one cache line and a line apart. Measured on JDK 25.0.4.1 on
+2026-10-04, the benchmark's own settings (1 fork, 3 × 1 s warm-up, 5 × 2 s), load 1.4; the JDK 21
+figures it replaces were 453 M and 110 M:
 
 | Arm | ops/s |
 |---|---|
-| `padded` | 453 M |
-| `shared` | 110 M |
+| `padded` | 499 M ± 2 M |
+| `shared` | 133 M ± 6 M |
 
-**Roughly 4×**, which is the cost of two cross-thread cursors sharing a line — paid on every single
+**Roughly 4×** (3.8×), which is the cost of two cross-thread cursors sharing a line — paid on every single
 operation of every ring in the engine. Error bars are wide on this hardware; the gap is not.
 
 If the two arms ever converge, either HotSpot has changed its field layout or the padding has
@@ -160,14 +178,21 @@ Run it as `-t N -p lanes=N`:
 java -jar pravaha-benchmarks/target/benchmarks.jar LaneScalingBenchmark -t 4 -p lanes=4
 ```
 
-Measured here, `SPIN_THEN_YIELD`, 1 fork, rows per second:
+Measured here on JDK 25.0.4.1 on 2026-10-04, `SPIN_THEN_YIELD`, the benchmark's own settings
+(1 fork, 3 × 2 s warm-up, 5 × 3 s), load 1.8–3.7, rows per second:
 
 | Lanes | rows/s | vs 1 lane | Efficiency |
 |---|---|---|---|
-| 1 | 21.3 M ± 1.7 M | — | — |
-| 2 | 26.8 M ± 9.7 M | 1.26× | 63 % |
-| 4 | 35.6 M ± 7.9 M | 1.67× | 42 % |
-| 8 | 57.8 M ± 47 M | 2.71× | 34 % |
+| 1 | 67.6 M ± 4.9 M | — | — |
+| 2 | 125.1 M ± 5.2 M | 1.85× | 93 % |
+| 4 | 118.5 M ± 120 M | 1.75× | 44 % |
+| 8 | 223.5 M ± 32 M | 3.31× | 41 % |
+
+The four-lane error bar is as wide as the figure and the row says nothing. The JDK 21 table this
+replaces (wave 3, 2026-09) read 21.3 M, 26.8 M, 35.6 M and 57.8 M -- 63, 42 and 34 %. A single lane is
+3.2× faster than it was; the JDK and the lane changes of 2026-09-26 (a lane that has caught up waits
+for an eighth of a batch rather than draining six rows at a time; gate pack 2026-09-20) both lie
+between the two runs and were not separated.
 
 **These are not evidence for or against the scaling gate, and must not be quoted as either.** The
 gate (design §5.2, NFR-2b) is ≥ 90 % efficiency from 1 to 16 lanes and it belongs to P2-07. Three
@@ -177,8 +202,8 @@ the lane — so eight lanes is sixteen busy threads on twelve physical cores. In
 producers are I/O-bound virtual threads, not saturating spinners. **The scaling number needs the
 reference hardware: 16 physical, homogeneous cores at ≥ 3.0 GHz, quiet.**
 
-What the numbers *do* establish: a single lane moves **21 M rows/s** of pure machinery, which is
-roughly 17× the 1.2 M rec/s/lane gate. The lane loop is therefore not the thing that will make the
+What the numbers *do* establish: a single lane moves **68 M rows/s** of pure machinery on JDK 25
+(21 M on JDK 21 in wave 3), which is more than 50× the 1.2 M rec/s/lane gate. The lane loop is therefore not the thing that will make the
 gate hard — the operators, the source decode and the sink dispatch are.
 
 ### What the first version of this benchmark got wrong

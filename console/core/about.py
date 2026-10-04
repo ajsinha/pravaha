@@ -52,20 +52,24 @@ MEASURED: list[Measured] = [
              "and ≥ 90 % scaling to eight lanes are kept as aspirations and are unmeasured.",
              "A requirement, not a measurement.", "ADR-042",
              "/help/decisions/042-the-throughput-bar-is-the-requirement"),
-    Measured("21 M rows/s", "lane machinery, one lane",
-             "The loop, inbox, arena and handoff — not a query end to end. Profile A's end-to-end "
-             "rate under gate P2's conditions has never been measured.",
-             "Gate P2 pack, wave 3, on the development machine: a 12-core heterogeneous laptop part, "
-             "not the 16 homogeneous physical cores P2 specifies.", "ADR-042",
+    Measured("68 M rows/s", "lane machinery, one lane",
+             "The loop, inbox, arena and handoff — not a query end to end. 21 M rows/s when first "
+             "measured on JDK 21 in wave 3; the lane's batching changed between the two.",
+             "LaneScalingBenchmark, measured on JDK 25 (2026-10-04) on the development machine: a "
+             "12-core heterogeneous laptop part (Ryzen AI 9 HX 370), not the 16 homogeneous physical "
+             "cores P2 specifies.", "ADR-042",
              "/help/decisions/042-the-throughput-bar-is-the-requirement"),
-    Measured("~10×", "generated code over the interpreted path",
-             "Whole-stage code generation (Janino) against the interpreted operators, for the same plan.",
-             "Gate P2 pack, wave 3, same machine.", "ADR-042",
+    Measured("~3.5×", "generated code over the interpreted path",
+             "Whole-stage code generation (Janino) against the interpreted operators, the fused filter "
+             "and project over one batch. It read ~10× on JDK 21 on 2026-09-09, before the interpreted "
+             "string comparison stopped decoding the column for every row.",
+             "ProfileABenchmark, measured on JDK 25 (2026-10-04), same machine.", "ADR-042",
              "/help/decisions/042-the-throughput-bar-is-the-requirement"),
-    Measured("3.7 ms · 61 MiB", "a thousand distinct queries: registration each, off-heap total",
+    Measured("2.6 ms · 62 MiB", "a thousand distinct queries: registration each, off-heap total",
              "At the advised inbox sizing. About 1 MiB off-heap per idle query, and 200 queries add "
-             "24 platform threads — one per core — where they once added 400.",
-             "NodeScaleTest and SourceScaleTest, on the development machine.", "README · ADR-036",
+             "24 platform threads — one per core — where they once added 400. 3.7 ms each on JDK 21.",
+             "ThousandQueryTest, measured on JDK 25 (2026-10-04) on the development machine.",
+             "README · ADR-036",
              "/help/decisions/036-one-node-thousands-of-queries"),
     Measured("3.8 → 1.0", "Aerospike scans per second, four queries over one set",
              "Several queries over the same set share one scan instead of each opening their own.",
@@ -83,11 +87,12 @@ MEASURED: list[Measured] = [
              "automatic from a node's 65th query; a query may still ask for a lane of its own.",
              "README, \"Many queries on one node\", on the development machine.", "README · ADR-036",
              "/help/decisions/036-one-node-thousands-of-queries"),
-    Measured("28–42 %", "of linear, one lane to eight: the scaling gate, not reached",
-             "Against a 90 % target. 33–46 % when re-measured on 2026-09-26 without the coverage agent "
-             "every earlier run carried. Recorded as measured rather than restated.",
-             "Gate pack of 2026-09-20 on the development machine: a 12-core heterogeneous laptop part "
-             "running other work, not reference hardware.", "Gate pack · ADR-042",
+    Measured("32–37 %", "of linear, one lane to eight: the scaling gate, not reached",
+             "Against a 90 % target. On JDK 21: 28–42 % on 2026-09-20 under a coverage agent, 33–46 % "
+             "without it on 2026-09-26, 30–31 % on 2026-09-29. Recorded as measured rather than restated.",
+             "Measured on JDK 25 (2026-10-04, load 1.3) on the development machine: a 12-core "
+             "heterogeneous laptop part, not reference hardware. Gate pack measured-2026-10-04-jdk25.",
+             "Gate pack · ADR-042",
              "/help/decisions/042-the-throughput-bar-is-the-requirement"),
     Measured("12 of 23", "Nexmark queries that run",
              "5 ran at the 2026-09-20 measurement and 12 after the SQL batch of 2026-09-26 (self joins, "
@@ -326,7 +331,7 @@ CAPABILITIES: list[tuple[str, str, list[str]]] = [
 LIMITS: list[str] = [
     "One node. Multi-node execution is designed and on hold by the owner's decision; a node refuses "
     "PARTITIONED mode (PRV-9002) rather than pretend.",
-    "The eight-lane scaling gate is not reached: 28–42 % of linear against a 90 % target, measured on a "
+    "The eight-lane scaling gate is not reached: 32–37 % of linear against a 90 % target, measured on JDK 25 on a "
     "development laptop, with no reference hardware.",
     "12 of Nexmark's 23 queries run; what is missing is SQL — session windows, recursive queries — not "
     "speed. The head-to-head comparison with a dataflow engine has not been run.",
