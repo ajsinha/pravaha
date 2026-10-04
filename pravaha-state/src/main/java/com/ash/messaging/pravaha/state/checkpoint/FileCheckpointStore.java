@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
 import com.ash.messaging.pravaha.state.StateErrors;
@@ -248,7 +250,7 @@ public final class FileCheckpointStore implements CheckpointStore {
      * @return how many bytes precede the checksum tail -- the whole file for one written before
      *     checksums, which is read unverified and logged -- or null when the file cannot be trusted
      */
-    private Body verified(Path file, long id) throws IOException {
+    private @Nullable Body verified(Path file, long id) throws IOException {
         long size = Files.size(file);
         if (size < TAIL_BYTES + Integer.BYTES) {
             return null;

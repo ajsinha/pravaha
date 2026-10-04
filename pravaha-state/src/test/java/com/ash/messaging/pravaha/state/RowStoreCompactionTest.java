@@ -115,7 +115,7 @@ class RowStoreCompactionTest {
             List<Long> keys = new ArrayList<>(owner.handles.keySet());
             for (long key : keys) {
                 if (random.nextInt(10) != 0) {
-                    store.release(owner.handles.remove(key));
+                    store.release(java.util.Objects.requireNonNull(owner.handles.remove(key)));
                 }
             }
             assertThat(filesIn(dir))
@@ -130,7 +130,7 @@ class RowStoreCompactionTest {
             assertThat(released).as("seed %d", seed).isPositive();
             for (Map.Entry<Long, Long> entry : owner.handles.entrySet()) {
                 long key = entry.getKey();
-                int payload = payloadOf.get(key);
+                int payload = java.util.Objects.requireNonNull(payloadOf.get(key));
                 var region = store.regionOf(entry.getValue());
                 assertThat(region.getLong(store.offsetOf(entry.getValue())))
                         .as("seed %d, key %d", seed, key)
@@ -162,7 +162,7 @@ class RowStoreCompactionTest {
                 nextKey++;
             }
             for (Map.Entry<Long, Long> entry : owner.handles.entrySet()) {
-                int payload = payloadOf.get(entry.getKey());
+                int payload = java.util.Objects.requireNonNull(payloadOf.get(entry.getKey()));
                 assertThat(store.regionOf(entry.getValue()).getLong(store.offsetOf(entry.getValue()) + payload - 8))
                         .as("seed %d, key %d after refilling", seed, entry.getKey())
                         .isEqualTo(entry.getKey() * 31 + 7);
@@ -183,7 +183,7 @@ class RowStoreCompactionTest {
             }
             // One in five freed: every slab is still mostly live.
             for (long key = 0; key < 5_000; key += 5) {
-                store.release(owner.handles.remove(key));
+                store.release(java.util.Objects.requireNonNull(owner.handles.remove(key)));
             }
             assertThat(store.needsCompaction(0.5)).isFalse();
             assertThat(store.compactOverflow(0.5, owner)).isZero();
@@ -219,9 +219,9 @@ class RowStoreCompactionTest {
             for (Map.Entry<Long, Long> entry : new ArrayList<>(owner.handles.entrySet())) {
                 int slab = ArenaHandle.slab(entry.getValue());
                 if (slab >= 1 && slab <= 3 && entry.getKey() % 4 != 0) {
-                    store.release(owner.handles.remove(entry.getKey()));
+                    store.release(java.util.Objects.requireNonNull(owner.handles.remove(entry.getKey())));
                 } else if (slab == 0 && !freedInRam) {
-                    store.release(owner.handles.remove(entry.getKey()));
+                    store.release(java.util.Objects.requireNonNull(owner.handles.remove(entry.getKey())));
                     freedInRam = true;
                 }
             }

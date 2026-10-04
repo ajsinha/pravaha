@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -81,7 +83,7 @@ public final class RowStore implements AutoCloseable {
     private final MemoryAccess access;
     private final int slabBytes;
     private final int maxSlabs;
-    private final MemoryAccess overflowAccess;
+    private final @Nullable MemoryAccess overflowAccess;
     private final int maxOverflowSlabs;
 
     /**
@@ -106,7 +108,7 @@ public final class RowStore implements AutoCloseable {
     private int releasedSlotCount;
 
     /** Non-null only while {@link #compactOverflow} runs: which slabs are being emptied. */
-    private boolean[] evacuating;
+    private boolean @Nullable [] evacuating;
 
     /** Set once a relocation cannot be placed, so the rest of that pass leaves blocks where they are. */
     private boolean relocationStalled;
@@ -161,7 +163,11 @@ public final class RowStore implements AutoCloseable {
      *     reached. A slab {@link #compactOverflow} released no longer counts against it.
      */
     public RowStore(
-            MemoryAccess access, int slabBytes, int maxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
+            MemoryAccess access,
+            int slabBytes,
+            int maxSlabs,
+            @Nullable MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         if (Integer.bitCount(slabBytes) != 1 || slabBytes < MIN_BLOCK_BYTES) {
             throw new IllegalArgumentException(
                     "slab size must be a power of two of at least " + MIN_BLOCK_BYTES + ", got " + slabBytes);
