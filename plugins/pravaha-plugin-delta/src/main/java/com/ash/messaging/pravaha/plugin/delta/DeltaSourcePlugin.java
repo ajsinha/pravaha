@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.Table;
@@ -26,6 +27,7 @@ import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.exceptions.TableNotFoundException;
 import org.apache.hadoop.conf.Configuration;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -61,12 +63,22 @@ import com.ash.messaging.pravaha.api.plugin.Version;
 public final class DeltaSourcePlugin implements StreamSourcePlugin {
 
     private String instanceName = "delta";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String path;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String streamName;
+
     private long startVersion = -1L;
     private String eventTimeColumn = "";
-    private Engine engine;
-    private Table table;
+    /** Null until open() and after close(). */
+    private @Nullable Engine engine;
+
+    /** Null until open() and after close(). */
+    private @Nullable Table table;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
 
     @Override
@@ -198,8 +210,13 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
-        return new DeltaPartitionReader(engine, table, partition.streamName(), startVersion, resumeFrom)
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
+        return new DeltaPartitionReader(
+                        Objects.requireNonNull(engine, "open() first"),
+                        Objects.requireNonNull(table, "open() first"),
+                        partition.streamName(),
+                        startVersion,
+                        resumeFrom)
                 .stampingEventTimeFrom(eventTimeColumn);
     }
 

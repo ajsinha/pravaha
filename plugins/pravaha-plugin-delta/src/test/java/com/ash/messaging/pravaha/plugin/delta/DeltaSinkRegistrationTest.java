@@ -21,9 +21,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -351,8 +353,8 @@ class DeltaSinkRegistrationTest {
         }
 
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
-            return configured(sinkName).capabilities();
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
+            return configured(Objects.requireNonNull(sinkName, "a sink name")).capabilities();
         }
 
         @Override
@@ -362,8 +364,8 @@ class DeltaSinkRegistrationTest {
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
-            DeltaSinkPlugin plugin = configured(sinkName);
+        public StreamSinkPlugin open(@Nullable String sinkName) {
+            DeltaSinkPlugin plugin = configured(Objects.requireNonNull(sinkName, "a sink name"));
             plugin.open();
             return new Dying(plugin);
         }

@@ -52,6 +52,7 @@ class DeltaSinkRowsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // a null cell on purpose
     void aStagedBatchIsTheRowTheEngineWrote() {
         DeltaSinkRows reader = new DeltaSinkRows(EVERYTHING);
         Change change = reader.read(rows.row(
