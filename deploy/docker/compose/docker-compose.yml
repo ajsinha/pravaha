@@ -67,7 +67,7 @@ services:
       - ${PRAVAHA_HOME_DIR}/logs:/opt/pravaha/logs
       - ${PRAVAHA_HOME_DIR}/tmp:/opt/pravaha/tmp
     healthcheck:
-      # bin/pravaha-health, the image's own bash-only probe: the JRE 25 base carries no wget.
+      # bin/pravaha-health, the image's own bash-only probe: the JRE base carries no wget.
       test: ["CMD", "bin/pravaha-health", "/actuator/health/readiness"]
       interval: 10s
       timeout: 3s
