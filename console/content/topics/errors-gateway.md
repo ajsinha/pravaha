@@ -108,6 +108,10 @@ with the certificate's public key, which is the same question TLS itself asks a 
 given the wrong way round — the certificate in `key` and the key in `certificate` — used to escape
 as a raw Java exception with no code at all, and now arrives here.
 
+**So are its dates** (CERTEXP-1). A certificate that has expired, or is not valid yet, is refused
+here naming the date and the setting: a node started on it logged `over TLS` and every verifying
+client failed its handshake. One that expires within 30 days starts with a `WARN` naming the date.
+
 ```yaml
 pravaha:
   flight:
@@ -203,8 +207,9 @@ this; the query editor still works.
 ### PRV-6206 — pgwire TLS unreadable
 
 A configured TLS certificate or private key the gateway cannot use — one of the pair without the
-other, an unreadable file, or a PEM key shape it cannot parse (PKCS#1 versus PKCS#8). Refused at
-startup, never silently served in plaintext.
+other, an unreadable file, a PEM key shape it cannot parse (PKCS#1 versus PKCS#8), or a certificate
+that has expired or is not valid yet (CERTEXP-1; one expiring within 30 days starts with a `WARN`).
+Refused at startup, never silently served in plaintext.
 
 ### PRV-6207 — pgwire unknown statement
 

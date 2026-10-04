@@ -93,6 +93,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   the column. A declared field number among the unknown fields is now undecodable, naming the field and
   both wire types, and is dead-lettered (or stops the source without a queue). Undeclared field numbers
   are still skipped. **Changes behaviour:** such records used to produce rows.
+- **A node refuses to start on an expired certificate** (CERTEXP-1). With an expired TLS pair the node
+  logged `over TLS`/`flight transport=TLS` and every verifying client then failed its handshake. The
+  leaf certificate's dates are now checked at start beside the pair (SX-17): expired or not yet valid
+  is refused — `PRV-6104` (Flight), `PRV-6206` (PostgreSQL gateway) — naming the date and the setting,
+  and one that expires within 30 days starts with a `WARN` naming the date. **Changes behaviour:** a
+  node that used to start on an expired certificate does not.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

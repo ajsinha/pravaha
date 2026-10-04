@@ -205,6 +205,12 @@ connection now fails. A connector that still connects was not verifying anything
 
 ## Pitfalls
 
+!!! danger "Pitfall: an expired certificate"
+    The node refuses to start on a certificate that has expired or is not valid yet — PRV-6104
+    (Flight) or PRV-6206 (PostgreSQL), naming the date and the setting — and warns at start when one
+    expires within 30 days (CERTEXP-1). Renew before the warning becomes a refusal: a node that
+    restarts on the day after expiry does not come up.
+
 !!! danger "Pitfall: a certificate and key that do not match"
     A certificate and a key that are each valid but are not a pair let the node start and report
     `flight transport=TLS`; the mismatch surfaces only at the first client handshake. Run the

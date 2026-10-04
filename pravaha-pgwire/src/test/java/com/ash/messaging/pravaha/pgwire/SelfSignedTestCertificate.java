@@ -55,6 +55,15 @@ final class SelfSignedTestCertificate {
      * automatically).
      */
     static SelfSignedTestCertificate generate(File directory) throws Exception {
+        return generate(directory, null, 3650);
+    }
+
+    /**
+     * The same, valid from {@code startDate} (keytool's {@code -startdate}, as {@code -10d} or
+     * {@code +10d}; null for now) for {@code validityDays} days -- an expired or a not-yet-valid
+     * certificate for CERTEXP-1.
+     */
+    static SelfSignedTestCertificate generate(File directory, String startDate, int validityDays) throws Exception {
         File keystore = new File(directory, "keystore.p12");
         String password = "changeit";
         Process keytool = new ProcessBuilder(
@@ -67,7 +76,9 @@ final class SelfSignedTestCertificate {
                         "-keysize",
                         "2048",
                         "-validity",
-                        "3650",
+                        Integer.toString(validityDays),
+                        "-startdate",
+                        startDate == null ? "+0d" : startDate,
                         "-storetype",
                         "PKCS12",
                         "-keystore",

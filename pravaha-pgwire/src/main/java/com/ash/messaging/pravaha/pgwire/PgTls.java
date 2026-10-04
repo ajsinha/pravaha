@@ -126,6 +126,13 @@ final class PgTls {
         }
         try {
             Collection<? extends Certificate> chain = readCertificateChain(certificateChain);
+            // CERTEXP-1: the leaf (a chain is leaf-first) refused when expired or not yet valid.
+            com.ash.messaging.pravaha.common.net.CertificateValidity.requireCurrent(
+                    chain.iterator().next(),
+                    certificateChain.getAbsolutePath(),
+                    "pravaha.pgwire.tls.certificate",
+                    PgWireErrors.TLS_UNREADABLE,
+                    java.time.Instant.now());
             PrivateKey key = readPrivateKey(privateKey);
 
             // An in-memory keystore, never written to disk: this process is the only reader the

@@ -537,6 +537,11 @@ and PostgreSQL listeners never ask for it: a certificate from any CA, or none, i
 the bearer token is what authenticates. Mutual TLS, where a deployment requires it, is terminated in
 front of the node.
 
+**An expired certificate stops the node at start** (CERTEXP-1). Flight's and the PostgreSQL gateway's
+certificates are checked for their dates as well as their pair: one that has expired or is not valid
+yet is refused (`PRV-6104`, `PRV-6206`) naming the date, and one that expires within 30 days starts
+with a `WARN`. Before, the node logged `over TLS` and every verifying client failed its handshake.
+
 **A TLS-configured PostgreSQL gateway refuses plaintext** (PGTLSONLY-1): a client that does not send
 `SSLRequest` is refused `FATAL 28000`, `PRV-6221`, before the token is asked for, unless
 `pravaha.pgwire.tls.allow-plaintext` is `true`.
