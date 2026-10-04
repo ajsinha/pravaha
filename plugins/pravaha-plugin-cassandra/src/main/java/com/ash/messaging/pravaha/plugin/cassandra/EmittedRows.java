@@ -34,12 +34,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
 import java.util.zip.CheckedOutputStream;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -82,6 +85,8 @@ final class EmittedRows<K> {
     static final class Entry {
         final byte[] row;
         final long eventTimeNanos;
+
+        @Nullable
         Entry next;
 
         /** The pass that last saw this row in the store; a scan-order-free source marks and sweeps with it. */
@@ -116,14 +121,17 @@ final class EmittedRows<K> {
     private final Path partitionDir;
     private final Path dir;
     private final String readerId;
-    private final String parentId;
+    private final @Nullable String parentId;
     private long minSnapshotEntries = 1024;
 
     private long size;
     private long emitted;
     private long segmentStart;
+
+    @SuppressWarnings("NullAway.Init") // opened with log, by the constructor's startSegment()
     private FileOutputStream logFile;
-    private DataOutputStream log;
+
+    private @Nullable DataOutputStream log;
     private boolean dirty;
     private final TreeSet<Long> snapshots = new TreeSet<>();
     private final TreeSet<Long> handedOut = new TreeSet<>();
@@ -144,7 +152,7 @@ final class EmittedRows<K> {
             Map<K, Entry> rows,
             KeyCodec<K> codec,
             Path partitionDir,
-            String resumeToken,
+            @Nullable String resumeToken,
             long maxRows,
             String fingerprint,
             Codes codes,
@@ -156,7 +164,7 @@ final class EmittedRows<K> {
             Map<K, Entry> rows,
             KeyCodec<K> codec,
             Path partitionDir,
-            String resumeToken,
+            @Nullable String resumeToken,
             long maxRows,
             String fingerprint,
             Codes codes,
@@ -203,7 +211,7 @@ final class EmittedRows<K> {
     }
 
     /** The rows of one key, or null. The chain must not be modified. */
-    synchronized Entry get(K key) {
+    synchronized @Nullable Entry get(K key) {
         return rows.get(key);
     }
 
@@ -246,7 +254,7 @@ final class EmittedRows<K> {
     synchronized void emitted(long weight, K key, byte[] row, long eventTimeNanos) {
         apply(weight, key, row, eventTimeNanos);
         try {
-            writeEntry(log, weight, key, eventTimeNanos, row);
+            writeEntry(Objects.requireNonNull(log, "open until close()"), weight, key, eventTimeNanos, row);
         } catch (IOException e) {
             throw failed("cannot append to its delete-detection log in " + dir, e);
         }
@@ -298,7 +306,7 @@ final class EmittedRows<K> {
         }
         if (dirty) {
             try {
-                log.flush();
+                Objects.requireNonNull(log, "open until close()").flush();
                 logFile.getChannel().force(false);
             } catch (IOException e) {
                 throw failed("cannot force its delete-detection log to disk in " + dir, e);
@@ -608,7 +616,7 @@ final class EmittedRows<K> {
         }
     }
 
-    private PravahaException failed(String detail, Throwable cause) {
+    private PravahaException failed(String detail, @Nullable Throwable cause) {
         return new PravahaException(codes.failed(), what + ": " + detail, cause);
     }
 

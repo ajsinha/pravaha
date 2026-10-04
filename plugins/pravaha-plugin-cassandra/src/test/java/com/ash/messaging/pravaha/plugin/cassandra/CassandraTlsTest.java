@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.security.KeyStore;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import com.datastax.oss.driver.api.core.ssl.ProgrammaticSslEngineFactory;
 import org.junit.jupiter.api.Test;
@@ -92,7 +93,7 @@ final class CassandraTlsTest {
         // hostnames has asked for a secure connection, not an encrypted one.
         ProgrammaticSslEngineFactory factory = CassandraTls.engineFactory(context(tlsOptions(truststore(dir))));
         assertThat(factory).isNotNull();
-        assertThat(verifiesHostnames(factory)).isTrue();
+        assertThat(verifiesHostnames(Objects.requireNonNull(factory))).isTrue();
     }
 
     @Test
@@ -101,7 +102,7 @@ final class CassandraTlsTest {
         // reachable, it takes saying so in config, and it is never where a default lands you.
         Map<String, String> options = tlsOptions(truststore(dir));
         options.put("tls.verify-hostname", "false");
-        assertThat(verifiesHostnames(CassandraTls.engineFactory(context(options))))
+        assertThat(verifiesHostnames(Objects.requireNonNull(CassandraTls.engineFactory(context(options)))))
                 .isFalse();
     }
 }

@@ -31,6 +31,7 @@ import java.util.TreeMap;
 
 import com.datastax.oss.driver.api.core.DriverException;
 import com.datastax.oss.driver.api.core.cql.Row;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -106,18 +107,18 @@ final class DetectingTokenRangeReader implements PartitionReader {
     private final RowRecorder recorder;
     private final ArrayDeque<Change> pending = new ArrayDeque<>();
 
-    private Iterator<Row> current;
+    private @Nullable Iterator<Row> current;
     private long passStartedNanos;
     private long lastScanEndedNanos = Long.MIN_VALUE;
     private boolean passDrained;
 
     /** The token of the rows being gathered, or null before the pass's first row. */
-    private Long groupToken;
+    private @Nullable Long groupToken;
 
     private final List<Seen> group = new ArrayList<>();
 
     /** The last token whose rows have been compared, or null before the first. */
-    private Long compared;
+    private @Nullable Long compared;
 
     private long recordsRead;
     private long scans;
@@ -131,7 +132,7 @@ final class DetectingTokenRangeReader implements PartitionReader {
             String range,
             int rowsPerPoll,
             int scanIntervalMillis,
-            SourceOffset resumeFrom,
+            @Nullable SourceOffset resumeFrom,
             Path stateDir,
             long maxKeys) {
         this.passes = passes;
@@ -167,7 +168,7 @@ final class DetectingTokenRangeReader implements PartitionReader {
         return shape.toString();
     }
 
-    private static String resumeToken(SourceOffset offset) {
+    private static @Nullable String resumeToken(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return null;
         }

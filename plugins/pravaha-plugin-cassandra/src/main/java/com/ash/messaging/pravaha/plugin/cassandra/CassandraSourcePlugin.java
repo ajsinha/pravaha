@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import com.datastax.oss.driver.api.core.AllNodesFailedException;
 import com.datastax.oss.driver.api.core.ConsistencyLevel;
@@ -28,6 +29,7 @@ import com.datastax.oss.driver.api.core.CqlSessionBuilder;
 import com.datastax.oss.driver.api.core.DefaultConsistencyLevel;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 import com.datastax.oss.driver.api.core.ssl.ProgrammaticSslEngineFactory;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -102,33 +104,67 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
     /** The alias this plugin's own query gives {@code token(...)} in its SELECT list. */
     static final String TOKEN_ALIAS = "pv_token__";
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String instanceName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private List<InetSocketAddress> contactPoints;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String localDatacenter;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String keyspace;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String table;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String streamName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private List<String> partitionKeyColumns;
+
     private String eventTimeColumn = "";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private CassandraStrategy strategy;
+
     private int partitions;
     private int scanIntervalMillis;
     private int fetchSize;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private ConsistencyLevel consistencyLevel;
+
     private int requestTimeoutMillis;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String user;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String password;
-    private ProgrammaticSslEngineFactory sslEngineFactory;
+
+    private @Nullable ProgrammaticSslEngineFactory sslEngineFactory;
 
     /** {@code deletes: detect}; see {@link #configureDeletes}. */
     private boolean detectDeletes;
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private java.nio.file.Path deletesStateDir;
+
     private long deletesMaxKeys;
 
-    private CqlSession session;
+    /** Null until open() and after close(). */
+    private @Nullable CqlSession session;
+
+    @SuppressWarnings("NullAway.Init") // prepared by open(), which the engine calls before any reader
     private PreparedStatement greaterThan;
+
+    @SuppressWarnings("NullAway.Init") // prepared by open(), which the engine calls before any reader
     private PreparedStatement greaterOrEqual;
 
     /**
@@ -382,7 +418,7 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
      */
     private void readKeyMetadata() {
         java.util.Optional<com.datastax.oss.driver.api.core.metadata.schema.TableMetadata> found =
-                session.getMetadata().getKeyspace(keyspace).flatMap(space -> space.getTable(table));
+                session().getMetadata().getKeyspace(keyspace).flatMap(space -> space.getTable(table));
         if (found.isEmpty()) {
             return;
         }
@@ -409,8 +445,12 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         this.pushable = Map.copyOf(types);
     }
 
+    private CqlSession session() {
+        return Objects.requireNonNull(session, "open() first");
+    }
+
     /** The stream's name for a CQL column, matched as CQL matches an unquoted name, or null. */
-    private String streamNameOf(String internal) {
+    private @Nullable String streamNameOf(String internal) {
         for (com.ash.messaging.pravaha.api.data.Field field : schema.fields()) {
             if (field.name().equalsIgnoreCase(internal)) {
                 return field.name();
@@ -419,7 +459,7 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         return null;
     }
 
-    static CassandraPushdown.ColumnType pushdownType(com.datastax.oss.driver.api.core.type.DataType type) {
+    static CassandraPushdown.@Nullable ColumnType pushdownType(com.datastax.oss.driver.api.core.type.DataType type) {
         if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.TINYINT)) {
             return CassandraPushdown.ColumnType.TINYINT;
         } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.SMALLINT)) {
@@ -465,8 +505,9 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         String partitionKeyExpr = "token(" + String.join(",", partitionKeyColumns) + ")";
         String cql = "SELECT " + partitionKeyExpr + " AS " + TOKEN_ALIAS + ", " + String.join(",", columns) + " FROM "
                 + keyspace + "." + table + read.where();
-        PreparedStatement statement = keyed.computeIfAbsent(cql, session::prepare);
-        return session.execute(statement
+        PreparedStatement statement = keyed.computeIfAbsent(cql, session()::prepare);
+        return session()
+                .execute(statement
                         .boundStatementBuilder(read.values())
                         .setPageSize(fetchSize)
                         .setConsistencyLevel(consistencyLevel)
@@ -481,8 +522,8 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         String selectPrefix = "SELECT " + partitionKeyExpr + " AS " + TOKEN_ALIAS + ", " + String.join(",", columns)
                 + " FROM " + keyspace + "." + table + " WHERE " + partitionKeyExpr;
         return new PreparedStatement[] {
-            session.prepare(selectPrefix + " > ? AND " + partitionKeyExpr + " <= ?"),
-            session.prepare(selectPrefix + " >= ? AND " + partitionKeyExpr + " <= ?")
+            session().prepare(selectPrefix + " > ? AND " + partitionKeyExpr + " <= ?"),
+            session().prepare(selectPrefix + " >= ? AND " + partitionKeyExpr + " <= ?")
         };
     }
 
@@ -491,7 +532,7 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
      * event-time column is always kept, because the reader reads it for itself; the partition key
      * is not needed, since {@code token(...)} is computed server-side whatever is selected.
      */
-    static List<String> projectedColumns(
+    static @Nullable List<String> projectedColumns(
             StreamSchema schema, com.ash.messaging.pravaha.api.plugin.ReadRequest request, String eventTimeColumn) {
         if (request == null || request.columns().isEmpty()) {
             return null;
@@ -598,14 +639,14 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return createReader(partition, resumeFrom, com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING);
     }
 
     @Override
     public PartitionReader createReader(
             SourcePartition partition,
-            SourceOffset resumeFrom,
+            @Nullable SourceOffset resumeFrom,
             com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
         if (session == null) {
             throw new PravahaException(
@@ -636,8 +677,14 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
             DetectingTokenRangeReader.PassSource passes = plan.pushed()
                     // One partition, one token: a pass of it is in token order by construction.
                     ? () -> KeyedScanReader.inRange(
-                            plan.reads(), each -> run(selected, each), lowerBound, upperBound, inclusiveLower, range)
-                    : () -> session.execute(fullPass.boundStatementBuilder(lowerBound, upperBound)
+                            Objects.requireNonNull(plan.reads(), "pushed()"),
+                            each -> run(selected, each),
+                            lowerBound,
+                            upperBound,
+                            inclusiveLower,
+                            range)
+                    : () -> session()
+                            .execute(fullPass.boundStatementBuilder(lowerBound, upperBound)
                                     .setPageSize(fetchSize)
                                     .setConsistencyLevel(consistencyLevel)
                                     .setTimeout(timeout)
@@ -657,7 +704,7 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         }
         if (plan.pushed()) {
             return new KeyedScanReader(
-                    plan.reads(),
+                    Objects.requireNonNull(plan.reads(), "pushed()"),
                     each -> run(selected, each),
                     read,
                     schema,

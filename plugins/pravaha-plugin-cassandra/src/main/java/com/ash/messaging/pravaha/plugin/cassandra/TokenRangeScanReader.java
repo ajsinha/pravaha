@@ -25,6 +25,7 @@ import com.datastax.oss.driver.api.core.cql.BoundStatement;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
 import com.datastax.oss.driver.api.core.cql.Row;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -79,7 +80,7 @@ final class TokenRangeScanReader implements PartitionReader {
     private final boolean inclusiveLower;
     private final long scanIntervalNanos;
 
-    private Iterator<Row> current;
+    private @Nullable Iterator<Row> current;
     private long passStartedNanos;
     private long lastScanEndedNanos = Long.MIN_VALUE;
     private long recordsRead;
@@ -87,7 +88,7 @@ final class TokenRangeScanReader implements PartitionReader {
     private boolean paused;
 
     /** The last token consumed in the current pass, or {@code null} before the pass's first row. */
-    private Long lastConsumedToken;
+    private @Nullable Long lastConsumedToken;
 
     TokenRangeScanReader(
             CqlSession session,
@@ -103,7 +104,7 @@ final class TokenRangeScanReader implements PartitionReader {
             ConsistencyLevel consistencyLevel,
             Duration timeout,
             int scanIntervalMillis,
-            SourceOffset resumeFrom) {
+            @Nullable SourceOffset resumeFrom) {
         this(
                 (floor, inclusive) -> execute(
                         session,
@@ -134,7 +135,7 @@ final class TokenRangeScanReader implements PartitionReader {
             long upperBound,
             boolean inclusiveLower,
             int scanIntervalMillis,
-            SourceOffset resumeFrom) {
+            @Nullable SourceOffset resumeFrom) {
         this.opener = opener;
         this.schema = schema;
         this.read = read.clone();
@@ -147,7 +148,7 @@ final class TokenRangeScanReader implements PartitionReader {
         this.lastConsumedToken = parse(resumeFrom);
     }
 
-    static Long parse(SourceOffset offset) {
+    static @Nullable Long parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return null;
         }
