@@ -896,6 +896,10 @@ public final class RegistryJournal {
                 channel.force(true);
             }
         } catch (IOException failure) {
+            // A write that failed part way -- a full disk -- leaves a torn record at the end, and the
+            // next append would land behind it: damage in the middle, and a node that refuses to start
+            // (PRV-8005). Check the tail again before the next append, as at the first (DISKJOURNAL-1).
+            tailChecked = false;
             throw new PravahaException(
                     RegistryErrors.JOURNAL_UNWRITABLE,
                     "cannot append to the registry journal at " + file

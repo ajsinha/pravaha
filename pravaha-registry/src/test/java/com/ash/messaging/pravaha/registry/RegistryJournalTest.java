@@ -389,6 +389,38 @@ class RegistryJournalTest {
     }
 
     @Test
+    void anAppendAfterAFailedOneInTheSameProcessLandsOnARecordBoundary(@TempDir Path directory) throws Exception {
+        // DISKJOURNAL-1. A full disk fails an append part way: the bytes that fitted stay at the end
+        // as a torn record, PRV-8006 refuses the registration, and the disk frees. The torn tail used
+        // to be checked once per process, before the first append, so the next registration was
+        // acknowledged behind those bytes -- damage in the middle, and a node that refused to start
+        // (PRV-8005). Reproduced on a 16 MiB tmpfs in ADV-GAPS QG-D05; here the partial write is laid
+        // down by hand and the failure is a journal that cannot be opened for writing.
+        assumeTrue(!"root".equals(System.getProperty("user.name")), "root ignores the file mode");
+        Path journal = directory.resolve("registry.journal");
+        RegistryJournal writer = new RegistryJournal(journal);
+        writer.recordRegistration("one", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
+
+        Path other = directory.resolve("other.journal");
+        new RegistryJournal(other)
+                .recordRegistration("two", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
+        byte[] partial = java.util.Arrays.copyOf(Files.readAllBytes(other), 20);
+        Files.write(journal, partial, java.nio.file.StandardOpenOption.APPEND);
+        Files.setPosixFilePermissions(journal, Set.of(PosixFilePermission.OWNER_READ));
+        assertThatThrownBy(() -> writer.recordRegistration(
+                        "two", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of()))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-8006");
+
+        Files.setPosixFilePermissions(journal, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+        writer.recordRegistration("three", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
+
+        assertThat(new RegistryJournal(journal).replay())
+                .extracting(RegistryJournal.Entry::name)
+                .containsExactly("one", "three");
+    }
+
+    @Test
     void aRecordThisVersionCannotUnderstandIsRefusedRatherThanSkipped(@TempDir Path directory) throws Exception {
         Path journal = directory.resolve("registry.journal");
         new RegistryJournal(journal)
