@@ -22,7 +22,7 @@ becomes a surprise.
 | A served view | **retention** — forever unless the registration sets one (`RETAIN FOR`, `--retain`) | oldest rows forgotten |
 | …and as a backstop | `maxKeys` | **fails** (`PRV-4022`) |
 | Subscriber buffers | `SubscriptionOptions` | conflate / drop / fail, per the subscriber's choice -- which over Flight it now genuinely is: the choice rides on the subscription ticket, where until STRM-16 it went nowhere and every remote subscriber was `(10 000, CONFLATE)` |
-| Concurrent reads | `ReadAdmission` | refuse (`PRV-4026`–`4028`) |
+| Concurrent reads | `pravaha.serving.read.*` (`ReadAdmission`; unlimited by default) | refuse (`PRV-4026`–`4028`); a read past `deadline` is stopped (`PRV-4029`) |
 | HTTP request bodies | `pravaha.http.max-anonymous-body` / `max-request-body`, checked before the body is read | refuse `413` (`PRV-1054`) |
 | PostgreSQL gateway connections and messages | `pravaha.pgwire.limits.*` | refuse `53300` (`PRV-6216`) / `54000` (`PRV-6217`) |
 | Readable audit trail (`GET /api/v1/audit`) | `pravaha.security.audit-recent` decisions (10,000 default), only with `audit: memory` or `file` | oldest dropped from the readable window; the response says how many, and a `file` sink still has them |
@@ -42,7 +42,7 @@ to fit would silently lose matches the query asked for, and a wrong answer is wo
 | `evicted()` on a view | `ServedView` | Retention is working. **Rising fast** means the window may be shorter than the questions being asked of it |
 | `joinRowsEvicted()` | `InterpretedPipeline` | The match window is releasing join state, as intended |
 | `dropped()` / `conflated()` | `Subscription` | A consumer is falling behind. Never silent — this is why it is counted. Over Flight the count reaches the client too, on every batch after a loss (`ChangeBatch.droppedBefore`), where it used to reach an audit sink once and the subscriber never (STRM-10) |
-| `rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()` | `ReadAdmission` | Read load exceeding capacity, and which of the three ways |
+| `pravaha_read_refused_total{reason=rejected\|queue_timed_out\|tenant_share}`, `pravaha_read_in_flight` | `ReadAdmission` (`rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()`, `inFlight()`) | Read load exceeding capacity, and which of the three ways |
 | `avoidableForks()` | `RegisteredQuery` | You are running N computations where one would do |
 | Shared fingerprints | `pravaha queries`, console | The sharing claim holding — or not |
 | `subscriberCount()` | `RegisteredQuery` | Consumers attached. Zero on a query somebody expects to be watched is a clue, and it does return to zero -- a drop used to leave every subscriber attached for ever and the number permanently wrong (STRM-12) |
@@ -411,11 +411,25 @@ permit, and what the other tenants report is "Pravaha is down".
 Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff — not as
 `INVALID_ARGUMENT`, which they give up on.
 
-**Where it applies.** A `ReadAdmission` is given to a gateway with `admitting(admission, readDeadline)` —
-on `PravahaFlightServer` and `PravahaPgWireServer` — by whoever assembles it. **`pravaha-server` does not
-yet configure one**: a node's Flight and PostgreSQL gateways admit every read, with no read deadline, so
-`PRV-4026`–`PRV-4029` come only from a gateway an application assembles itself. There is no
-`pravaha.*` setting for it (suggested finding LETTERS-2).
+**Where it applies.** On a node, `pravaha.serving.read.*` builds one `ReadAdmission` that the Flight and
+PostgreSQL gateways share, with one read deadline (READADMIT-1); the embedded engine reads the same keys
+for its `query(...)`. A gateway you assemble yourself takes them with `admitting(admission, readDeadline)`.
+
+| Setting | Default | |
+|---|---|---|
+| `pravaha.serving.read.max-concurrent` | `0` | Reads run at once across both gateways; `0` admits every read (no admission at all) |
+| `pravaha.serving.read.max-queued` | `0` | Reads that may wait for a permit; past it `PRV-4026` at once. `0` refuses as soon as `max-concurrent` are running |
+| `pravaha.serving.read.queue-timeout` | `2s` | How long a queued read waits before `PRV-4027` |
+| `pravaha.serving.read.tenant-share` | `1.0` | The fraction of `max-concurrent` one tenant may hold, in (0, 1]; past it `PRV-4028`. `1.0` is no share smaller than the whole |
+| `pravaha.serving.read.deadline` | `0s` | How long one read may run before it is stopped mid-scan, `PRV-4029`; `0s` sets none |
+
+**The defaults are the behaviour before these settings existed** — every read admitted, none timed —
+because a limit that appears on an upgrade is an outage nobody configured. A value out of range stops
+the node (or the embedded engine's construction) with `PRV-1026` naming the key. The node logs the
+limits in force at start (`reads: ...`), and `pravaha_read_refused_total{reason=}` counts each kind of
+refusal, `pravaha_read_in_flight` the reads holding a permit. A starting point for a node that also runs
+continuous queries: `max-concurrent` at the number of cores, `max-queued` at twice that, `tenant-share`
+`0.5` where tenants share the node, and a `deadline` below your clients' own timeout.
 
 ## Connections and request bodies
 
@@ -1680,6 +1694,12 @@ Per continuous query:
 Per node, `pravaha_registry_recovery_refused` counts the journalled registrations the last restart
 refused that nobody has dropped or registered again — each a view a client expects and will not find.
 **Alert on it above zero**; see *Owners are re-checked on replay* (RECOVERYHEALTH-1).
+
+Per node, `pravaha_audit_unrecorded_total` counts the authorization decisions the durable audit sink
+accepted and did not record — dropped by a full queue or lost to a file that could not be written —
+and `pravaha_audit_failing` is 1 while the sink cannot write or cannot rotate (health `DEGRADED`, the
+reason under `audit`). **Alert on either moving**: each is a gap in the audit trail (AUDITROTATE-1;
+see [SECURITY.md](SECURITY.md)).
 | `pravaha_query_spill_slabs_released{query=}` | Overflow slabs (files) compaction gave back |
 | `pravaha_query_backpressure_waits_total{query=}` | Episodes in which one of this query's writers found nowhere to put a row. A count of **episodes**, not of rows or polls: a source held off for an hour is one |
 | `pravaha_query_backpressure_wait_seconds_total{query=}` | How long those episodes lasted altogether, counting one still in progress. `rate()` of it against wall clock is the share of time this query could not be fed |

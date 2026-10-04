@@ -134,6 +134,19 @@ public class EngineHealthIndicator implements HealthIndicator {
                     .build();
         }
         detail.put("flightPort", node.flightPort().orElseThrow());
+        // AUDITROTATE-1. A durable audit sink that is not recording -- a file that cannot be written
+        // or cannot rotate -- must not leave the node UP: the queries it audits go on (auditing never
+        // fails a query), so this is DEGRADED rather than DOWN, with the sink's own words.
+        node.auditTrail().ifPresent(trail -> {
+            long unrecorded = trail.unrecorded();
+            if (unrecorded > 0) {
+                detail.put("auditUnrecorded", unrecorded);
+            }
+            trail.failure().ifPresent(failure -> {
+                detail.put("audit", failure);
+                degraded[0] = true;
+            });
+        });
         if (degraded[0]) {
             // Degraded, not down: the node serves every view, the stopped one included, at the
             // frontier it reached, and taking it out of rotation would take its healthy queries
@@ -152,6 +165,8 @@ public class EngineHealthIndicator implements HealthIndicator {
      * so the node's own configuration places this one; an application that has not is shown it on this
      * indicator and an unchanged aggregate.
      */
-    public static final Status DEGRADED =
-            new Status("DEGRADED", "a source feed has stopped, or a registration was refused at recovery");
+    public static final Status DEGRADED = new Status(
+            "DEGRADED",
+            "a source feed has stopped, a registration was refused at recovery, or the audit trail "
+                    + "is not being recorded");
 }

@@ -113,6 +113,38 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **The SDK deadline's default is 60 s, not 30 s.** On a loaded machine a cold first registration or
   query (the planner starting) outran 30 s in the build; 60 s keeps the bound without failing a slow
   first call. `requestTimeout` / `request_timeout_seconds` / `--timeout` still set it.
+- **A failed audit rotation no longer stops the trail in silence** (AUDITROTATE-1). With
+  `audit: file`, a rotation that could not rename the file left no stream open, and every later
+  decision was discarded uncounted, unlogged and with health `UP`. A rotation that fails now keeps
+  writing the current file and is retried every 5 s; a file that cannot be written is reopened on the
+  next decision; each decision not written is counted and recorded as an `audit.lost` line once the
+  file is writable again. The failure is logged at `ERROR` when it starts and when it ends, the
+  `engine` health indicator is `DEGRADED` while it lasts, and two new meters say so:
+  `pravaha_audit_failing` and `pravaha_audit_unrecorded_total`. `AuditSink` gains `failure()` and
+  `unrecorded()` (default: none) for a custom sink to report the same.
+- **A node takes a `SecurityPolicy`, `TokenVerifier` or `AuditSink` of your own** (POLICYPLUG-1). On
+  `pravaha-server`, a Spring bean of the type takes the place of `pravaha.security.policy`, the token
+  table or `pravaha.security.audit` on every surface — engine, Flight, the PostgreSQL gateway and HTTP —
+  with the node's own beans `@Primary` so injection by type still finds one object. The embedded engine
+  takes a policy and a sink with `securedBy(...)` and `auditingTo(...)` before `start()`. Refused at start
+  with `PRV-7004` where one would be ignored or ambiguous: two beans of a type, a policy bean beside the
+  catalogue, a verifier bean without `authentication: token` or beside identity. The refusal of an unknown
+  `pravaha.security.policy`, which said "or implement SecurityPolicy" when nothing on a node would use
+  one, now names the catalogue and the bean. See docs/development/guides/SECURITY_EXTENSIONS.md.
+- **Read admission and a read deadline are settings** (READADMIT-1). `pravaha.serving.read.max-concurrent`,
+  `max-queued`, `queue-timeout`, `tenant-share` and `deadline` build one admission that a node's Flight
+  and PostgreSQL gateways share, and the embedded engine reads the same keys. Before, every read on a
+  node was admitted with no deadline and nothing could change it, so `PRV-4026`–`PRV-4029` never
+  occurred. The defaults keep that behaviour (every read admitted, no deadline); a value out of range
+  stops the node with `PRV-1026` naming the key; the node logs the limits at start, and
+  `pravaha_read_refused_total{reason}` and `pravaha_read_in_flight` are published.
+- **The testkit has a shared row collector and a sink TCK** (TCKCOLLECT-1). `ArenaRowCollector` is the
+  source TCK's default collector, so a connector's TCK test no longer carries its own 175-line copy; the
+  JDBC, Delta, feed-file, PostgreSQL CDC and filesystem plugins use it (Aerospike and Cassandra, whose
+  tests need Docker, keep theirs). `SinkPluginTck` holds a sink to its declared capabilities against what
+  the destination holds: whole batches, keys, retractions, upserts, idempotent replay, and for a
+  transactional sink invisibility before commit, idempotent commit, abort, and commit-or-discard after a
+  restart. The JDBC sink runs it in both of its shapes. There is no lookup TCK yet.
 
 Register: **572 findings — 549 fixed, 4 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
 

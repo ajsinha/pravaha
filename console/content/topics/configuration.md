@@ -367,6 +367,11 @@ A few keys are bound from configuration classes rather than written out in the s
 | `pravaha.pgwire.limits.authentication-timeout` | `10s` | The whole handshake, as one deadline a trickling peer cannot renew |
 | `pravaha.pgwire.limits.max-message-size` | `1MB` | One message after sign-in (before it, a fixed 16 KiB); past it `54000` (PRV-6217), refused on the declared length |
 | `pravaha.pgwire.limits.idle-timeout` | `0s` (never) | Ends a signed-in connection that sends nothing for this long, `57P05` (PRV-6219). An out-of-range limit stops the node (PRV-6220) |
+| `pravaha.serving.read.max-concurrent` | `0` | Reads run at once across Flight and the PostgreSQL gateway; `0` admits every read. Past it a read queues or is refused (PRV-4026) |
+| `pravaha.serving.read.max-queued` | `0` | Reads that may wait for a permit; `0` refuses at once past `max-concurrent` |
+| `pravaha.serving.read.queue-timeout` | `2s` | How long a queued read waits before PRV-4027 |
+| `pravaha.serving.read.tenant-share` | `1.0` | One tenant's fraction of `max-concurrent`, in (0, 1]; past it PRV-4028 |
+| `pravaha.serving.read.deadline` | `0s` (none) | How long one read may run before PRV-4029. An out-of-range value stops the node (PRV-1026) |
 | `pravaha.http.max-anonymous-body` | `16KB` | A request body on a path open without a credential (sign-in, reset, the API document); past it `413` (PRV-1054) |
 | `pravaha.http.max-request-body` | `4MB` | Any other request body |
 | `pravaha.http.max-concurrent-sign-ins` | `8` | Sign-ins hashing a password at once; past it `429` (PRV-1055) with `Retry-After` |
@@ -384,7 +389,7 @@ down as such.
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.security.authentication` | `none` | `none` or `token` — whether callers present a bearer token |
-| `pravaha.security.policy` | `permissive` | `permissive` (everyone sees everything) or `authenticated` (only verified callers see anything); or a `SecurityPolicy` of your own |
+| `pravaha.security.policy` | `permissive` | `permissive` (everyone sees everything) or `authenticated` (only verified callers see anything). A `SecurityPolicy` bean of your own takes its place |
 | `pravaha.security.allow-anonymous` | `false` | Acknowledges an open server. Deliberately awkward to set by accident |
 | `pravaha.security.tokens` | *none* | Static credentials for development and tests: a map from **the token itself** to `id` (**required**), `tenant` (default `public`) and `roles`. The `id` is what the audit trail and the registry journal record, so it must not be allowed to fall back to the map key -- which is the credential. A real deployment implements a `TokenVerifier` |
 | `pravaha.security.audit` | `none` | `none`, `memory` (in-process only, readable by nothing) or `file` (JSON Lines an operator can read) |

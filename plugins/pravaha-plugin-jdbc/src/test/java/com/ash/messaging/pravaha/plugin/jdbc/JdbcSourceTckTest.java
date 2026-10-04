@@ -81,9 +81,4 @@ class JdbcSourceTckTest extends SourcePluginTck {
     protected int expectedRecordCount() {
         return RECORDS;
     }
-
-    @Override
-    protected RowCollector newCollector(StreamSourcePlugin plugin) {
-        return new JdbcCollector(plugin.discoverSchemas().get(0));
-    }
 }

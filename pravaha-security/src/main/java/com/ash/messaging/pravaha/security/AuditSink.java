@@ -37,6 +37,22 @@ public interface AuditSink {
 
     void record(AuditEvent event);
 
+    /**
+     * Why this sink is not recording right now, in words for an operator; empty while it is.
+     *
+     * <p>AUDITROTATE-1. A sink that buffers and drops rather than throwing (as the contract above
+     * asks) is otherwise invisible when it fails: the node's health reads this and reports DEGRADED
+     * while it is present. A custom sink that can fail should override it.
+     */
+    default java.util.Optional<String> failure() {
+        return java.util.Optional.empty();
+    }
+
+    /** Events this sink accepted and did not record -- dropped or lost -- since it started. */
+    default long unrecorded() {
+        return 0;
+    }
+
     /** Keeps events in memory. For tests, and for a single-node deployment with nowhere else yet. */
     final class InMemory implements AuditSink {
 

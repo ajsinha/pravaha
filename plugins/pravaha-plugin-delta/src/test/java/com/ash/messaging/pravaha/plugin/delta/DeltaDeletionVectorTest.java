@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,7 +59,7 @@ class DeltaDeletionVectorTest {
         assertThat(logEntry(fixture, 1)).contains("\"deletionVector\":{\"storageType\":\"u\"");
 
         DeltaSourcePlugin plugin = openPlugin(fixture.path());
-        try (DeltaCollector collector = new DeltaCollector(schemaOf(plugin));
+        try (ArenaRowCollector collector = new ArenaRowCollector(schemaOf(plugin));
                 PartitionReader reader = plugin.createReader(partition(plugin), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
 
@@ -74,7 +75,7 @@ class DeltaDeletionVectorTest {
         DeltaTableFixture fixture = table(1, 2, 3, 4);
 
         DeltaSourcePlugin plugin = openPlugin(fixture.path());
-        try (DeltaCollector collector = new DeltaCollector(schemaOf(plugin));
+        try (ArenaRowCollector collector = new ArenaRowCollector(schemaOf(plugin));
                 PartitionReader reader = plugin.createReader(partition(plugin), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(4);
 
@@ -105,13 +106,13 @@ class DeltaDeletionVectorTest {
         DeltaSourcePlugin plugin = openPlugin(fixture.path());
         SourceOffset checkpoint;
         List<Long> first;
-        try (DeltaCollector collector = new DeltaCollector(schemaOf(plugin));
+        try (ArenaRowCollector collector = new ArenaRowCollector(schemaOf(plugin));
                 PartitionReader reader = plugin.createReader(partition(plugin), SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 2)).isEqualTo(2);
             checkpoint = reader.position();
             first = collector.rows().stream().map(r -> r.getLong(0)).toList();
         }
-        try (DeltaCollector collector = new DeltaCollector(schemaOf(plugin));
+        try (ArenaRowCollector collector = new ArenaRowCollector(schemaOf(plugin));
                 PartitionReader resumed = plugin.createReader(partition(plugin), checkpoint)) {
             List<Long> rest =
                     drain(resumed, collector).stream().map(r -> r.getLong(0)).toList();
@@ -188,7 +189,7 @@ class DeltaDeletionVectorTest {
         return plugin.partitions("people").get(0);
     }
 
-    private static List<RowView> drain(PartitionReader reader, DeltaCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, ArenaRowCollector collector) {
         while (reader.poll(collector, 128) > 0) {
             // each poll returns what was ready
         }

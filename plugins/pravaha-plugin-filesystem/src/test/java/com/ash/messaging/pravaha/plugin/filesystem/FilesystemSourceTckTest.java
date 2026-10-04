@@ -19,22 +19,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
-import com.ash.messaging.pravaha.api.ConfigurationException;
-import com.ash.messaging.pravaha.api.data.RowView;
-import com.ash.messaging.pravaha.api.data.RowWriter;
-import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
-import com.ash.messaging.pravaha.common.arena.ArenaHandle;
-import com.ash.messaging.pravaha.common.arena.RowArena;
-import com.ash.messaging.pravaha.common.memory.MemoryAccess;
-import com.ash.messaging.pravaha.common.row.BinaryRowView;
-import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
-import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.testkit.tck.SourcePluginTck;
 
 /**
@@ -83,46 +71,5 @@ class FilesystemSourceTckTest extends SourcePluginTck {
     @Override
     protected int expectedRecordCount() {
         return RECORDS;
-    }
-
-    @Override
-    protected RowCollector newCollector(StreamSourcePlugin plugin) {
-        StreamSchema schema = plugin.discoverSchemas().get(0);
-        return new ArenaCollector(schema);
-    }
-
-    /** Collects rows into an arena, the way a lane does. */
-    private static final class ArenaCollector implements RowCollector {
-        private final RowLayout layout;
-        private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 64);
-        private final BinaryRowWriter writer;
-        private final List<RowView> rows = new ArrayList<>();
-
-        ArenaCollector(StreamSchema schema) {
-            this.layout = RowLayout.of(schema);
-            this.writer = new BinaryRowWriter(layout);
-        }
-
-        @Override
-        public RowWriter beginRow() {
-            long handle = arena.allocate(layout.rowSize(256));
-            if (handle == ArenaHandle.NULL) {
-                throw new ConfigurationException(DelimitedCodec.DECODE_FAILED, "TCK arena exhausted");
-            }
-            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-            return new CollectingWriter(
-                    writer,
-                    () -> rows.add(new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle))));
-        }
-
-        @Override
-        public List<RowView> rows() {
-            return rows;
-        }
-
-        @Override
-        public void close() {
-            arena.close();
-        }
     }
 }

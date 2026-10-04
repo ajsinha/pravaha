@@ -75,6 +75,6 @@ flowchart LR
 
 | Module | What it holds |
 |---|---|
-| `pravaha-testkit` | `VirtualClock`, `DeterministicScheduler`, `Pipeline`, `RowEmitter`, `CapturingRowWriter` for deterministic tests; `tck.SourcePluginTck`, the conformance suite every source plugin extends ([connector guide](../../development/guides/CONNECTOR_DEVELOPMENT.md#10-test-it-the-tck-and-real-stores)) |
+| `pravaha-testkit` | `VirtualClock`, `DeterministicScheduler`, `Pipeline`, `RowEmitter`, `CapturingRowWriter` for deterministic tests; `tck.SourcePluginTck`, the conformance suite every source plugin extends, `tck.SinkPluginTck`, the sink suite (the JDBC sink runs it so far), and `tck.ArenaRowCollector`, the row collector they share ([connector guide](../../development/guides/CONNECTOR_DEVELOPMENT.md#10-test-it-the-tck-and-real-stores)) |
 | `pravaha-benchmarks` | JMH benchmarks: `ProfileABenchmark`, `LaneScalingBenchmark`, `MemoryAccessBenchmark`, `FalseSharingBenchmark`; the gate packs in [`../../project/gates/`](../../project/gates/) record what they measured |
 | `pravaha-it` | Everything that needs several modules at once — and the documentation checks: `ArchitectureRulesTest`, `SourceFileSizeTest`, `LicenceHeaderTest`, `DocumentationFreshnessTest`, `MarkdownLinksTest`, `QuickstartCommandsTest`, `HelpExamplesSqlTest`, `FindingsRegisterTest`, the equivalence and adversarial suites, and the container ITs |

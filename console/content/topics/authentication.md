@@ -275,7 +275,10 @@ region=EU`.
 
 `TokenVerifier` takes the credential and returns a `Principal`, or throws PRV-7001. An
 implementation that validates your IdP's tokens — OIDC, JWT, an internal service — is the supported
-way to use real identity; **no OIDC or JWT verifier ships**. Wire it where the Flight server is built:
+way to use real identity; **no OIDC or JWT verifier ships**. On a node, make it a Spring bean — a
+`@Bean TokenVerifier` in a configuration the server scans — and it verifies every credential on HTTP,
+Flight and the PostgreSQL gateway in place of the token table (with `authentication: token`; it is
+refused beside `pravaha.identity.enabled`). In a host you assemble, wire it where the Flight server is built:
 
 ```java
 PravahaFlightServer server = new PravahaFlightServer(views)

@@ -689,18 +689,16 @@ class SequenceSourceTckTest extends SourcePluginTck {
 
     @Override protected String streamName() { return "numbers"; }
     @Override protected int expectedRecordCount() { return 10; }
-
-    @Override
-    protected RowCollector newCollector(StreamSourcePlugin plugin) {
-        return new SequenceCollector(plugin.discoverSchemas().get(0));
-    }
 }
 ```
 
-`RowCollector` is a `RecordSink` that keeps the rows; there is no shared implementation yet, so each plugin
-carries one — `SequenceCollector` above is
-[`JdbcCollector`](../../../plugins/pravaha-plugin-jdbc/src/test/java/com/ash/messaging/pravaha/plugin/jdbc/JdbcCollector.java)
-copied with its package changed. Run against the example, all ten pass:
+Rows are collected by the kit's own
+[`ArenaRowCollector`](../../../pravaha-testkit/src/main/java/com/ash/messaging/pravaha/testkit/tck/ArenaRowCollector.java)
+— into an arena through the engine's binary row writer, the way a lane does, recorded on `commit` and
+never on `beginRow` — over the plugin's first discovered schema. Override `newCollector` only for another
+schema or rows wider than 512 bytes of strings (`new ArenaRowCollector(schema, bytes)`); your other tests
+can use the same class. (Until TCKCOLLECT-1 every plugin carried its own 175-line copy.) Run against the
+example, all ten pass:
 
 ```
 [        10 tests successful      ]
@@ -717,8 +715,51 @@ copied with its package changed. Run against the example, all ten pass:
 | `capabilitiesAreInternallyConsistent` | The claims do not contradict each other |
 | `closingIsIdempotent`, `healthIsReported` | `close` twice; `health()` answers |
 
-Ordering, deletes and pushdown claims are **believed, not tested** by the kit; there is no sink or lookup
-TCK. Test those yourself, the way the shipped plugins do.
+Ordering, deletes and pushdown claims are **believed, not tested** by the kit. Test those yourself, the way
+the shipped plugins do.
+
+### The sink TCK
+
+`com.ash.messaging.pravaha.testkit.tck.SinkPluginTck` holds a sink to what its `SinkCapabilities` declare,
+checked against what the destination holds afterwards (TCKCOLLECT-1). Give it a sink over an empty
+destination, a way to read the destination back, and records:
+
+```java
+class MySinkTckTest extends SinkPluginTck {
+
+    @Override
+    protected StreamSinkPlugin createSink() {          // configured and opened; a new instance is a restart
+        MySinkPlugin sink = new MySinkPlugin();
+        sink.configure(new Context("out", Map.of("url", url, "table", "totals", "key.columns", "user_id")));
+        sink.open();
+        return sink;
+    }
+
+    @Override protected List<String> readBack() { return query("SELECT user_id, total FROM totals"); }
+    @Override protected Object[] record(int i) { return new Object[] {"u" + i, 100L * (i + 1)}; }
+    @Override protected Object[] revision(int i) { return new Object[] {"u" + i, 7L * (i + 1)}; }  // upsert sinks
+    @Override protected String render(Object[] values) { return values[0] + "|" + values[1]; }
+}
+```
+
+Rows are built in the sink's declared `schema()` (override `schemaOf` for a sink that declares none).
+A case whose capability the sink does not declare is reported **skipped**, not passed:
+
+| TCK test | Runs for | What it holds you to |
+|---|---|---|
+| `declaresANameAVersionAndConsistentCapabilities` | every sink | at least one emit mode; a sink taking `UPSERT` or `RETRACT` names `keyColumns()`, each in its schema |
+| `aBatchIsWrittenWholeAndCounted`, `anEmptyBatchWritesNothing` | every sink | every row of a batch reaches the destination, and `write` returns the count |
+| `closingIsIdempotentAndHealthIsReported` | every sink | `close` twice; `health()` answers |
+| `aRetractionRemovesTheRecordItNames` | `UPSERT` or `RETRACT` | a weight −1 row deletes the record its key names |
+| `anUpsertReplacesTheRecordByKey` | `UPSERT`, with `revision(i)` | a retract-and-insert of one key leaves the new values only |
+| `anIdempotentSinkAbsorbsAReplayedBatch` | `idempotentUpsert` | the batch written twice — what recovery does — leaves it once |
+| `nothingIsVisibleBeforeCommitAndACommitRepeatedAppliesOnce` | `transactional` | written and prepared is invisible; `commit(handle)` sent twice applies once |
+| `anAbortedTransactionIsNeverVisible` | `transactional` | `abort(handle)` leaves nothing |
+| `aRestartCommitsWhatTheCheckpointRecordedAndDiscardsWhatCameAfter` | `transactional` | handles name their transactions; a new instance commits the recorded handle, and `abortAfter(label)` discards the later one |
+
+`JdbcSinkTckTest` runs it against H2 in both of the JDBC sink's shapes (keyed and transactional: all
+ten; append-only: six skipped). There is **no lookup TCK yet**: a lookup is tested per plugin
+(`JdbcLookupPluginTest` is the pattern).
 
 ### Against the engine, and against the real store
 
@@ -742,9 +783,8 @@ Container tests need Docker; without it they skip and say so ([`TESTING.md`](../
 
 | | |
 |---|---|
-| A sink TCK and a lookup TCK | Only sources have one; sinks are tested per sink |
-| Capability verification for order, deletes and pushdown | Replay and exactly-once are tested; the rest is believed |
-| A shared TCK collector | Each plugin copies one (§10) |
+| A lookup TCK | Sources and sinks have one (§10); a lookup is tested per plugin |
+| Capability verification for order, deletes and pushdown | A source's replay and exactly-once, and a sink's keys, idempotence and transactions, are tested; the rest is believed |
 | An SPI stability statement | `Version` exists; nothing yet says which change breaks a plugin |
 | Plugin isolation | `PluginClassLoader` is built and unused: plugins share the node's classpath |
 | A remote connector | An application streaming rows to a node over Flight `DoPut` is designed, not built ([ADR-040](../../design/adr/040-the-remote-connector.md)) |

@@ -78,6 +78,13 @@ the gap is recorded rather than silent:
 {"at":"2026-09-19T09:40:00.000Z","event":"audit.dropped","count":212}
 ```
 
+**A file that stops being writable** — a full disk, a directory made read-only — never fails a
+query and is never silent. A rotation that cannot rename the file keeps writing the current one and
+is retried; a file that cannot be written is reopened on the next decision. The node logs one ERROR
+when the failure starts and one when it ends, its health is `DEGRADED` (the reason under `audit`),
+`pravaha_audit_failing` is 1 and `pravaha_audit_unrecorded_total` counts the decisions not written —
+which, once the file is writable again, are recorded in it as one `audit.lost` line with the count.
+
 **A path the node cannot write** is PRV-7004 at startup — not a discovery at the first decision
 nobody sees.
 

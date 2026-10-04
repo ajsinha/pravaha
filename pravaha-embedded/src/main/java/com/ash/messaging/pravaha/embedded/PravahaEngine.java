@@ -147,6 +147,23 @@ public interface PravahaEngine extends AutoCloseable {
      */
     PravahaEngine declareQuery(ContinuousQuery query);
 
+    /**
+     * Decides every registration, read and administration with the host's own policy instead of
+     * {@link com.ash.messaging.pravaha.security.SecurityPolicy#PERMISSIVE} (POLICYPLUG-1). Before start.
+     *
+     * <p>Every embedded call runs as {@link com.ash.messaging.pravaha.security.Principal#ANONYMOUS} --
+     * the host has already decided who may call -- so the policy is asked about that principal. Note
+     * that the interface's default {@code mayRegisterQuery} refuses the anonymous principal: a policy
+     * that should let this engine register queries overrides it.
+     */
+    PravahaEngine securedBy(com.ash.messaging.pravaha.security.SecurityPolicy policy);
+
+    /**
+     * Records every authorization decision into the host's own sink instead of discarding them
+     * (POLICYPLUG-1). Before start. The engine does not close it; the host that made it does.
+     */
+    PravahaEngine auditingTo(com.ash.messaging.pravaha.security.AuditSink sink);
+
     // ------------------------------------------------------------------ lifecycle
 
     /**

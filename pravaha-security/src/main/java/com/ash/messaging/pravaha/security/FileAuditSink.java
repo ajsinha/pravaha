@@ -71,6 +71,15 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * after the file is open (a full disk, a revoked permission) are counted and reported through the
  * {@code problems} consumer the node wires to its log, never thrown at the caller.
  *
+ * <p><strong>A failure is never silent, and never permanent (AUDITROTATE-1).</strong> A rotation
+ * that cannot move the file aside keeps writing the current file (past its size bound, retried every
+ * {@link #ROTATION_RETRY} rather than on every event); a stream that cannot be reopened is retried on
+ * the next event, and every event that could not be written meanwhile is counted ({@link
+ * #lostEvents()}) and stated in the file by an {@code audit.lost} marker once it is writable again.
+ * Each failure is reported once when it starts and once when it ends, and while it lasts {@link
+ * #failure()} says what it is -- the node's health reads that and reports DEGRADED. Before this, a
+ * failed rotation left no stream and every later event was discarded without a count or a word.
+ *
  * <p><strong>Refused at startup, not at the first event.</strong> The constructor opens the file. A
  * path that cannot be written is {@code PRV-7004 SECURITY_MISCONFIGURED} before the node serves
  * anything, because a node that starts believing it is auditing and writes nowhere is the outcome
@@ -95,16 +104,21 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
 
     private static final Set<PosixFilePermission> OWNER_ONLY = PosixFilePermissions.fromString("rw-------");
 
+    /** How long a rotation that failed waits before it is tried again; the current file is kept meanwhile. */
+    static final java.time.Duration ROTATION_RETRY = java.time.Duration.ofSeconds(5);
+
     private final Path path;
     private final long rotateBytes;
     private final int keep;
     private final Consumer<String> problems;
+    private final java.time.Duration rotationRetry;
 
     private final BlockingQueue<AuditEvent> pending = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
     private final AtomicLong accepted = new AtomicLong();
     private final AtomicLong dropped = new AtomicLong();
     private final AtomicLong written = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
+    private final AtomicLong lost = new AtomicLong();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Thread writer;
     private final Thread flushOnExit;
@@ -112,7 +126,16 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
     private @Nullable OutputStream out;
     private long bytesInFile;
     private long reportedDrops;
-    private boolean reportedFailure;
+    private long reportedLost;
+
+    /** Why events are not being written, while they are not; null while every event is. */
+    private volatile @Nullable String streamFailure;
+
+    /** Why the file is growing past its bound, while a rotation keeps failing; null otherwise. */
+    private volatile @Nullable String rotationFailure;
+
+    /** {@link System#nanoTime()} before which a failed rotation is not tried again. */
+    private long rotationRetryAt = System.nanoTime();
 
     public FileAuditSink(Path path) {
         this(path, DEFAULT_ROTATE_BYTES, DEFAULT_KEEP, null);
@@ -128,6 +151,17 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
      *     defect this class exists to close
      */
     public FileAuditSink(Path path, long rotateBytes, int keep, @Nullable Consumer<String> problems) {
+        this(path, rotateBytes, keep, problems, ROTATION_RETRY);
+    }
+
+    /** As above, with how long a failed rotation waits before it is tried again (tests shorten it). */
+    FileAuditSink(
+            Path path,
+            long rotateBytes,
+            int keep,
+            @Nullable Consumer<String> problems,
+            java.time.Duration rotationRetry) {
+        this.rotationRetry = rotationRetry;
         this.path = path.toAbsolutePath();
         this.rotateBytes = Math.max(4096L, rotateBytes);
         this.keep = Math.max(0, keep);
@@ -167,9 +201,29 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
         return dropped.get();
     }
 
-    /** Write failures since the file was opened. */
+    /** Write, open and rotation failures since the file was opened. */
     public long failedWrites() {
         return failed.get();
+    }
+
+    /** Events that reached the writer and could not be written to the file (AUDITROTATE-1). */
+    public long lostEvents() {
+        return lost.get();
+    }
+
+    @Override
+    public long unrecorded() {
+        return dropped.get() + lost.get();
+    }
+
+    /**
+     * What is wrong with the trail right now: events not being written, or a rotation that keeps
+     * failing so the file grows past its bound. Empty while neither is the case.
+     */
+    @Override
+    public java.util.Optional<String> failure() {
+        String stream = streamFailure;
+        return java.util.Optional.ofNullable(stream != null ? stream : rotationFailure);
     }
 
     /** The file being appended to. */
@@ -190,7 +244,7 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
         // an operator reading the trail straight after a refusal, a line that is not there yet.
         long target = accepted.get();
         long deadline = System.nanoTime() + timeout.toNanos();
-        while (written.get() + dropped.get() < target && System.nanoTime() < deadline) {
+        while (written.get() + dropped.get() + lost.get() < target && System.nanoTime() < deadline) {
             try {
                 Thread.sleep(1);
             } catch (InterruptedException e) {
@@ -204,8 +258,7 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
                     out.flush();
                 }
             } catch (IOException e) {
-                failed.incrementAndGet();
-                reportFailure(e);
+                streamBroken(e);
             }
         }
     }
@@ -243,8 +296,7 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
                     out = null;
                 }
             } catch (IOException e) {
-                failed.incrementAndGet();
-                reportFailure(e);
+                streamBroken(e);
             }
         }
     }
@@ -273,40 +325,59 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
                 Thread.currentThread().interrupt();
                 return;
             } catch (IOException | RuntimeException e) {
-                failed.incrementAndGet();
-                reportFailure(e);
+                streamBroken(e);
             }
         }
     }
 
-    /** Appends one line, rotating first if this file has had enough. */
+    /**
+     * Appends one line, rotating first if this file has had enough.
+     *
+     * <p>Without a stream -- the last write failed, or a rotation could not open the next file -- it
+     * opens one first, so a trail that became unwritable resumes by itself on the first event after it
+     * is writable again. An event that cannot be written is counted as lost and the failure is
+     * reported; it is never dropped without a count.
+     */
     private void writeLine(String line) {
-        if (out == null) {
+        if (out == null && !reopen()) {
+            lost.incrementAndGet();
             return;
         }
         try {
             long gap = dropped.get() - reportedDrops;
             if (gap > 0) {
-                reportedDrops = dropped.get();
-                byte[] marker = ("{\"at\":\"" + Instant.now() + "\",\"event\":\"audit.dropped\",\"count\":" + gap
-                                + ",\"reason\":\"the audit queue was full; these decisions were made and not "
-                                + "recorded\"}\n")
-                        .getBytes(StandardCharsets.UTF_8);
-                append(marker);
+                append(marker(
+                        "audit.dropped", gap, "the audit queue was full; these decisions were made and not recorded"));
+                reportedDrops += gap;
+            }
+            long unwritten = lost.get() - reportedLost;
+            if (unwritten > 0) {
+                append(marker(
+                        "audit.lost",
+                        unwritten,
+                        "the audit file could not be written; these decisions were made and not recorded"));
+                reportedLost += unwritten;
             }
             append((line + "\n").getBytes(StandardCharsets.UTF_8));
             written.incrementAndGet();
-        } catch (IOException e) {
-            failed.incrementAndGet();
-            reportFailure(e);
+            streamRestored();
+        } catch (IOException | RuntimeException e) {
+            lost.incrementAndGet();
+            streamBroken(e);
         }
     }
 
+    private static byte[] marker(String event, long count, String reason) {
+        return ("{\"at\":\"" + Instant.now() + "\",\"event\":\"" + event + "\",\"count\":" + count + ",\"reason\":\""
+                        + reason + "\"}\n")
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
     private void append(byte[] bytes) throws IOException {
-        if (bytesInFile + bytes.length > rotateBytes && bytesInFile > 0) {
+        if (bytesInFile + bytes.length > rotateBytes && bytesInFile > 0 && System.nanoTime() - rotationRetryAt >= 0) {
             rotate();
         }
-        // writeLine returns early without a stream, and a rotation that succeeds opens the next one.
+        // writeLine opens a stream before it appends, and a rotation either opens the next one or throws.
         java.util.Objects.requireNonNull(out, "an open audit file").write(bytes);
         bytesInFile += bytes.length;
     }
@@ -317,28 +388,51 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
      * <p>{@code audit.jsonl.1} is the most recent generation, as every operator already expects from
      * logrotate. Kept generations are bounded because an audit trail that fills the disk stops the
      * node it was auditing.
+     *
+     * <p>A rotation that cannot move the file aside (a directory made read-only, a rename the
+     * filesystem refuses) does not stop the trail: the current file is reopened and written past its
+     * bound, the failure is reported, and the rotation is tried again after {@link #ROTATION_RETRY}.
+     * Only a file that cannot be opened at all throws, and the caller counts the event as lost.
      */
     private void rotate() throws IOException {
         OutputStream current = java.util.Objects.requireNonNull(out, "an open audit file");
         current.flush();
         current.close();
         out = null;
-        for (int generation = keep; generation >= 1; generation--) {
-            Path older = sibling(generation);
-            if (Files.exists(older, LinkOption.NOFOLLOW_LINKS)) {
-                if (generation == keep) {
-                    Files.delete(older);
-                } else {
-                    Files.move(older, sibling(generation + 1), StandardCopyOption.REPLACE_EXISTING);
+        try {
+            for (int generation = keep; generation >= 1; generation--) {
+                Path older = sibling(generation);
+                if (Files.exists(older, LinkOption.NOFOLLOW_LINKS)) {
+                    if (generation == keep) {
+                        Files.delete(older);
+                    } else {
+                        Files.move(older, sibling(generation + 1), StandardCopyOption.REPLACE_EXISTING);
+                    }
                 }
             }
-        }
-        if (keep > 0) {
-            Files.move(path, sibling(1), StandardCopyOption.REPLACE_EXISTING);
-        } else {
-            Files.deleteIfExists(path);
+            if (keep > 0) {
+                Files.move(path, sibling(1), StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException | RuntimeException e) {
+            failed.incrementAndGet();
+            rotationRetryAt = System.nanoTime() + rotationRetry.toNanos();
+            if (rotationFailure == null) {
+                String failure = "the audit trail at " + path + " could not rotate (" + e
+                        + "); it is still being written, past its " + rotateBytes + "-byte bound";
+                rotationFailure = failure;
+                problems.accept(failure + ". Rotation is retried every " + rotationRetry.toMillis()
+                        + " ms; no decision is lost while the file can be written.");
+            }
+            openStream();
+            return;
         }
         openStream();
+        if (rotationFailure != null) {
+            rotationFailure = null;
+            problems.accept("the audit trail at " + path + " rotates again.");
+        }
     }
 
     private Path sibling(int generation) {
@@ -347,10 +441,7 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
 
     private void open() {
         try {
-            Path directory = path.getParent();
-            if (directory != null && !Files.isDirectory(directory)) {
-                Files.createDirectories(directory);
-            }
+            createDirectory();
             openStream();
         } catch (IOException | UnsupportedOperationException | SecurityException e) {
             throw new PravahaException(
@@ -359,6 +450,28 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
                             + ". A node that starts believing it is auditing and writes nowhere has no record "
                             + "at all, so this is refused here rather than at the first decision nobody sees.",
                     e);
+        }
+    }
+
+    private void createDirectory() throws IOException {
+        Path directory = path.getParent();
+        if (directory != null && !Files.isDirectory(directory)) {
+            Files.createDirectories(directory);
+        }
+    }
+
+    /** Opens the file again after a failure; false, reported, while it still cannot be. */
+    private boolean reopen() {
+        try {
+            createDirectory();
+            openStream();
+            // Whatever stopped the file being written may have stopped the rotation too; both are
+            // tried again now rather than leaving a rotation failure standing for its retry interval.
+            rotationRetryAt = System.nanoTime();
+            return true;
+        } catch (IOException | RuntimeException e) {
+            streamBroken(e);
+            return false;
         }
     }
 
@@ -391,11 +504,36 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
         }
     }
 
-    private void reportFailure(Exception e) {
-        if (!reportedFailure) {
-            reportedFailure = true;
-            problems.accept("cannot write the audit trail at " + path + ": " + e
-                    + ". Decisions are still being made and are no longer being recorded.");
+    /**
+     * The stream failed, or could not be opened: counted, reported once when the failure starts, and
+     * the stream let go so the next event opens it again.
+     */
+    private void streamBroken(Exception e) {
+        failed.incrementAndGet();
+        OutputStream broken = out;
+        out = null;
+        if (broken != null) {
+            try {
+                broken.close();
+            } catch (IOException ignored) {
+                // Already failing; the failure being reported is the one that matters.
+            }
+        }
+        if (streamFailure == null) {
+            String failure = "cannot write the audit trail at " + path + ": " + e;
+            streamFailure = failure;
+            problems.accept(failure + ". Decisions are still being made and are not being recorded; each one "
+                    + "is counted, the file is opened again on the next decision, and the count is written "
+                    + "into it as an audit.lost line once it can be.");
+        }
+    }
+
+    /** A write succeeded after a failure: said once, with how many decisions the gap cost. */
+    private void streamRestored() {
+        if (streamFailure != null) {
+            streamFailure = null;
+            problems.accept("the audit trail at " + path + " is being written again; " + reportedLost
+                    + " decision(s) in all could not be recorded and are marked in it as audit.lost.");
         }
     }
 

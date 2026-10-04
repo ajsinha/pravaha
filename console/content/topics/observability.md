@@ -534,6 +534,10 @@ not timed. This console's Operations screen shows the mean and labels it as a me
 | `pravaha_lane_shared_bytes` | gauge | Off-heap the shared lanes hold — inboxes and arenas — counted once however many queries they carry. Zero with sharing off | growing with lanes built, not with queries |
 | `pravaha_state_spill_bytes_mapped` | gauge | Overflow slab mapped on the node across every query — what `pravaha.state.spill.max-bytes` counts | well before the quota: at it, the next query to need a slab stops (PRV-4005) |
 | `pravaha_debug_sessions_open` | gauge | [Debug sessions](/help/topics/time-travel-debugger) open on this node, against `pravaha.debug.sessions.max`. Each holds a whole second copy of a query's lanes, arena and state. Zero when nobody is debugging | above zero for longer than an investigation takes: a forgotten session is a query running twice |
+| `pravaha_read_refused_total{reason}` | counter | Reads the node's admission (`pravaha.serving.read.*`) refused: `rejected` (PRV-4026, queue full), `queue_timed_out` (PRV-4027), `tenant_share` (PRV-4028). Zero while every read is admitted, the default | rising: reads are outrunning `max-concurrent`, or one tenant its share |
+| `pravaha_read_in_flight` | gauge | Reads holding an admission permit now, across Flight and the PostgreSQL gateway | at `max-concurrent` sustained |
+| `pravaha_audit_failing` | gauge | 1 while the durable audit sink cannot write or cannot rotate (AUDITROTATE-1); health is `DEGRADED` meanwhile, the reason under `audit` | 1 |
+| `pravaha_audit_unrecorded_total` | counter | Authorization decisions the durable audit sink accepted and did not record — dropped by a full queue or lost to a file it could not write. Each is a gap in the trail | any increase |
 | `pravaha_flight_calls_seconds_count{operation, error}` | counter | Flight calls, by operation: `query` (a Flight SQL read), `query.plan`, `subscribe`, `register`, `replace`, `drop`, `sql.action`, `list.actions`, the `dlq.*` and `debug.*` actions, and `action.unknown` for a name the engine does not know -- never whatever a client wrote. `error` is the exception's class, or `none` | a rising `error!="none"` share |
 | `pravaha_flight_calls_seconds_sum{operation, error}`, `_max` | counter, gauge | How long those calls took. A subscription is one call for as long as it is open, so its time is its lifetime | — |
 | `pravaha_flight_calls_active_seconds_count{operation}`, `_sum`, `_max` | gauge | Flight calls in progress now, and how long they have been open: open subscriptions, among others | — |
@@ -595,7 +599,6 @@ purpose, because two lists of thresholds drift. The Helm chart can install them 
 | Per-operator rows, state, watermarks and time, **as Prometheus meters** | They are measured with `pravaha.metrics.operators` on, and they ride on `GET /api/v1/queries/{name}/plan` keyed by the plan's own node ids rather than on the scrape: a meter per operator per query is a cardinality bill nobody asked for. `pravaha_metrics_operators_enabled` says whether they exist at all |
 | Commit-latency percentiles | Not measured — see above |
 | Per-plugin throughput and errors | There are no `pravaha_plugin_*` meters; plugin health is on `GET /api/v1/plugins` |
-| Read admission refusals | Counted on the `ReadAdmission` object (`rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()`) and not yet exported |
 | An alert's keys, a principal, a policy's expression, a statement | Never labels: each would make every value a time series. They are on the alert's page and the audit trail |
 
 Saying so beats implying a dashboard exists.

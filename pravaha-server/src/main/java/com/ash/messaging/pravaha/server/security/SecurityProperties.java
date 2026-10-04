@@ -333,8 +333,10 @@ public class SecurityProperties {
             throw new com.ash.messaging.pravaha.api.PravahaException(
                     com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
                     "pravaha.security.policy is '" + configured + "', which is not a policy this node "
-                            + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
-                            + "for rules of your own.");
+                            + "knows. Use 'permissive' or 'authenticated'; for rules of your own, turn on "
+                            + "the catalogue (pravaha.catalog.enabled) and use grants, or implement "
+                            + "SecurityPolicy and supply it as a Spring bean, which then takes the place of "
+                            + "this setting (docs/development/guides/SECURITY_EXTENSIONS.md).");
         }
         return canonical;
     }

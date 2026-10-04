@@ -36,6 +36,7 @@ import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -106,7 +107,7 @@ class JdbcSourcePluginTest {
         return plugin;
     }
 
-    private static List<RowView> drain(PartitionReader reader, JdbcCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, ArenaRowCollector collector) {
         while (reader.poll(collector, 64) > 0) {
             // each poll returns what is ready
         }
@@ -142,7 +143,7 @@ class JdbcSourcePluginTest {
         insert(1, "ann", 10.5, 1_700_000_000_000L);
 
         JdbcSourcePlugin millis = open(Map.of("watermark.unit", "millis"));
-        try (JdbcCollector collector = new JdbcCollector(millis.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(millis.schema());
                 PartitionReader reader =
                         millis.createReader(millis.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector).get(0).eventTimestampNanos())
@@ -152,7 +153,7 @@ class JdbcSourcePluginTest {
         millis.close();
 
         JdbcSourcePlugin nanos = open(Map.of("watermark.unit", "nanos"));
-        try (JdbcCollector collector = new JdbcCollector(nanos.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(nanos.schema());
                 PartitionReader reader =
                         nanos.createReader(nanos.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector).get(0).eventTimestampNanos())
@@ -174,7 +175,7 @@ class JdbcSourcePluginTest {
         insert(1, "ann", 10.5, 1_700_000_000_000L);
 
         JdbcSourcePlugin seconds = open(Map.of("watermark.unit", "seconds"));
-        try (JdbcCollector collector = new JdbcCollector(seconds.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(seconds.schema());
                 PartitionReader reader =
                         seconds.createReader(seconds.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThatThrownBy(() -> drain(reader, collector))
@@ -201,7 +202,7 @@ class JdbcSourcePluginTest {
         insert(2, "bob", null, 200);
 
         JdbcSourcePlugin plugin = open(Map.of());
-        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
@@ -224,7 +225,7 @@ class JdbcSourcePluginTest {
         insert(1, "ann", 10.5, 100);
         JdbcSourcePlugin plugin = open(Map.of());
 
-        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(1);
@@ -249,7 +250,7 @@ class JdbcSourcePluginTest {
 
         JdbcSourcePlugin plugin = open(Map.of());
         SourceOffset checkpoint;
-        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 2)).isEqualTo(2);
@@ -261,7 +262,7 @@ class JdbcSourcePluginTest {
         // a strictly-greater comparison would drop on the floor.
         insert(4, "d", 4.0, 100);
 
-        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader resumed =
                         plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
             assertThat(drain(resumed, collector).stream().map(r -> r.getLong(0)))
@@ -287,7 +288,7 @@ class JdbcSourcePluginTest {
         plugin.open();
 
         assertThat(plugin.schema().fieldCount()).isEqualTo(2);
-        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("big").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector).stream().map(r -> r.getLong(0))).containsExactly(2L);
@@ -341,7 +342,7 @@ class JdbcSourcePluginTest {
         // one set once on insert, so it declares the repeat unless told otherwise.
         insert(1, "ann", 10.5, 100);
         JdbcSourcePlugin plugin = open(Map.of());
-        try (JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(1);
@@ -391,7 +392,7 @@ class JdbcSourcePluginTest {
         assertThatCode(() -> {
                     execute("INSERT INTO orders VALUES (1, NULL, 5.0, 100)");
                     JdbcSourcePlugin plugin = open(Map.of());
-                    JdbcCollector collector = new JdbcCollector(plugin.schema());
+                    ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                     try (PartitionReader reader =
                             plugin.createReader(plugin.partitions("orders").get(0), null)) {
                         assertThat(drain(reader, collector).get(0).isNull(1)).isTrue();
@@ -408,7 +409,7 @@ class JdbcSourcePluginTest {
         JdbcSourcePlugin plugin = open(Map.of());
         ReadRequest request = new ReadRequest(List.of(new ReadRequest.Filter("ID", ReadRequest.Comparison.GT, 45L)));
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
             List<RowView> rows = drain(reader, collector);
@@ -432,7 +433,7 @@ class JdbcSourcePluginTest {
         // inject. The marker does.
         assertThat(plugin.pollQueryFor(request)).contains("NAME = ?").doesNotContain("DROP TABLE");
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
             assertThat(drain(reader, collector)).isEmpty();
@@ -454,7 +455,7 @@ class JdbcSourcePluginTest {
         String sql = plugin.pollQueryFor(request);
         assertThat(sql).contains("ID >= ?").doesNotContain("NOT_A_COLUMN");
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
             assertThat(drain(reader, collector)).hasSize(1);
@@ -473,7 +474,7 @@ class JdbcSourcePluginTest {
         // would be read as a watermark, and the reader would resume from a filter value -- which
         // does not fail, it just reads from the wrong place.
         SourceOffset midpoint;
-        JdbcCollector first = new JdbcCollector(plugin.schema());
+        ArenaRowCollector first = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
             reader.poll(first, 5);
@@ -481,7 +482,7 @@ class JdbcSourcePluginTest {
         }
         assertThat(first.rows().stream().map(row -> row.getLong(0)).toList()).containsExactly(11L, 12L, 13L, 14L, 15L);
 
-        JdbcCollector rest = new JdbcCollector(plugin.schema());
+        ArenaRowCollector rest = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), midpoint, request)) {
             assertThat(drain(reader, rest).stream().map(row -> row.getLong(0)).toList())
@@ -495,7 +496,7 @@ class JdbcSourcePluginTest {
             insert(id, "n" + id, (double) id, id);
         }
         JdbcSourcePlugin plugin = open(Map.of());
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
 
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null)) {

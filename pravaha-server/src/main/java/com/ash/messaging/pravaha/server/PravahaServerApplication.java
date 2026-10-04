@@ -175,6 +175,7 @@ public class PravahaServerApplication {
      * against nothing at all.
      */
     @Bean
+    @org.springframework.context.annotation.Primary // a deployment's own policy bean is used through this one
     public com.ash.messaging.pravaha.security.SecurityPolicy pravahaSecurityPolicy(PravahaNode node) {
         // CFG-21. One validator, in SecurityProperties, reached from its own @PostConstruct as well
         // as from here -- so the refusal an operator reads arrives while the properties bean is
@@ -223,8 +224,22 @@ public class PravahaServerApplication {
      * configuration would now look correct, which is worse than the bug it replaced.
      */
     @Bean
+    @org.springframework.context.annotation.Primary // a deployment's own sink bean is recorded into through this one
     public com.ash.messaging.pravaha.security.AuditSink pravahaAuditSink(PravahaNode node) {
         return node.auditSink();
+    }
+
+    /**
+     * A {@code SecurityPolicy}, {@code TokenVerifier} or {@code AuditSink} bean of the deployment's own,
+     * which the node uses in place of the configured one (POLICYPLUG-1). The node's own beans above are
+     * {@code @Primary} and left out of the search, so injecting either type still yields the node's one
+     * object. Static: it depends on nothing but the bean factory, and resolves the beans when the node
+     * first asks, so a deployment's bean may depend on the node without a cycle.
+     */
+    @Bean
+    public static com.ash.messaging.pravaha.server.security.SecurityExtensions pravahaSecurityExtensions(
+            org.springframework.beans.factory.ListableBeanFactory beans) {
+        return com.ash.messaging.pravaha.server.security.SecurityExtensions.from(beans);
     }
 
     /**

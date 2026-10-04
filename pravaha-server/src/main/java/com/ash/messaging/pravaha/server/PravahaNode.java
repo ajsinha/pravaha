@@ -179,6 +179,23 @@ public class PravahaNode implements SmartLifecycle {
 
     private final StreamDeclarationProperties declaredStreams;
     private final SecurityProperties security;
+
+    /** The node's audit sink (CFG-5, CFG-23), and a deployment's own when it supplies one. */
+    private final NodeAudit audits;
+
+    /** A deployment's own policy, verifier or audit sink, which replace the configured ones (POLICYPLUG-1). */
+    private com.ash.messaging.pravaha.server.security.SecurityExtensions securityExtensions =
+            com.ash.messaging.pravaha.server.security.SecurityExtensions.NONE;
+
+    /** Set by Spring from the application context; by a test or a host, directly. Before {@link #start()}. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public synchronized void setSecurityExtensions(
+            com.ash.messaging.pravaha.server.security.SecurityExtensions extensions) {
+        this.securityExtensions =
+                extensions == null ? com.ash.messaging.pravaha.server.security.SecurityExtensions.NONE : extensions;
+        this.credentials = null;
+    }
+
     private final File tlsCertificate;
     private final File tlsKey;
     private final Duration watermarkIdleAfter;
@@ -217,8 +234,8 @@ public class PravahaNode implements SmartLifecycle {
 
     private synchronized com.ash.messaging.pravaha.server.identity.NodeCredentials credentials() {
         if (credentials == null) {
-            credentials =
-                    new com.ash.messaging.pravaha.server.identity.NodeCredentials(security, identity, this::auditSink);
+            credentials = new com.ash.messaging.pravaha.server.identity.NodeCredentials(
+                    security, identity, this::auditSink, securityExtensions.verifier());
         }
         return credentials;
     }
@@ -258,6 +275,22 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     private PgWireLimits pgWireLimits = PgWireLimits.DEFAULTS;
+
+    /** pravaha.serving.read.* (READADMIT-1): validated here, so a bad value stops the node at start. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setReadLimits(ReadLimitsProperties properties) {
+        readLimits = properties == null ? com.ash.messaging.pravaha.serving.ReadLimits.NONE : properties.limits();
+    }
+
+    private com.ash.messaging.pravaha.serving.ReadLimits readLimits = com.ash.messaging.pravaha.serving.ReadLimits.NONE;
+
+    private volatile com.ash.messaging.pravaha.serving.ReadAdmission readAdmission =
+            com.ash.messaging.pravaha.serving.ReadAdmission.UNLIMITED;
+
+    /** The admission both gateways share since the last start: its counts are the node's read refusals. */
+    public com.ash.messaging.pravaha.serving.ReadAdmission readAdmission() {
+        return readAdmission;
+    }
 
     /** pravaha.pgwire.tls.allow-plaintext (PGTLSONLY-1): off, so a certificate is PostgreSQL's hostssl. */
     @org.springframework.beans.factory.annotation.Value("${pravaha.pgwire.tls.allow-plaintext:false}")
@@ -537,6 +570,7 @@ public class PravahaNode implements SmartLifecycle {
                 stateSpill == null ? new com.ash.messaging.pravaha.server.state.StateSpillProperties() : stateSpill;
         this.declaredStreams = declaredStreams;
         this.security = security;
+        this.audits = new NodeAudit(security, () -> securityExtensions);
         this.tlsCertificate = tlsCertificate == null || tlsCertificate.isBlank() ? null : new File(tlsCertificate);
         this.tlsKey = tlsKey == null || tlsKey.isBlank() ? null : new File(tlsKey);
         this.watermarkIdleAfter = watermarkIdleAfter;
@@ -773,8 +807,19 @@ public class PravahaNode implements SmartLifecycle {
 
     /** The policy every transport authorizes against: one object, so HTTP and the engine cannot disagree. */
     public SecurityPolicy securityPolicy() {
+        Optional<SecurityPolicy> custom = securityExtensions.policy(); // POLICYPLUG-1
         if (catalog != null && catalog.enabled()) {
+            if (custom.isPresent()) {
+                throw new PravahaException(
+                        SecurityErrors.MISCONFIGURED,
+                        "pravaha.catalog.enabled is true and the application supplies its own SecurityPolicy ("
+                                + custom.get().getClass().getName() + "): both would decide who may read what. "
+                                + "Turn the catalogue off, or express the rules as grants and remove the bean.");
+            }
             return catalog.policy(); // ADR-059: the catalogue's grants decide
+        }
+        if (custom.isPresent()) {
+            return custom.get();
         }
         // CFG-21. The name is validated by SecurityProperties, which is where the refusal has to
         // live for an operator to meet it before Tomcat's own startup failure buries it.
@@ -789,98 +834,14 @@ public class PravahaNode implements SmartLifecycle {
         return registry.policy();
     }
 
-    /**
-     * The one audit sink for this node, built from {@code pravaha.security.audit}.
-     *
-     * <p>Package-private rather than private because the HTTP half of the node has to get the
-     * <em>same instance</em>. CFG-5: {@code HttpAuthorizer} took its sink from a Spring bean that
-     * returned {@code AuditSink.NONE} unconditionally, so a deployment configured with
-     * {@code audit: memory} recorded every Flight read and no HTTP read, no HTTP stream declaration
-     * and no HTTP refusal -- with nothing at startup saying so.
-     *
-     * <p>Resolving the key again in that bean would not have fixed it. {@code memory} builds an
-     * {@code InMemory} sink, and a second one is a sink nobody can reach: the HTTP events would
-     * still be invisible, and the configuration would now look right. Sharing the instance is the
-     * fix; the cache below is what makes sharing safe to ask for before {@link #start()}.
-     */
-    @SuppressWarnings("AssignmentExpression") // made once, on the first ask, and cached in place
+    /** The one audit sink for this node, shared with the HTTP half (CFG-5); see {@link NodeAudit}. */
     AuditSink auditSink() {
-        // CFG-21. Validated by SecurityProperties, so an unknown name is refused while the
-        // properties bean is initialising rather than four Caused-by levels under Tomcat.
-        return switch (security.trimmedAudit()) {
-            case "memory" -> audit == null ? (audit = readable(memorySink(), "memory")) : audit;
-            // CFG-23. The setting that produces a trail an operator can read after the fact, and a file
-            // because an endpoint listing who-read-what would need an authorization this policy SPI
-            // cannot express, while a file's readers are the operating system's. See FileAuditSink.
-            case "file" -> audit == null ? (audit = readable(fileSink(), "file")) : audit;
-            default -> AuditSink.NONE;
-        };
+        return audits.sink();
     }
 
-    /**
-     * The in-process sink, and the warning that it is not an audit trail.
-     *
-     * <p>CFG-23: {@code memory} accepts every decision and exposes them to nobody -- nothing in any
-     * {@code src/main} reads {@code events()}. It is genuinely useful to tests, which hold the sink
-     * object, and to support reading a heap dump. A deployment that set it believing otherwise has
-     * no record at all, which is the same outcome as {@code none} arrived at from the other end, so
-     * the node says so once rather than letting the configuration file look reassuring.
-     */
-    private AuditSink.InMemory memorySink() {
-        log.warn("pravaha.security.audit=memory keeps recent decisions in this process and exposes them to "
-                + "nothing: no endpoint, no log, no file. It is for tests and for support reading a heap "
-                + "dump. Use audit=file for a trail that outlives the process and that an operator can read.");
-        return new AuditSink.InMemory();
-    }
-
-    private com.ash.messaging.pravaha.security.FileAuditSink fileSink() {
-        com.ash.messaging.pravaha.security.FileAuditSink sink = new com.ash.messaging.pravaha.security.FileAuditSink(
-                java.nio.file.Path.of(security.getAuditFile()),
-                security.getAuditRotateBytes(),
-                security.getAuditKeep(),
-                // Through the node's log rather than standard error: a write failure here
-                // means decisions are being made and not recorded, which is exactly the
-                // state CFG-23 is about, and it belongs where the operator is already
-                // looking.
-                message -> log.error("audit: {}", message));
-        log.info(
-                "audit trail: {} (owner-readable only, JSON Lines, rotating at {} bytes, keeping {})",
-                sink.path(),
-                security.getAuditRotateBytes(),
-                security.getAuditKeep());
-        return sink;
-    }
-
-    private AuditSink audit;
-
-    /**
-     * The configured sink, wrapped so the most recent decisions can be read back over
-     * {@code GET /api/v1/audit}.
-     *
-     * <p>A bounded ring beside the durable sink rather than the durable sink read back: the file is
-     * written asynchronously, rotates, and is for the operator's own tools, while the ring is
-     * recorded on the same call as the decision and costs O(1). {@link AuditTrail} explains the
-     * trade and the read API reports the bound. The wrapper also swallows a failing delegate, so
-     * auditing cannot fail the call it audits.
-     */
-    private AuditSink readable(AuditSink durable, String kind) {
-        int capacity = security.getAuditRecent();
-        if (capacity < 1) {
-            throw new PravahaException(
-                    SecurityErrors.MISCONFIGURED,
-                    "pravaha.security.audit-recent is " + capacity + "; it is how many recent decisions stay "
-                            + "readable over /api/v1/audit and must be at least 1.");
-        }
-        return new AuditTrail(durable, kind, capacity);
-    }
-
-    /**
-     * The readable trail, when this node audits at all; empty under {@code audit: none}, where there is
-     * nothing to read and the read API says so rather than showing an empty trail as if nobody had
-     * asked for anything.
-     */
+    /** The readable trail, when this node audits at all; empty under {@code audit: none}. */
     public Optional<AuditTrail> auditTrail() {
-        return auditSink() instanceof AuditTrail trail ? Optional.of(trail) : Optional.empty();
+        return audits.trail();
     }
 
     @Override
@@ -1039,7 +1000,7 @@ public class PravahaNode implements SmartLifecycle {
                 // The configured name, not the object: SecurityPolicy.PERMISSIVE is an anonymous
                 // class, and "SecurityPolicy$1@7657d90b" in the one line an operator reads to check
                 // how a node is secured is worse than not logging it.
-                security.getPolicy(),
+                securityExtensions.describePolicy(security.getPolicy()),
                 security.administerRule().setting(),
                 security.getAudit(),
                 tlsCertificate == null ? "PLAINTEXT" : "TLS");
@@ -1055,7 +1016,9 @@ public class PravahaNode implements SmartLifecycle {
         if (users.isPresent()) {
             identity.announce(users.get(), log);
         } else {
-            security.unusableTokenTable().ifPresent(log::warn);
+            security.unusableTokenTable()
+                    .filter(warning -> securityExtensions.verifier().isEmpty())
+                    .ifPresent(log::warn);
         }
 
         // Before recovery, and that ordering is the point: a recovered query is registered the same
@@ -1255,6 +1218,9 @@ public class PravahaNode implements SmartLifecycle {
                     + "a restart will lose them without saying so");
         }
 
+        com.ash.messaging.pravaha.serving.ReadAdmission reads = readLimits.admission();
+        readAdmission = reads;
+        log.info("{}", readLimits.describe());
         if (flightEnabled) {
             // The same policy object the registry authorizes against, and set BEFORE hosting().
             //
@@ -1269,6 +1235,7 @@ public class PravahaNode implements SmartLifecycle {
                     // B5. The same files the HTTP endpoints read, so `pravaha dlq` and the REST
                     // API cannot disagree about what is in the queue.
                     .withDeadLetters(feeds.deadLetters())
+                    .admitting(reads, readLimits.deadline()) // READADMIT-1: one admission for both gateways
                     .observedBy(flightObservation)
                     .hosting(registry);
             TokenVerifier flightVerifier = transportVerifier();
@@ -1310,7 +1277,8 @@ public class PravahaNode implements SmartLifecycle {
                     new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
                             .authorizedBy(securityPolicyOf(registry), auditSink())
                             // PGPREAUTH-1: connection, handshake, message-size and idle limits.
-                            .limitedBy(pgWireLimits);
+                            .limitedBy(pgWireLimits)
+                            .admitting(reads, readLimits.deadline());
             TokenVerifier pgVerifier = transportVerifier();
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);
@@ -1359,10 +1327,7 @@ public class PravahaNode implements SmartLifecycle {
         stateClaims.clear();
         // After everything that could still record a decision, so the last refusal a node made is
         // in the file rather than in a queue nobody drains.
-        if (audit instanceof AutoCloseable closeable) {
-            closeQuietly("audit sink", closeable);
-            audit = null;
-        }
+        audits.takeCloseable().ifPresent(closeable -> closeQuietly("audit sink", closeable));
     }
 
     /**

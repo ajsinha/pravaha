@@ -38,13 +38,27 @@ public final class NodeCredentials {
     private final SecurityProperties security;
     private final IdentityProperties identity;
     private final Supplier<AuditSink> audit;
+    private final Optional<TokenVerifier> custom;
     private TokenVerifier verifier;
     private boolean built;
 
     public NodeCredentials(SecurityProperties security, IdentityProperties identity, Supplier<AuditSink> audit) {
+        this(security, identity, audit, Optional.empty());
+    }
+
+    /**
+     * @param custom the application's own verifier (POLICYPLUG-1), used in place of the token table under
+     *     {@code authentication: token}
+     */
+    public NodeCredentials(
+            SecurityProperties security,
+            IdentityProperties identity,
+            Supplier<AuditSink> audit,
+            Optional<TokenVerifier> custom) {
         this.security = security;
         this.identity = identity;
         this.audit = audit;
+        this.custom = custom;
     }
 
     /** The identity service, when {@code pravaha.identity.enabled} is set. */
@@ -62,7 +76,26 @@ public final class NodeCredentials {
             return verifier;
         }
         Optional<IdentityService> users = identity();
-        if (users.isEmpty()) {
+        if (custom.isPresent()) {
+            // POLICYPLUG-1. Refused where it would be ignored or ambiguous rather than quietly half-used.
+            if (!security.authenticates()) {
+                throw new PravahaException(
+                        SecurityErrors.MISCONFIGURED,
+                        "the application supplies its own TokenVerifier ("
+                                + custom.get().getClass().getName()
+                                + ") and pravaha.security.authentication is not token, so nothing would ever "
+                                + "ask it. Set authentication: token, or remove the bean.");
+            }
+            if (users.isPresent()) {
+                throw new PravahaException(
+                        SecurityErrors.MISCONFIGURED,
+                        "the application supplies its own TokenVerifier ("
+                                + custom.get().getClass().getName()
+                                + ") and pravaha.identity.enabled is true: both would decide who a credential "
+                                + "belongs to. Turn identity off, or remove the bean.");
+            }
+            verifier = custom.get();
+        } else if (users.isEmpty()) {
             verifier = security.verifier();
         } else {
             if (!security.authenticates()) {

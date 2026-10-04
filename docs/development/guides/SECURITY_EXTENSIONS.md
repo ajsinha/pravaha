@@ -15,22 +15,69 @@ decision flow are [governance](../../design/architecture/governance.md). Convent
 
 | Seam | Interface | Shipped | Pluggable where |
 |---|---|---|---|
-| Authentication | `TokenVerifier`: `Principal verify(String token)` | `StaticTokenVerifier`, `IdentityTokenVerifier` (users, keys, sessions — [ADR-052](../../design/adr/052-the-engine-is-the-identity-authority.md)) | a host you assemble: `PravahaFlightServer.authenticatedBy(...)`, `PravahaPgWireServer.authenticatedBy(...)` |
-| Authorization | `SecurityPolicy` | `SecurityPolicy.PERMISSIVE`, `AuthenticatedOnlyPolicy`, `CatalogPolicy` | a host you assemble: `new QueryRegistry(views, policy, audit, streams)`, `new ViewQuery(catalog, policy, audit)`, `authorizedBy(policy, audit)` on the Flight and PostgreSQL servers |
-| Audit | `AuditSink`: `void record(AuditEvent)` | none, memory, a JSON-lines file (`FileAuditSink`) | the same host assembly |
+| Authentication | `TokenVerifier`: `Principal verify(String token)` | `StaticTokenVerifier`, `IdentityTokenVerifier` (users, keys, sessions — [ADR-052](../../design/adr/052-the-engine-is-the-identity-authority.md)) | **a node**: a `TokenVerifier` Spring bean ([below](#plugging-one-into-a-node)); a host you assemble: `PravahaFlightServer.authenticatedBy(...)`, `PravahaPgWireServer.authenticatedBy(...)` |
+| Authorization | `SecurityPolicy` | `SecurityPolicy.PERMISSIVE`, `AuthenticatedOnlyPolicy`, `CatalogPolicy` | **a node**: a `SecurityPolicy` Spring bean; **the embedded engine**: `engine.securedBy(policy)`; a host you assemble: `new QueryRegistry(views, policy, audit, streams)`, `new ViewQuery(catalog, policy, audit)`, `authorizedBy(policy, audit)` on the Flight and PostgreSQL servers |
+| Audit | `AuditSink`: `void record(AuditEvent)` | none, memory, a JSON-lines file (`FileAuditSink`) | **a node**: an `AuditSink` Spring bean; **the embedded engine**: `engine.auditingTo(sink)`; a host you assemble, as above |
 | Rules as data | grants, row filters, masks, tags | the Pravaha Catalog ([ADR-059](../../design/adr/059-the-pravaha-catalog-governs-live-answers.md)) | **any node**, with `pravaha.catalog.enabled: true`, through SQL (`GRANT`, `CREATE ROW FILTER`, `CREATE MASK`), `/api/v1/catalog/*`, `pravaha grant` / `pravaha policy`, or the console |
 | Alert channels | `NotifierPlugin` | `webhook`, `log` | any node, by `ServiceLoader` — the [connector guide](CONNECTOR_DEVELOPMENT.md#lookups-and-notifiers) |
 
-**On `pravaha-server` the policy is not a plug-in point.** `PravahaNode.securityPolicy()` returns the
-catalogue's policy when `pravaha.catalog.enabled`, else `SecurityPolicy.PERMISSIVE` or
-`AuthenticatedOnlyPolicy` by `pravaha.security.policy`; the verifier is the static table or the identity
-store; the audit sink is chosen by `pravaha.security.audit`. There is no bean, `ServiceLoader` or class
-name that installs a policy, verifier or sink of your own, and the embedded engine runs everything as the
-anonymous principal under `PERMISSIVE`. A rule that the catalogue can express belongs in the catalogue; a
-rule that needs code (an external entitlement service, an LDAP group) needs a host you assemble from the
-library modules — the [hosts](../../design/architecture/hosts.md) page lists them. (The node's own refusal of
-an unknown `pravaha.security.policy` says "or implement SecurityPolicy for rules of your own"; that is
-only true of a self-assembled host — suggested finding LETTERS-1.)
+### Plugging one into a node
+
+**On `pravaha-server`, a bean of the type takes the place of the configured one** (POLICYPLUG-1). Put a
+`SecurityPolicy`, a `TokenVerifier` or an `AuditSink` in the application context — a `@Bean` method in a
+`@Configuration` the application scans, or a component in a jar on its classpath — and the node uses it
+everywhere it would have used its own: the engine's registrations, Flight, the PostgreSQL gateway and the
+HTTP API alike.
+
+```java
+@Configuration
+public class OurSecurity {
+    @Bean
+    SecurityPolicy regionPolicy() { return new RegionPolicy(); }           // in place of pravaha.security.policy
+
+    @Bean
+    TokenVerifier ourIdentityProvider(OidcClient oidc) {                    // in place of pravaha.security.tokens
+        return token -> oidc.verify(token);
+    }
+
+    @Bean
+    AuditSink siem(SiemClient client) { return client::send; }             // in place of pravaha.security.audit
+}
+```
+
+| | What the node does with it | Refused at start (`PRV-7004`) when |
+|---|---|---|
+| `SecurityPolicy` | decides every read, subscription, registration and administration; the startup line says `policy=custom (<class>)` | `pravaha.catalog.enabled` is on too — both would decide who may read what |
+| `TokenVerifier` | verifies every credential on HTTP, Flight and the PostgreSQL gateway, in place of the token table | `pravaha.security.authentication` is not `token` (nothing would ask it), or `pravaha.identity.enabled` is on (both would decide whose a credential is) |
+| `AuditSink` | records every decision; wrapped in the readable ring, so `GET /api/v1/audit` still works and names your class as the durable sink. Implement `failure()` and `unrecorded()` and the node's health and `pravaha_audit_*` meters report it | — |
+
+Two beans of one type are refused by name: which one to trust is not a guess the node makes. The node's
+own beans of these types (`pravahaSecurityPolicy`, `pravahaAuditSink`) are `@Primary` and are never taken
+for an extension, so code that injects a `SecurityPolicy` or an `AuditSink` still gets the node's one
+object — which is your bean (the sink inside the readable trail). Do not mark yours `@Primary`. The node
+resolves the beans when it first needs them, so yours may depend on anything, the node included. The
+open-server check still applies: with `authentication: none`, a custom policy needs
+`pravaha.security.allow-anonymous: true`, because the node cannot tell whether it serves everybody.
+
+**The embedded engine** has no Spring; it takes the same two as declarations, before `start()`:
+
+```java
+try (PravahaEngine engine = PravahaEngine.createDefault()) {
+    engine.securedBy(new RegionPolicy()).auditingTo(mySink);
+    engine.declareStream("orders", "id:INT64,region:STRING,amount:INT64");
+    engine.start();
+    ...
+}
+```
+
+Every embedded call runs as `Principal.ANONYMOUS` — the host has already decided who may call — so the
+policy is asked about that principal, and the interface's default `mayRegisterQuery` refuses it: a policy
+that should let the engine register queries overrides it. A verifier has no place there (nothing
+authenticates). The engine does not close the sink.
+
+A rule the catalogue can express still belongs in the catalogue; a bean is for a rule that needs code (an
+external entitlement service, an LDAP group). A host assembled from the library modules — the
+[hosts](../../design/architecture/hosts.md) page lists them — passes all three to the constructors in the table.
 
 ---
 
@@ -161,7 +208,9 @@ revoked credential ends open connections; make it fast and thread-safe (one veri
 concurrent call). Never return `null` or `Principal.ANONYMOUS`, and refuse with a message that says the
 credential was rejected and **nothing about why** — "expired" versus "unknown" is an oracle for whoever is
 guessing. An audit sink must not block a read for long and
-must not lose records silently; `FileAuditSink` is one JSON object per line, rotated by size.
+must not lose records silently; `FileAuditSink` is one JSON object per line, rotated by size, and reports a
+file it cannot write through `failure()` and `unrecorded()` (AUDITROTATE-1) — a sink of your own that can
+fail should override both, so the node's health says so.
 
 ---
 
@@ -191,6 +240,7 @@ the decision rules are `CatalogAccess`'s ([governance](../../design/architecture
 | The codes a refusal carries | `ErrcSecurityTest` (`pravaha-cli`) |
 | The catalogue | `pravaha-catalog`'s own tests; `console/tests/test_catalog_governance.py`, `test_catalog_policies.py` for the screens |
 | Identity | `pravaha-identity`'s tests; `sdk/python/tests/test_authentication.py` against `TestFlightServerMain` |
+| Beans on a node, the embedded hook | `CustomPolicyBeanTest`, `SecurityExtensionNodeTest` (`pravaha-server`), `EmbeddedSecurityHookTest` (`pravaha-embedded`) |
 
 ```bash
 tools/worktree-build.sh -o -pl pravaha-security,pravaha-catalog,pravaha-identity test

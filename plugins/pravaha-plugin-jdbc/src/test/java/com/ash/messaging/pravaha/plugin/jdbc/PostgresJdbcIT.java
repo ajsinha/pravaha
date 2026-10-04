@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
@@ -122,7 +123,7 @@ class PostgresJdbcIT {
         return plugin;
     }
 
-    private static List<RowView> drain(PartitionReader reader, JdbcCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, ArenaRowCollector collector) {
         while (reader.poll(collector, 64) > 0) {
             // each poll returns what is ready
         }
@@ -146,7 +147,7 @@ class PostgresJdbcIT {
             insert(id, "n" + id, (double) id, id);
         }
         JdbcSourcePlugin plugin = open(Map.of());
-        JdbcCollector first = new JdbcCollector(plugin.schema());
+        ArenaRowCollector first = new ArenaRowCollector(plugin.schema());
 
         com.ash.messaging.pravaha.api.plugin.SourceOffset midpoint;
         try (PartitionReader reader =
@@ -156,7 +157,7 @@ class PostgresJdbcIT {
         }
         assertThat(first.rows().stream().map(row -> row.getLong(0)).toList()).containsExactly(1L, 2L, 3L, 4L);
 
-        JdbcCollector rest = new JdbcCollector(plugin.schema());
+        ArenaRowCollector rest = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), midpoint)) {
             assertThat(drain(reader, rest).stream().map(row -> row.getLong(0)).toList())
@@ -174,7 +175,7 @@ class PostgresJdbcIT {
         JdbcSourcePlugin plugin = open(Map.of());
         ReadRequest request = new ReadRequest(List.of(new ReadRequest.Filter("id", ReadRequest.Comparison.GT, 45L)));
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
             assertThat(drain(reader, collector).stream()
@@ -195,7 +196,7 @@ class PostgresJdbcIT {
         ReadRequest request = new ReadRequest(List.of(), List.of("amount"), List.of());
         assertThat(plugin.pollQueryFor(request)).startsWith("SELECT id, amount, updated_at FROM orders");
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
             List<RowView> rows = drain(reader, collector);
@@ -253,7 +254,7 @@ class PostgresJdbcIT {
 
         Map<Integer, long[]> summed = new java.util.HashMap<>();
         com.ash.messaging.pravaha.api.plugin.SourceOffset midway;
-        JdbcCollector first = new JdbcCollector(partial);
+        ArenaRowCollector first = new ArenaRowCollector(partial);
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), null, request)) {
             assertThat(reader.deliversPartialAggregate()).isTrue();
@@ -261,7 +262,7 @@ class PostgresJdbcIT {
             reader.poll(first, 5);
             midway = reader.position();
         }
-        JdbcCollector rest = new JdbcCollector(partial);
+        ArenaRowCollector rest = new ArenaRowCollector(partial);
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), midway, request)) {
             drain(reader, rest);
@@ -296,7 +297,7 @@ class PostgresJdbcIT {
         // database it would actually have surfaced on.
         insert(1, null, 5.0, 100);
         JdbcSourcePlugin plugin = open(Map.of());
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
 
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), null)) {
@@ -330,7 +331,7 @@ class PostgresJdbcIT {
                         "60")));
         lookup.open();
 
-        JdbcCollector out = new JdbcCollector(lookup.schema());
+        ArenaRowCollector out = new ArenaRowCollector(lookup.schema());
         assertThat(lookup.lookup(new Object[] {2L}, out)).isEqualTo(1);
         assertThat(out.rows().get(0).getString(1)).isEqualTo("silver");
         assertThat(lookup.keyColumns()).containsExactly("id");
