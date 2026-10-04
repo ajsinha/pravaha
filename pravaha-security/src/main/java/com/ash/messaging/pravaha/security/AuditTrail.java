@@ -22,6 +22,8 @@ import java.util.Locale;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The configured audit sink, with the most recent decisions kept where the node can read them back.
  *
@@ -188,7 +190,7 @@ public final class AuditTrail implements AuditSink {
             int retained,
             int capacity,
             long evicted,
-            Instant oldest,
+            @Nullable Instant oldest,
             List<String> actions) {}
 
     /**
@@ -202,7 +204,12 @@ public final class AuditTrail implements AuditSink {
      * @param allowed true for allows only, false for denials only
      */
     public record Filter(
-            Instant since, Instant until, String principal, String target, String action, Boolean allowed) {
+            @Nullable Instant since,
+            @Nullable Instant until,
+            @Nullable String principal,
+            @Nullable String target,
+            @Nullable String action,
+            @Nullable Boolean allowed) {
 
         public static final Filter ANY = new Filter(null, null, null, null, null, null);
 
@@ -234,7 +241,7 @@ public final class AuditTrail implements AuditSink {
             return allowed == null || allowed == event.allowed();
         }
 
-        private static String blankToNull(String value) {
+        private static @Nullable String blankToNull(@Nullable String value) {
             return value == null || value.isBlank() ? null : value.strip();
         }
     }
