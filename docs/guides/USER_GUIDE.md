@@ -59,7 +59,7 @@ query up to its first batch (planning, preparing, binding, opening the result) a
 register, list, pause, drop, replace, dead letters, debug. A call past it fails with `PRV-1045
 CLIENT_DEADLINE_EXCEEDED`, retryable, naming the call and the deadline. A subscription gets no total
 deadline — it is meant to run for hours — so only its opening is bounded; nor is reading the rows of
-a result that has opened. Until 2.1.1 the setting existed and nothing read it over Flight, so a node
+a result that has opened. Until 2.2.0 the setting existed and nothing read it over Flight, so a node
 that accepted a call and never answered held the caller for ever (SDKDEADLINE-1).
 
 ## 2. Register a continuous query

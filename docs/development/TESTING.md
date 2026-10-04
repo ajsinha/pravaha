@@ -96,7 +96,7 @@ Error Prone's `BuiltInCheckerSuppliers.ENABLED_WARNINGS` — regenerate it when 
 moves), so in every module that is clean a new Error Prone warning is a compile error. `pravaha-api`,
 `sdk/pravaha-sdk-java` and `sdk/pravaha-sdk-java-flight` are not clean yet and set the property empty;
 removing that override is how one joins. NullAway is not on the list; its level is `ep.nullaway.level`,
-ERROR for the whole reactor since every module reached zero (2.1.1), so a NullAway finding fails `-Pep`
+ERROR for the whole reactor since every module reached zero (2.2.0), so a NullAway finding fails `-Pep`
 as well. The
 `fast` workflow's `errorprone` job runs `./mvnw -Pep -DskipTests clean test-compile` (main and test
 code) on every push. A finding the code is right about is suppressed at the narrowest member that
@@ -136,7 +136,7 @@ test that passes null on purpose, to pin a refusal or a tolerance, says so with
 `@SuppressWarnings("NullAway")` and a comment. To bring another module to zero, fix it under `-Pep`,
 then copy the `ep` profile from one of these three poms.
 
-**The engine core and two surfaces are gated (2.1.1).** Eighteen more modules were brought to zero
+**The engine core and two surfaces are gated (2.2.0).** Eighteen more modules were brought to zero
 and carry the same `ep` profile: `pravaha-common`, `-algebra`, `-catalog`, `-sql`, `-runtime`,
 `-state`, `-security`, `-backfill`, `-codegen`, `-testkit`, `-cluster`, `-connect`, `-serving`,
 `-registry`, `-flight`, `-pgwire`, `plugins/pravaha-cluster-zookeeper` and
@@ -156,7 +156,7 @@ read only when `isNull` is false; `ViewNames.localName`/`shown`, null only for a
 probe-only null principal; an unreachable sink factory; a record constructor that defaults a null).
 Test code adds 83 nulls-on-purpose and 55 `NullAway.Init` on fields a test's own setup assigns.
 
-**The hosts and front ends are gated (2.1.1).** Seven more modules carry the `ep` profile:
+**The hosts and front ends are gated (2.2.0).** Seven more modules carry the `ep` profile:
 `pravaha-server`, `pravaha-identity`, `pravaha-bindings`, `pravaha-spring-boot-starter`,
 `pravaha-embedded`, `pravaha-cli` and `pravaha-benchmarks` (before: 424, 122, 91, 35, 26, 16 and 15).
 The same rules held: what a node or engine builds at start and drops at stop is `@Nullable` and read
@@ -170,7 +170,7 @@ handled. No bug was found. Suppressions in main code are 21: 15 `NullAway.Init` 
 Spring sets through an `Aware` callback, and one `NullAway` where a builder hands a missing SQL to the
 constructor that refuses it. Tests add 6 nulls-on-purpose and 2 `NullAway.Init`.
 
-**The plugins and `pravaha-it` are gated, and NullAway is ERROR everywhere (2.1.1).** The last ten
+**The plugins and `pravaha-it` are gated, and NullAway is ERROR everywhere (2.2.0).** The last ten
 modules carry the `ep` profile: the `feedfile`, `filesystem`, `delta`, `mysql-cdc`, `postgres-cdc`,
 `aerospike`, `cassandra`, `jdbc` and `kafka` plugins and `pravaha-it` (before: 18, 27, 36, 83, 85, 97,
 99, 136, 194 and 276), and the root POM's `ep.nullaway.level` is now ERROR, so a module added later

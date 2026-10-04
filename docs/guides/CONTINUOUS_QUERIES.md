@@ -2025,7 +2025,7 @@ the column rather than rounded on the way out. The CLI prints a decimal's digits
 `0E-10`) and puts it in `--json` as a string, as the console does, so no JSON reader turns it into a
 float. Until 2.1 a `DECIMAL` column was refused over Flight with `PRV-6100` and could be read only
 through the PostgreSQL gateway. A `?` placeholder compared with a `DECIMAL` was refused (`PRV-2021`)
-until 2.1.1 (DECPARAM-1); it is now compared exactly, below.
+until 2.2.0 (DECPARAM-1); it is now compared exactly, below.
 
 **Correction, and then a correction to the correction.** A QA round on 2026-09-14 found that
 `VARBINARY` (`BYTES`) and `TIME` were declarable and computed correctly but **crashed when a non-null

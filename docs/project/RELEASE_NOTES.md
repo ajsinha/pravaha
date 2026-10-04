@@ -10,7 +10,38 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.2.0 — 2026-10-04
+
+**Every open finding closed, a deadline on every SDK call, and NullAway at zero everywhere.** 2.2.0
+carries SDKDEADLINE-1 and the second adversarial QA pass (TLS, Npgsql, Aerospike and Cassandra
+failure, schema drift, a full disk — all twelve of its findings fixed), the four post-GA findings
+(audit rotation, pluggable security, read admission, the connector TCKs), NullAway at zero and an
+error in every module, the architecture reference and developer guides, and the performance figures
+re-measured on JDK 25. The register holds no open finding. It is a minor release because some fixes
+refuse what 2.1.0 accepted; [COMPATIBILITY.md](../operations/COMPATIBILITY.md) tables them.
+
+**Read before upgrading from 2.1.0.**
+
+- **SDK calls have a deadline:** every unary Flight call and the opening of a subscription is bounded
+  by `requestTimeout` / `request_timeout_seconds` / `--timeout`, 60 s by default, and fails
+  `PRV-1045` past it. A query whose first batch takes longer needs a longer deadline. An untrusted,
+  expired or misnamed server certificate is now `PRV-1046`, not retryable, rather than `PRV-1040`.
+  `ClientOptions.connectTimeout` is deprecated; it never bounded anything.
+- **Now refused:** a plaintext client on a TLS-configured PostgreSQL gateway (`PRV-6221`; connect with
+  `sslmode=verify-full`, or set `pravaha.pgwire.tls.allow-plaintext: true` for a migration window); a
+  node start on an expired or not-yet-valid certificate (`PRV-6104`, `PRV-6206`); a protobuf record
+  whose declared field arrives with the wrong wire type (dead-lettered, where it used to be a row
+  with that column at 0).
+- **A dead letter that cannot be written stops the feed** (`PRV-4090`), as a feed with no queue
+  would, instead of the record vanishing.
+- **Security beans are used:** a `SecurityPolicy`, `TokenVerifier` or `AuditSink` bean in a node's
+  application context now replaces the configured one, and an ambiguous set is refused `PRV-7004`.
+- **New and additive:** read admission settings (`pravaha.serving.read.*`, off by default), the audit
+  meters and `DEGRADED` health on a failing audit file, `checkpoint` in `GET /api/v1/queries/{name}`,
+  the sink TCK.
+- **Open:** none.
+
+What changed, in detail:
 
 - **NullAway gates the engine core, Flight and pgwire.** Eighteen more modules -- `pravaha-common`
   through `pravaha-registry`, `pravaha-flight`, `pravaha-pgwire`, the ZooKeeper coordinator and the
@@ -36,7 +67,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   Arrow's Flight client builder has no setting it could feed. The connection is made inside the
   first call, so `requestTimeout` is what bounds connecting — a node that is reachable but never
   answers fails that call with `PRV-1045` at the deadline. The builder method and getter are kept
-  (`@Deprecated(since = "2.1.1")`, still validated) so 2.x code compiles; Python's
+  (`@Deprecated(since = "2.2.0")`, still validated) so 2.x code compiles; Python's
   `connect_timeout_seconds` is documented the same way.
 - **A full disk no longer leaves a node that will not start** (DISKJOURNAL-1). A registry-journal
   append that the disk failed part way left its bytes behind; once space returned, the next

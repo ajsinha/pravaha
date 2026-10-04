@@ -152,7 +152,7 @@
     <japicmp.plugin.version>0.26.2</japicmp.plugin.version>
     <errorprone.version>2.50.0</errorprone.version>
     <nullaway.version>0.14.1</nullaway.version>
-    <!-- NullAway's level under -Pep. ERROR for the reactor since every module reached zero (2.1.1);
+    <!-- NullAway's level under -Pep. ERROR for the reactor since every module reached zero (2.2.0);
          each module's own ep profile also says ERROR and adds failOnWarning, so a module stays at zero
          even if this default moves. A new module starts at ERROR. -->
     <ep.nullaway.level>ERROR</ep.nullaway.level>
@@ -851,7 +851,7 @@
          property nothing read, so the analysis it names never ran.
 
          Error Prone's own ERROR-level checks fail the build; WARNING-level ones are reported. NullAway
-         runs at ep.nullaway.level, ERROR since every module was brought to zero (2.1.1): a finding
+         runs at ep.nullaway.level, ERROR since every module was brought to zero (2.2.0): a finding
          fails the build. javac runs forked, because Error Prone needs
          jdk.compiler's internals opened and the default build should not have to open them. Generated
          sources are not analysed. A module with annotation processors of its own (pravaha-benchmarks:

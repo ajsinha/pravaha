@@ -50,7 +50,7 @@ for as long as it runs. Reading the rows of a `QueryResult` that has opened is n
 The deadline also bounds **connecting**: the connection is made inside the first call, so a node
 that cannot be reached, or accepts the TCP connection and never answers, fails that call with
 `PRV-1045` at `requestTimeout` (or sooner, if the connection is refused outright). `connectTimeout`
-is deprecated since 2.1.1 (CONNECTTIMEOUT-1): Arrow's Flight client builder has no setting it could
+is deprecated since 2.2.0 (CONNECTTIMEOUT-1): Arrow's Flight client builder has no setting it could
 feed, so it never bounded anything. It is still accepted and validated, so 2.x code that sets it
 compiles and runs; set `requestTimeout` instead.
 

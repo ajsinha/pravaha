@@ -7704,7 +7704,7 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 ### CONNECTTIMEOUT-1 (LOW) — the Java SDK's `ClientOptions.connectTimeout` is read by nothing
 
-> **Status:** FIXED — Arrow 19's Flight client builder exposes no channel option, so the setting cannot be wired; `ClientOptions.connectTimeout` (getter and builder) is `@Deprecated(since = "2.1.1")`, still accepted and validated so 2.x callers compile, and its javadoc, the SDK README and the clients topic say `requestTimeout` bounds the connect (the connection is made inside the first call). `JavaSdkConnectTimeoutTest`: a listener that completes TCP and never speaks HTTP/2 fails the first call PRV-1045 at a 500 ms request deadline despite a 5-minute connectTimeout. Python's `connect_timeout_seconds`, likewise unread, is documented the same way.
+> **Status:** FIXED — Arrow 19's Flight client builder exposes no channel option, so the setting cannot be wired; `ClientOptions.connectTimeout` (getter and builder) is `@Deprecated(since = "2.2.0")`, still accepted and validated so 2.x callers compile, and its javadoc, the SDK README and the clients topic say `requestTimeout` bounds the connect (the connection is made inside the first call). `JavaSdkConnectTimeoutTest`: a listener that completes TCP and never speaks HTTP/2 fails the first call PRV-1045 at a 500 ms request deadline despite a 5-minute connectTimeout. Python's `connect_timeout_seconds`, likewise unread, is documented the same way.
 
 ## Found by the adversarial pass over the first round's blind spots (2026-10-04), 12 findings
 

@@ -88,15 +88,17 @@ for one node, and a deployment past them meets `PRV-6216`, `PRV-1054` or `PRV-10
 carries the engine token, so a console restart signs everyone out of it and several console
 instances need sticky sessions.
 
-## Unreleased (2.1.1): fixes that change behaviour
+## 2.2.0: fixes that change behaviour
 
-| What 2.1.0 did | What 2.1.1 does | Finding |
+| What 2.1.0 did | What 2.2.0 does | Finding |
 |---|---|---|
 | A dead letter that could not be written (a full disk) was counted and dropped; the source read on | The feed stops at that record, `PRV-4090`, logged at ERROR and counted; a row whose evaluation failed stops its query | DLQFULL-1 |
 | A TLS-configured PostgreSQL gateway signed in a client that never asked for TLS, its token in the clear | Refused `FATAL 28000`, `PRV-6221`, unless `pravaha.pgwire.tls.allow-plaintext: true` | PGTLSONLY-1 |
 | A protobuf field of the wrong wire type was read as `0` | The record is undecodable and dead-lettered | PBDRIFT-1 |
 | A node started on an expired (or not yet valid) TLS certificate | Refused at start, `PRV-6104`/`PRV-6206`; within 30 days of expiry a `WARN` | CERTEXP-1 |
 | The Java SDK reported a certificate it did not trust as `PRV-1040`, retryable | `PRV-1046 CLIENT_TLS_HANDSHAKE_FAILED`, not retryable | TLSDIAG-1 |
+| An SDK call to a node that never answered waited for ever | Every unary call, and a subscription's opening, fails `PRV-1045` (retryable) past `requestTimeout` / `request_timeout_seconds`, 60 s by default | SDKDEADLINE-1 |
+| A `SecurityPolicy`, `TokenVerifier` or `AuditSink` bean in a node's context was ignored | It replaces the configured one; two of a type, or one that would be ignored, is refused at start with `PRV-7004` | POLICYPLUG-1 |
 
 ## Stable in 2.x
 
