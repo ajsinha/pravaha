@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.sdk.flight;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What one step of a debug session did (ADR-048, design section 16.4).
  *
@@ -44,7 +46,7 @@ public record DebugStepReport(
         List<InputRow> rowsIn,
         List<OperatorFlow> operators,
         List<ViewDelta> viewChanges,
-        Long watermarkNanos,
+        @Nullable Long watermarkNanos,
         long rowsConsumed,
         int viewSize,
         boolean exhausted,

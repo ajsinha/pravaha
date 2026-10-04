@@ -36,12 +36,31 @@ def _code_in(message: str) -> str | None:
     return code if len(code) > 4 else None
 
 
+def plain_decimal(value: Any) -> str:
+    """A decimal as its digits, never in exponent form.
+
+    ``str`` writes a ``DECIMAL(38, 10)`` zero as ``0E-10`` and one ten-billionth as ``1E-10``:
+    the same number, in a form nobody reading a ledger expects and a spreadsheet pasting it
+    may not parse. ``format(value, "f")`` keeps every digit at the column's scale (FLIGHTDECIMAL-1).
+    """
+    return format(value, "f")
+
+
+def json_default(value: Any) -> Any:
+    """``json.dumps``'s ``default`` for engine values: a decimal plain, anything else as text."""
+    import decimal as _decimal
+
+    if isinstance(value, _decimal.Decimal):
+        return plain_decimal(value)
+    return str(value)
+
+
 def jsonable(value: Any) -> Any:
     """Engine values as JSON: a timestamp as ISO-8601, a decimal as a string, bytes as hex.
 
     A decimal becomes a string rather than a float on purpose -- a money column rounded
     by the console on its way to the browser would be a wrong number on the one screen
-    people copy numbers from.
+    people copy numbers from -- and a plain one, at its column's scale (:func:`plain_decimal`).
     """
     import datetime as _dt
     import decimal as _decimal
@@ -58,7 +77,7 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, _dt.timedelta):
         return value.total_seconds()
     if isinstance(value, _decimal.Decimal):
-        return str(value)
+        return plain_decimal(value)
     if isinstance(value, (bytes, bytearray)):
         return bytes(value).hex()
     if isinstance(value, float) and (_math.isnan(value) or _math.isinf(value)):

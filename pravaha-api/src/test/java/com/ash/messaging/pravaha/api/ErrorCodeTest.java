@@ -90,6 +90,8 @@ class ErrorCodeTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is the refusal a caller outside NullAway meets.
+    @SuppressWarnings("NullAway")
     void rejectsMalformedCodes() {
         assertThatThrownBy(() -> new ErrorCode(999, "x")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ErrorCode(10000, "x")).isInstanceOf(IllegalArgumentException.class);

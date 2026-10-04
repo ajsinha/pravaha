@@ -392,6 +392,7 @@ down as such.
 | `pravaha.security.audit-keep` | `5` | Rotated audit files kept; the oldest is deleted |
 | `pravaha.security.audit-readers` | `[admin]` | Roles whose holders may read the audit trail over `GET /api/v1/audit` under `policy: authenticated` |
 | `pravaha.security.audit-recent` | `10000` | Recent decisions kept readable in memory over `GET /api/v1/audit`; must be at least 1 |
+| `pravaha.identity.mode` | `password` | How people sign in. `password` is the only accepted value; `sso` or `hybrid` stops the node at start with PRV-7004, because single sign-on is not built — see [Authentication](/help/topics/authentication) |
 | `pravaha.identity.lockout.failures` | `5` | Failed sign-ins from one address, within `window`, that bar that address from the account for `duration`; ten times as many from any addresses lock the account. Every refusal answers `401 PRV-7010` alike — see [Authentication](/help/topics/authentication) |
 | `pravaha.identity.lockout.window` | `15m` | The window failures are counted in |
 | `pravaha.identity.lockout.duration` | `30m` | How long a bar, or an account lock, lasts |

@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
 
@@ -45,7 +47,7 @@ import com.ash.messaging.pravaha.sdk.PravahaClientException;
 public final class ReconnectingSubscription implements AutoCloseable {
 
     /** How a subscription reconnects. */
-    public record Reconnect(Duration giveUpAfter, Runnable onReconnected) {
+    public record Reconnect(@Nullable Duration giveUpAfter, Runnable onReconnected) {
 
         /** Five minutes without a stream, and nothing told of a reconnection. */
         public static Reconnect defaults() {

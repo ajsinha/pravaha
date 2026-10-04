@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What a server says about one registered continuous query.
  *
@@ -50,13 +52,13 @@ public record RegisteredQueryInfo(
         String fingerprint,
         long rowsIn,
         java.util.List<Integer> keyColumns,
-        String sink,
-        String retention,
-        String feed,
-        FeedStop feedStop,
-        String sinkState,
-        SinkFailure sinkFailure,
-        String owner) {
+        @Nullable String sink,
+        @Nullable String retention,
+        @Nullable String feed,
+        @Nullable FeedStop feedStop,
+        @Nullable String sinkState,
+        @Nullable SinkFailure sinkFailure,
+        @Nullable String owner) {
 
     public RegisteredQueryInfo {
         keyColumns = keyColumns == null ? java.util.List.of() : java.util.List.copyOf(keyColumns);
@@ -75,8 +77,8 @@ public record RegisteredQueryInfo(
             String fingerprint,
             long rowsIn,
             java.util.List<Integer> keyColumns,
-            String sink,
-            String retention) {
+            @Nullable String sink,
+            @Nullable String retention) {
         this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, null, null, null, null, null);
     }
 
@@ -88,10 +90,10 @@ public record RegisteredQueryInfo(
             String fingerprint,
             long rowsIn,
             java.util.List<Integer> keyColumns,
-            String sink,
-            String retention,
-            String feed,
-            FeedStop feedStop) {
+            @Nullable String sink,
+            @Nullable String retention,
+            @Nullable String feed,
+            @Nullable FeedStop feedStop) {
         this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, feed, feedStop, null, null, null);
     }
 
@@ -103,12 +105,12 @@ public record RegisteredQueryInfo(
             String fingerprint,
             long rowsIn,
             java.util.List<Integer> keyColumns,
-            String sink,
-            String retention,
-            String feed,
-            FeedStop feedStop,
-            String sinkState,
-            SinkFailure sinkFailure) {
+            @Nullable String sink,
+            @Nullable String retention,
+            @Nullable String feed,
+            @Nullable FeedStop feedStop,
+            @Nullable String sinkState,
+            @Nullable SinkFailure sinkFailure) {
         this(
                 name,
                 state,

@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.sdk.flight;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A blue/green replacement as the server reports it (ADR-046).
  *
@@ -27,12 +29,13 @@ import java.util.List;
  * @param state {@code BACKFILLING}, {@code CAUGHT_UP}, {@code CUT_OVER}, {@code ROLLED_BACK},
  *     {@code ABANDONED}, {@code FAILED} or {@code FINISHED}
  * @param sql the new version's SQL
- * @param candidate the fingerprint of the computation being prepared
- * @param replacing the fingerprint of the one serving the name
+ * @param candidate the fingerprint of the computation being prepared, or null from a server that
+ *     did not send it
+ * @param replacing the fingerprint of the one serving the name, or null likewise
  * @param sink the sink the name writes to, or null
  * @param options the options the replacement was started with
- * @param owner the principal who started it
- * @param startedAt when, as an ISO-8601 instant
+ * @param owner the principal who started it, or null from a server that predates the field
+ * @param startedAt when, as an ISO-8601 instant, or null from a server that did not send it
  * @param cutOverAt when it cut over, or null
  * @param rollbackUntil when the rollback window closes, or null
  * @param rollbackAvailable whether the replaced version is still retained
@@ -51,14 +54,14 @@ public record ReplacementInfo(
         String name,
         String state,
         String sql,
-        String candidate,
-        String replacing,
-        String sink,
+        @Nullable String candidate,
+        @Nullable String replacing,
+        @Nullable String sink,
         String options,
-        String owner,
-        String startedAt,
-        String cutOverAt,
-        String rollbackUntil,
+        @Nullable String owner,
+        @Nullable String startedAt,
+        @Nullable String cutOverAt,
+        @Nullable String rollbackUntil,
         boolean rollbackAvailable,
         long historyRows,
         long liveRows,
@@ -69,8 +72,8 @@ public record ReplacementInfo(
         long rateLimit,
         boolean paused,
         long lagNanos,
-        String failureCode,
-        String failure) {
+        @Nullable String failureCode,
+        @Nullable String failure) {
 
     /** True while the replacement is still doing something: backfilling, caught up, or cut over. */
     public boolean active() {
@@ -112,7 +115,7 @@ public record ReplacementInfo(
         return index < row.size() ? row.get(index) : "";
     }
 
-    private static String blankToNull(String value) {
+    private static @Nullable String blankToNull(@Nullable String value) {
         return value == null || value.isEmpty() ? null : value;
     }
 

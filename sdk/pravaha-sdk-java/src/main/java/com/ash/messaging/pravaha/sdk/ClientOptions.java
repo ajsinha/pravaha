@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 
 /**
@@ -35,7 +37,7 @@ public final class ClientOptions {
     private static final ErrorCode INVALID = new ErrorCode(1031, "CLIENT_INVALID_OPTIONS");
 
     private final Endpoint endpoint;
-    private final String token;
+    private final @Nullable String token;
     private final Duration connectTimeout;
     private final Duration requestTimeout;
     private final Consistency defaultConsistency;
@@ -147,7 +149,7 @@ public final class ClientOptions {
 
     public static final class Builder {
         private final Endpoint endpoint;
-        private String token;
+        private @Nullable String token;
         private boolean allowInsecureToken;
         private Duration connectTimeout = Duration.ofSeconds(10);
         private Duration requestTimeout = Duration.ofSeconds(30);
@@ -186,7 +188,8 @@ public final class ClientOptions {
             return this;
         }
 
-        public Builder token(String value) {
+        /** The bearer token to present; null, the default, presents none. */
+        public Builder token(@Nullable String value) {
             this.token = value;
             return this;
         }

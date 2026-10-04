@@ -23,6 +23,21 @@ from typing import Any, Iterable, Mapping, Optional, Sequence, TextIO, Tuple, Un
 Column = Union[str, Tuple[str, str]]
 
 
+def plain_decimal(value: decimal.Decimal) -> str:
+    """A decimal as its digits at its scale: ``0.0000000000``, never ``0E-10``.
+
+    A ``DECIMAL`` column arrives as :class:`decimal.Decimal` at the column's scale
+    (FLIGHTDECIMAL-1), and ``str`` writes a small or zero one in exponent form -- the same
+    number, in a form a ledger's reader does not expect and ``cut`` or a spreadsheet may not parse.
+    """
+    return format(value, "f")
+
+
+def as_text(value: Any) -> str:
+    """One value as plain text, for TSV: ``str``, except that a decimal keeps its digits."""
+    return plain_decimal(value) if isinstance(value, decimal.Decimal) else str(value)
+
+
 def _json_default(value: Any) -> Any:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
@@ -34,7 +49,7 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, datetime.timedelta):
         return value.total_seconds()
     if isinstance(value, decimal.Decimal):
-        return str(value)
+        return plain_decimal(value)
     if isinstance(value, (set, frozenset, tuple)):
         return list(value)
     return str(value)
@@ -55,6 +70,8 @@ def cell(value: Any) -> str:
         return ",".join(cell(item) for item in value) or "-"
     if isinstance(value, dict):
         return json.dumps(value, default=_json_default, ensure_ascii=False)
+    if isinstance(value, decimal.Decimal):
+        return plain_decimal(value)
     return str(value)
 
 

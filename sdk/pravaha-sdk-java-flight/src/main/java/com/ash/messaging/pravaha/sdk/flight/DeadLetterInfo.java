@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.sdk.flight;
 import java.time.Instant;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * One record a query's feed could not decode, as a client sees it.
  *
@@ -41,6 +43,10 @@ import java.util.Optional;
  * @param replay {@code NEW}, {@code REPLAYED} or {@code FAILED_AGAIN}
  * @param replayedAt when it was replayed, or null
  */
+// An array component on purpose, and made safe: a public accessor of this shape has shipped, so the
+// bytes are cloned in and out and equals/hashCode below compare their contents rather than the
+// array's identity, which is what the check warns a record would otherwise do.
+@SuppressWarnings("ArrayRecordComponent")
 public record DeadLetterInfo(
         String id,
         long sequence,
@@ -48,12 +54,12 @@ public record DeadLetterInfo(
         String offset,
         String code,
         String reason,
-        Instant at,
+        @Nullable Instant at,
         int size,
         byte[] raw,
         String withheld,
         String replay,
-        Instant replayedAt) {
+        @Nullable Instant replayedAt) {
 
     public DeadLetterInfo {
         raw = raw == null ? new byte[0] : raw.clone();
@@ -71,6 +77,32 @@ public record DeadLetterInfo(
 
     public Optional<Instant> rejectedAt() {
         return Optional.ofNullable(at);
+    }
+
+    /** Equal when every field is, the record's bytes by content. */
+    @Override
+    public boolean equals(@Nullable Object other) {
+        return other instanceof DeadLetterInfo that
+                && sequence == that.sequence
+                && size == that.size
+                && id.equals(that.id)
+                && stream.equals(that.stream)
+                && offset.equals(that.offset)
+                && code.equals(that.code)
+                && reason.equals(that.reason)
+                && java.util.Objects.equals(at, that.at)
+                && java.util.Arrays.equals(raw, that.raw)
+                && withheld.equals(that.withheld)
+                && replay.equals(that.replay)
+                && java.util.Objects.equals(replayedAt, that.replayedAt);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31
+                        * java.util.Objects.hash(
+                                id, sequence, stream, offset, code, reason, at, size, withheld, replay, replayedAt)
+                + java.util.Arrays.hashCode(raw);
     }
 
     @Override

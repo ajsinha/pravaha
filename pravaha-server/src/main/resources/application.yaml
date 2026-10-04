@@ -329,8 +329,8 @@ pravaha:
     store: ""
     # This deployment's name, part of every key it issues: a qa key is refused by prod (PRV-7014).
     environment: dev
-    # password | sso | hybrid. SSO is used only when an identity provider is configured; with none,
-    # people sign in with passwords whatever this says.
+    # password: the only accepted value. Single sign-on is not built, so sso and hybrid stop the node
+    # at start (PRV-7004) rather than being accepted and ignored (SSOMODE-1).
     mode: password
     allow-default-admin-password: false
     # A file holding the password `admin` is created with, read only when the store is empty -- so it

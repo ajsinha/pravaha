@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.sdk.flight;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A time-travel debug session as the server reports it (ADR-048).
  *
@@ -45,7 +47,7 @@ public record DebugSessionInfo(
         long steps,
         long rowsConsumed,
         int viewSize,
-        Long watermarkNanos,
+        @Nullable Long watermarkNanos,
         boolean sinksDisabled,
         List<String> streams) {
 

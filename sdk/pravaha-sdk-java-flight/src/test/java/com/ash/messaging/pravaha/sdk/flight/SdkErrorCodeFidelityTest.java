@@ -128,33 +128,26 @@ class SdkErrorCodeFidelityTest {
     @Test
     void anErrorCodeTheClientHasNeverHeardOfStillArrivesAsACode() {
         // The property that matters for a client SDK shipped separately from the engine: it must not
-        // need a table of the server's codes, because it will be a version behind. PRV-6100
-        // FLIGHT_UNSUPPORTED_TYPE is declared in pravaha-flight, which this SDK does not depend on
-        // at compile time at all.
-        StreamSchema withDecimal = StreamSchema.builder("ledger")
-                .field("entry_id", Types.string())
-                .field("amount", Types.decimal(18, 2))
-                .build();
-        ServedView ledger = new ServedView("ledger", withDecimal, List.of(0), 10);
-        try (PravahaFlightServer other =
-                        new PravahaFlightServer(new ViewCatalog().register(ledger)).start("localhost", 0);
-                PravahaFlightClient reader = PravahaFlightClient.connect("grpc://localhost:" + other.port())) {
-            assertThatThrownBy(() -> reader.query("SELECT amount FROM ledger").close())
-                    .isInstanceOfSatisfying(PravahaClientException.class, e -> {
-                        assertThat(e.errorCode().code()).isEqualTo("PRV-6100");
-                        assertThat(e.errorCode().number()).isEqualTo(6100);
-                        // DOCX-21. The help URL is the client's own setting, not the server's: no
-                        // link travels over the wire, the client builds it from the code. Empty
-                        // until this deployment names a base, so a dead one cannot be shipped.
-                        assertThat(e.errorCode().helpUrl()).isEmpty();
-                        com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
-                        try {
-                            assertThat(e.errorCode().helpUrl()).isEqualTo("https://help.example.test/errors/PRV-6100");
-                        } finally {
-                            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
-                        }
-                    });
-        }
+        // need a table of the server's codes, because it will be a version behind. PRV-2001
+        // SQL_PARSE_FAILED is declared in pravaha-sql, which this SDK does not depend on at compile
+        // time at all. (This was PRV-6100, a DECIMAL column refused on the wire, until 2.1 carried
+        // DECIMAL as Arrow's Decimal128 -- FLIGHTDECIMAL-1.)
+        assertThatThrownBy(() ->
+                        client.query("SELECT user_id FROM user_volume WHERE").close())
+                .isInstanceOfSatisfying(PravahaClientException.class, e -> {
+                    assertThat(e.errorCode().code()).isEqualTo("PRV-2001");
+                    assertThat(e.errorCode().number()).isEqualTo(2001);
+                    // DOCX-21. The help URL is the client's own setting, not the server's: no
+                    // link travels over the wire, the client builds it from the code. Empty
+                    // until this deployment names a base, so a dead one cannot be shipped.
+                    assertThat(e.errorCode().helpUrl()).isEmpty();
+                    com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
+                    try {
+                        assertThat(e.errorCode().helpUrl()).isEqualTo("https://help.example.test/errors/PRV-2001");
+                    } finally {
+                        com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+                    }
+                });
     }
 
     @Test

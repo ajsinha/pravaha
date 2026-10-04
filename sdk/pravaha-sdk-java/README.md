@@ -21,6 +21,16 @@ try (PravahaFlightClient client = PravahaFlightClient.connect("grpc+tls://pravah
 }
 ```
 
+A `DECIMAL(p, s)` column is a `BigDecimal` at the column's scale — `row.getBigDecimal("amount")`, or
+`row.get(...)` — exactly as the engine holds it, never a `double` (FLIGHTDECIMAL-1, 2.1);
+`row.getString(...)` writes its plain digits. Every other type's Java class is in
+[CONTINUOUS_QUERIES.md §16](../../docs/guides/CONTINUOUS_QUERIES.md#16-types).
+
+**Nullness is in the types.** A parameter, return value or record component that may be null is
+annotated with [JSpecify](https://jspecify.dev)'s `@Nullable`, and its javadoc says what null means;
+anything without it is never null. Kotlin and NullAway read the annotations when `org.jspecify:jspecify`
+is on the compile classpath, which it already is wherever the Flight client is, through Guava.
+
 A connection string without a scheme is TLS; `grpc://host:port` is plaintext. A token goes in
 `ClientOptions.builder(endpoint).token(...)`, and is refused over plaintext unless
 `allowInsecureToken(true)` on the builder says otherwise.
@@ -30,8 +40,8 @@ A connection string without a scheme is TLS; `grpc://host:port` is plaintext. A 
 | Artefact | What it is | Depends on |
 |---|---|---|
 | `com.ash.messaging:pravaha-sdk-java-flight` | **The client.** `PravahaFlightClient` and its results, subscriptions and registry calls | `pravaha-sdk-java`; Arrow Flight SQL, gRPC, protobuf and Netty |
-| `com.ash.messaging:pravaha-sdk-java` | The client's types: `ClientOptions`, `TlsOptions`, `Consistency`, `PravahaClientException` | `pravaha-api` only; an enforcer rule bans Netty and every engine module |
-| `com.ash.messaging:pravaha-api` | The public API types both share | nothing |
+| `com.ash.messaging:pravaha-sdk-java` | The client's types: `ClientOptions`, `TlsOptions`, `Consistency`, `PravahaClientException` | `pravaha-api` only; an enforcer rule bans Netty and every engine module. JSpecify's `@Nullable` is compile-only |
+| `com.ash.messaging:pravaha-api` | The public API types both share | nothing (JSpecify's `@Nullable` is compile-only) |
 | `pravaha-sdk-java-flight-<version>-all.jar` | The client and every runtime dependency in one jar, for a client with no build tool | (bundled) |
 
 All three artefacts, and so the `-all` jar, are Java 25 class files: **a client application needs

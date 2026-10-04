@@ -15,10 +15,12 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
@@ -33,7 +35,7 @@ import com.ash.messaging.pravaha.sdk.PravahaClientException;
  */
 public final class Row {
 
-    private final VectorSchemaRoot root;
+    private final @Nullable VectorSchemaRoot root;
     private final List<String> columns;
     private final int weightOrdinal;
     private int index;
@@ -57,7 +59,7 @@ public final class Row {
      * one: the batches before the last are gone by the time it is delivered, so their rows cannot
      * be cursors over them.
      */
-    private Row(List<String> columns, Object[] values, long weight) {
+    private Row(List<String> columns, @Nullable Object[] values, long weight) {
         this.root = null;
         this.columns = columns;
         this.weightOrdinal = -1;
@@ -65,7 +67,7 @@ public final class Row {
         this.detachedWeight = weight;
     }
 
-    private final Object[] detached;
+    private final @Nullable Object @Nullable [] detached;
     private final long detachedWeight;
 
     Row at(int rowIndex) {
@@ -78,8 +80,24 @@ public final class Row {
         return new Row(columns, toArray(), weight());
     }
 
+    /** Read only once {@link #isNull} has said the value is there. */
     private Object raw(int ordinal) {
-        return detached != null ? detached[ordinal] : root.getVector(ordinal).getObject(index);
+        Object value = detached != null
+                ? detached[ordinal]
+                : batch().getVector(ordinal).getObject(index);
+        if (value == null) {
+            throw new IllegalStateException("column '" + columns.get(ordinal) + "' was read as present and is null");
+        }
+        return value;
+    }
+
+    /** The batch this row is a cursor over. Only a detached row has none, and it never asks. */
+    private VectorSchemaRoot batch() {
+        VectorSchemaRoot current = root;
+        if (current == null) {
+            throw new IllegalStateException("a detached row has no batch to read");
+        }
+        return current;
     }
 
     /** The column names, in order. */
@@ -90,7 +108,7 @@ public final class Row {
     public boolean isNull(int ordinal) {
         return detached != null
                 ? detached[ordinal] == null
-                : root.getVector(ordinal).isNull(index);
+                : batch().getVector(ordinal).isNull(index);
     }
 
     public boolean isNull(String column) {
@@ -98,7 +116,7 @@ public final class Row {
     }
 
     /** A column as text. Null stays null rather than becoming "null" or "". */
-    public String getString(int ordinal) {
+    public @Nullable String getString(int ordinal) {
         if (isNull(ordinal)) {
             return null;
         }
@@ -109,10 +127,15 @@ public final class Row {
         if (value instanceof byte[] bytes) {
             return new String(bytes, StandardCharsets.UTF_8);
         }
+        // Plain, never exponent: BigDecimal.toString writes a DECIMAL(18, 8) zero as "0E-8".
+        if (value instanceof BigDecimal decimal) {
+            return decimal.toPlainString();
+        }
         return String.valueOf(value);
     }
 
-    public String getString(String column) {
+    /** {@link #getString(int)} by name; null when the column is. */
+    public @Nullable String getString(String column) {
         return getString(ordinalOf(column));
     }
 
@@ -149,8 +172,44 @@ public final class Row {
         return getDouble(ordinalOf(column));
     }
 
+    /**
+     * A {@code DECIMAL} column exactly, at the column's scale, or null (FLIGHTDECIMAL-1).
+     *
+     * <p>The server sends a decimal as Arrow's Decimal128 with the column's precision and scale, so
+     * this is the value the engine holds, digit for digit: {@code 2.50} in a {@code DECIMAL(18, 2)}
+     * arrives as {@code 2.50}, not {@code 2.5}. {@link #get(int)} returns the same object. Reading
+     * it with {@link #getDouble(int)} is allowed and is the rounding the caller chose.
+     *
+     * @throws PravahaClientException if the column is not a decimal or a whole number
+     */
+    public @Nullable BigDecimal getBigDecimal(int ordinal) {
+        if (isNull(ordinal)) {
+            return null;
+        }
+        Object value = raw(ordinal);
+        return switch (value) {
+            case BigDecimal decimal -> decimal;
+            case Long whole -> BigDecimal.valueOf(whole);
+            case Integer whole -> BigDecimal.valueOf(whole);
+            case Short whole -> BigDecimal.valueOf(whole);
+            case Byte whole -> BigDecimal.valueOf(whole);
+            default ->
+                throw new PravahaClientException(
+                        ClientErrors.READ_FAILED,
+                        "column '" + columns.get(ordinal) + "' is "
+                                + value.getClass().getSimpleName()
+                                + ", not an exact number; read it with get() or getDouble()",
+                        false);
+        };
+    }
+
+    /** {@link #getBigDecimal(int)} by name; null when the column is. */
+    public @Nullable BigDecimal getBigDecimal(String column) {
+        return getBigDecimal(ordinalOf(column));
+    }
+
     /** A column as whatever it is, or null. */
-    public Object get(int ordinal) {
+    public @Nullable Object get(int ordinal) {
         if (isNull(ordinal)) {
             return null;
         }
@@ -158,7 +217,8 @@ public final class Row {
         return value instanceof org.apache.arrow.vector.util.Text text ? text.toString() : value;
     }
 
-    public Object get(String column) {
+    /** {@link #get(int)} by name; null when the column is. */
+    public @Nullable Object get(String column) {
         return get(ordinalOf(column));
     }
 
@@ -186,7 +246,7 @@ public final class Row {
         if (weightOrdinal < 0) {
             return 1L;
         }
-        return ((Number) root.getVector(weightOrdinal).getObject(index)).longValue();
+        return ((Number) batch().getVector(weightOrdinal).getObject(index)).longValue();
     }
 
     /** Whether this withdraws a row rather than adding one. */
@@ -195,8 +255,8 @@ public final class Row {
     }
 
     /** A copy that outlives the iteration. */
-    public Object[] toArray() {
-        Object[] values = new Object[columns.size()];
+    public @Nullable Object[] toArray() {
+        @Nullable Object[] values = new Object[columns.size()];
         for (int ordinal = 0; ordinal < values.length; ordinal++) {
             values[ordinal] = get(ordinal);
         }

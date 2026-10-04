@@ -47,7 +47,7 @@ no reversible secret. A person signs in with a username and password (`POST /api
 | `pravaha.identity.session.per-user` | `3` | open sessions per person; signing in once more ends the oldest |
 | `pravaha.identity.key.default-days` | `90` | an API key's life unless asked otherwise; `key.max-days` (`365`) is the most |
 | `pravaha.identity.key.rotation-overlap` | `7d` | how long a rotated key keeps working beside its successor |
-| `pravaha.identity.mode` | `password` | `password`, `sso` or `hybrid`; with no identity provider configured, people sign in with passwords whatever it says |
+| `pravaha.identity.mode` | `password` | `password`, the only accepted value: single sign-on is not built, so `sso` or `hybrid` stops the node at start with PRV-7004 naming the setting (they were accepted and ignored until 2.1) |
 
 An empty store creates `admin` with the published password `pravaha-dev-admin`, and a node outside
 the `dev` profile refuses to start (`PRV-7019`) until it is changed — or reads the first password

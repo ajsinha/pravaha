@@ -381,6 +381,22 @@ def test_the_workbench_runs_a_parameterised_query(client):
     assert "u1" in response.text
 
 
+def test_a_decimal_column_reaches_the_browser_exactly_and_plain(client):
+    # FLIGHTDECIMAL-1: the workbench reads over Flight, which refused DECIMAL until 2.1. Now the
+    # value arrives exact and goes to the browser as its digits -- a string, never a float, and
+    # never 0E-10 for a zero at scale ten.
+    body = client.post("/api/v1/query", json={"sql": "SELECT entry_id, amount, rate FROM ledger"}).json()
+
+    assert "error" not in body, body
+    assert body["types"][1:] == ["decimal128(18, 2)", "decimal128(38, 10)"]
+    rows = {row[0]: row[1:] for row in body["rows"]}
+    assert rows == {
+        "e1": ["1234567890123456.78", "0.0000000001"],
+        "e2": ["-0.01", "0.0000000000"],
+        "e3": ["0.00", None],
+    }
+
+
 def test_a_bad_query_shows_the_error_rather_than_a_stack_trace(client):
     response = client.post("/workbench", data={"sql": "SELECT * FROM nowhere", "params": ""})
 

@@ -60,11 +60,14 @@ as "gateway".)
 
 ### PRV-6100 — Flight unsupported type
 
-A column of a type this gateway will not put on the wire. **`DECIMAL`** in particular is refused
-rather than sent as a floating-point number, because the rounding decision belongs to whoever owns the
-ledger and not to a serialiser. Every other supported type — including `BYTES` and `TIME`, since
-TY-17 and TY-18 were fixed — is carried. Keep money in integer minor units (`amount_cents INT64`), or
-cast in the source database.
+A value this gateway will not put on the wire as it stands. Every column type a query can select is
+carried — `BYTES` and `TIME` since TY-17 and TY-18, and **`DECIMAL`** since 2.1, as Arrow's
+`decimal128` at the column's precision and scale (FLIGHTDECIMAL-1). What is refused is a decimal value
+that would have to be **rounded** to fit its column — more places than the scale, or more digits than
+the precision — and the message names the column. The engine stores decimals at their column's scale,
+so this means a source or plugin handed the view a value its declaration does not describe: declare
+the column with the scale the source actually produces. Until 2.1 every `DECIMAL` column was refused
+here and could be read only through the PostgreSQL gateway.
 
 ### PRV-6101 — Flight unsupported request
 

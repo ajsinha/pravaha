@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -89,7 +90,7 @@ class JavaSdkAuthenticationTest {
         }
     }
 
-    private PravahaFlightClient clientWith(String token) {
+    private PravahaFlightClient clientWith(@Nullable String token) {
         ClientOptions.Builder options =
                 ClientOptions.builder("grpc://localhost:" + server.port()).allowInsecureToken(true);
         if (token != null) {

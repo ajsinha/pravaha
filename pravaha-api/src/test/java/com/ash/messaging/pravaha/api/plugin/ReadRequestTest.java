@@ -54,6 +54,8 @@ class ReadRequestTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is the refusal a caller outside NullAway meets.
+    @SuppressWarnings("NullAway")
     void aComparisonWithNoValueIsRefused() {
         // Null here would mean UNKNOWN for every row, so the store would return nothing and the
         // engine would report an empty result for a query that has matches.
@@ -71,6 +73,8 @@ class ReadRequestTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is the refusal a caller outside NullAway meets.
+    @SuppressWarnings("NullAway")
     void aFilterWithoutAColumnOrComparisonIsRefused() {
         assertThatThrownBy(() -> new ReadRequest.Filter("  ", ReadRequest.Comparison.EQ, 1L))
                 .isInstanceOf(IllegalArgumentException.class)

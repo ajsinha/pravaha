@@ -30,6 +30,8 @@ import java.util.Base64;
 import java.util.Enumeration;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
 
@@ -56,7 +58,7 @@ final class KeystoreMaterial {
      * certificate looks like when the same keystore is being trusted as its own CA. Both are real;
      * neither is treated as the only correct shape.
      */
-    static InputStream trustedCertificatesPem(Path path, String password, String type) {
+    static InputStream trustedCertificatesPem(Path path, @Nullable String password, String type) {
         KeyStore store = load(path, password, type);
         StringBuilder pem = new StringBuilder();
         try {
@@ -91,7 +93,7 @@ final class KeystoreMaterial {
     }
 
     /** The client's own certificate chain and private key, as two PEM streams: {@code {cert, key}}. */
-    static InputStream[] clientCertificateAndKeyPem(Path path, String password, String type) {
+    static InputStream[] clientCertificateAndKeyPem(Path path, @Nullable String password, String type) {
         KeyStore store = load(path, password, type);
         try {
             Enumeration<String> aliases = store.aliases();
@@ -131,7 +133,7 @@ final class KeystoreMaterial {
                 false);
     }
 
-    private static KeyStore load(Path path, String password, String type) {
+    private static KeyStore load(Path path, @Nullable String password, String type) {
         if (!Files.isReadable(path)) {
             throw new PravahaClientException(
                     ClientErrors.TLS_UNREADABLE, "the store " + path + " is not a readable file", false);

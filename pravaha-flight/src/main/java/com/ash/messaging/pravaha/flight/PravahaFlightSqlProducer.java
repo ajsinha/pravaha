@@ -1331,8 +1331,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      *
      * <p>This conversion sat outside every try/catch, one line after {@code plan(...)} which has
      * one. Planning refusals reached clients cleanly; conversion refusals did not. A DECIMAL column
-     * is the case that matters: the SQL is valid and plans, and only then does the wire type turn
-     * out to be unmappable -- so PRV-6100 escaped the gRPC service method uncaught and the client
+     * was the case that mattered until 2.1 mapped it (FLIGHTDECIMAL-1): the SQL is valid and plans,
+     * and only then does the wire type turn out to be unmappable -- so PRV-6100 escaped the gRPC service method uncaught and the client
      * received Arrow's own "There was an error servicing your request". No code, no column name,
      * nothing to act on, for a refusal the engine had stated precisely.
      */

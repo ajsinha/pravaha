@@ -27,7 +27,8 @@ public record Version(int major, int minor, int patch) implements Comparable<Ver
     }
 
     public static Version parse(String text) {
-        String[] parts = text.strip().split("[.-]");
+        // Limit 0, spelled out: trailing empty parts are dropped, so "1.2." still reads as 1.2.0.
+        String[] parts = text.strip().split("[.-]", 0);
         if (parts.length < 2) {
             throw new IllegalArgumentException("not a version: '" + text + "'; expected major.minor[.patch]");
         }

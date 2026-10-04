@@ -152,6 +152,12 @@
     <japicmp.plugin.version>0.26.2</japicmp.plugin.version>
     <errorprone.version>2.50.0</errorprone.version>
     <nullaway.version>0.14.1</nullaway.version>
+    <!-- NullAway's level under -Pep. WARN for the reactor; a module that has been brought to zero
+         raises it to ERROR in its own ep profile, so it stays at zero (pravaha-api and the SDKs). -->
+    <ep.nullaway.level>WARN</ep.nullaway.level>
+    <!-- JSpecify's nullness annotations, compile-only (provided) where a module uses them: see
+         pravaha-api's pom for why that is enough for a client. -->
+    <jspecify.version>1.0.1</jspecify.version>
 
     <!-- Coverage gate. Core modules raise this in their own POMs (see pravaha-api). -->
     <jacoco.line.coverage>0.00</jacoco.line.coverage>
@@ -861,7 +867,7 @@
                 <arg>100000</arg>
                 <arg>-Xmaxerrs</arg>
                 <arg>100000</arg>
-                <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -XepExcludedPaths:.*/target/generated-(test-)?sources/.* -Xep:NullAway:WARN -XepOpt:NullAway:AnnotatedPackages=com.ash.messaging.pravaha</arg>
+                <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -XepExcludedPaths:.*/target/generated-(test-)?sources/.* -Xep:NullAway:${ep.nullaway.level} -XepOpt:NullAway:AnnotatedPackages=com.ash.messaging.pravaha</arg>
                 <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
                 <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
                 <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>

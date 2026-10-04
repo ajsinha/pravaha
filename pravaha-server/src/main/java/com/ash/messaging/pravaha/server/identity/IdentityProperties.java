@@ -17,7 +17,6 @@ package com.ash.messaging.pravaha.server.identity;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -37,7 +36,7 @@ import com.ash.messaging.pravaha.security.SecurityErrors;
  *     enabled: true
  *     store: /opt/pravaha/data/identity/identity.journal
  *     environment: qa
- *     mode: password            # password | sso | hybrid; sso only when a provider is configured
+ *     mode: password            # password, the only value: SSO is not built (SSOMODE-1)
  *     password:
  *       force-change: false     # first sign-in and admin resets must change the password
  * </pre>
@@ -49,8 +48,6 @@ import com.ash.messaging.pravaha.security.SecurityErrors;
 @Component
 @ConfigurationProperties(prefix = "pravaha.identity", ignoreUnknownFields = false)
 public class IdentityProperties {
-
-    private static final Set<String> MODES = Set.of("password", "sso", "hybrid");
 
     private boolean enabled;
     private String store = "";
@@ -148,18 +145,33 @@ public class IdentityProperties {
     }
 
     /**
-     * How people sign in, as it will actually be applied: {@code sso} and {@code hybrid} need an
-     * identity provider, and with none configured the node signs people in with passwords.
+     * How people sign in: {@code password}, the only mechanism this node has.
+     *
+     * <p>{@code sso} and {@code hybrid} were accepted and then ignored (SSOMODE-1): no identity
+     * provider can be configured -- ADR-052's stage 5 was dropped by the owner on 2026-09-27 -- so a
+     * node set to either signed everyone in with passwords while its configuration said otherwise,
+     * and only a startup warning admitted it. A setting that promises a mechanism the node does not
+     * have is a rule the operator believes is in force, which is what this class refuses at start for
+     * every other key. So both are refused, by name, before the node serves anything.
+     *
+     * @throws PravahaException {@code PRV-7004} for any value but {@code password}
      */
     public String effectiveMode() {
         String asked = mode == null ? "password" : mode.trim().toLowerCase(java.util.Locale.ROOT);
-        if (!MODES.contains(asked)) {
+        if ("password".equals(asked)) {
+            return "password";
+        }
+        if ("sso".equals(asked) || "hybrid".equals(asked)) {
             throw new PravahaException(
                     SecurityErrors.MISCONFIGURED,
-                    "pravaha.identity.mode is '" + mode + "'; it is password, sso or hybrid");
+                    "pravaha.identity.mode is '" + mode + "', and the only accepted value is password: single "
+                            + "sign-on is not built, so no identity provider can be configured and this node would "
+                            + "sign everyone in with passwords whatever the setting said. Remove the setting or set "
+                            + "it to password.");
         }
-        // No provider can be configured until SSO lands (ADR-052 stage 5), so it is always password.
-        return "password";
+        throw new PravahaException(
+                SecurityErrors.MISCONFIGURED,
+                "pravaha.identity.mode is '" + mode + "'; the only accepted value is password");
     }
 
     /**
@@ -198,8 +210,15 @@ public class IdentityProperties {
         }
     }
 
-    /** The node's one identity service, opened on first use; empty when identity is off. */
+    /**
+     * The node's one identity service, opened on first use; empty when identity is off.
+     *
+     * <p>Checks {@code pravaha.identity.mode} first, whether identity is on or not: the node asks for
+     * this at start either way, and a mode it cannot honour is refused there (SSOMODE-1) rather than
+     * left in the file to be believed later, when somebody turns identity on.
+     */
     public synchronized java.util.Optional<IdentityService> service(AuditSink audit) {
+        effectiveMode();
         if (!enabled) {
             return java.util.Optional.empty();
         }
@@ -229,12 +248,6 @@ public class IdentityProperties {
                 environment,
                 effectiveMode(),
                 password.isForceChange() ? "on" : "off");
-        if (!"password".equals(mode.trim())) {
-            log.warn(
-                    "pravaha.identity.mode is {} and no identity provider is configured, so people sign in with "
-                            + "passwords",
-                    mode);
-        }
         if (users.defaultAdminPasswordInUse()) {
             log.warn("identity: the user 'admin' still has the default password; change it before anyone else can "
                     + "reach this node");

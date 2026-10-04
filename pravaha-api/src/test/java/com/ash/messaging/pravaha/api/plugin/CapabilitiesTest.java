@@ -86,6 +86,8 @@ class CapabilitiesTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void aSourceDeclaredWithoutSayingWhetherItRepeatsDoesNot() {
         // The seven-argument form is what every plugin wrote before the flag existed, and the flag
         // must not change what any of them means.
@@ -126,6 +128,8 @@ class CapabilitiesTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void aNullPushdownSetBecomesEmptyRatherThanFailingLater() {
         SourceCapabilities caps =
                 new SourceCapabilities(false, true, false, false, DeliveryGuarantee.AT_LEAST_ONCE, null, Duration.ZERO);
@@ -160,6 +164,8 @@ class CapabilitiesTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void anEmptyEmitModeSetDefaultsToAppendRatherThanAcceptingNothing() {
         // A sink that accepts nothing would be silently unusable; append-only is the honest default.
         assertThat(new SinkCapabilities(EnumSet.noneOf(EmitMode.class), false, false, 0).emitModes())
@@ -218,6 +224,8 @@ class CapabilitiesTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void aManifestRejectsMissingEssentials() {
         assertThatThrownBy(() -> new PluginManifest(" ", new Version(1, 0, 0), new Version(0, 1, 0), "X", Map.of()))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -230,6 +238,8 @@ class CapabilitiesTest {
     // ------------------------------------------------------------------ health, partitions, offsets
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void healthDistinguishesDegradedFromDown() {
         // A plugin failing 40% of writes is neither healthy nor down, and collapsing that into a
         // boolean means an operator sees "up" while data quietly goes missing.

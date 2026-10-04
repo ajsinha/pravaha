@@ -89,6 +89,8 @@ class NotificationTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void absentOptionalFieldsAreNullAndTheSummaryOmitsWhatIsMissing() {
         Notification n = new Notification("i", "a", null, null, "CLEARED", null, 0L, null, null, null, null, 0);
 
@@ -122,6 +124,8 @@ class NotificationTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void theRequiredFieldsAreRequired() {
         assertThatThrownBy(() -> new Notification(null, "a", null, null, "FIRED", null, 0, null, null, null, null, 0))
                 .isInstanceOf(NullPointerException.class)
@@ -136,6 +140,8 @@ class NotificationTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is what a caller outside NullAway meets, refusal or default.
+    @SuppressWarnings("NullAway")
     void aDeliveryReportsWhetherItArrivedAndNeverCarriesANullDetail() {
         assertThat(NotifierPlugin.Delivery.delivered(2, "202")).satisfies(d -> {
             assertThat(d.delivered()).isTrue();

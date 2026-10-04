@@ -145,29 +145,6 @@ class JavaSdkQueryTest {
     }
 
     @Test
-    void anUnmappableWireTypeReachesTheClientAsItsOwnRefusal() {
-        // DECIMAL has no Arrow form this engine will emit, and it says so precisely: PRV-6100,
-        // naming the column. That refusal used to be thrown one line outside every try/catch --
-        // after planning, which has its own, because the SQL is valid and only the wire type is
-        // not. So it escaped the gRPC method uncaught and the client got Arrow's own text, "There
-        // was an error servicing your request": no code, no column, nothing to act on, for a
-        // refusal the engine had already stated exactly.
-        StreamSchema withDecimal = StreamSchema.builder("ledger")
-                .field("entry_id", Types.string())
-                .field("amount", Types.decimal(18, 2))
-                .build();
-        ServedView ledger = new ServedView("ledger", withDecimal, List.of(0), 10);
-        try (PravahaFlightServer other =
-                        new PravahaFlightServer(new ViewCatalog().register(ledger)).start("localhost", 0);
-                PravahaFlightClient reader = PravahaFlightClient.connect("grpc://localhost:" + other.port())) {
-            assertThatThrownBy(() -> reader.query("SELECT amount FROM ledger").close())
-                    .isInstanceOf(PravahaClientException.class)
-                    .hasMessageContaining("PRV-6100")
-                    .hasMessageContaining("amount");
-        }
-    }
-
-    @Test
     void aLoneSurrogateIsRefusedByNameRatherThanSentAsAQuestionMark() {
         // Protobuf encodes half a surrogate pair as '?', so the server would plan different SQL
         // from the SQL written and have no way to know. Over HTTP it is PRV-1053; over Flight the

@@ -382,6 +382,47 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   that now assert them, a double-brace map), one suppressed with its reason (a test pinning an
   overflow); 3,570 warnings remain listed (2,822 NullAway), see TESTING.md. No workflow runs
   `-Pall` or `-Pep`, so no CI job was added.
+- **A `DECIMAL` column is read over Arrow Flight, exactly (FLIGHTDECIMAL-1).** `ArrowSchemas`
+  refused `DECIMAL` with `PRV-6100`, and every SDK, the CLI and the console read over Flight, so a view
+  whose answer carried a decimal could be read only through the PostgreSQL gateway. A `DECIMAL(p, s)`
+  column now goes out as Arrow's `decimal128(p, s)` on every Flight path that writes rows — queries and
+  point reads, changelog and answer-following subscriptions, snapshots — and in `GetTables`' and a
+  statement's schema; `GetXdbcTypeInfo` lists `DECIMAL`. The engine's 128-bit unscaled value is
+  Decimal128's, so nothing is rounded; a value that would have to be rounded to fit its column is
+  refused with `PRV-6100` naming the column. The Java SDK reads a `BigDecimal` at the column's scale
+  (new `Row.getBigDecimal`; `getString` writes plain digits), the Python SDK a `decimal.Decimal`; the
+  `pravaha` CLI prints a decimal's digits (`0.0000000000`, not `0E-10`) in its table and TSV and a
+  string in `--json`, and the console sends one to the browser the same way, live views included. A
+  `?` placeholder compared with a `DECIMAL` is still refused (`PRV-2021`). `FlightDecimalTest`,
+  `JavaSdkDecimalTest`, `FlightSqlMetadataTest`, `ErrcFlightTest`, the Python SDK's
+  `test_a_decimal_column_*` and `test_against_the_engine_a_decimal_prints_its_digits_in_every_form`,
+  the console's `test_a_decimal_column_reaches_the_browser_exactly_and_plain`.
+- **`pravaha.identity.mode: sso` or `hybrid` stops the node at start (SSOMODE-1).** Both were
+  accepted although single sign-on is not built and no identity provider can be configured, so the
+  node signed everyone in with passwords while its configuration said otherwise, and admitted it only
+  in a startup warning. `password` is now the one accepted value; anything else is `PRV-7004` at
+  start, naming the setting and the value it takes, whether `pravaha.identity.enabled` is on or off.
+  **Upgrade note:** a node configured with `sso` or `hybrid` must remove the setting or set it to
+  `password`; it signed people in with passwords either way, so nothing else changes. `NodeIdentityTest`.
+- **The client modules are clean under `-Pep`, and held there.** `pravaha-api`, `pravaha-sdk-java`
+  and `pravaha-sdk-java-flight` had 72, 6 and 61 static-analysis warnings (NullAway, Error Prone's
+  WARNING checks, one `-Xlint`); they have none, and each module's `ep` profile now runs NullAway at
+  ERROR and fails on any warning, so they stay at none. Their nullness is a contract written with
+  JSpecify's `@Nullable` — compile-only in `pravaha-api` and `pravaha-sdk-java`, which stay
+  dependency-free, and at compile scope in `pravaha-sdk-java-flight`, where Guava already brought the
+  same jar. What a caller can now see in the types: `Row.get`, `getString` and `getBigDecimal`
+  return null for a null column; `RegisteredQueryInfo`'s and `ReplacementInfo`'s optional fields,
+  `DeadLetterInfo.at`/`replayedAt`, `DebugStatePage.key`, `DebugStepReport.watermarkNanos`,
+  `DebugSessionInfo.watermarkNanos` and `ReconnectingSubscription.Reconnect.giveUpAfter` may be
+  null, as their javadoc said; `register`'s sink and retention, `replace`'s options,
+  `debugFork`'s checkpoint and `ClientOptions.Builder.token` accept null. In `pravaha-api`:
+  `ReadRequest.Filter.value` (null for `IS [NOT] NULL`), `PartialAggregate.AggregateCall.column`
+  (null for `COUNT(*)`), `Notification`'s `view`, `tenant`, `severity`, `since` and `at`,
+  `StreamSourcePlugin.orderedPositions()`, and the `ControlWire` and `HelpUrls` helpers that took
+  null already. Behaviour changes: `DeadLetterInfo.equals`/`hashCode` compare the record's bytes by
+  content (they compared the array's identity, so two equal dead letters were unequal), and a
+  failure the server gave no description reads "the server sent no description" rather than
+  "null". See TESTING.md, *Static analysis*.
 
 Register: **546 findings — 525 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

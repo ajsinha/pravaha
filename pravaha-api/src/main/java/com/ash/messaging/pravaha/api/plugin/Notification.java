@@ -23,37 +23,40 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * One notification about one key of one alert (ADR-057).
  *
  * @param idempotencyKey the same on every attempt to deliver this notification, across retries and
  *     restarts: derived from the alert's identity, the key, the episode and the kind
  * @param alert the alert's name
- * @param view the view it watches
- * @param tenant the tenant the alert belongs to
+ * @param view the view it watches; null when unknown, and then {@code null} in {@link #toJson()}
+ * @param tenant the tenant the alert belongs to; null when unknown
  * @param kind {@code FIRED} (the key's row entered the condition), {@code CLEARED} (it left), or
  *     {@code REMINDER} (still firing, unacknowledged, and {@code resend_every} has passed)
- * @param severity the alert's severity: {@code info}, {@code warning} or {@code critical}
+ * @param severity the alert's severity: {@code info}, {@code warning} or {@code critical}; null when
+ *     the alert declares none
  * @param episode which firing of this key this is about: 1 for the first time it fired, 2 for the next
- * @param key the view's key columns and their values
+ * @param key the view's key columns and their values; never null once built (a null is read as empty)
  * @param row the columns the alert includes, as they stood when it was decided; empty for a clear whose
- *     row has left the view
- * @param since when the key started firing (for a clear, when the episode began)
- * @param at when the engine decided this transition
+ *     row has left the view; never null once built (a null is read as empty)
+ * @param since when the key started firing (for a clear, when the episode began); null when not known
+ * @param at when the engine decided this transition; null when not known
  * @param attempt the delivery attempt, from 1 -- the same notification on every attempt
  */
 public record Notification(
         String idempotencyKey,
         String alert,
-        String view,
-        String tenant,
+        @Nullable String view,
+        @Nullable String tenant,
         String kind,
-        String severity,
+        @Nullable String severity,
         long episode,
         Map<String, Object> key,
         Map<String, Object> row,
-        Instant since,
-        Instant at,
+        @Nullable Instant since,
+        @Nullable Instant at,
         int attempt) {
 
     public Notification {
@@ -120,7 +123,7 @@ public record Notification(
         return json.toString();
     }
 
-    private static void field(StringBuilder json, String name, Object value, boolean first) {
+    private static void field(StringBuilder json, String name, @Nullable Object value, boolean first) {
         if (!first) {
             json.append(',');
         }
@@ -129,7 +132,7 @@ public record Notification(
         value(json, value);
     }
 
-    private static void value(StringBuilder json, Object value) {
+    private static void value(StringBuilder json, @Nullable Object value) {
         // Written when this module targeted Java 17 (1.x), before patterns in switch.
         if (value == null) {
             json.append("null");

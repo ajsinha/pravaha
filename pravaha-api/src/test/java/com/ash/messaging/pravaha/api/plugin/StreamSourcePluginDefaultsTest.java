@@ -52,6 +52,8 @@ class StreamSourcePluginDefaultsTest {
         }
 
         @Override
+        // A stub that is never read: null stands for "no reader", which this test never asks for.
+        @SuppressWarnings("NullAway")
         public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
             asked.add(partition.index() + " from " + resumeFrom);
             return null;

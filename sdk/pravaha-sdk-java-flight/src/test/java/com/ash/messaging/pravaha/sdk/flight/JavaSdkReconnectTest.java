@@ -57,9 +57,17 @@ class JavaSdkReconnectTest {
             .field("product_type", Types.string())
             .build();
 
+    // Started by startNode in each test, and stopped by it or @AfterEach -- an initialiser NullAway
+    // cannot see.
+    @SuppressWarnings("NullAway.Init")
     private QueryRegistry registry;
+
+    @SuppressWarnings("NullAway.Init")
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init")
     private PravahaFlightClient client;
+
     private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
 
     /** A node on {@code port} (0 for any) hosting {@code feed}; the restart brings up another. */

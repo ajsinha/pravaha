@@ -359,3 +359,19 @@ def test_against_the_engine_a_query_and_a_registration_round_trip(real):
     assert _real(real, "drop", "--name", "cli_feed", "--yes")[0] == EXIT_OK
     code, _, err = _real(real, "drop", "--name", "cli_feed", "--yes")
     assert code == EXIT_REFUSED and "PRV-8002" in err
+
+
+def test_against_the_engine_a_decimal_prints_its_digits_in_every_form(real):
+    # FLIGHTDECIMAL-1: exact, and plain -- str() of a DECIMAL(38, 10) zero is "0E-10".
+    sql = "SELECT entry_id, amount, rate FROM ledger WHERE entry_id = 'e2'"
+    code, out, _ = _real(real, "query", "--sql", sql, "--json")
+    assert code == EXIT_OK
+    assert json.loads(out) == [{"entry_id": "e2", "amount": "-0.01", "rate": "0.0000000000"}]
+
+    code, out, _ = _real(real, "query", "--sql", sql, "--tsv")
+    assert code == EXIT_OK
+    assert out.splitlines() == ["entry_id\tamount\trate", "e2\t-0.01\t0.0000000000"]
+
+    code, out, _ = _real(real, "query", "--sql", sql)
+    assert code == EXIT_OK
+    assert "0.0000000000" in out and "E-" not in out

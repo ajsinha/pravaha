@@ -26,6 +26,7 @@ import java.util.function.Function;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
@@ -176,7 +177,7 @@ public final class Subscription implements AutoCloseable {
     }
 
     /** The batch's mark, when the server sent one: only a snapshot subscription's batches carry it. */
-    private static ControlWire.BatchMark markOf(org.apache.arrow.memory.ArrowBuf metadata) {
+    private static ControlWire.@Nullable BatchMark markOf(org.apache.arrow.memory.@Nullable ArrowBuf metadata) {
         if (metadata == null || metadata.readableBytes() == 0) {
             return null;
         }
