@@ -89,8 +89,10 @@ class PsycopgClientTest {
             print("done")
             """;
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private static String python;
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaPgWireServer server;
 
     @BeforeAll

@@ -61,6 +61,7 @@ class PgWireSessionTest {
     private static final Principal ANALYST = new Principal("dana", "public", Set.of("analyst"), Map.of());
     private static final Principal INTERN = new Principal("sam", "public", Set.of("intern"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaPgWireServer server;
 
     @AfterEach
@@ -338,6 +339,7 @@ class PgWireSessionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aStartupPacketWithAnAbsurdLengthIsRefusedRatherThanAllocated() throws Exception {
         open();
         try (PgTestClient client = new PgTestClient(server.port())) {
@@ -352,6 +354,7 @@ class PgWireSessionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aProtocolTwoClientIsToldWhatThisServerSpeaks() throws Exception {
         open();
         try (PgTestClient client = new PgTestClient(server.port())) {
@@ -366,6 +369,7 @@ class PgWireSessionTest {
     // ------------------------------------------------------------------ authentication
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aServerWithAVerifierAsksForAPasswordAndRefusesAWrongOne() throws Exception {
         server = new PravahaPgWireServer(populated())
                 .authenticatedBy(StaticTokenVerifier.of("s3cret", ANALYST))
@@ -377,7 +381,7 @@ class PgWireSessionTest {
             // 'R' with sub-code 3 is AuthenticationCleartextPassword. Cleartext because
             // TokenVerifier's shape is "client sends the secret, server asks somebody else" -- MD5
             // and SCRAM both require this server to hold a secret it deliberately does not have.
-            assertThat(request.type()).isEqualTo('R');
+            assertThat(java.util.Objects.requireNonNull(request).type()).isEqualTo('R');
             assertThat(request.int32At(0)).isEqualTo(3);
 
             client.password("wrong");
@@ -399,7 +403,7 @@ class PgWireSessionTest {
             // The startup packet says "someone-else"; the credential says dana. The credential wins,
             // and the server says so rather than letting an afternoon's queries run as a surprise.
             client.startup(Map.of("user", "someone-else"));
-            assertThat(client.read().type()).isEqualTo('R');
+            assertThat(java.util.Objects.requireNonNull(client.read()).type()).isEqualTo('R');
             client.password("s3cret");
 
             List<PgTestClient.Message> handshake = client.readUntilReady();

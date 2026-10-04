@@ -144,7 +144,7 @@ class PgTenantNamesTest {
     private PgTestClient authenticated(String password) throws IOException {
         PgTestClient client = new PgTestClient(server.port());
         client.startup(Map.of("user", "anyone", "database", "pravaha"));
-        assertThat(client.read().type()).isEqualTo('R');
+        assertThat(java.util.Objects.requireNonNull(client.read()).type()).isEqualTo('R');
         client.password(password);
         assertThat(PgTestClient.shape(client.readUntilReady())).endsWith("Z");
         return client;

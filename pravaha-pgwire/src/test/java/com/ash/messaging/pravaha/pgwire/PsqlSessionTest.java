@@ -64,6 +64,7 @@ class PsqlSessionTest {
 
     private static final Principal ANALYST = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaPgWireServer server;
 
     @TempDir
@@ -86,6 +87,7 @@ class PsqlSessionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlConnectsAndSelectsFromAView() throws Exception {
         requirePsql();
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
@@ -120,6 +122,7 @@ class PsqlSessionTest {
      * drives the actual queries a real {@code psql} sends, over the real wire.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlBackslashDListsTheViews() throws Exception {
         requirePsql();
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
@@ -130,6 +133,7 @@ class PsqlSessionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlBackslashDtListsTheViewsAsTables() throws Exception {
         requirePsql();
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
@@ -144,6 +148,7 @@ class PsqlSessionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlBackslashDNameDescribesTheViewsColumns() throws Exception {
         requirePsql();
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
@@ -186,6 +191,7 @@ class PsqlSessionTest {
      * exactly right for a certificate this test minted five lines ago and asked nobody to trust.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlConnectsOverTlsWhenTheServerHasACertificateAndSslmodeRequiresIt() throws Exception {
         requirePsql();
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
@@ -204,6 +210,7 @@ class PsqlSessionTest {
      * and this is the test that they actually compose, rather than each merely working alone.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlBackslashDWorksOverTls() throws Exception {
         requirePsql();
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
@@ -224,6 +231,7 @@ class PsqlSessionTest {
      * never sends an {@code SSLRequest}, and is refused {@code 28000} before any password is asked for.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlWithSslDisabledIsRefusedByAServerWithACertificate() throws Exception {
         requirePsql();
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
@@ -237,6 +245,7 @@ class PsqlSessionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void psqlShowsTheEnginesOwnRefusalForAViewThatIsNotThere() throws Exception {
         requirePsql();
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
@@ -254,6 +263,7 @@ class PsqlSessionTest {
      * connection to happen at all. Passing {@code sslmode=disable} would skip the one handshake
      * step most likely to be wrong.
      */
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     private String psql(String password, String sql) throws IOException, InterruptedException {
         return psql(password, sql, null);
     }

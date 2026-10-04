@@ -44,6 +44,15 @@ public class PravahaException extends RuntimeException {
         return code.code() + "  " + message;
     }
 
+    /**
+     * The code and the text, as constructed. Never null: every constructor formats one, and saying
+     * so here spares each caller a null check the message never needed.
+     */
+    @Override
+    public String getMessage() {
+        return String.valueOf(super.getMessage());
+    }
+
     public ErrorCode errorCode() {
         return errorCode;
     }

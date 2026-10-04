@@ -23,6 +23,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -155,7 +157,7 @@ final class PgFrontend {
          * the one composite field {@link MessageReader} knows the shape of rather than leaving to
          * the caller.
          */
-        byte[] lengthPrefixedValueOrNull() {
+        byte @Nullable [] lengthPrefixedValueOrNull() {
             int length = int32();
             if (length == -1) {
                 return null;
@@ -260,6 +262,7 @@ final class PgFrontend {
      * Terminate} and closed, and a client that just closed, are the same event as far as this
      * server is concerned, and neither is a failure worth a stack trace in an operator's log.
      */
+    @Nullable
     Message readMessage() throws IOException {
         int type = in.read();
         if (type < 0) {

@@ -26,6 +26,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.Field;
@@ -439,7 +441,7 @@ final class PgCatalogShim {
     }
 
     /** The literal inside a {@code column LIKE '...'} (optionally parenthesised) clause, or null. */
-    private static String likeLiteral(Pattern likeClause, String sql) {
+    private static @Nullable String likeLiteral(Pattern likeClause, String sql) {
         Matcher match = likeClause.matcher(sql);
         return match.find() ? match.group(1).replace("''", "'") : null;
     }
@@ -501,7 +503,7 @@ final class PgCatalogShim {
     }
 
     /** A best-effort ERE-to-Java {@link Pattern}, or {@code null} if it will not compile. */
-    private static Pattern compileOrNull(String posixEre) {
+    private static @Nullable Pattern compileOrNull(String posixEre) {
         try {
             return Pattern.compile(posixEre);
         } catch (PatternSyntaxException unparseable) {

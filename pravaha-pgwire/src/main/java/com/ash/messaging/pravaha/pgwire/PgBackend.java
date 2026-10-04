@@ -22,6 +22,8 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -291,7 +293,7 @@ final class PgBackend {
      * @param severity {@code ERROR} for something the connection survives, {@code FATAL} for
      *     something it does not
      */
-    void errorResponse(String severity, String sqlState, String message, String detail) throws IOException {
+    void errorResponse(String severity, String sqlState, String message, @Nullable String detail) throws IOException {
         send(ERROR_RESPONSE, body -> {
             field(body, 'S', severity);
             // 'V' is the never-localized severity, added in protocol 3.0's later revisions. A client

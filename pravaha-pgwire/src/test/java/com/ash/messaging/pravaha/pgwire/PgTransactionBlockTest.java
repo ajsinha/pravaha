@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -384,11 +385,11 @@ class PgTransactionBlockTest {
         return complete.get(0).strings().get(0);
     }
 
-    private static String sqlState(List<PgTestClient.Message> reply) {
+    private static @Nullable String sqlState(List<PgTestClient.Message> reply) {
         return PgTestClient.errorFields(PgTestClient.ofType(reply, 'E').get(0)).get('C');
     }
 
-    private static String error(List<PgTestClient.Message> reply) {
+    private static @Nullable String error(List<PgTestClient.Message> reply) {
         return PgTestClient.errorFields(PgTestClient.ofType(reply, 'E').get(0)).get('M');
     }
 }

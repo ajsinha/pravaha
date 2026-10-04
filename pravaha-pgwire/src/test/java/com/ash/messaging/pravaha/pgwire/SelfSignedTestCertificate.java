@@ -54,6 +54,7 @@ final class SelfSignedTestCertificate {
      * which the caller owns and is responsible for cleaning up (a JUnit {@code @TempDir} does this
      * automatically).
      */
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     static SelfSignedTestCertificate generate(File directory) throws Exception {
         return generate(directory, null, 3650);
     }

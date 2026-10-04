@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
@@ -103,11 +105,11 @@ public final class PravahaPgWireServer implements AutoCloseable {
     private AuditSink audit = AuditSink.NONE;
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
     private Duration readDeadline = Duration.ZERO;
-    private TokenVerifier verifier;
-    private volatile PgTls tls;
+    private @Nullable TokenVerifier verifier;
+    private volatile @Nullable PgTls tls;
     private volatile boolean allowPlaintext;
     private PgWireLimits limits = PgWireLimits.DEFAULTS;
-    private volatile PgConnections connections;
+    private volatile @Nullable PgConnections connections;
 
     /**
      * Stable object identifiers for {@code pg_catalog.pg_class}, minted once per view and never
@@ -120,10 +122,10 @@ public final class PravahaPgWireServer implements AutoCloseable {
      */
     private final PgOidRegistry oids = new PgOidRegistry();
 
-    private volatile ServerSocket listener;
-    private ExecutorService sessions;
-    private ScheduledExecutorService deadlines;
-    private Thread acceptor;
+    private volatile @Nullable ServerSocket listener;
+    private @Nullable ExecutorService sessions;
+    private @Nullable ScheduledExecutorService deadlines;
+    private @Nullable Thread acceptor;
     private volatile boolean closing;
 
     public PravahaPgWireServer(ViewCatalog catalog) {
@@ -292,7 +294,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
         while (!closing) {
             Socket client;
             try {
-                client = listener.accept();
+                client = java.util.Objects.requireNonNull(listener, "started").accept();
             } catch (IOException stopped) {
                 // Either close() shut the listener, or the accept failed. Both end the loop; the
                 // former is normal and the latter has already closed the socket underneath us.
@@ -312,23 +314,25 @@ public final class PravahaPgWireServer implements AutoCloseable {
             try {
                 // Counted here, on the acceptor, before a thread is spent: a connection past a limit
                 // costs this server one small write and a close, whoever is sending them.
-                ticket = connections.admit();
+                ticket =
+                        java.util.Objects.requireNonNull(connections, "started").admit();
             } catch (PravahaException full) {
                 refuseAtOnce(client, full);
                 continue;
             }
             try {
-                sessions.execute(new PgWireConnection(
-                        client,
-                        queries,
-                        catalogShim,
-                        verifier,
-                        tls,
-                        allowPlaintext,
-                        SERVER_VERSION,
-                        limits,
-                        ticket,
-                        deadlines));
+                java.util.Objects.requireNonNull(sessions, "started")
+                        .execute(new PgWireConnection(
+                                client,
+                                queries,
+                                catalogShim,
+                                verifier,
+                                tls,
+                                allowPlaintext,
+                                SERVER_VERSION,
+                                limits,
+                                ticket,
+                                java.util.Objects.requireNonNull(deadlines, "started")));
             } catch (RuntimeException rejected) {
                 ticket.close();
                 closeQuietly(client);
@@ -359,7 +363,8 @@ public final class PravahaPgWireServer implements AutoCloseable {
             // discard the ErrorResponse before the client reads it -- leaving "connection reset"
             // where "too many clients" should be.
             client.shutdownOutput();
-            deadlines.schedule(() -> closeQuietly(client), 1, TimeUnit.SECONDS);
+            java.util.Objects.requireNonNull(deadlines, "started")
+                    .schedule(() -> closeQuietly(client), 1, TimeUnit.SECONDS);
         } catch (IOException | RuntimeException gone) {
             // The peer has already gone, or this server is closing; nothing is owed to it.
             closeQuietly(client);

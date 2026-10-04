@@ -26,6 +26,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
@@ -74,8 +76,8 @@ final class PgWireConnection implements Runnable {
     private final Socket socket;
     private final ViewQuery queries;
     private final PgCatalogShim catalog;
-    private final TokenVerifier verifier;
-    private final PgTls tls;
+    private final @Nullable TokenVerifier verifier;
+    private final @Nullable PgTls tls;
     private final boolean allowPlaintext;
     private final String serverVersion;
     private final PgWireLimits limits;
@@ -86,8 +88,8 @@ final class PgWireConnection implements Runnable {
             Socket socket,
             ViewQuery queries,
             PgCatalogShim catalog,
-            TokenVerifier verifier,
-            PgTls tls,
+            @Nullable TokenVerifier verifier,
+            @Nullable PgTls tls,
             boolean allowPlaintext,
             String serverVersion,
             PgWireLimits limits,
@@ -166,8 +168,9 @@ final class PgWireConnection implements Runnable {
             }
         } catch (PravahaException refused) {
             // A protocol-level failure: the connection does not survive it, because after a
-            // framing error this server no longer knows where the next message begins.
-            fatal(backend, refused);
+            // framing error this server no longer knows where the next message begins. The
+            // handshake reports its own refusals, so every one that reaches here follows the backend.
+            fatal(java.util.Objects.requireNonNull(backend, "past the handshake"), refused);
         } catch (SocketTimeoutException slow) {
             // The handshake deadline. Nothing is sent: a peer that has not spoken has not
             // necessarily got as far as being a PostgreSQL client, and an ErrorResponse to
@@ -203,7 +206,7 @@ final class PgWireConnection implements Runnable {
      * same connection. Reading exactly as many bytes as asked and never more is what lets that
      * layering happen with nothing left over to replay.
      */
-    private Prelude handshake(Socket initial) throws IOException {
+    private @Nullable Prelude handshake(Socket initial) throws IOException {
         Socket active = initial;
         boolean encrypted = false;
         PgFrontend frontend = new PgFrontend(active.getInputStream());
@@ -327,7 +330,7 @@ final class PgWireConnection implements Runnable {
      * @return the authenticated principal and the credential it presented, or {@code null} if the
      *     connection was refused
      */
-    private SignedIn authenticate(PgFrontend frontend, PgBackend backend) throws IOException {
+    private @Nullable SignedIn authenticate(PgFrontend frontend, PgBackend backend) throws IOException {
         if (verifier == null) {
             backend.authenticationOk();
             return new SignedIn(Principal.ANONYMOUS, null);
@@ -368,7 +371,7 @@ final class PgWireConnection implements Runnable {
      * Who signed in, and with what: the credential is kept for as long as the connection, so it can
      * be verified again at every statement (PGREVOKE-1). Null when no verifier is configured.
      */
-    private record SignedIn(Principal principal, String credential) {}
+    private record SignedIn(Principal principal, @Nullable String credential) {}
 
     /**
      * The principal the sign-in credential stands for now, or the connection's end.
@@ -387,7 +390,8 @@ final class PgWireConnection implements Runnable {
         }
         Principal now;
         try {
-            now = verifier.verify(signedIn.credential());
+            now = verifier.verify(
+                    java.util.Objects.requireNonNull(signedIn.credential(), "a verified session has its credential"));
         } catch (RuntimeException refused) {
             now = null;
         }

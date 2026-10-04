@@ -71,6 +71,7 @@ class JdbcClientTest {
 
     private static final Principal ANALYST = new Principal("dana", "acme", Set.of("analyst"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaPgWireServer server;
 
     @TempDir
@@ -93,6 +94,7 @@ class JdbcClientTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void jdbcConnectsListsTablesAndColumnsAndReadsRows() throws Exception {
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
 
@@ -143,6 +145,7 @@ class JdbcClientTest {
      * #jdbcConnectsListsTablesAndColumnsAndReadsRows} does over the simple protocol.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void jdbcOverTheExtendedProtocolConnectsListsTablesAndColumns() throws Exception {
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
 
@@ -175,6 +178,7 @@ class JdbcClientTest {
      * {@code preferQueryMode=simple} exists to route around, working without that flag.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void jdbcPreparedStatementWithABoundParameterWorksOverTheExtendedProtocol() throws Exception {
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
 
@@ -212,6 +216,7 @@ class JdbcClientTest {
      * the server-prepare threshold too, where pgjdbc reuses the named statement.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void jdbcSetIntAndSetShortAgainstABigintColumnAreWidened() throws Exception {
         server = new PravahaPgWireServer(populated()).start("127.0.0.1", 0);
 
@@ -361,7 +366,7 @@ class JdbcClientTest {
         try (PgTestClient client = new PgTestClient(server.port())) {
             client.startup(Map.of("user", "dana", "database", "pravaha"));
             PgTestClient.Message first = client.read();
-            assertThat(first.type())
+            assertThat(java.util.Objects.requireNonNull(first).type())
                     .as("an ErrorResponse, not a password request")
                     .isEqualTo('E');
             Map<Character, String> fields = PgTestClient.errorFields(first);
@@ -428,6 +433,7 @@ class JdbcClientTest {
      * double is refused rather than read as the decimal nearest to it.
      */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aDecimalParameterComparesExactlyOverTheExtendedProtocol() throws Exception {
         StreamSchema prices = StreamSchema.builder("prices")
                 .field("sku", Types.string())

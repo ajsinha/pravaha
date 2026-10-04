@@ -233,7 +233,9 @@ final class PgTls {
         throw new PravahaException(
                 PgWireErrors.TLS_UNREADABLE,
                 file.getAbsolutePath() + " is a PKCS#8 key this server could not load as any of " + KEY_ALGORITHMS
-                        + ": " + last.getMessage(),
+                        + ": "
+                        + java.util.Objects.requireNonNull(last, "at least one algorithm was tried")
+                                .getMessage(),
                 last);
     }
 }
