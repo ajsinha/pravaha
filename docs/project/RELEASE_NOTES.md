@@ -64,6 +64,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   query, and `GET /api/v1/queries/{name}` carries `checkpoint` — `enabled`, `last`, `failures` and
   `lastFailure` (a checkpoint that could not be restored at start included). Additive API change;
   `api/openapi.lock.json` updated.
+- **The Java SDK names a certificate it does not trust** (TLSDIAG-1). An untrusted, expired or
+  wrongly named server certificate was `PRV-1040 CLIENT_CONNECT_FAILED`, retryable, "cannot reach
+  host:port: io exception Channel Pipeline: [SslHandler#0, …]". A handshake failure (an
+  `SSLHandshakeException` or certificate exception in the cause chain) is now the new
+  `PRV-1046 CLIENT_TLS_HANDSHAKE_FAILED`, not retryable, carrying the JVM's reason. The Python SDK
+  already said "certificate verify failed" under `PRV-1040` and is unchanged.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

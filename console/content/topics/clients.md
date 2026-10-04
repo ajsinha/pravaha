@@ -766,6 +766,7 @@ code.
 | `ClientErrors.CLOSED` | — | PRV-1043 | The client was used after `close()` |
 | `ClientErrors.TLS_UNREADABLE` | — | PRV-1044 | Certificate or keystore material that cannot be read |
 | `ClientErrors.DEADLINE_EXCEEDED` (retryable) | `DeadlineExceededError` (retryable; `call`, `deadline`) | PRV-1045 | A call was not answered within the request timeout; the message names the call and the deadline |
+| `ClientErrors.TLS_HANDSHAKE_FAILED` | `ConnectError` (PRV-1040, "certificate verify failed") | PRV-1046 | The node's certificate is not trusted, has expired or does not name the host; not retryable |
 | — | `ApiError` (`status`, `engine_code`, `message`) | the engine's own, else 1040 / 1041 | An HTTP call failed; `status` is the HTTP status (`0` when nothing answered), `code` the engine's number when it gave one (`7002` for PRV-7002), retryable when nothing answered or the status was 5xx |
 
 Every Python error's `str()` starts with its own code (`PRV-1041  …`). A refusal from the engine over

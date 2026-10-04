@@ -7,7 +7,7 @@ icon: sliders
 summary: "PRV-1001 to PRV-1056: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
-keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
+keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, tls handshake, certificate, PRV-1046, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
 guide: troubleshooting#every-code
 related: [errors-overview, configuration, clients, http-api]
 listed_on: errors-overview
@@ -23,7 +23,7 @@ They are grouped here by who raises them:
 | Codes | Raised by | When |
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
-| PRV-1030 – PRV-1045 | The Java and Python SDKs | Constructing a client, or talking to the node |
+| PRV-1030 – PRV-1046 | The Java and Python SDKs | Constructing a client, or talking to the node |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
@@ -318,6 +318,16 @@ unless set. The message names the call (`query (planning)`, `action ListQueries`
 the deadline. **Retryable**: nothing was refused. The node is slow, stalled or overloaded — the
 first query on a node that has just started plans cold and takes longest. A subscription is bounded
 only while it opens; once open it runs for as long as it runs.
+
+### PRV-1046 — CLIENT_TLS_HANDSHAKE_FAILED
+
+The Java SDK reached the node and the TLS handshake failed: the node's certificate is not trusted by
+this client (no `caCertificate`/trust store for a private CA), has expired, or does not name the host
+connected to. The message carries the JVM's own reason (`PKIX path building failed`, `certificate
+expired`, `No subject alternative DNS name matching`). **Not retryable**: the same certificate fails
+the same way until the trust or the certificate changes. Until TLSDIAG-1 this was PRV-1040, retryable,
+"cannot reach". The Python SDK reports the same failure as `ConnectError` (PRV-1040) with gRPC's
+`certificate verify failed` in the message.
 
 ## The REST API's own refusals
 

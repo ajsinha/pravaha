@@ -107,6 +107,19 @@ final class ServerFailures {
         if (status.code() == FlightStatusCode.TIMED_OUT && call != null && deadline != null) {
             return deadlineExceeded(call, deadline, endpoint, e);
         }
+        Throwable handshake = tlsHandshakeFailure(e);
+        if (handshake != null) {
+            // TLSDIAG-1: a node that answered with a certificate this client would not accept is not
+            // a node that could not be reached, and retrying will not change the certificate.
+            return new PravahaClientException(
+                    ClientErrors.TLS_HANDSHAKE_FAILED,
+                    "the TLS handshake with " + endpoint + " failed: " + handshake.getMessage()
+                            + ". The node's certificate is not trusted by this client, has expired, or does not"
+                            + " name this host: check TlsOptions (the CA or trust store) and the certificate's"
+                            + " dates and names",
+                    false,
+                    e);
+        }
         if (status.code() == FlightStatusCode.UNAVAILABLE) {
             // No Pravaha code because no Pravaha answered. E-7: this is the scenario every new user
             // hits first -- a server that is not up yet -- and it reached them as a non-retryable
@@ -135,6 +148,30 @@ final class ServerFailures {
                         + " longer",
                 true,
                 cause);
+    }
+
+    /**
+     * The certificate failure underneath {@code e}, or null: an {@link javax.net.ssl.SSLHandshakeException}
+     * or a {@link java.security.cert.CertificateException} anywhere in the cause chain, the status's
+     * own cause included. The deepest one, because it is the one that names the reason ("PKIX path
+     * building failed", "certificate expired") rather than the one that wraps it.
+     */
+    static @Nullable Throwable tlsHandshakeFailure(FlightRuntimeException e) {
+        Throwable found = deepestTlsFailure(e.getCause(), null);
+        return deepestTlsFailure(e.status().cause(), found);
+    }
+
+    private static @Nullable Throwable deepestTlsFailure(@Nullable Throwable start, @Nullable Throwable found) {
+        java.util.Set<Throwable> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Throwable at = start; at != null && seen.add(at); at = at.getCause()) {
+            if (at instanceof javax.net.ssl.SSLHandshakeException
+                    || at instanceof java.security.cert.CertificateException
+                    || at instanceof java.security.cert.CertPathValidatorException
+                    || at instanceof java.security.cert.CertPathBuilderException) {
+                found = at;
+            }
+        }
+        return found;
     }
 
     /** {@code 30 s}, {@code 0.5 s}: how a deadline is named in a message. */

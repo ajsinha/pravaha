@@ -984,6 +984,7 @@ client models the error rather than an empty object.
 | `PRV-1043` | CLIENT_CLOSED | client (SDK) |
 | `PRV-1044` | CLIENT_TLS_UNREADABLE | client (SDK) |
 | `PRV-1045` | CLIENT_DEADLINE_EXCEEDED | client (SDK) |
+| `PRV-1046` | CLIENT_TLS_HANDSHAKE_FAILED | client (SDK) |
 | `PRV-2001` | SQL_PARSE_FAILED | sql |
 | `PRV-2002` | SQL_VALIDATION_FAILED | sql |
 | `PRV-2003` | SQL_UNKNOWN_STREAM | sql |
