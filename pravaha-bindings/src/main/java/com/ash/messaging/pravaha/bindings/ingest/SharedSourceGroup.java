@@ -41,6 +41,14 @@ import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 final class SharedSourceGroup {
 
     /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because the source's partitions are listed, and readers opened on any it has gained, under
+     * it, over the network, and on JDK 21 a virtual thread blocked inside a monitor pins its
+     * carrier (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
+    /**
      * What makes two queries readers of the same thing.
      *
      * <p>The schema is in the key and it has to be: a plan may push a projection into its scan, and
@@ -72,7 +80,7 @@ final class SharedSourceGroup {
         void join(SharedPartitionFeed feed, int partition);
     }
 
-    /** Queries holding this group. Guarded by the owning {@link PluginSourceFeeds}'s monitor. */
+    /** Queries holding this group. Guarded by the owning {@link PluginSourceFeeds}'s sharing lock. */
     private int holders;
 
     SharedSourceGroup(
@@ -98,19 +106,27 @@ final class SharedSourceGroup {
      * when it says it may gain any (A2's {@code partitionRefreshInterval}). The returned handle stops
      * this query being joined to anything more; the query closes it before it closes its members.
      */
-    synchronized AutoCloseable watch(Joiner joiner) {
-        joiners.add(joiner);
-        java.time.Duration interval = plugin.partitionRefreshInterval();
-        if (watcher == null && interval != null && !interval.isZero() && !interval.isNegative()) {
-            watcher = Thread.ofVirtual()
-                    .name("pravaha-shared-partitions-" + key.stream())
-                    .start(() -> watchLoop(interval));
-        }
-        return () -> {
-            synchronized (this) {
-                joiners.remove(joiner);
+    AutoCloseable watch(Joiner joiner) {
+        lock.lock();
+        try {
+            joiners.add(joiner);
+            java.time.Duration interval = plugin.partitionRefreshInterval();
+            if (watcher == null && interval != null && !interval.isZero() && !interval.isNegative()) {
+                watcher = Thread.ofVirtual()
+                        .name("pravaha-shared-partitions-" + key.stream())
+                        .start(() -> watchLoop(interval));
             }
-        };
+            return () -> {
+                lock.lock();
+                try {
+                    joiners.remove(joiner);
+                } finally {
+                    lock.unlock();
+                }
+            };
+        } finally {
+            lock.unlock();
+        }
     }
 
     private void watchLoop(java.time.Duration interval) {
@@ -136,20 +152,25 @@ final class SharedSourceGroup {
      * partition's first record, since it has no history anybody chose to skip. Package-private for the
      * test that grows a group without waiting a refresh interval.
      */
-    synchronized void grow() {
-        java.util.Set<Integer> known = new java.util.HashSet<>();
-        partitions.forEach(p -> known.add(p.index()));
-        for (SourcePartition partition : plugin.partitions(key.stream())) {
-            if (closed || known.contains(partition.index())) {
-                continue;
+    void grow() {
+        lock.lock();
+        try {
+            java.util.Set<Integer> known = new java.util.HashSet<>();
+            partitions.forEach(p -> known.add(p.index()));
+            for (SourcePartition partition : plugin.partitions(key.stream())) {
+                if (closed || known.contains(partition.index())) {
+                    continue;
+                }
+                SharedPartitionFeed feed = feedFor(partition);
+                partitions.add(partition);
+                feeds.add(feed);
+                gained.add(partition.index());
+                for (Joiner joiner : List.copyOf(joiners)) {
+                    joiner.join(feed, partition.index());
+                }
             }
-            SharedPartitionFeed feed = feedFor(partition);
-            partitions.add(partition);
-            feeds.add(feed);
-            gained.add(partition.index());
-            for (Joiner joiner : List.copyOf(joiners)) {
-                joiner.join(feed, partition.index());
-            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -286,9 +307,12 @@ final class SharedSourceGroup {
     void close() {
         closed = true;
         Thread stopping;
-        synchronized (this) {
+        lock.lock();
+        try {
             stopping = watcher;
             watcher = null;
+        } finally {
+            lock.unlock();
         }
         if (stopping != null) {
             stopping.interrupt();

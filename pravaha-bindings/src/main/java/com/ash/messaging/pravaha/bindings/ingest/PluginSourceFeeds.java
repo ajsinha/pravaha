@@ -116,8 +116,12 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      */
     private final Map<SourceBinding, String> soleReaders = new java.util.HashMap<>();
 
-    /** Guards {@link #groups}, {@link #unshareable} and {@link #soleReaders}. */
-    private final Object sharing = new Object();
+    /**
+     * Guards {@link #groups}, {@link #unshareable} and {@link #soleReaders}. A ReentrantLock rather
+     * than a monitor: a registration opens the shared source under it, over the network, and on JDK
+     * 21 a virtual thread blocked inside a monitor pins its carrier (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock sharing = new java.util.concurrent.locks.ReentrantLock();
 
     public PluginSourceFeeds() {
         this(BackpressurePolicy.defaults());
@@ -773,7 +777,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         if (oneReader.isEmpty()) {
             return () -> {};
         }
-        synchronized (sharing) {
+        sharing.lock();
+        try {
             String holder = soleReaders.get(binding);
             if (holder != null) {
                 throw new PravahaException(
@@ -785,10 +790,15 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                                 + "slot (or server.id) of its own -- or a query over '" + holder + "''s view.");
             }
             soleReaders.put(binding, queryName);
+        } finally {
+            sharing.unlock();
         }
         return () -> {
-            synchronized (sharing) {
+            sharing.lock();
+            try {
                 soleReaders.remove(binding, queryName);
+            } finally {
+                sharing.unlock();
             }
         };
     }
@@ -812,7 +822,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             return null;
         }
         SharedSourceGroup.Key key = new SharedSourceGroup.Key(stream, binding, scanned);
-        synchronized (sharing) {
+        sharing.lock();
+        try {
             if (unshareable.containsKey(binding)) {
                 return null;
             }
@@ -834,6 +845,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             }
             group.retain();
             return group;
+        } finally {
+            sharing.unlock();
         }
     }
 
@@ -844,34 +857,43 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      */
     long[] sharedRowsReadAndCopiesWritten() {
         long[] total = new long[2];
-        synchronized (sharing) {
+        sharing.lock();
+        try {
             for (SharedSourceGroup group : groups.values()) {
                 long[] each = group.rowsReadAndCopiesWritten();
                 total[0] += each[0];
                 total[1] += each[1];
             }
+        } finally {
+            sharing.unlock();
         }
         return total;
     }
 
     /** Queries still reading history of their own from a shared source: a join or resume settling. */
     int catchUpsInFlight() {
-        synchronized (sharing) {
+        sharing.lock();
+        try {
             return groups.values().stream()
                     .mapToInt(SharedSourceGroup::catchingUp)
                     .sum();
+        } finally {
+            sharing.unlock();
         }
     }
 
     /** Gives back one query's hold on the groups it joined, closing any nobody is left reading. */
     private void release(List<SharedSourceGroup> held) {
-        synchronized (sharing) {
+        sharing.lock();
+        try {
             for (SharedSourceGroup group : held) {
                 if (group.release()) {
                     groups.remove(group.key());
                     group.close();
                 }
             }
+        } finally {
+            sharing.unlock();
         }
     }
 
@@ -901,14 +923,20 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      *
      * <p>A query reading one shared stream and one of its own is now published from two threads. It
      * was published from one, so nothing on that path was ever written to expect two, and the cost
-     * of saying so here is an uncontended monitor fifty times a second.
+     * of saying so here is an uncontended lock fifty times a second. A ReentrantLock and not a
+     * monitor: what it serialises is a commit, which hands rows to every sink -- network I/O for most
+     * -- on a feed's virtual thread, and on JDK 21 a virtual thread blocked inside a monitor pins its
+     * carrier (ADR-062).
      */
     private static Runnable serialised(Runnable afterDelivery) {
         Runnable delegate = afterDelivery == null ? () -> {} : afterDelivery;
-        return new Runnable() {
-            @Override
-            public synchronized void run() {
+        java.util.concurrent.locks.ReentrantLock publishing = new java.util.concurrent.locks.ReentrantLock();
+        return () -> {
+            publishing.lock();
+            try {
                 delegate.run();
+            } finally {
+                publishing.unlock();
             }
         };
     }
