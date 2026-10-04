@@ -95,7 +95,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 <!-- A list, not a table: these entries are paragraphs, and GitHub's mobile app stops rendering a
      table past about 10,000 bytes, taking the rest of this page with it. -->
 
-- **SQL** — Calcite parses and optimises; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs roughly **10× the interpreted path**. Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/guides/CONTINUOUS_QUERIES.md), checked against the planner by a test
+- **SQL** — Calcite parses and optimises; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs the fused filter and project about **3.5× the interpreted path** (JMH, JDK 25, 2026-10-04; it read 10× on JDK 21 on 2026-09-09, before the interpreted string comparison stopped decoding the column per row). Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/guides/CONTINUOUS_QUERIES.md), checked against the planner by a test
 - **Continuous queries** — Registered with a name and a key; paused, resumed, dropped. Identical questions from one tenant share one computation under many names, matched on the normalised plan, so ten desks asking the same thing cost one read of the source. Each tenant is admitted by quota (queries, view state) and refused by name at the limit ([ADR-050](docs/design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md))
 - **Windows and event time** — Tumbling and hopping (sliding) windows, with slicing, a hop's windows starting on multiples of its slide as SQL's `HOP` does; a hop so fine a row would land in more than `pravaha.lane.max-windows-per-row` windows is refused (`PRV-3026`), and session windows are refused (`PRV-2020`). A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back — and when every partition has gone quiet the watermark catches up to what the ones that spoke said — and a window publishes when time passes its end
 - **Corrections** — Late data within a stream's declared allowed lateness (`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`; zero by default) reopens a closed window as a retraction plus the corrected answer. Every change carries a Z-set weight, through the engine, across the wire and into both SDKs
@@ -146,8 +146,8 @@ in [`LIMITS.md`](docs/guides/LIMITS.md). What is left is below.
 
 **Not yet proven.**
 
-- The eight-lane scaling target: measured at 28–42 % of linear against 90 %, on a laptop, with no
-  reference hardware (below).
+- The eight-lane scaling target: measured at 32–37 % of linear against 90 % on JDK 25 (28–42 % on
+  JDK 21), on a laptop, with no reference hardware (below).
 - The manual WCAG 2.2 AA audit, which is a person's task.
 - The [findings register](docs/project/qa/FINDINGS.md) holds 566 findings, 547 fixed, none open, on 2026-10-04; the adversarial QA's reproductions are kept as opt-in suites
   ([TESTING](docs/development/TESTING.md#the-adversarial-suites)).
@@ -182,6 +182,12 @@ because Pravaha maintains answers to registered questions rather than moving bul
 original figures — 1.2 M rows/s per lane for Profile A, 350 k for Profile B, ≥ 90 % scaling from one
 lane to eight — are kept, unchanged, as the gate criteria.
 
+**Re-measured on JDK 25 on 2026-10-04**, on the same machine (AMD Ryzen AI 9 HX 370, 12 cores / 24
+threads, 60 GiB, Linux 7.1.5), quiet (load 1.2–4.9 of 24), with the same harnesses:
+[`docs/project/gates/measured-2026-10-04-jdk25`](docs/project/gates/measured-2026-10-04-jdk25/README.md).
+No figure regressed. Profile A per lane: 55–60 M rows/s best; Profile B: 2.3–2.7 M; scaling at eight
+lanes 32–37 % of linear, **still not reached**. The 2026-09-20 figures below were taken on JDK 21.
+
 **On 2026-09-20 they were measured on the development machine**, because there is no reference
 hardware and there is not going to be any. Profile A's per-lane throughput and Profile B's are both
 **reached**, with room; the scaling criterion is **not reached** — 28–42 % of linear at eight lanes
@@ -197,10 +203,10 @@ Also measured there: **5 of Nexmark's 23 published queries ran** at the 2026-09-
 head-to-head against Flink has still not been run, and the eleven that do not run are missing SQL
 rather than missing speed.
 
-What this machine reported earlier: the lane machinery runs at about **21 M rows/s**, and the cost
-of a query — threads, off-heap bytes, file descriptors, registration time — which `NodeScaleTest`
-and `SourceScaleTest` measure. A thousand distinct continuous queries register in 3.7 ms each and
-hold 61 MiB off-heap at the advised inbox sizing. The evidence packs in
+On JDK 25 (2026-10-04) the lane machinery runs at about **68 M rows/s** (21 M on JDK 21 in wave 3),
+and `NodeScaleTest`, `SourceScaleTest` and `ThousandQueryTest` measure the cost of a query — threads,
+off-heap bytes, file descriptors, registration time. A thousand distinct continuous queries register
+in 2.6 ms each (3.7 ms on 21) and hold 62 MiB off-heap at the advised inbox sizing. The evidence packs in
 [`docs/project/gates`](docs/project/gates/) say what was and was not measured, wave by wave.
 
 ## Try it

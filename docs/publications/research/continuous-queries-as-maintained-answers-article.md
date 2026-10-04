@@ -563,23 +563,30 @@ SMT — that was running other build agents throughout, at load averages up to 7
 There's no reference hardware. The evidence pack's first section says these numbers are a floor for one
 machine on one afternoon, not the engine's capability. I'm repeating that because it's true.
 
+They were first taken on Java 21. On **4 October 2026 they were re-measured on Java 25** (25.0.4.1), on
+the same laptop, with the same harnesses and the coverage agent off, at load 1.2–4.9 — a quiet machine
+this time ([the pack](../../project/gates/measured-2026-10-04-jdk25/README.md)). Nothing regressed; the
+Java 25 figure follows each Java 21 one below where it was re-taken. The pipeline-alone ratio, the
+subscriber costs and the spill tier were not re-taken.
+
 - **The requirement is about a thousand rows a second** (ADR-042). The design's original gates — 1.2 M
   rows/s per lane for filter-and-project, 350 k for a windowed aggregate — are kept as gates.
-- Filter-and-project, one lane, warm cache: best passes around **30 M rows/s**. Through the SQL layer and a
+- Filter-and-project, one lane, warm cache: best passes around **30 M rows/s** (55–60 M on Java 25). Through the SQL layer and a
   served view, cold cache, heavily loaded machine: best passes 5.9–18.5 M, and one pass at **1.04 M** — the
   one reading below the 1.2 M gate, at load 77. That miss is the most honest single number in the pack.
-- Windowed aggregate, 100,000 Zipf-distributed keys: best **2.47–2.85 M rows/s**, worst of fifteen passes 1.1 M.
+  (On Java 25, quiet: best 46–50 M, worst pass 29.7 M.)
+- Windowed aggregate, 100,000 Zipf-distributed keys: best **2.47–2.85 M rows/s**, worst of fifteen passes 1.1 M (Java 25: 2.30–2.73 M, worst 2.19 M).
 - **Scaling from one lane to eight: not reached.** 28–42 % of linear on the first day — with a code-coverage
   agent attached that nobody had noticed, whose shared probe arrays made eight lanes fight over cache lines.
-  33–46 % after removing it. The machine itself manages 51–55 % of linear for sixteen threads that share
-  nothing. Nothing here shows the software scales, or that it doesn't.
+  33–46 % after removing it; **32–37 %** on Java 25. The machine itself manages 50–55 % of linear for
+  sixteen threads that share nothing. Nothing here shows the software scales, or that it doesn't.
 - Generated code against interpreted: **1.7×** for the pipeline alone; **level** end to end, because one
-  producer thread copying rows into the inbox is then the bound.
+  producer thread copying rows into the inbox is then the bound (1.27–1.30× on Java 25, one run).
 - **Nexmark: 12 of the 23 published queries run.** The head-to-head against Flink that the project set as a
   goal has not been run and can't be here. The eleven that don't run are missing SQL — unwindowed grouping,
   session windows, row-frame window functions — not missing speed.
 - A query on its own lane: about **1 MiB off-heap idle**. A thousand queries add **24 threads** on 24 cores
-  and register in **3.7 ms** each. Four queries over one Aerospike set with a shared reader: **1.0 scans a
+  and register in **3.7 ms** each (2.6 ms on Java 25). Four queries over one Aerospike set with a shared reader: **1.0 scans a
   second in total**, where it was 1.0 each.
 - Subscribers: in process, twenty subscribers cost the engine no more than one. Over Arrow Flight, ingest
   falls by about **4×** from none to twenty, because Flight serialises each batch per subscriber and offers

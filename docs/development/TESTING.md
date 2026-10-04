@@ -33,7 +33,7 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 | Adversarial suites | `pravaha-it/.../it/qa/adversarial` (`Adv*Test`, 110 tests); `tests/qa/adv_surface` (21, Python, against a running node) | JDK 25; a node for the surface suite | `-Dpravaha.qa.adversarial=true`; `PRAVAHA_QI_HTTP=… pytest tests/qa/adv_surface` | opt-in, not in any gate; see [below](#the-adversarial-suites) |
 | Container-backed plugin tests | `plugins/*` (`*IT` and `@Testcontainers` `*Test`) | Docker | `sg docker -c 'tools/worktree-build.sh -o verify -Pit -pl <plugin>'` | 211 container tests across 6 plugins and 3 in `pravaha-it`, green; see [below](#with-docker) |
 | Container-backed `pravaha-it` | `AerospikeContinuousQueryIT`, `AerospikeSourceScaleIT` | Docker | as above, `-pl pravaha-it` | 3 tests, 56 s |
-| Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 25, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **not measured in this pass** |
+| Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 25, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **re-measured on JDK 25 on 2026-10-04** ([gate pack](../project/gates/measured-2026-10-04-jdk25/README.md)), all but the spill tier's |
 | Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s (432 collected on 2026-10-02) |
 | Console | `console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C console test` / `make -C console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)); 1,957 collected on 2026-10-02 |
 | SDK, standalone | `tools/sdk-standalone-check.sh`, after `tools/build-sdk.sh` | Docker (or a running node), Maven, Python with venv or uv | `sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` | four clients outside the repository (Maven, `-all` jar, wheel with and without `[flight]`), green on 2026-09-30 ([below](#the-sdks-on-their-own)) |
@@ -408,8 +408,9 @@ page, nothing overlapping). [`tools/deck/GUIDE.md`](../../tools/deck/GUIDE.md) h
 
 They skip themselves when the JaCoCo agent is attached — a timing under the agent is the agent's
 (PERF-1) — and the build attaches it by default, so a normal `verify` skips them. Run them with
-coverage off on a quiet machine, and record the results as a gate in [`../project/gates/`](../project/gates/). **Not run in
-this pass.**
+coverage off on a quiet machine, and record the results as a gate in [`../project/gates/`](../project/gates/). Last run on
+JDK 25 on 2026-10-04, with the JMH benchmarks: [`measured-2026-10-04-jdk25`](../project/gates/measured-2026-10-04-jdk25/README.md),
+which also lists what was not re-measured and why (the spill tier among it).
 
 ## The findings register and the documents
 

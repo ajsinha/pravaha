@@ -252,7 +252,7 @@ key it saw and serve a wrong answer with nothing to say so. Making that right ne
 shuffle — the most expensive thing a streaming engine builds — and it buys scale for a *single*
 query. This engine's constraint is the number of queries a node holds (ADR-036), and ADR-042 puts
 the throughput requirement at about 1,000 rows per second — four orders of magnitude below the
-21 M rows/s ADR-042 cites for the lane machinery on the development laptop. What runs out first scales
+68 M rows/s the lane machinery measured on the development laptop on JDK 25 (ADR-042; 21 M on JDK 21). What runs out first scales
 by placing whole queries on more nodes.
 
 What it will not give: scale for one query beyond one node, and zero-downtime moves — a computation

@@ -295,28 +295,31 @@ PART11: list[dict[str, Any]] = [
     },
     {
         "kind": "table",
-        "kicker": "Gates P2 and P3 · measured 2026-09-20, re-measured 2026-09-26",
+        "kicker": "Gates P2 and P3 · JDK 21 2026-09-20/26/29, re-measured on JDK 25 2026-10-04",
         "title": "Per-lane throughput reached; scaling not reached",
         "rows": [
             ["Gate", "Target", "Measured", "Verdict"],
             ["P2 · Profile A throughput", "≥ 1.2 M rows/s per lane",
-             "All 30 warm passes and 29 of 30 cold above it; the miss 1,043,974 at load 77", "Reached"],
+             "JDK 21: 29 of 30 cold passes above it, the miss 1,043,974 at load 77. JDK 25, quiet: "
+             "all 30 above, best 55–60 M", "Reached"],
             ["P2 · scaling, 1 → 8 lanes", "≥ 90 % of linear",
-             "28–42 % (09-20); 33–46 % without the coverage agent (09-26); 30–31 % re-taken at load "
-             "3.1–5.2 (09-29); the machine's own ceiling for work sharing nothing: 51–55 %",
+             "JDK 21: 28–42 % (09-20, coverage agent); 33–46 % (09-26); 30–31 % (09-29). JDK 25: "
+             "32–37 %. The machine's own ceiling for work sharing nothing: 50–55 %",
              "Not reached"],
             ["P3 · Profile B throughput", "≥ 350 k rows/s per lane",
-             "Every one of 15 passes above it; the worst 1,096,560, during a load spike", "Reached"],
+             "JDK 21: all 15 passes above, worst 1.10 M in a load spike. JDK 25: all 20, best "
+             "2.30–2.73 M", "Reached"],
             ["W5 · Nexmark vs Flink", "Parity on ≥ 18 of 22", "Not run: no Flink, no quiet machine, no "
              "reference generator here", "Not reached"],
         ],
         "col_w": [1.4, 1.2, 3.2, 0.9],
         "size": 14.5,
-        "note": "The machine: an AMD Ryzen AI 9 HX 370 laptop — 12 physical cores of two designs, SMT2 "
-        "— running other build agents throughout, at load averages from 5.8 to 77.8.",
+        "note": "The machine: an AMD Ryzen AI 9 HX 370 laptop — 12 physical cores of two designs, SMT2. "
+        "Load 5.8–77.8 on 2026-09-20; 1.2–4.9 for the JDK 25 runs.",
         "source": "Source: docs/project/gates/measured-2026-09-20/README.md (verdict line; 'The machine, named'; "
         "Gate P2 throughput and scaling; re-measured 2026-09-26 incl. machineScalingReference; Gate "
-        "P3; W5); docs/project/RELEASE_NOTES.md '1.0.0' PERF-1 and commit 75e9fc9e (30–31 % at load 3.1–5.2).",
+        "P3; W5); docs/project/RELEASE_NOTES.md '1.0.0' PERF-1 and commit 75e9fc9e (30–31 % at load 3.1–5.2); "
+        "docs/project/gates/measured-2026-10-04-jdk25/README.md (JDK 25).",
     },
     {
         "kind": "table",
@@ -343,16 +346,17 @@ PART11: list[dict[str, Any]] = [
     },
     {
         "kind": "table",
-        "kicker": "Micro-benchmarks · benchmarks/README.md",
+        "kicker": "Micro-benchmarks · benchmarks/README.md · measured on JDK 25, 2026-10-04",
         "title": "Ratios that decide design choices, not capabilities",
         "rows": [
             ["Measurement", "Figure", "What it is not"],
-            ["Generated vs interpreted, the fused operator alone", "292 M vs 28.7 M rows/s — roughly 10×",
+            ["Generated vs interpreted, the fused operator alone", "317 M vs 91 M rows/s — about 3.5× "
+             "(10× on JDK 21, before the interpreter stopped decoding text per row)",
              "The gate figure: no decode, arena, handoff or sink"],
-            ["The same plan as a whole pipeline, one thread", "106–118 M vs 60–66 M rows/s — 1.7×",
-             "End to end, where the two are level (0.95–1.13×): the producer is the bound"],
-            ["Lane machinery, one lane", "21 M rows/s", "Operators, decode or sinks"],
-            ["Padding between two cursors", "453 M vs 110 M ops/s — roughly 4×",
+            ["The same plan as a whole pipeline, one thread", "106–118 M vs 60–66 M rows/s — 1.7× (JDK 21)",
+             "End to end, where the two are near level (1.27–1.30× on JDK 25): the producer is the bound"],
+            ["Lane machinery, one lane", "68 M rows/s (21 M on JDK 21)", "Operators, decode or sinks"],
+            ["Padding between two cursors", "499 M vs 133 M ops/s — roughly 4×",
              "Precise: error bars are wide on this hardware; the gap is not"],
         ],
         "col_w": [2.0, 2.0, 2.2],
@@ -361,7 +365,7 @@ PART11: list[dict[str, Any]] = [
         "about a gate that does not exist is worth less than no claim.",
         "source": "Source: benchmarks/README.md (Profile A generated vs interpreted; lane scaling; "
         "false sharing; PF-2); docs/project/gates/measured-2026-09-20/README.md 'C-7: generated against "
-        "interpreted, end to end'.",
+        "interpreted, end to end'; docs/project/gates/measured-2026-10-04-jdk25/README.md.",
     },
     {
         "kind": "table",

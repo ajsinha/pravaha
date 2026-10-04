@@ -1871,7 +1871,20 @@ agent), three runs at load 1.7–3.9 of 24:
 | on | 14.3 – 14.5 M |
 
 **Cost: 12.6 %, 11.9 %, 11.5 % — call it 12 %.** Faster in absolute terms on both arms, and the
-wrappers are a larger share of a smaller total. This is the figure to quote.
+wrappers are a larger share of a smaller total. Those were on JDK 21.
+
+**Re-measured on JDK 25 (25.0.4.1) on 2026-10-04**, same machine, same harness and settings, three runs
+at load 2.2–3.2 of 24 and one rerun at load 1.2
+([gate pack](../project/gates/measured-2026-10-04-jdk25/README.md)):
+
+| `pravaha.metrics.operators` | Three runs | Rerun, load 1.2 |
+|---|---|---|
+| off | 14.3 M | 18.45 M |
+| on | 12.8 – 13.0 M | 16.13 M |
+
+**Cost: 9.4 %, 10.1 %, 10.5 %, and 12.6 % on the rerun — about 10–13 %.** This is the figure to quote.
+The three runs' absolute rates were the machine (they ran straight after other measurements); the
+rerun on a quieter machine was faster than JDK 21 on both arms.
 
 **This measurement needs an idle machine, and says so.** Repeated while another build was running
 (load 8 to 14 of 24 threads) the same harness gave 6.1 %, 13.8 %, 14.1 % and 17.1 % — an eleven-point
