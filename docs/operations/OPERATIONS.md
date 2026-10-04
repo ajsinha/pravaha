@@ -1680,6 +1680,12 @@ Per continuous query:
 Per node, `pravaha_registry_recovery_refused` counts the journalled registrations the last restart
 refused that nobody has dropped or registered again — each a view a client expects and will not find.
 **Alert on it above zero**; see *Owners are re-checked on replay* (RECOVERYHEALTH-1).
+
+Per node, `pravaha_audit_unrecorded_total` counts the authorization decisions the durable audit sink
+accepted and did not record — dropped by a full queue or lost to a file that could not be written —
+and `pravaha_audit_failing` is 1 while the sink cannot write or cannot rotate (health `DEGRADED`, the
+reason under `audit`). **Alert on either moving**: each is a gap in the audit trail (AUDITROTATE-1;
+see [SECURITY.md](SECURITY.md)).
 | `pravaha_query_spill_slabs_released{query=}` | Overflow slabs (files) compaction gave back |
 | `pravaha_query_backpressure_waits_total{query=}` | Episodes in which one of this query's writers found nowhere to put a row. A count of **episodes**, not of rows or polls: a source held off for an hour is one |
 | `pravaha_query_backpressure_wait_seconds_total{query=}` | How long those episodes lasted altogether, counting one still in progress. `rate()` of it against wall clock is the share of time this query could not be fed |

@@ -18,10 +18,14 @@ package com.ash.messaging.pravaha.security;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,6 +34,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * The audit trail somebody can actually read (CFG-23).
@@ -181,5 +186,148 @@ class FileAuditSinkTest {
         sink.record(read("payroll", AccessDecision.allow(), "SELECT 1 FROM payroll"));
 
         assertThat(sink.droppedEvents()).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------ AUDITROTATE-1
+
+    private static final Set<PosixFilePermission> READ_ONLY_DIRECTORY = PosixFilePermissions.fromString("r-x------");
+    private static final Set<PosixFilePermission> WRITABLE_DIRECTORY = PosixFilePermissions.fromString("rwx------");
+    private static final Set<PosixFilePermission> READ_ONLY_FILE = PosixFilePermissions.fromString("r--------");
+    private static final Set<PosixFilePermission> WRITABLE_FILE = PosixFilePermissions.fromString("rw-------");
+
+    /** Fills the file to just under its 4096-byte bound, so the next events rotate it. */
+    private static void fillToTheBound(FileAuditSink sink, Path trail) throws Exception {
+        int i = 0;
+        while (Files.size(trail) < 3900) {
+            sink.record(read("payroll", AccessDecision.allow(), "SELECT * FROM payroll WHERE id = " + i++));
+            sink.flush(Duration.ofSeconds(5));
+        }
+    }
+
+    /** False on a filesystem without POSIX permissions, or as root, who writes anywhere. */
+    private static boolean permissionsBite(Path directory) throws Exception {
+        if (!Files.getFileStore(directory).supportsFileAttributeView(PosixFileAttributeView.class)) {
+            return false;
+        }
+        Files.setPosixFilePermissions(directory, READ_ONLY_DIRECTORY);
+        boolean bites = !Files.isWritable(directory);
+        Files.setPosixFilePermissions(directory, WRITABLE_DIRECTORY);
+        return bites;
+    }
+
+    @Test
+    void aRotationThatCannotMoveTheFileKeepsWritingTheCurrentOneAndSaysSo(@TempDir Path root) throws Exception {
+        Path directory = Files.createDirectory(root.resolve("trail"));
+        assumeTrue(permissionsBite(directory), "POSIX permissions, and not root");
+        Path trail = directory.resolve("audit.jsonl");
+        List<String> problems = new CopyOnWriteArrayList<>();
+
+        try (FileAuditSink sink = new FileAuditSink(trail, 4096, 2, problems::add, Duration.ZERO)) {
+            fillToTheBound(sink, trail);
+            long before = sink.writtenEvents();
+            Files.setPosixFilePermissions(directory, READ_ONLY_DIRECTORY);
+            try {
+                for (int i = 0; i < 20; i++) {
+                    sink.record(read("payroll", AccessDecision.allow(), "SELECT * FROM payroll WHERE id = " + i));
+                }
+                sink.flush(Duration.ofSeconds(5));
+
+                // The rename was refused, and the file it was renaming is still writable: every
+                // decision goes on into it, past its bound, rather than into nothing.
+                assertThat(sink.writtenEvents()).isEqualTo(before + 20);
+                assertThat(sink.lostEvents()).isZero();
+                assertThat(Files.exists(directory.resolve("audit.jsonl.1"))).isFalse();
+                assertThat(sink.failure())
+                        .hasValueSatisfying(failure -> assertThat(failure).contains("could not rotate"));
+                assertThat(problems)
+                        .as("reported once when it starts, not once per event")
+                        .hasSize(1);
+            } finally {
+                Files.setPosixFilePermissions(directory, WRITABLE_DIRECTORY);
+            }
+
+            sink.record(read("payroll", AccessDecision.allow(), "after the directory is writable again"));
+            sink.flush(Duration.ofSeconds(5));
+
+            assertThat(sink.failure()).isEmpty();
+            assertThat(Files.exists(directory.resolve("audit.jsonl.1"))).isTrue();
+            assertThat(problems.get(problems.size() - 1)).contains("rotates again");
+        }
+    }
+
+    @Test
+    void aTrailThatCannotBeReopenedCountsEveryLostEventAndRecordsTheGapOnceItCan(@TempDir Path root) throws Exception {
+        Path directory = Files.createDirectory(root.resolve("trail"));
+        assumeTrue(permissionsBite(directory), "POSIX permissions, and not root");
+        Path trail = directory.resolve("audit.jsonl");
+        List<String> problems = new CopyOnWriteArrayList<>();
+
+        try (FileAuditSink sink = new FileAuditSink(trail, 4096, 2, problems::add, Duration.ZERO)) {
+            fillToTheBound(sink, trail);
+            long before = sink.writtenEvents();
+            // Neither renamable nor reopenable: the rotation closes the stream and cannot open one.
+            // This was the state in which every later event was discarded without a count or a word.
+            Files.setPosixFilePermissions(directory, READ_ONLY_DIRECTORY);
+            Files.setPosixFilePermissions(trail, READ_ONLY_FILE);
+            try {
+                for (int i = 0; i < 20; i++) {
+                    sink.record(read("payroll", AccessDecision.allow(), "SELECT * FROM payroll WHERE id = " + i));
+                }
+                sink.flush(Duration.ofSeconds(5));
+
+                assertThat(sink.writtenEvents()).isEqualTo(before);
+                assertThat(sink.lostEvents()).isEqualTo(20);
+                assertThat(sink.unrecorded()).isEqualTo(20);
+                assertThat(sink.failedWrites()).isGreaterThanOrEqualTo(20);
+                assertThat(sink.failure())
+                        .hasValueSatisfying(failure -> assertThat(failure).contains("cannot write the audit trail"));
+                assertThat(problems.stream().filter(problem -> problem.contains("cannot write the audit trail")))
+                        .as("one ERROR when the failure starts, not one per lost event")
+                        .hasSize(1);
+            } finally {
+                Files.setPosixFilePermissions(directory, WRITABLE_DIRECTORY);
+                Files.setPosixFilePermissions(trail, WRITABLE_FILE);
+            }
+
+            // Writable again: the next event opens the file by itself, and the gap is in the record.
+            sink.record(read("payroll", AccessDecision.allow(), "after the trail is writable again"));
+            sink.flush(Duration.ofSeconds(5));
+
+            assertThat(sink.failure()).isEmpty();
+            assertThat(sink.writtenEvents()).isEqualTo(before + 1);
+            String all = Files.readString(trail);
+            if (Files.exists(directory.resolve("audit.jsonl.1"))) {
+                all = Files.readString(directory.resolve("audit.jsonl.1")) + all;
+            }
+            assertThat(all)
+                    .contains("\"event\":\"audit.lost\",\"count\":20")
+                    .contains("after the trail is writable again");
+            assertThat(problems.get(problems.size() - 1)).contains("is being written again");
+        }
+    }
+
+    @Test
+    void theReadableTrailReportsItsDurableSinksFailure(@TempDir Path root) throws Exception {
+        Path directory = Files.createDirectory(root.resolve("trail"));
+        assumeTrue(permissionsBite(directory), "POSIX permissions, and not root");
+        Path trail = directory.resolve("audit.jsonl");
+        try (FileAuditSink sink = new FileAuditSink(trail, 4096, 2, message -> {}, Duration.ZERO)) {
+            AuditTrail readable = new AuditTrail(sink, "file", 16);
+            assertThat(readable.failure()).isEmpty();
+            fillToTheBound(sink, trail);
+            Files.setPosixFilePermissions(directory, READ_ONLY_DIRECTORY);
+            Files.setPosixFilePermissions(trail, READ_ONLY_FILE);
+            try {
+                readable.record(read("payroll", AccessDecision.allow(), "SELECT * FROM payroll WHERE id = 1"));
+                sink.flush(Duration.ofSeconds(5));
+
+                // What the node's health reads to report DEGRADED.
+                assertThat(readable.failure()).isPresent();
+                assertThat(readable.unrecorded()).isEqualTo(1);
+            } finally {
+                Files.setPosixFilePermissions(directory, WRITABLE_DIRECTORY);
+                Files.setPosixFilePermissions(trail, WRITABLE_FILE);
+            }
+        }
     }
 }

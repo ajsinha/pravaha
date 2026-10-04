@@ -379,6 +379,18 @@ is an `audit.dropped` marker with the count, because a gap nothing records is a 
 path that cannot be written is `PRV-7004` at startup rather than a discovery at the first decision
 nobody sees. A durable sink of your own is still an `AuditSink` implementation you supply.
 
+*A trail that stops being writable is never silent (AUDITROTATE-1).* A full disk or a directory or file
+made read-only after startup does not fail queries — auditing never does — and does not go
+unnoticed either. A rotation that cannot rename the file keeps writing the current one past its bound
+and is retried every 5 s; a file that cannot be written or reopened is retried on the next decision,
+and every decision not written meanwhile is counted and, once the file is writable again, recorded in
+it as an `audit.lost` line with the count. Each failure is logged at `ERROR` once when it starts and
+once when it ends; while it lasts the `engine` health indicator is `DEGRADED` (the reason under
+`audit`), `pravaha_audit_failing` is 1, and `pravaha_audit_unrecorded_total` counts what the trail is
+missing (dropped or lost). A custom `AuditSink` can report the same by overriding `failure()` and
+`unrecorded()`. Until AUDITROTATE-1 a failed rotation left no stream and every later decision was
+discarded with no count, no log line and health `UP`.
+
 ### Reading the audit trail: `GET /api/v1/audit`
 
 `GET /api/v1/audit?since=&until=&principal=&view=&action=&decision=&limit=&cursor=` returns recorded

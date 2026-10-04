@@ -94,6 +94,26 @@ public final class PravahaMetrics implements AutoCloseable {
                                 .orElse(0))
                 .description("Journalled registrations refused at recovery, listed FAILED until dropped")
                 .register(meters);
+        // AUDITROTATE-1: decisions the durable audit sink accepted and did not record, and whether it
+        // is failing now. Non-zero / 1 is an audit trail with a gap in it.
+        io.micrometer.core.instrument.FunctionCounter.builder(
+                        "pravaha.audit.unrecorded",
+                        node,
+                        n -> n.auditTrail()
+                                .map(com.ash.messaging.pravaha.security.AuditSink::unrecorded)
+                                .orElse(0L))
+                .description("Audit decisions the durable sink accepted and did not record (dropped or lost)")
+                .register(meters);
+        Gauge.builder(
+                        "pravaha.audit.failing",
+                        node,
+                        n -> n.auditTrail()
+                                        .flatMap(com.ash.messaging.pravaha.security.AuditSink::failure)
+                                        .isPresent()
+                                ? 1
+                                : 0)
+                .description("1 while the durable audit sink is not recording or cannot rotate; health is DEGRADED")
+                .register(meters);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "pravaha-metrics");
             thread.setDaemon(true);

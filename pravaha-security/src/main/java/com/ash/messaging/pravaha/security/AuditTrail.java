@@ -113,6 +113,18 @@ public final class AuditTrail implements AuditSink {
         return delegateFailures.get();
     }
 
+    /** The durable sink's failure, as it reports it. */
+    @Override
+    public java.util.Optional<String> failure() {
+        return delegate.failure();
+    }
+
+    /** What the durable sink did not record, and the events it threw on rather than recording. */
+    @Override
+    public long unrecorded() {
+        return delegate.unrecorded() + delegateFailures.get();
+    }
+
     /**
      * One page of the retained trail, newest first.
      *

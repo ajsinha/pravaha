@@ -17,10 +17,15 @@ package com.ash.messaging.pravaha.server;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.Status;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
@@ -34,6 +39,7 @@ import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * {@code pravaha.security.audit: file} — the setting that leaves a record somebody can read.
@@ -126,5 +132,72 @@ class AuditFileSinkConfigurationTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-7004")
                 .hasMessageContaining("'none', 'memory' or 'file'");
+    }
+
+    /**
+     * AUDITROTATE-1: a trail that cannot be written turns the node's health DEGRADED and is counted,
+     * where it used to stop recording with the node UP and no metric moving.
+     */
+    @Test
+    void anAuditTrailThatCannotBeWrittenDegradesHealthAndIsCounted(@TempDir Path root) throws Exception {
+        Path directory = Files.createDirectory(root.resolve("trail"));
+        Path trail = directory.resolve("audit.jsonl");
+        assumeTrue(Files.getFileStore(directory).supportsFileAttributeView(PosixFileAttributeView.class));
+        SecurityProperties security = fileAudit(trail);
+        security.setAuditRotateBytes(4096);
+        security.setAllowAnonymous(true);
+        PravahaNode node = PravahaNode.builder()
+                .withCatalog(new StreamCatalog())
+                .withSecurity(security)
+                .withFlight(true, "127.0.0.1", 0)
+                .withPersistence(persistence())
+                .withNodeId("audit-health-node")
+                .build();
+        node.start();
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        PravahaMetrics metrics = new PravahaMetrics(meters, node);
+        AuditSink recorder = node.auditSink();
+        FileAuditSink sink = (FileAuditSink) ((com.ash.messaging.pravaha.security.AuditTrail) recorder).delegate();
+        try {
+            assertThat(new EngineHealthIndicator(node).health().getStatus()).isEqualTo(Status.UP);
+            while (Files.size(trail) < 3900) {
+                recorder.record(AuditEvent.of(
+                        Principal.of("carol"), "query", "payroll", AccessDecision.allow(), "SELECT * FROM payroll"));
+                sink.flush(Duration.ofSeconds(5));
+            }
+            Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("r-x------"));
+            Files.setPosixFilePermissions(trail, PosixFilePermissions.fromString("r--------"));
+            try {
+                assumeTrue(!Files.isWritable(directory), "not root");
+                for (int i = 0; i < 40; i++) {
+                    recorder.record(AuditEvent.of(
+                            Principal.of("carol"), "query", "payroll", AccessDecision.allow(), "SELECT 1"));
+                }
+                sink.flush(Duration.ofSeconds(5));
+
+                Health health = new EngineHealthIndicator(node).health();
+                assertThat(health.getStatus()).isEqualTo(EngineHealthIndicator.DEGRADED);
+                assertThat(String.valueOf(health.getDetails().get("audit"))).contains("cannot write the audit trail");
+                assertThat(meters.get("pravaha.audit.failing").gauge().value()).isEqualTo(1.0);
+                assertThat(meters.get("pravaha.audit.unrecorded")
+                                .functionCounter()
+                                .count())
+                        .isGreaterThan(0.0);
+            } finally {
+                Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
+                Files.setPosixFilePermissions(trail, PosixFilePermissions.fromString("rw-------"));
+            }
+
+            recorder.record(
+                    AuditEvent.of(Principal.of("carol"), "query", "payroll", AccessDecision.allow(), "writable again"));
+            sink.flush(Duration.ofSeconds(5));
+            assertThat(new EngineHealthIndicator(node).health().getStatus()).isEqualTo(Status.UP);
+            assertThat(meters.get("pravaha.audit.failing").gauge().value()).isZero();
+        } finally {
+            metrics.close();
+            meters.close();
+            node.stop();
+            sink.close();
+        }
     }
 }

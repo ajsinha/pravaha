@@ -347,8 +347,10 @@ passes readiness, the chart's `readinessProbe` is decoration and the chart is wr
 
 A `DEGRADED` node — every view still served, at least one source stopped (FEED-1: a file gone, a
 Kafka topic deleted, a CDC slot dropped) or a journalled registration refused at recovery
-(RECOVERYHEALTH-1) — answers 200 and stays in rotation, on purpose. Alert on
-`pravaha_query_feed_stopped` and `pravaha_registry_recovery_refused`, do not take the node out.
+(RECOVERYHEALTH-1) or an audit trail that cannot be written (AUDITROTATE-1) — answers 200 and stays
+in rotation, on purpose. Alert on
+`pravaha_query_feed_stopped`, `pravaha_registry_recovery_refused` and `pravaha_audit_failing`, do not
+take the node out.
 
 ### Secrets
 

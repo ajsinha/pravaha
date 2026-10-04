@@ -113,6 +113,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **The SDK deadline's default is 60 s, not 30 s.** On a loaded machine a cold first registration or
   query (the planner starting) outran 30 s in the build; 60 s keeps the bound without failing a slow
   first call. `requestTimeout` / `request_timeout_seconds` / `--timeout` still set it.
+- **A failed audit rotation no longer stops the trail in silence** (AUDITROTATE-1). With
+  `audit: file`, a rotation that could not rename the file left no stream open, and every later
+  decision was discarded uncounted, unlogged and with health `UP`. A rotation that fails now keeps
+  writing the current file and is retried every 5 s; a file that cannot be written is reopened on the
+  next decision; each decision not written is counted and recorded as an `audit.lost` line once the
+  file is writable again. The failure is logged at `ERROR` when it starts and when it ends, the
+  `engine` health indicator is `DEGRADED` while it lasts, and two new meters say so:
+  `pravaha_audit_failing` and `pravaha_audit_unrecorded_total`. `AuditSink` gains `failure()` and
+  `unrecorded()` (default: none) for a custom sink to report the same.
 
 Register: **572 findings — 549 fixed, 4 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
 
