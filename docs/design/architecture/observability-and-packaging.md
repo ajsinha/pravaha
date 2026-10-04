@@ -64,7 +64,7 @@ flowchart LR
 |---|---|
 | `PRAVAHA_HOME` | One root, the same in the image (`/opt/pravaha`) and an unpacked distribution: `bin/`, `lib/` (the image's), `conf/` (your `application.yaml`), `secrets/`, `plugins/` (extra jars on `loader.path`), `data/` (journals, checkpoints, dead letters, spill, identity, catalogue), `logs/`, `tmp/`. Nothing is written elsewhere; any uid works |
 | `bin/pravaha-server`, `bin/pravaha-engine`, `bin/pravaha` | The launchers: the node (pointing `java.io.tmpdir`, `user.home` and heap dumps under `PRAVAHA_HOME`, and passing `-Dloader.path=$PRAVAHA_HOME/plugins`), the offline Java CLI, and the Python CLI. A fourth script checks a node's health for an orchestrator |
-| Images | `deploy/docker/Dockerfile` (release, over a jar the reactor built) and the root `Dockerfile` (from source); a glibc JRE 25 base; native code limited to Parquet's two codecs ([ADR-053](../adr/053-native-code-only-where-java-cannot.md)) |
+| Images | `deploy/docker/Dockerfile` (release, over a jar the reactor built) and the root `Dockerfile` (from source); a glibc Java 21 JRE base; native code limited to Parquet's two codecs ([ADR-053](../adr/053-native-code-only-where-java-cannot.md)) |
 | Helm | `deploy/helm/pravaha`: **one** node as a StatefulSet, an optional standby, ServiceMonitor and PrometheusRule behind flags — one because a node claims its state directories by node id and multi-node is on hold ([ADR-045](../adr/045-cluster-mode-assigns-queries-not-rows.md)) |
 | Versioning | `deploy/release/version.sh` and `set-version.sh` keep 40 poms, two wheels and the chart on one version |
 | `pravaha-bom` | The Maven bill of materials an application imports to align `pravaha-*` versions |

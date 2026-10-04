@@ -11,23 +11,30 @@ comes it arrives as a 2.x addition that a single node does not have to adopt.
 
 ## 2.0: what breaks
 
-2.0 breaks two things: the Java baseline, and `pravaha.security.administer: legacy-read`, removed as
+2.0 broke two things: the Java baseline (since relaxed to Java 21 or later, below), and `pravaha.security.administer: legacy-read`, removed as
 1.x announced.
 
-### Java 25 is the minimum
+### Java 21 or later
 
-[ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md). **Java 25 is required** to build, run, embed or call Pravaha from Java: every module, `pravaha-api`
-and the Java SDKs included, is Java 25 class files. 1.x required 21 (`pravaha-api` and
-`pravaha-sdk-java` targeted 17) and supported 25.
+**The requirement is Java 21 or later, tested on 21 and 25** ([ADR-062](../design/adr/062-java-21-or-later.md)).
+2.0.0 had made Java 25 the minimum ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md));
+ADR-062 supersedes that baseline. Any JDK or JRE from 21 up (22, 23, 24, 25, ...) runs Pravaha. Every
+module, `pravaha-api` and the Java SDKs included, is Java 21 class files (`maven.compiler.release` 21,
+class-file version 65), and the build itself runs on JDK 21 or later. CI runs the whole reactor on 21
+and on 25.
 
-| Who | What changes |
+| Who | What it means |
 |---|---|
-| Running a node from the jar or the distribution | `JAVA_HOME` must be a JDK or JRE 25; the launchers refuse an older JVM by name |
-| Running the image | Nothing: it was already on `eclipse-temurin:25-jre`. The 1.x `-jre21` tag is not built for 2.x |
-| Embedding (`pravaha-embedded`), a plugin against `pravaha-api` | The application's JVM must be 25 |
-| The Spring Boot starter | Java 25, and **Spring Boot 3.4 or later**: Boot 3.2 and 3.3 cannot read Java 25 class files (1.x: Boot 3.2 to 3.5) |
-| A Java SDK client | Java 25. The wire is unchanged, so a 1.x Java SDK keeps speaking it to a 2.0 node while an application moves; the tested pairing is still the same major.minor (below) |
-| The Python SDK, the CLI, the console | Nothing |
+| Running a node from the jar or the distribution | `JAVA_HOME` must be a JDK or JRE 21 or later; the launchers refuse an older JVM by name |
+| Running the image | One engine image, on `eclipse-temurin:21-jre`; there is no per-Java tag |
+| Embedding (`pravaha-embedded`), a plugin against `pravaha-api` | The application's JVM must be 21 or later |
+| The Spring Boot starter | Java 21 or later, and Spring Boot 3.4 or 3.5, the tested lines. Java 21 class files would load on Boot 3.2 and 3.3 again, but those lines are out of open-source support and are not brought back |
+| A Java SDK client | Java 21 or later. The wire is unchanged, so a Java SDK of any 1.x or 2.x keeps speaking it to a 2.x node; the tested pairing is still the same major.minor (below) |
+| The Python SDK, the CLI, the console | Nothing, except that their tests start a Java server, which needs `JAVA_HOME` on a JDK 21 or later |
+
+On JDK 21 a virtual thread that blocks inside a `synchronized` monitor pins its carrier thread (JDK 24
+fixed that, JEP 491), so the monitors that request and feed virtual threads block inside were converted
+to `ReentrantLock`; [ADR-062](../design/adr/062-java-21-or-later.md) has the list.
 
 ### `legacy-read` is removed
 
@@ -104,7 +111,7 @@ instances need sticky sessions.
 
 | Surface | What stays compatible | Where it is defined |
 |---|---|---|
-| Java | JDK 25 is the minimum through 2.x, for building, running, embedding and the Java SDKs; every module's classes target Java 25. The container images run on `eclipse-temurin:25-jre`. (1.x: JDK 21 minimum, 25 supported.) | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
+| Java | Java 21 or later through 2.x, tested on 21 and 25, for building, running, embedding and the Java SDKs; every module's classes target Java 21 ([ADR-062](../design/adr/062-java-21-or-later.md)). The container images run on `eclipse-temurin:21-jre`. | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
 | The SQL dialect | Every statement, function and clause [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) documents keeps its meaning; a statement accepted by 1.0 is accepted by every 1.x and 2.x and answers the same, except where the answer was a defect — 2.0.1's are listed above. New syntax and functions may be added. | [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) |
 | The Java SDK | Public types and methods of `pravaha-api`, `pravaha-sdk-java` and `pravaha-sdk-java-flight` are not removed or changed incompatibly; methods may be added. | the javadoc jars; `sdk/pravaha-sdk-java/README.md` |
 | The Python SDK | The public names in `pravaha` (everything not starting with `_`), excluding `pravaha.assist` — see below. | [../guides/PYTHON_API_GUIDE.md](../guides/PYTHON_API_GUIDE.md) |

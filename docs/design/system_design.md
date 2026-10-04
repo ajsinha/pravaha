@@ -26,6 +26,7 @@
 | Changes in 3.8 | The console becomes a separate Python FastAPI process built on the published SDK (§23.2a, ADR-024) |
 | Changes in 3.9 | Sessions, subscriptions, disconnect handling and query sharing specified (§11.7, §11.8, ADR-025) |
 | Changes in 3.10 | WebSocket as a first-class carrier and the subscriber-scale architecture (§20.3a, §20.3b, ADR-026) |
+| Changes in 3.12 | 2026-10-04: the baseline is **Java 21 or later**, tested on 21 and 25, for every module (ADR-062, superseding ADR-061's Java 25-only baseline; the virtual-thread monitors became `ReentrantLock` because 21 pins carriers). The 3.11 notes below are kept as the record of 2.0.0 |
 | Changes in 3.11 | 2026-10-01: the baseline moves to **Java 25 LTS from Pravaha 2.0**, for every module, `pravaha-api` and the Java SDKs included (ADR-061, superseding ADR-001's baseline). §4.5 and the places below that state 21 carry a dated revision note; their text is kept as the record of the 1.x decision |
 | Changes in 3.12 | 2026-10-02: what the adversarial QA of 2.0.0 and its three fix waves changed (Pravaha 2.0.1), as dated revision notes in §14.5, §15.2, §15.3, §15.6 and §25; the text above each note is kept as the record |
 | Version | 3.12 |
@@ -92,7 +93,7 @@ The 1.0 draft has the right *product vision* and the right *component inventory*
 
 | # | Decision | Rationale (short) |
 |---|---|---|
-| **D1** | **Java 21 LTS baseline, single language.** No Scala in the core. *(Revised 2026-10-01: Java 25 from 2.0, every module; ADR-061.)* | Every dependency in the stack (Calcite, Avatica, RocksDB JNI, Aerospike client, Netty, Agrona, JCTools) is Java-native. Java 21+ records/sealed types/pattern matching close most of Scala's expressiveness gap, and Java gives us direct control over allocation, which is the whole ballgame here. See §4. |
+| **D1** | **Java 21 LTS baseline, single language.** No Scala in the core. *(Revised 2026-10-01: Java 25 from 2.0, every module; ADR-061. Revised again 2026-10-04: Java 21 or later, every module; ADR-062.)* | Every dependency in the stack (Calcite, Avatica, RocksDB JNI, Aerospike client, Netty, Agrona, JCTools) is Java-native. Java 21+ records/sealed types/pattern matching close most of Scala's expressiveness gap, and Java gives us direct control over allocation, which is the whole ballgame here. See §4. |
 | **D2** | **Calcite is a compiler, not a runtime.** | Use Calcite for parse → validate → optimize. Then translate the physical `RelNode` tree into Pravaha's own operator DAG and **generate Java source per query** (whole-stage fusion, Janino-compiled). Never execute through `ScannableTable.scan()` / `Enumerable`. See §11, §12. |
 | **D3** | **No `Map<String,Object>` on the hot path.** | Records are schema-bound **flyweights over an off-heap arena**; field access is an ordinal into a fixed binary layout. `Map`-based `ContinuousRecord` survives only as a convenience API at the SPI boundary and in tests. See §8. |
 | **D4** | **Partitioned lanes with the single-writer principle.** | One global `LinkedBlockingQueue` is a hard scalability ceiling. Instead: hash-partition each stream into *lanes*; each lane owns one thread, one MPSC ring buffer (JCTools/Agrona), one state slice, one timer wheel. Zero lock contention in steady state. See §13. |
@@ -301,6 +302,8 @@ Covered in §25, §11.4, §15.6, §13.5 and §26 respectively.
 > **Revised in v3.1.** This document previously specified Java 25. Java 21 is now the baseline; 25 remains supported and CI-tested. The reasoning — and it is a product argument, not only an engineering one — is in §4.5.
 >
 > **Revised again 2026-10-01 (v3.11).** From Pravaha 2.0 the baseline is **Java 25 LTS**, for every module, `pravaha-api` and the Java SDKs included, and 21 is no longer built or supported ([ADR-061](adr/061-jdk-25-is-the-baseline-from-2-0.md)). The owner's decision; the embeddability cost §4.5 weighed is accepted knowingly. The language recommendation is unchanged.
+>
+> **Relaxed 2026-10-04 (v3.12).** The baseline is **Java 21 or later**, tested on 21 and 25 ([ADR-062](adr/062-java-21-or-later.md)); the paragraph above is the record of 2.0.0.
 
 This is a considered recommendation, not a default. Scala is a genuinely strong fit for *some* streaming systems — Kafka Streams' Scala DSL, Flink's original core, Spark. The case here goes the other way, and the deciding factor is that Pravaha's value proposition is **per-record cost**, and Scala's ergonomics are built on abstractions that allocate.
 
@@ -357,7 +360,7 @@ The Maven reactor supports it via `scala-maven-plugin`, but it must be **confine
 
 ### 4.5 Java platform baseline — revised to **Java 21 LTS**
 
-> **Revision, 2026-10-01 (v3.11): Java 25 LTS from 2.0.** This section is the record of the 1.x baseline and is kept as written. From Pravaha 2.0 the build and runtime baseline is Java 25 (`--release 25`) for every module, `pravaha-api` included; the only supported and CI-tested runtime is 25; virtual threads, the GC choice and the `MemoryAccess` seam are unchanged. Why the embeddability argument below no longer decides it, and who it breaks: [ADR-061](adr/061-jdk-25-is-the-baseline-from-2-0.md).
+> **Revision, 2026-10-01 (v3.11): Java 25 LTS from 2.0.** This section is the record of the 1.x baseline and is kept as written. From Pravaha 2.0 the build and runtime baseline is Java 25 (`--release 25`) for every module, `pravaha-api` included; the only supported and CI-tested runtime is 25; virtual threads, the GC choice and the `MemoryAccess` seam are unchanged. Why the embeddability argument below no longer decides it, and who it breaks: [ADR-061](adr/061-jdk-25-is-the-baseline-from-2-0.md). *Relaxed 2026-10-04: Java 21 or later, tested on 21 and 25 ([ADR-062](adr/062-java-21-or-later.md)).*
 
 **Java 21 LTS is the baseline. Java 25 is supported and tested, not required.** The v2.0 draft of this document specified Java 25; that was an engineering preference that quietly contradicted the product strategy, and it is corrected here.
 
@@ -627,7 +630,7 @@ Everything expensive happens **once, at query registration**; the steady state d
 
 ## 7. Maven Module Structure
 
-Single reactor, `pom` packaging at root, Java 21 (`pravaha-api` at 17). *(Revised 2026-10-01: Java 25 from 2.0, every module; ADR-061.)* Dependency direction is strictly downward; ArchUnit enforces it.
+Single reactor, `pom` packaging at root, Java 21 (`pravaha-api` at 17). *(Revised 2026-10-01: Java 25 from 2.0, every module; ADR-061. Revised again 2026-10-04: Java 21 or later, every module; ADR-062.)* Dependency direction is strictly downward; ArchUnit enforces it.
 
 **Client SDKs live under `sdk/`** and are deliberately kept apart from the engine modules. A client
 is embedded in *someone else's* application, so every transitive dependency it carries is one their
@@ -713,7 +716,7 @@ pravaha/                                    (pom — parent, pluginManagement, p
 
 ```xml
 <properties>
-  <maven.compiler.release>21</maven.compiler.release>  <!-- 25 from 2.0, every module (ADR-061) -->
+  <maven.compiler.release>21</maven.compiler.release>  <!-- 25 in 2.0.0 (ADR-061); 21 for every module again (ADR-062) -->
   <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   <calcite.version>1.40.0</calcite.version>
   <rocksdb.version>9.10.0</rocksdb.version>
@@ -731,8 +734,8 @@ Plugins configured at parent level:
 
 | Plugin | Purpose |
 |---|---|
-| `maven-enforcer-plugin` | Require Maven ≥ 3.9, JDK ≥ 21 *(25 from 2.0, ADR-061)*, ban duplicate/conflicting deps, **ban storage clients outside plugin modules**, ban Scala outside allowed modules |
-| `maven-toolchains-plugin` | Pin the compile JDK explicitly for reproducibility; CI matrix runs 21 and 25 *(2.0: JDK 25 only, no matrix; ADR-061)* |
+| `maven-enforcer-plugin` | Require Maven ≥ 3.9, JDK ≥ 21 *(25 only in 2.0.0, ADR-061; 21 or later again, ADR-062)*, ban duplicate/conflicting deps, **ban storage clients outside plugin modules**, ban Scala outside allowed modules |
+| `maven-toolchains-plugin` | Pin the compile JDK explicitly for reproducibility; CI matrix runs 21 and 25 *(2.0.0: JDK 25 only, no matrix; ADR-061. 21 and 25 again, ADR-062)* |
 | `spotless-maven-plugin` | `palantir-java-format`, import order, license headers — `check` in CI, `apply` locally |
 | `error-prone` + `NullAway` | Compile-time bug patterns; NullAway on `pravaha-api`/`runtime` to make nullability explicit |
 | `jacoco-maven-plugin` | Coverage gates: 85 % line on core modules, 70 % overall |
@@ -746,7 +749,7 @@ Plugins configured at parent level:
 
 ### 7.2 The `pravaha-api` contract
 
-`pravaha-api` has **zero third-party dependencies** and is compiled to Java 17 bytecode *(25 from 2.0, ADR-061)*. This is deliberate and load-bearing: it is what plugin authors compile against, it is the only package visible from a plugin's parent classloader, and it is the module under `japicmp` semver enforcement. Every richer type (buffers, Netty, Calcite) stays behind it.
+`pravaha-api` has **zero third-party dependencies** and is compiled to Java 17 bytecode *(25 in 2.0.0, ADR-061; 21 from ADR-062)*. This is deliberate and load-bearing: it is what plugin authors compile against, it is the only package visible from a plugin's parent classloader, and it is the module under `japicmp` semver enforcement. Every richer type (buffers, Netty, Calcite) stays behind it.
 
 ---
 
@@ -2849,7 +2852,7 @@ The console serves audiences with genuinely different jobs. A single undifferent
 | Layer | Choice | Why this one |
 |---|---|---|
 | Console process | **Python 3.13 + FastAPI**, Uvicorn | A separate runtime makes the API boundary unviolable (§23.2a); and the console is then built on the published SDK, which proves the integration story rather than asserting it |
-| Engine API | **Spring Boot 3.5** (Java 21 *(25 from 2.0, ADR-061)*), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | Serves the public REST and gRPC surface, plus a minimal server-rendered status page that works when the console is down |
+| Engine API | **Spring Boot 3.5** (Java 21 *(25 in 2.0.0, ADR-061; 21 again, ADR-062)*), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | Serves the public REST and gRPC surface, plus a minimal server-rendered status page that works when the console is down |
 | Console-to-engine | **`pravaha` Python SDK** over Flight; the engine's **published REST endpoints** (`/api/v1/streams`, `/queries/validate`, `/queries/explain`, `/status`) and **Prometheus text** over HTTP | The console is the SDK's first real consumer. The Python SDK speaks Flight only, so the few REST calls live in the one engine adapter (`console/core/engine.py`) — the same public endpoints a third party calls, and the calls the SDK should grow |
 | Live updates | **SSE** for the result tap (one engine subscription fanned out by the BFF) and the operations dashboard (one scrape a second, fanned out) | SSE is one-directional, reconnects by itself and passes proxies that mangle upgrades. A WebSocket is reserved for the debugger, the one genuinely bidirectional surface, which is not built |
 | Page shell and public pages | **Jinja2 templates**, server-rendered (§23.4a) | Renders the theme into the markup, so no flash; works with JavaScript disabled. The pattern is proven in the owner's other Python web applications |
@@ -3990,7 +3993,7 @@ Condensed ADRs; each will be expanded in `docs/design/adr/` with full context an
 
 | ADR | Decision | Alternatives rejected | Why |
 |---|---|---|---|
-| **001** | Java for everything, **baseline Java 21 LTS** (`pravaha-api` at 17), 25 supported; Scala only in optional non-hot-path client modules. *Baseline superseded by ADR-061: Java 25 from 2.0* | Java 25 baseline (v2.0 of this doc); Java 17; Scala 3 core; Kotlin; mixed | Allocation control, ecosystem fit, Janino codegen, Spring, hiring (§4). **Baseline revised from 25 to 21:** an embeddable library inherits its host's JVM, so demanding 25 forfeits the embeddability moat (§2.2) for features that are convenience, not capability (§4.6) |
+| **001** | Java for everything, **baseline Java 21 LTS** (`pravaha-api` at 17), 25 supported; Scala only in optional non-hot-path client modules. *Baseline superseded by ADR-061 (Java 25 from 2.0), then by ADR-062: Java 21 or later* | Java 25 baseline (v2.0 of this doc); Java 17; Scala 3 core; Kotlin; mixed | Allocation control, ecosystem fit, Janino codegen, Spring, hiring (§4). **Baseline revised from 25 to 21:** an embeddable library inherits its host's JVM, so demanding 25 forfeits the embeddability moat (§2.2) for features that are convenience, not capability (§4.6) |
 | **002** | Calcite as compiler, custom runtime | Calcite `Enumerable` execution; Flink embedding; hand-written parser | Enumerable cannot meet the NFRs; Flink violates the embeddable/lightweight premise; a hand-written parser throws away Calcite's optimizer (§11, G1) |
 | **003** | Binary flyweight rows over an arena | `Map<String,Object>`; POJOs + reflection; Arrow internally | ~10× lower per-record cost; Arrow retained as the *wire* format where its columnar layout pays (§8, §20.2) |
 | **004** | Partitioned lanes, single-writer | Shared thread pool + concurrent state; actor framework | Removes lock contention entirely; makes state ownership and checkpointing tractable (§13) |
@@ -4027,7 +4030,7 @@ Condensed ADRs; each will be expanded in `docs/design/adr/` with full context an
 
 | Area | 1.0 Draft | This design |
 |---|---|---|
-| Language | "Java or Scala or mixed" | Java 21 LTS baseline *(25 from 2.0, ADR-061)*, single language; Scala confined to optional client modules |
+| Language | "Java or Scala or mixed" | Java 21 LTS baseline *(25 in 2.0.0, ADR-061; 21 or later again, ADR-062)*, single language; Scala confined to optional client modules |
 | Execution | Calcite `Enumerable` + blocking enumerator | Calcite plans; generated fused operators execute |
 | Record model | `Map<String,Object>`, `Serializable` | Binary flyweight over an arena; map form kept for SPI ergonomics |
 | Queueing | One global `LinkedBlockingQueue` | Partitioned lanes, MPSC/SPSC ring buffers, single writer |
@@ -4073,7 +4076,7 @@ Condensed ADRs; each will be expanded in `docs/design/adr/` with full context an
 
 **Decisions needed before Phase 0 starts** — each changes what gets built:
 
-1. **Language and platform** (§4) — Java, single language, **baseline Java 21 LTS** with 25 supported and CI-tested. *(Revised 2026-10-01: Java 25 from 2.0, every module; ADR-061.)* Everything else depends on it. *Recommendation: approve as written. No JDK upgrade is needed to begin — 21 is already installed.*
+1. **Language and platform** (§4) — Java, single language, **baseline Java 21 LTS** with 25 supported and CI-tested. *(Revised 2026-10-01: Java 25 from 2.0, every module; ADR-061. Revised again 2026-10-04: Java 21 or later, every module; ADR-062.)* Everything else depends on it. *Recommendation: approve as written. No JDK upgrade is needed to begin — 21 is already installed.*
 2. **The DBSP bet** (§9, R13). This is the highest-upside and highest-uncertainty decision in the document. Approving it buys the incremental moat, recursion and the correctness oracle; declining it means a competent Flink alternative without a durable differentiator. *Recommendation: approve, with the Phase 1 property oracle as the gate — if the oracle is hard to build, that is the early warning signal, and it arrives in week 6 rather than week 40.*
 3. **Aerospike edition** available to the target deployment (§19.1, R1). This determines whether the flagship exactly-once ingest path is available at all, and is the highest-value *external* open question. Ask this first; it has a procurement lead time.
 4. **Scope versus schedule** (R14). The plan is 62 weeks for a team of 4–6. If that is not acceptable, decide the cut *now* using the order in R14, rather than discovering it in month nine.

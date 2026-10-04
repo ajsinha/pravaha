@@ -79,3 +79,9 @@ launcher gives a 24+ JVM, loading them prints no JEP 472 warning.
 From 2.0 ([ADR-061](061-jdk-25-is-the-baseline-from-2-0.md)) the `--java 21` image is gone and
 Pravaha runs on any platform with a JDK 25 (the Consequences' "JDK 21" above is 1.x). The launcher
 gives every JVM `--enable-native-access=ALL-UNNAMED`.
+
+## Amendment, 2026-10-04: the base is `eclipse-temurin:21-jre`
+
+[ADR-062](062-java-21-or-later.md) returns the baseline to Java 21 or later, so the shipped base is
+`eclipse-temurin:21-jre` (same Ubuntu, still glibc, so both codecs still load). The sentences above
+that name 25 are the record of 2.0.0.

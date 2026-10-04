@@ -1816,7 +1816,7 @@
       "in_repo": "Not served by this installation; in the repository at"
     },
     "stack": {
-      "note": "The engine is Java 25 with no Spring in its core; the console is Python on the published SDK and the engine's REST API, with every browser library vendored, so it runs air-gapped."
+      "note": "The engine is Java 21+ with no Spring in its core; the console is Python on the published SDK and the engine's REST API, with every browser library vendored, so it runs air-gapped."
     }
   },
   "help": {

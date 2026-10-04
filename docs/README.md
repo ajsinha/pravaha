@@ -54,7 +54,7 @@ The documents are in six folders, by who reads them and when:
 | [Running in Docker](operations/RUNNING_IN_DOCKER.md) | The two images, the `/opt/pravaha` layout path by path, the compose stack and its profiles, ports, ownership, backup, troubleshooting |
 | [Operations](operations/OPERATIONS.md) | Memory, disk, admission, what to watch, what is not solved |
 | [Security](operations/SECURITY.md) | Authentication, authorization, row filters, audit |
-| [Compatibility](operations/COMPATIBILITY.md) | What 2.0 changes (Java 25), which 2.0.1 fixes change an answer, what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
+| [Compatibility](operations/COMPATIBILITY.md) | What 2.0 changes (Java 25, since relaxed to 21 or later), which 2.0.1 fixes change an answer, what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
 
 ## Development — changing it
 

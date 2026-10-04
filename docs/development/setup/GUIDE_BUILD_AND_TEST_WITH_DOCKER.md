@@ -6,13 +6,15 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 From a fresh clone on a machine with **only Docker and git**, to the engine, the console and Kafka
 running, a continuous query answering, every test suite run in containers, and everything cleaned up
 again. Each step has the command and what you should see; the outputs are the ones this machine
-printed on 2026-09-29, and on 2026-10-01 where the images moved to Java 25 (steps 3 and 8, and the
+printed on 2026-09-29, and on 2026-10-01 where the images moved to Java 25, and later to 21 (steps 3 and 8, and the
 checks re-run throughout), trimmed only where marked `...`.
 
-**Java 25 throughout, and only 25.** Every image here is built on JDK 25 — the engine's JRE, the
-root `Dockerfile`'s Maven stage, the test runner — and from 2.0 the classes are Java 25 class files
-too ([ADR-061](../../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). The 1.x `--java 21` option
-and its `-jre21` tag are gone; see [Running in Docker: the images](../../operations/RUNNING_IN_DOCKER.md#the-images).
+**Java 21 throughout.** Every image here is built on JDK 21 — the engine's JRE, the root `Dockerfile`'s
+Maven stage, the test runner — and the classes are Java 21 class files, so any JRE from 21 up would run
+them ([ADR-062](../../design/adr/062-java-21-or-later.md)). There is one engine image and no `--java`
+option; see [Running in Docker: the images](../../operations/RUNNING_IN_DOCKER.md#the-images). The
+transcripts below were recorded when the images were on Java 25, so lines that name `25`
+(`eclipse-temurin:25-jre`, `java 25`, the `jvm_info` runtime) print `21` on a current build.
 
 This is the walkthrough. The reference — every path, variable, port and profile — is
 [`../operations/RUNNING_IN_DOCKER.md`](../../operations/RUNNING_IN_DOCKER.md). The same journey without Docker is
@@ -72,8 +74,8 @@ Two images: the **engine** and the **console**. The console image is always buil
 Docker. The engine has two routes; pick by what your machine has.
 
 **Route A — nothing but Docker.** The root [`Dockerfile`](../../../Dockerfile) builds `pravaha-server` and
-`pravaha-cli` inside a `maven:3.9-eclipse-temurin-25` stage, with no JDK on the host, and runs them on
-`eclipse-temurin:25-jre`:
+`pravaha-cli` inside a `maven:3.9-eclipse-temurin-21` stage, with no JDK on the host, and runs them on
+`eclipse-temurin:21-jre`:
 
 ```text
 $ docker build -t pravaha/pravaha-server:local .
@@ -96,7 +98,7 @@ $ docker run --rm --entrypoint bin/pravaha-engine pravaha/pravaha-server:local v
 pravaha-engine 2.0.1-SNAPSHOT
 ```
 
-**Route B — a JDK 25 on the host too.** Build the jar yourself and put the release image over it
+**Route B — a JDK 21 or later on the host too.** Build the jar yourself and put the release image over it
 ([`deploy/docker/Dockerfile`](../../../deploy/docker/Dockerfile), [ADR-047](../../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
 
 ```text
@@ -307,7 +309,7 @@ $C run --rm cli query --sql "SELECT window_start, customer, spend FROM spend_per
 ## 8. Run the test suites in Docker
 
 [`tools/docker-test.sh`](../../../tools/docker-test.sh) runs each suite in a throwaway container **as you**,
-from one image it builds on first use (`pravaha/test-runner:local`: Maven 3.9, JDK 25 and Python 3.12;
+from one image it builds on first use (`pravaha/test-runner:local`: Maven 3.9, JDK 21 and Python 3.12;
 747 MB), with
 its caches in `~/.cache/pravaha-docker` (yours too):
 
@@ -367,14 +369,14 @@ What that says, honestly:
 - **The Testcontainers tests ran**, against brokers Testcontainers started through the mounted
   socket — `KafkaSourceBrokerTest`, `KafkaSinkBrokerTest` and the rest report their tests run, not
   skipped. That is what `it` is for.
-- **Everything passes on the JDK 25 runner**: the Kafka module's 232 (the sink-registration failure
+- **Everything passes on the JDK runner** (25 when recorded): the Kafka module's 232 (the sink-registration failure
   and the four SDK failures an earlier run of this guide recorded have since been fixed on the host),
   and the SDK's cross-language tests that start the real Flight server — in the same container, which
   is why the runner has a JDK.
 - **The console's 1374 skips are its browser suites**, switched off by `PRAVAHA_BROWSER_TESTS=0` (the
   runner has no Chrome). Its real-engine tests run and pass.
 
-The runner is JDK 25, the only JDK Pravaha 2.x builds on; there is no 21 runner to build.
+The runner is JDK 21, the oldest JDK Pravaha builds on; the whole-reactor CI job also runs on 25 (`.github/workflows/fast.yml`).
 
 Run `tools/docker-test.sh all` for everything; it takes a while — the `unit` step is the whole reactor.
 Single tests go through `mvn`, with `--docker` when they need Testcontainers:

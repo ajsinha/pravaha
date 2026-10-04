@@ -30,8 +30,8 @@ classes are used.
 
 **Invariants.** A code is never reused or renumbered (`ErrorCodeUniquenessTest` holds every
 `new ErrorCode(n, …)` in the repository unique, and `ErrcCrossCuttingTest` holds the table in
-`TROUBLESHOOTING.md` to the declarations in both directions). The API is compiled to Java 25 class files
-from 2.0 ([ADR-061](../adr/061-jdk-25-is-the-baseline-from-2-0.md)).
+`TROUBLESHOOTING.md` to the declarations in both directions). The API is compiled to Java 21 class files
+([ADR-062](../adr/062-java-21-or-later.md), which relaxed ADR-061's Java 25 baseline).
 
 **Example.** A plugin refusing a bad setting raises the API's own code, so the operator sees one
 number whatever plugin they used:

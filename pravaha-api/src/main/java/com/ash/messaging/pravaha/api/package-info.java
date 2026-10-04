@@ -16,8 +16,8 @@
 /**
  * The public Pravaha SPI.
  *
- * <p>This module has zero third-party dependencies (Java 25 class files from 2.0, like every module;
- * it targeted 17 in 1.x). That is deliberate and load-bearing: it is what plugin authors compile against, the only package visible
+ * <p>This module has zero third-party dependencies (Java 21 class files, like every module, ADR-062;
+ * it targeted 17 in 1.x and 25 in 2.0-2.2). That is deliberate and load-bearing: it is what plugin authors compile against, the only package visible
  * from a plugin's parent classloader, and the module under semantic-versioning enforcement. Every
  * richer type -- buffers, Netty, Calcite -- stays behind it.
  */

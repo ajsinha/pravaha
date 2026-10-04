@@ -2,11 +2,16 @@
 <!--
   Copy to ~/.m2/toolchains.xml.
 
-  Pravaha 2.x builds on JDK 25 only (ADR-061), so this names one JDK. maven-toolchains-plugin is
-  declared but not bound: the JDK on JAVA_HOME compiles, and tools/jdk25.sh puts a 25 there
-  (implementation plan P0-02e).
+  Pravaha builds on JDK 21 or later (ADR-062); CI builds on 21 and on 25, and this names both.
+  maven-toolchains-plugin is declared but not bound: the JDK on JAVA_HOME compiles, and
+  tools/jdk.sh puts one there (implementation plan P0-02e).
 -->
 <toolchains>
+  <toolchain>
+    <type>jdk</type>
+    <provides><version>21</version><vendor>openjdk</vendor></provides>
+    <configuration><jdkHome>/usr/lib/jvm/java-21-openjdk-amd64</jdkHome></configuration>
+  </toolchain>
   <toolchain>
     <type>jdk</type>
     <provides><version>25</version><vendor>openjdk</vendor></provides>

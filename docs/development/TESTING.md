@@ -11,8 +11,8 @@ container route [Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOC
 **Where the numbers come from.** Every count and time below was taken on 2026-09-29 on the
 development machine (24 cores, 61 GiB RAM, NVMe, Docker Engine 29.8, OpenJDK 21.0.12, Python
 3.14.4), in a linked worktree of commit `3ea60cb6` plus the fixes this document was written beside,
-with other builds running. Treat the times as an order of magnitude, not a benchmark. **From 2.0
-every tier runs on JDK 25 only** ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)); the
+with other builds running. Treat the times as an order of magnitude, not a benchmark. **Every tier
+runs on JDK 21 or later** ([ADR-062](../design/adr/062-java-21-or-later.md); CI runs the whole reactor on 21 and 25); the
 counts below were taken on 21. On 25 the whole reactor (`tools/worktree-build.sh -o clean install`
 in a linked worktree, 2026-10-01) ran **4,832 tests, 0 failures, 12 skipped** in 19 min 14 s, and the
 Python SDK's suite 426 passed. After the adversarial QA's three fix waves (2026-10-02) the main
@@ -26,19 +26,19 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 
 | Tier | Where | Needs | Command | Measured |
 |---|---|---|---|---|
-| Unit and module tests | every module's `src/test` (`*Test`) | JDK 25 | `tools/worktree-build.sh -o test -pl <module>` | `pravaha-algebra` 42 tests, 3 s; `pravaha-registry` 344, 44 s; `pravaha-server` 323, 54 s |
-| Property tests (jqwik) | `pravaha-algebra`, `-common`, `-serving`, `-codegen`, `-backfill`, `-bindings`, `-it` | JDK 25 | part of the unit run | included above |
-| In-process integration (`pravaha-it`) | `pravaha-it/src/test` | JDK 25 | `tools/worktree-build.sh -o verify -pl pravaha-it` | 960 tests (2 skipped), 3 min 00 s |
-| Documentation and register checks | `DocumentationFreshnessTest`, `MarkdownLinksTest`, `FindingsRegisterTest`, `QuickstartCommandsTest`, `ExamplesTest` … in `pravaha-it`; `ErrcCrossCuttingTest`, `ContinuousQueriesClaimsTest`, `DocumentedLimitsTest` in `pravaha-cli` | JDK 25 | `-Dtest=DocumentationFreshnessTest,MarkdownLinksTest,FindingsRegisterTest` | 28 tests, 7 s (the first two) |
-| Adversarial suites | `pravaha-it/.../it/qa/adversarial` (`Adv*Test`, 110 tests); `tests/qa/adv_surface` (21, Python, against a running node) | JDK 25; a node for the surface suite | `-Dpravaha.qa.adversarial=true`; `PRAVAHA_QI_HTTP=… pytest tests/qa/adv_surface` | opt-in, not in any gate; see [below](#the-adversarial-suites) |
+| Unit and module tests | every module's `src/test` (`*Test`) | JDK 21 or later | `tools/worktree-build.sh -o test -pl <module>` | `pravaha-algebra` 42 tests, 3 s; `pravaha-registry` 344, 44 s; `pravaha-server` 323, 54 s |
+| Property tests (jqwik) | `pravaha-algebra`, `-common`, `-serving`, `-codegen`, `-backfill`, `-bindings`, `-it` | JDK 21 or later | part of the unit run | included above |
+| In-process integration (`pravaha-it`) | `pravaha-it/src/test` | JDK 21 or later | `tools/worktree-build.sh -o verify -pl pravaha-it` | 960 tests (2 skipped), 3 min 00 s |
+| Documentation and register checks | `DocumentationFreshnessTest`, `MarkdownLinksTest`, `FindingsRegisterTest`, `QuickstartCommandsTest`, `ExamplesTest` … in `pravaha-it`; `ErrcCrossCuttingTest`, `ContinuousQueriesClaimsTest`, `DocumentedLimitsTest` in `pravaha-cli` | JDK 21 or later | `-Dtest=DocumentationFreshnessTest,MarkdownLinksTest,FindingsRegisterTest` | 28 tests, 7 s (the first two) |
+| Adversarial suites | `pravaha-it/.../it/qa/adversarial` (`Adv*Test`, 110 tests); `tests/qa/adv_surface` (21, Python, against a running node) | JDK 21 or later; a node for the surface suite | `-Dpravaha.qa.adversarial=true`; `PRAVAHA_QI_HTTP=… pytest tests/qa/adv_surface` | opt-in, not in any gate; see [below](#the-adversarial-suites) |
 | Container-backed plugin tests | `plugins/*` (`*IT` and `@Testcontainers` `*Test`) | Docker | `sg docker -c 'tools/worktree-build.sh -o verify -Pit -pl <plugin>'` | 211 container tests across 6 plugins and 3 in `pravaha-it`, green; see [below](#with-docker) |
 | Container-backed `pravaha-it` | `AerospikeContinuousQueryIT`, `AerospikeSourceScaleIT` | Docker | as above, `-pl pravaha-it` | 3 tests, 56 s |
-| Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 25, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **re-measured on JDK 25 on 2026-10-04** ([gate pack](../project/gates/measured-2026-10-04-jdk25/README.md)), all but the spill tier's |
+| Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 21 or later, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **re-measured on JDK 25 on 2026-10-04** ([gate pack](../project/gates/measured-2026-10-04-jdk25/README.md)), all but the spill tier's |
 | Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s (432 collected on 2026-10-02) |
 | Console | `console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C console test` / `make -C console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)); 1,957 collected on 2026-10-02 |
 | SDK, standalone | `tools/sdk-standalone-check.sh`, after `tools/build-sdk.sh` | Docker (or a running node), Maven, Python with venv or uv | `sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` | four clients outside the repository (Maven, `-all` jar, wheel with and without `[flight]`), green on 2026-09-30 ([below](#the-sdks-on-their-own)) |
 | Deck | `tests/deck` | `tools/deck/.venv` (python-pptx) | `tools/deck/.venv/bin/python -m pytest -q tests/deck` | 5 passed, 1 s |
-| The gate | whole reactor | JDK 25, the shared `~/.m2` | `tools/verify-clean.sh` | **not run in this pass**; its header records 5 min 50 s for 2,274 tests |
+| The gate | whole reactor | JDK 21 or later, the shared `~/.m2` | `tools/verify-clean.sh` | **not run in this pass**; its header records 5 min 50 s for 2,274 tests |
 | A running stack | a real node, the console, the CLI, pgwire | the built jars (or Docker) | [End to end](#end-to-end-against-a-running-stack) | walked through, outside Docker |
 
 ---
@@ -47,7 +47,7 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 
 | | Check | Notes |
 |---|---|---|
-| JDK 25 | `$JAVA_HOME/bin/java -version` | The only JDK from 2.0: the build enforces 25 (`enforce-build-environment`). The build scripts default `JAVA_HOME` to `/usr/lib/jvm/java-25-openjdk*` when it is unset and refuse an older one by name (`tools/jdk25.sh`) |
+| JDK 21 or later | `$JAVA_HOME/bin/java -version` | The build enforces `[21,)` (`enforce-build-environment`). The build scripts source `tools/jdk.sh`: with `JAVA_HOME` unset it takes the first of `/usr/lib/jvm/java-25-openjdk*` and `/usr/lib/jvm/java-21-openjdk*`, then a `javac` 21 or later on `PATH`, and refuses an older one by name |
 | The Maven wrapper | `./mvnw -v` | vendored; the builds below run offline (`-o`) once `~/.m2` is populated |
 | Python | `python3 --version` | SDK ≥ 3.9, console ≥ 3.11. Measured with 3.14.4 |
 | `venv` / `ensurepip` | `python3 -m venv /tmp/x` | Debian and Ubuntu ship it separately (`python3.X-venv`). Without it `make install` fails with *"ensurepip is not available"*. Workaround used here: `uv venv --seed .venv`, then `make install` |
@@ -357,7 +357,7 @@ a couple of cores free for a Cassandra run.
 
 ### Running the suites in Docker
 
-`tools/docker-test.sh unit|it|sdk|console|all|mvn [--docker]` — one runner image (Maven, JDK 25,
+`tools/docker-test.sh unit|it|sdk|console|all|mvn [--docker]` — one runner image (Maven, JDK 21,
 Python 3), runs as the invoking user, caches in `~/.cache/pravaha-docker`, Testcontainers via the
 host socket with `TESTCONTAINERS_HOST_OVERRIDE=localhost`; walkthrough and measured results in
 [Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) step 8. (Added beside this

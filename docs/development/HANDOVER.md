@@ -21,7 +21,7 @@ pointing at an old path.
 | | |
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
-| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) `v1.0.0` (2026-09-30, the first with a compatibility promise) and `v2.0.0` (2026-10-01, JDK 25 only, ADR-061; [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 2.0.1-SNAPSHOT |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) `v1.0.0` (2026-09-30, the first with a compatibility promise) and `v2.0.0` (2026-10-01, JDK 25 only, ADR-061; relaxed to Java 21 or later by ADR-062, 2026-10-04; [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 2.0.1-SNAPSHOT |
 | Modules | **39** Maven modules (40 reactor projects with the root: 26 engine modules, 11 plugins, the two Java SDKs), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **5,112** tests, 0 failures, 0 errors, 122 skipped (Docker-only broker and database tests among them) -- the main checkout's full build of 2026-10-02 after Wave 3, summed from its surefire and failsafe reports. The adversarial suites (110 tests) are opt-in and not in that count ([TESTING.md](TESTING.md#the-adversarial-suites)) |
 | Python tests | **432** in `sdk/python` and **1,957** in `console` (browser suites included), collected on 2026-10-02; 21 opt-in surface checks in `tests/qa/adv_surface` |
@@ -30,7 +30,7 @@ pointing at an old path.
 
 **Where it stands, 2026-10-02.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
 11, cluster mode, is on hold. **1.0.0** (2026-09-30) was the first release with a compatibility
-promise and **2.0.0** (2026-10-01) moved the baseline to JDK 25 (ADR-061). The adversarial QA of
+promise and **2.0.0** (2026-10-01) moved the baseline to JDK 25 (ADR-061); ADR-062 (2026-10-04) made it Java 21 or later. The adversarial QA of
 2.0.0 (2026-10-01, 322 cases) opened 46 findings, four design notes among them, and three more were
 found while fixing; Waves 1 to 3 (2026-10-01/02) fixed every one, and the documentation sweep and the static-analysis work that followed found eight more, all fixed,
 so the register holds **573 findings, 554 fixed, 0 open** — the second adversarial pass (ADV-GAPS, 2026-10-04) opened twelve and all are fixed ([the QA summary](../project/qa/SUMMARY.md)). Those fixes are 2.0.1's
@@ -443,8 +443,8 @@ now writes it at `test-compile` via `maven-dependency-plugin:build-classpath`. T
 for real, rather than reporting as skips.
 
 **Arrow needs JVM flags**: `--add-opens=java.base/java.nio=ALL-UNNAMED` and
-`--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--sun-misc-unsafe-memory-access=allow` — always
-from 2.0 (Java 25 only); 1.x passed it only on 24+, because 21 refuses it rather than ignoring it.
+`--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--enable-native-access=ALL-UNNAMED` (always) and
+`--sun-misc-unsafe-memory-access=allow` (only on a JVM 23 or later: older JVMs refuse it rather than ignoring it).
 
 ### Deferred, on purpose
 
@@ -571,7 +571,7 @@ there is nothing to keep in step.
 
 | | |
 |---|---|
-| **Always `export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64`** | From 2.0 (ADR-061) JDK 25 is the only one Pravaha builds on, and the enforcer refuses anything older. A login shell here may still export `JAVA_HOME` at 21 (it did on 2026-10-01); the build scripts refuse it by name rather than build on it. |
+| **`export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64`** (or the 21 one) | Pravaha builds on JDK 21 or later (ADR-062) and the enforcer refuses anything older; `tools/jdk.sh` picks the 25 then the 21 under `/usr/lib/jvm` when `JAVA_HOME` is unset. CI runs 21 and 25, so check a change that touches threading or locks on 21 too. |
 | Python | 3.13 under `~/.local/share/uv/python/cpython-3.13.15-linux-x86_64-gnu/bin` |
 | Maven | Use `./mvnw`. A system Maven exists but the wrapper is the contract. |
 | JMH | Never run `clean` while a benchmark is running — it deletes the jar mid-flight. Clear `/tmp/jmh.lock` if a run was killed. |

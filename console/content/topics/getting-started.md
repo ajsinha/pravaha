@@ -190,8 +190,8 @@ anybody else can reach the node.
 
 | Check | Command | If missing |
 |---|---|---|
-| Java 25 | `java -version` | Any OpenJDK 25. Pravaha 2.x needs 25; an older JVM is refused by name |
-| `JAVA_HOME` points at it | `echo $JAVA_HOME` | `export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64` — distributions that ship several JDKs often leave `javac` and `java` on different versions |
+| Java 21 or later | `java -version` | Any OpenJDK 21 or later (tested on 21 and 25). An older JVM is refused by name |
+| `JAVA_HOME` points at it | `echo $JAVA_HOME` | `export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64` — distributions that ship several JDKs often leave `javac` and `java` on different versions |
 | Python 3.11+ | `python3 --version` | For `pravaha`, the CLI, and the Python step |
 | `psql` | `psql --version` | Only for the PostgreSQL step |
 

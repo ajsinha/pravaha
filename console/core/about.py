@@ -347,7 +347,7 @@ LIMITS: list[str] = [
 
 #: The technology, as MAYA's badges.
 TECHNOLOGY: list[str] = [
-    "Java 25", "Apache Calcite", "Janino", "Off-heap binary rows", "Z-sets (DBSP)", "Apache Arrow Flight SQL",
+    "Java 21+", "Apache Calcite", "Janino", "Off-heap binary rows", "Z-sets (DBSP)", "Apache Arrow Flight SQL",
     "PostgreSQL wire protocol", "Spring Boot (server only)", "Delta Kernel", "iceberg-core",
     "Micrometer", "OpenTelemetry", "Argon2id", "Python SDK", "FastAPI", "Bootstrap 5", "Monaco",
     "ECharts",

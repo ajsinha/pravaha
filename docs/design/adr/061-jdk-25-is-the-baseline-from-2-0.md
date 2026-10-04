@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **built**: every module, `pravaha-api` and the Java SDKs included, compiles to Java 25 class files (`maven.compiler.release=25`); the enforcer requires JDK 25 to build; the launchers refuse an older JVM by name; the images, the test runner, CI and the release script are on 25 only |
+| Status | **Superseded by [ADR-062](062-java-21-or-later.md)** (2026-10-04): Java 21 or later. What follows is the record of 2.0 to 2.2. Was: Accepted — **built**: every module, `pravaha-api` and the Java SDKs included, compiles to Java 25 class files (`maven.compiler.release=25`); the enforcer requires JDK 25 to build; the launchers refuse an older JVM by name; the images, the test runner, CI and the release script are on 25 only |
 | Date | 2026-10-01 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-001 (language and platform) — **supersedes its baseline** (Java 21, `pravaha-api` at 17); ADR-047 and ADR-053 (the image's JRE); system design §4.5 |

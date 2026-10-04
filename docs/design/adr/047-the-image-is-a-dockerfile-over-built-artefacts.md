@@ -183,3 +183,12 @@ jar's classes are Java 25 class files, so the image's JRE is no longer a choice.
 name, the `-jre21` tag is not built, and `release.sh` builds and smoke-tests one engine image. The
 launcher adds `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` always, and
 refuses a JVM older than 25.
+
+## Amendment, 2026-10-04: Java 21 or later
+
+[ADR-062](062-java-21-or-later.md) supersedes the paragraph above. The classes are Java 21 class files
+again, so both Dockerfiles name `eclipse-temurin:21-jre` (the root one's build stage and the test
+runner `maven:3.9-eclipse-temurin-21`); there is still one engine image and no `--java` option or
+`-jre21`/`-jre25` tag. The launcher refuses a JVM older than 21, always adds
+`--enable-native-access=ALL-UNNAMED`, and adds `--sun-misc-unsafe-memory-access=allow` only on a JVM
+23 or later, because older JVMs refuse it.

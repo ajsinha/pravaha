@@ -162,10 +162,11 @@
       ./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.4
       ./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.5
 
-    3.4 is the floor from 2.0 (ADR-061). The starter's classes are Java 25 class files (major 69),
-    and the ASM inside Spring Framework 6.0 and 6.1 (Boot 3.2 and 3.3) cannot read them: every
-    test errors with "Unsupported class file major version 69" while Boot reads the
-    auto-configuration's metadata (2026-10-01, 36 of 38 tests on each line). Their profiles are gone.
+    3.4 is the floor from 2.0 (ADR-061): the starter's classes were then Java 25 class files (major
+    69), and the ASM inside Spring Framework 6.0 and 6.1 (Boot 3.2 and 3.3) could not read them:
+    every test errored with "Unsupported class file major version 69" (2026-10-01). From ADR-062 the
+    classes are Java 21 class files again, which those lines could read, but they are out of
+    open-source support and their profiles are not brought back.
 
     A leg needs its Boot version in the local repository; an offline build of a version that was
     never downloaded fails at resolution, not in a test.
