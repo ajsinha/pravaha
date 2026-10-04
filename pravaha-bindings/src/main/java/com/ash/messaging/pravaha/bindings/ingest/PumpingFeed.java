@@ -22,6 +22,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.SourceFeed;
@@ -117,10 +119,10 @@ final class PumpingFeed implements SourceFeed {
     private volatile boolean paused;
     private long lastPublishedNanos;
     private volatile boolean closed;
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
 
     /** When {@link #failure} was recorded. Written before it, so a reader that sees one sees both. */
-    private volatile Instant stoppedAt;
+    private volatile @Nullable Instant stoppedAt;
 
     /** The pump whose read raised {@link #failure}, or -1 when it was not a read that failed. */
     private volatile int failedPump = -1;

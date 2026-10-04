@@ -23,6 +23,8 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.BoundedPartitionReader;
 import com.ash.messaging.pravaha.api.plugin.OrderedPositions;
@@ -176,7 +178,7 @@ final class SharedPartitionFeed {
 
     private final String stream;
     private final SourcePartition partition;
-    private final SourceBinding binding;
+    private final @Nullable SourceBinding binding;
     private final StreamSourcePlugin plugin;
 
     /**
@@ -205,10 +207,10 @@ final class SharedPartitionFeed {
     private final ReentrantLock lock = new ReentrantLock(true);
 
     /** Where a partition gained while queries ran was first opened: its beginning. Lock held. */
-    private SourceOffset gainedFrom;
+    private @Nullable SourceOffset gainedFrom;
 
     /** How this source orders its positions, or null for the at-least-once sharing above. */
-    private final OrderedPositions order;
+    private final @Nullable OrderedPositions order;
 
     /**
      * Catch-up polls per shared poll, in exact mode, so a catch-up closes on a seam that keeps moving:
@@ -221,13 +223,13 @@ final class SharedPartitionFeed {
 
     private final List<Member> members = new ArrayList<>();
 
-    private PartitionReader reader;
+    private @Nullable PartitionReader reader;
 
     /** What the reader was created with: the union of the members' requests when it was made. */
     private ReadRequest request = ReadRequest.NOTHING;
 
     /** A narrower request to switch to once the reader is next idle, or null. See {@link #leave}. */
-    private ReadRequest pendingRequest;
+    private @Nullable ReadRequest pendingRequest;
 
     /**
      * Whether the reader's last poll returned nothing, so its position is exact. Guarded by the
@@ -238,12 +240,12 @@ final class SharedPartitionFeed {
     /** How long a widening join waits for the reader to drain before replacing it anyway. */
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(10);
 
-    private Thread thread;
+    private @Nullable Thread thread;
     private volatile boolean closed;
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
 
     /** When {@link #failure} was recorded. Written before it, so a reader that sees one sees both. */
-    private volatile java.time.Instant stoppedAt;
+    private volatile java.time.@Nullable Instant stoppedAt;
 
     private long lastPublishedNanos;
 
@@ -267,7 +269,7 @@ final class SharedPartitionFeed {
             String stream,
             SourcePartition partition,
             StreamSourcePlugin plugin,
-            SourceBinding binding,
+            @Nullable SourceBinding binding,
             BackpressurePolicy policy) {
         this(stream, partition, plugin, binding, policy, null);
     }
@@ -277,9 +279,9 @@ final class SharedPartitionFeed {
             String stream,
             SourcePartition partition,
             StreamSourcePlugin plugin,
-            SourceBinding binding,
-            BackpressurePolicy policy,
-            OrderedPositions order) {
+            @Nullable SourceBinding binding,
+            @Nullable BackpressurePolicy policy,
+            @Nullable OrderedPositions order) {
         this.order = order;
         this.binding = binding;
         this.stream = stream;
@@ -301,11 +303,11 @@ final class SharedPartitionFeed {
      */
     Member join(
             String queryName,
-            SourceOffset from,
+            @Nullable SourceOffset from,
             ReadRequest wanted,
             Runnable afterDelivery,
             Function<PartitionReader, IngestPump> pumpFactory,
-            SharedLaneInput laneInput) {
+            @Nullable SharedLaneInput laneInput) {
         lock.lock();
         try {
             if (closed) {
@@ -335,6 +337,8 @@ final class SharedPartitionFeed {
                 List<ReadRequest> all = new ArrayList<>(members.size() + 1);
                 members.forEach(m -> all.add(m.request));
                 all.add(member.request);
+                // A reader exists, so a missing position was taken from it above.
+                SourceOffset start = java.util.Objects.requireNonNull(from, "a position, given or the reader's");
                 ReadRequest union = SharedReadRequest.union(all);
                 pendingRequest = null;
                 if (!union.equals(request)) {
@@ -346,16 +350,16 @@ final class SharedPartitionFeed {
                     if (order != null) {
                         // Behind: its own reader, up to exactly here. Ahead: nothing until the shared
                         // reader lands on its position. Attached only at the seam either way.
-                        int where = order.compare(from, here);
+                        int where = order.compare(start, here);
                         if (where < 0) {
-                            catchUpFrom = from;
+                            catchUpFrom = start;
                             member.attached = false;
                         } else if (where > 0) {
-                            member.awaitingAt = from;
+                            member.awaitingAt = start;
                             member.attached = false;
                         }
-                    } else if (!here.equals(from)) {
-                        catchUpFrom = from;
+                    } else if (!here.equals(start)) {
+                        catchUpFrom = start;
                     }
                 } else {
                     // Nobody is being fed from where the reader stands, so it is not a seam: while
@@ -365,7 +369,7 @@ final class SharedPartitionFeed {
                     // which starts where the reader stands. Moving the reader to this query's own
                     // row leaves one reader covering the gap and needs no catch-up at all. See
                     // {@link #resume}.
-                    replaceReaderAt(from, request);
+                    replaceReaderAt(start, request);
                 }
             }
             member.pump = pumpFactory.apply(new MemberReader(member));
@@ -442,12 +446,13 @@ final class SharedPartitionFeed {
         return rowsRead.get();
     }
 
+    @Nullable
     PravahaException failure() {
         return failure;
     }
 
     /** When {@link #failure()} was recorded, or null while this reader is reading. */
-    java.time.Instant stoppedAt() {
+    java.time.@Nullable Instant stoppedAt() {
         return stoppedAt;
     }
 
@@ -498,7 +503,7 @@ final class SharedPartitionFeed {
             if (member.route != null) {
                 // Off the fan-out at this row, rather than whenever the query's pipeline is dropped:
                 // the other members on the lane keep this route busy until then.
-                member.laneInput.stopListening(member.route.id);
+                member.laneInput().stopListening(member.route.id);
                 member.route.members.remove(member);
                 if (member.route.members.isEmpty()) {
                     routes.values().remove(member.route);
@@ -549,7 +554,17 @@ final class SharedPartitionFeed {
 
     /** Replaces the reader with one at its own position asking for {@code wanted}. Lock held. */
     private void replaceReader(ReadRequest wanted) {
-        replaceReaderAt(reader.position(), wanted);
+        replaceReaderAt(reader().position(), wanted);
+    }
+
+    /** The shared reader, which is open from the first join until close. Lock held. */
+    private PartitionReader reader() {
+        return java.util.Objects.requireNonNull(reader, "the shared reader is open");
+    }
+
+    /** How the source orders its positions. Exact mode only (ADR-054). */
+    private OrderedPositions order() {
+        return java.util.Objects.requireNonNull(order, "exact mode: the source orders its positions");
     }
 
     /**
@@ -633,14 +648,14 @@ final class SharedPartitionFeed {
                 boolean wasListening = member.attached;
                 member.attached = false;
                 if (member.route != null && wasListening) {
-                    member.laneInput.stopListening(member.route.id);
+                    member.laneInput().stopListening(member.route.id);
                 }
                 return;
             }
             if (member.route != null) {
                 // At the row resumeAt names: everything written before it has been, or will be,
                 // handed to this query, and nothing after it will be.
-                member.laneInput.stopListening(member.route.id);
+                member.laneInput().stopListening(member.route.id);
             }
         } finally {
             lock.unlock();
@@ -656,7 +671,7 @@ final class SharedPartitionFeed {
             SourceOffset resumeAt = member.resumeAt;
             boolean movedTheReader = !anyoneLive() && resumeAt != null;
             if (order != null) {
-                if (movedTheReader) {
+                if (resumeAt != null && movedTheReader) {
                     replaceReaderAt(resumeAt, request);
                 }
                 member.paused = false;
@@ -665,7 +680,7 @@ final class SharedPartitionFeed {
                 if (where == 0) {
                     attach(member);
                 } else if (where < 0) {
-                    startCatchUp(member, resumeAt);
+                    startCatchUp(member, java.util.Objects.requireNonNull(resumeAt, "where is 0 without one"));
                 } else {
                     member.awaitingAt = resumeAt;
                 }
@@ -682,13 +697,13 @@ final class SharedPartitionFeed {
                 // reader over the gap and no catch-up at all. Safe precisely because nobody is
                 // waiting at the position being given up: every other member is paused, and a
                 // paused member resumes through the row it recorded, not through this reader.
-                replaceReaderAt(resumeAt, request);
+                replaceReaderAt(java.util.Objects.requireNonNull(resumeAt, "movedTheReader needs one"), request);
             }
             member.paused = false;
             member.resumeAt = null;
             if (member.route != null) {
                 // Back on the fan-out from here; the catch-up below covers the gap, as for a join.
-                member.laneInput.listen(member.route.id);
+                member.laneInput().listen(member.route.id);
             }
             if (movedTheReader || resumeAt == null || resumeAt.equals(position())) {
                 // Nothing moved while it was paused -- the common case, because a group of one
@@ -731,7 +746,7 @@ final class SharedPartitionFeed {
         member.awaitingAt = null;
         member.attached = true;
         if (member.route != null) {
-            member.laneInput.listen(member.route.id);
+            member.laneInput().listen(member.route.id);
         }
     }
 
@@ -837,11 +852,11 @@ final class SharedPartitionFeed {
     }
 
     /** The earliest position a member is waiting ahead at, or null. Exact mode; lock held. */
-    private SourceOffset earliestWaiting() {
+    private @Nullable SourceOffset earliestWaiting() {
         SourceOffset earliest = null;
         for (Member member : members) {
             if (!member.paused && member.awaitingAt != null) {
-                if (earliest == null || order.compare(member.awaitingAt, earliest) < 0) {
+                if (earliest == null || order().compare(member.awaitingAt, earliest) < 0) {
                     earliest = member.awaitingAt;
                 }
             }
@@ -853,14 +868,14 @@ final class SharedPartitionFeed {
     private void attachWaitingAtPosition() {
         SourceOffset here = position();
         for (Member member : members) {
-            if (!member.paused && member.awaitingAt != null && order.compare(member.awaitingAt, here) <= 0) {
+            if (!member.paused && member.awaitingAt != null && order().compare(member.awaitingAt, here) <= 0) {
                 attach(member);
             }
         }
     }
 
     /** Called with the lock held. */
-    private int pollShared(List<Member> live, int room, SourceOffset bound) {
+    private int pollShared(List<Member> live, int room, @Nullable SourceOffset bound) {
         int frozen = 0;
         for (; frozen < live.size(); frozen++) {
             if (!live.get(frozen).pump.freezeIngest(FREEZE_TIMEOUT)) {
@@ -890,8 +905,8 @@ final class SharedPartitionFeed {
                 }
             }
             int read = bound == null
-                    ? reader.poll(new BroadcastSink(sinks), room)
-                    : ((BoundedPartitionReader) reader).pollBefore(new BroadcastSink(sinks), room, bound);
+                    ? reader().poll(new BroadcastSink(sinks), room)
+                    : ((BoundedPartitionReader) reader()).pollBefore(new BroadcastSink(sinks), room, bound);
             // Nothing returned is the one moment the position covers exactly what was handed over --
             // except for an ordered source, whose position is exact after every poll.
             readerIdle = read == 0 || order != null;
@@ -985,7 +1000,10 @@ final class SharedPartitionFeed {
      * back, and then the member waits for the shared reader instead.
      */
     private boolean seamReached(Member member) {
-        int where = order.compare(member.catchUp.position(), position());
+        int where = order().compare(
+                        java.util.Objects.requireNonNull(member.catchUp, "a catching-up member has its catch-up")
+                                .position(),
+                        position());
         if (where == 0) {
             attach(member);
             return true;
@@ -1056,7 +1074,7 @@ final class SharedPartitionFeed {
         }
     }
 
-    private static void closeQuietly(AutoCloseable resource) {
+    private static void closeQuietly(@Nullable AutoCloseable resource) {
         if (resource == null) {
             return;
         }
@@ -1081,29 +1099,32 @@ final class SharedPartitionFeed {
         private final ReadRequest request;
         private final Runnable afterDelivery;
 
+        @SuppressWarnings("NullAway.Init") // join() builds the pump right after constructing the member
         private IngestPump pump;
-        private SharedLaneInput laneInput;
-        private LaneRoute route;
-        private PartitionReader catchUp;
+
+        private @Nullable SharedLaneInput laneInput;
+        private @Nullable LaneRoute route;
+        private @Nullable PartitionReader catchUp;
         private boolean catchUpPolled;
         private boolean paused;
-        private SourceOffset resumeAt;
+        private @Nullable SourceOffset resumeAt;
 
         /** On the fan-out. Always, without an order; in exact mode, from its seam on (ADR-054). */
         private boolean attached = true;
 
         /** Exact mode: the position it joined ahead at, which the shared reader has not reached yet. */
-        private SourceOffset awaitingAt;
+        private @Nullable SourceOffset awaitingAt;
 
         /** Exact mode: when its catch-up last delivered anything. */
         private long seamProgressNanos;
 
         /** Why publishing this query stopped, or null. Guarded by the feed's lock. */
-        private volatile PravahaException publishFailure;
+        private volatile @Nullable PravahaException publishFailure;
 
         /** When {@link #publishFailure} was recorded. Written before it. */
-        private volatile java.time.Instant publishFailedAt;
+        private volatile java.time.@Nullable Instant publishFailedAt;
 
+        @SuppressWarnings("NullAway.Init") // join() attaches the member to its feed before returning it
         private SharedPartitionFeed feed;
 
         Member(String queryName, ReadRequest request, Runnable afterDelivery) {
@@ -1144,12 +1165,18 @@ final class SharedPartitionFeed {
             return feed;
         }
 
+        @Nullable
         PravahaException publishFailure() {
             return publishFailure;
         }
 
-        java.time.Instant publishFailedAt() {
+        java.time.@Nullable Instant publishFailedAt() {
             return publishFailedAt;
+        }
+
+        /** The input of the shared lane this member's route writes to; set whenever the route is. */
+        SharedLaneInput laneInput() {
+            return java.util.Objects.requireNonNull(laneInput, "a member on a shared route has its lane's input");
         }
 
         @Override
@@ -1173,6 +1200,7 @@ final class SharedPartitionFeed {
         /** The members this poll is writing for: the live ones, set before every poll. */
         final List<Member> listening = new ArrayList<>();
 
+        @SuppressWarnings("NullAway.Init") // set by whoever creates the route, before its first poll
         IngestPump writer;
 
         LaneRoute(int id) {

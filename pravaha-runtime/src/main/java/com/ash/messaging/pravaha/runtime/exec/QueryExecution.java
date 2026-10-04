@@ -845,7 +845,7 @@ public final class QueryExecution implements AutoCloseable {
      * stopping the query (DLQPROJ-1), on every lane; null stops the query again. Attached by whatever
      * opens the query's dead-letter queue.
      */
-    public void deadLetterRowFailures(RowFailureSink failures) {
+    public void deadLetterRowFailures(@Nullable RowFailureSink failures) {
         pipelines.forEach(pipeline -> pipeline.deadLetterRowFailures(failures));
     }
 

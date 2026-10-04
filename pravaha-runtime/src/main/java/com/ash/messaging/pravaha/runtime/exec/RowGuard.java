@@ -47,7 +47,7 @@ final class RowGuard {
     /** Whether the row in hand has reached an operator that holds state. */
     private boolean crossed;
 
-    void sendTo(RowFailureSink failures) {
+    void sendTo(@Nullable RowFailureSink failures) {
         this.sink = failures;
     }
 

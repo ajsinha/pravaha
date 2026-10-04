@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -61,7 +63,9 @@ public class GrowingPartitionsPlugin implements StreamSourcePlugin {
             .field("part", Types.int64())
             .build();
 
+    @SuppressWarnings("NullAway.Init") // configure() names the topic before anything reads it
     private String topic;
+
     private boolean latest;
     private Duration refresh = Duration.ofMillis(50);
 
@@ -75,13 +79,18 @@ public class GrowingPartitionsPlugin implements StreamSourcePlugin {
         OPENED_AS_NEW.remove(topic);
     }
 
+    /** The partitions of a topic {@link #create} made. */
+    private static List<List<Long>> log(String topic) {
+        return java.util.Objects.requireNonNull(TOPICS.get(topic), "created first");
+    }
+
     static void append(String topic, int partition, long id) {
-        TOPICS.get(topic).get(partition).add(id);
+        log(topic).get(partition).add(id);
     }
 
     /** Adds one partition to {@code topic}; returns its index. */
     static int grow(String topic) {
-        List<List<Long>> partitions = TOPICS.get(topic);
+        List<List<Long>> partitions = log(topic);
         partitions.add(new CopyOnWriteArrayList<>());
         return partitions.size() - 1;
     }
@@ -132,7 +141,7 @@ public class GrowingPartitionsPlugin implements StreamSourcePlugin {
     @Override
     public List<SourcePartition> partitions(String streamName) {
         List<SourcePartition> partitions = new ArrayList<>();
-        for (int p = 0; p < TOPICS.get(topic).size(); p++) {
+        for (int p = 0; p < log(topic).size(); p++) {
             partitions.add(new SourcePartition(streamName, p, Map.of()));
         }
         return partitions;
@@ -144,10 +153,10 @@ public class GrowingPartitionsPlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         int start;
         if (resumeFrom == null || resumeFrom.isBeginning()) {
-            start = latest ? TOPICS.get(topic).get(partition.index()).size() : 0;
+            start = latest ? log(topic).get(partition.index()).size() : 0;
         } else {
             String expected = topic + "/" + partition.index() + "@";
             if (!resumeFrom.token().startsWith(expected)) {
@@ -182,7 +191,7 @@ public class GrowingPartitionsPlugin implements StreamSourcePlugin {
             if (paused) {
                 return 0;
             }
-            List<Long> log = TOPICS.get(topic).get(partition);
+            List<Long> log = log(topic).get(partition);
             int written = 0;
             while (written < maxRecords && next < log.size()) {
                 RowWriter writer = sink.beginRow();

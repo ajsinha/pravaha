@@ -181,6 +181,7 @@ class PluginSinksTest {
      * a {@link RowView} is a flyweight into memory the arena owns and reading one after the arena
      * closes fails with "region is closed".
      */
+    @SuppressWarnings("NullAway") // a null position reads from the start, which the plugin API allows
     private static void withRows(FilesystemSourcePlugin source, java.util.function.Consumer<List<RowView>> body)
             throws IOException {
         try (PartitionReader reader =

@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -190,6 +191,7 @@ class PartitionGrowthTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // a pump factory that opens no pump: the test watches the readers only
     void aRefreshThatFailsIsRetriedAndSaidSo() {
         List<PartitionReader> opened = new ArrayList<>();
         int[] asks = {0};
@@ -219,6 +221,7 @@ class PartitionGrowthTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // refused before the null factory could be used
     void aSourceWhosePartitionsNeverChangeIsNotWatched() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new PartitionGrowth(
                         "s", new FlakyPartitions(new int[1]), ReadRequest.NOTHING, List.of(), Duration.ZERO, null, 0))
@@ -276,7 +279,7 @@ class PartitionGrowthTest {
         }
 
         @Override
-        public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+        public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
             return new PartitionReader() {
                 @Override
                 public int poll(RecordSink sink, int maxRecords) {

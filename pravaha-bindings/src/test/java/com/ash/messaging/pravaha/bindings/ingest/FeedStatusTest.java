@@ -104,13 +104,13 @@ class FeedStatusTest {
             FeedStatus.Source source = stopped.firstStopped().orElseThrow();
             assertThat(source.where()).isEqualTo("txn#0");
             assertThat(source.state()).isEqualTo(FeedStatus.SourceState.STOPPED);
-            assertThat(source.stop().code())
+            assertThat(stopOf(source).code())
                     .as("the source's own code, not the generic feed failure")
                     .isEqualTo("PRV-5040");
-            assertThat(source.stop().origin())
+            assertThat(stopOf(source).origin())
                     .as("this partition's own read raised it")
                     .isTrue();
-            assertThat(source.stop().at()).isNotNull();
+            assertThat(stopOf(source).at()).isNotNull();
 
             // The state keeps its meaning: RUNNING, and the view answers at the frontier it reached.
             assertThat(query.state()).isEqualTo(QueryState.RUNNING);
@@ -189,20 +189,17 @@ class FeedStatusTest {
                 assertThat(source.shared())
                         .as("one reader, so one stop for every query on it")
                         .isTrue();
-                assertThat(source.stop().origin()).isTrue();
-                assertThat(source.stop().code()).isEqualTo("PRV-5080");
-                assertThat(source.stop().message())
+                assertThat(stopOf(source).origin()).isTrue();
+                assertThat(stopOf(source).code()).isEqualTo("PRV-5080");
+                assertThat(stopOf(source).message())
                         .as("a binding's option values never leave in a failure's text")
                         .doesNotContain(SECRET)
                         .contains("[redacted password]");
                 assertThat(query.state()).isEqualTo(QueryState.RUNNING);
             }
-            assertThat(one.feedStatus().firstStopped().orElseThrow().stop().failure())
+            assertThat(stopOf(one.feedStatus().firstStopped().orElseThrow()).failure())
                     .as("the same recorded failure, not a copy per query")
-                    .isSameAs(another.feedStatus()
-                            .firstStopped()
-                            .orElseThrow()
-                            .stop()
+                    .isSameAs(stopOf(another.feedStatus().firstStopped().orElseThrow())
                             .failure());
         }
     }
@@ -228,9 +225,9 @@ class FeedStatusTest {
             FeedStatus stopped = awaitStopped(query);
 
             FeedStatus.Source source = stopped.firstStopped().orElseThrow();
-            assertThat(source.stop().code()).isEqualTo("PRV-5092");
-            assertThat(source.stop().message()).contains("the set was dropped");
-            assertThat(source.stop().origin()).isTrue();
+            assertThat(stopOf(source).code()).isEqualTo("PRV-5092");
+            assertThat(stopOf(source).message()).contains("the set was dropped");
+            assertThat(stopOf(source).origin()).isTrue();
             assertThat(stopped.failures()).isEqualTo(1);
         }
     }
@@ -259,5 +256,10 @@ class FeedStatusTest {
             Thread.sleep(20);
         }
         assertThat(size).as("rows in the view after fifteen seconds").isGreaterThanOrEqualTo(expected);
+    }
+
+    /** A stopped source's stop, which its record requires. */
+    private static FeedStatus.Stop stopOf(FeedStatus.Source source) {
+        return java.util.Objects.requireNonNull(source.stop(), "a stopped source says why");
     }
 }

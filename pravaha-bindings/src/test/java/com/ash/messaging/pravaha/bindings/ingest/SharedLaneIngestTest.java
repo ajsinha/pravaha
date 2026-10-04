@@ -49,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Timeout(300)
 class SharedLaneIngestTest {
 
+    @SuppressWarnings("NullAway.Init") // each test builds its own
     private LaneEquivalence engines;
 
     @BeforeEach

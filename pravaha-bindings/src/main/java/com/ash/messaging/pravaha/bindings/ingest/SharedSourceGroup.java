@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.bindings.ingest;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
 import com.ash.messaging.pravaha.api.plugin.SourceCapabilities;
@@ -53,7 +55,7 @@ final class SharedSourceGroup {
     private final StreamSourcePlugin plugin;
     private final List<SourcePartition> partitions;
     private final List<SharedPartitionFeed> feeds;
-    private final BackpressurePolicy policy;
+    private final @Nullable BackpressurePolicy policy;
 
     /** How each query joins a partition this group gains while it runs. Guarded by {@code this}. */
     private final List<Joiner> joiners = new ArrayList<>();
@@ -61,7 +63,7 @@ final class SharedSourceGroup {
     /** Partitions gained while running, in the order they appeared. */
     private final List<Integer> gained = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    private Thread watcher;
+    private @Nullable Thread watcher;
     private volatile boolean closed;
 
     /** Joins one query to a partition the source gained after the query registered. */
@@ -73,7 +75,8 @@ final class SharedSourceGroup {
     /** Queries holding this group. Guarded by the owning {@link PluginSourceFeeds}'s monitor. */
     private int holders;
 
-    SharedSourceGroup(Key key, StreamSourcePlugin plugin, List<SourcePartition> partitions, BackpressurePolicy policy) {
+    SharedSourceGroup(
+            Key key, StreamSourcePlugin plugin, List<SourcePartition> partitions, @Nullable BackpressurePolicy policy) {
         this.key = key;
         this.plugin = plugin;
         this.policy = policy;
@@ -179,7 +182,7 @@ final class SharedSourceGroup {
      * at-least-once, offset-replayable scan of a store, which is what Aerospike Community can
      * offer -- and it leaves the stronger sources alone rather than quietly weakening them.
      */
-    static boolean canShare(SourceCapabilities capabilities) {
+    static boolean canShare(@Nullable SourceCapabilities capabilities) {
         return whyNotShared(capabilities, null) == null;
     }
 
@@ -191,8 +194,9 @@ final class SharedSourceGroup {
      * (ADR-054): each record reaches each query once and in order. The refusals below are for the
      * sources that cannot say where two positions stand.
      */
-    static String whyNotShared(
-            SourceCapabilities capabilities, com.ash.messaging.pravaha.api.plugin.OrderedPositions order) {
+    static @Nullable String whyNotShared(
+            @Nullable SourceCapabilities capabilities,
+            com.ash.messaging.pravaha.api.plugin.@Nullable OrderedPositions order) {
         if (order != null && capabilities != null && capabilities.replayableOffsets()) {
             return null;
         }
@@ -200,7 +204,7 @@ final class SharedSourceGroup {
     }
 
     /** Why a source without ordered positions is read once per query, in a sentence, or null. */
-    static String whyNotShared(SourceCapabilities capabilities) {
+    static @Nullable String whyNotShared(@Nullable SourceCapabilities capabilities) {
         if (capabilities == null) {
             return "the plugin declares no capabilities, so nothing is known about what sharing a reader "
                     + "would cost it";

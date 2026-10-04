@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
@@ -75,7 +77,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>());
 
     private final BackpressurePolicy policy;
-    private volatile java.nio.file.Path deadLetterDirectory;
+    private volatile java.nio.file.@Nullable Path deadLetterDirectory;
 
     /**
      * The live dead-letter queue and rejection rate of each query that has one (B5).
@@ -121,7 +123,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         this(BackpressurePolicy.defaults());
     }
 
-    public PluginSourceFeeds(BackpressurePolicy policy) {
+    public PluginSourceFeeds(@Nullable BackpressurePolicy policy) {
         this.policy = policy == null ? BackpressurePolicy.defaults() : policy;
     }
 
@@ -372,7 +374,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         List<PartitionGrowth> growth = new ArrayList<>();
         try {
             for (String stream : bound) {
-                SourceBinding binding = bindings.get(stream);
+                SourceBinding binding = bindingOf(stream);
 
                 // SRC-3. One reader per binding where the source allows it, and the query joins it
                 // rather than opening its own.
@@ -527,6 +529,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         return feed;
     }
 
+    /** The binding of a stream a feed was asked to read, which the caller has already found bound. */
+    private SourceBinding bindingOf(String stream) {
+        return java.util.Objects.requireNonNull(bindings.get(stream), "a bound stream has a binding");
+    }
+
     /** The bindings of these streams, for {@link FeedRedaction}. */
     private List<SourceBinding> boundTo(List<String> streams) {
         return streams.stream()
@@ -582,7 +589,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         List<PartitionGrowth> growth = new ArrayList<>();
         try {
             for (String stream : bound) {
-                SourceBinding binding = bindings.get(stream);
+                SourceBinding binding = bindingOf(stream);
                 StreamSourcePlugin plugin = openPlugin(binding);
                 resources.add(plugin);
                 // Rows, never a partial: a spliced reader hands its records to the history reader
@@ -674,7 +681,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         ResumePositions positions = ResumePositions.of(from);
         try {
             for (String stream : wanted) {
-                SourceBinding binding = bindings.get(stream);
+                SourceBinding binding = bindingOf(stream);
                 StreamSourcePlugin plugin = openPlugin(binding);
                 opened.add(plugin);
                 StreamSchema schema = plugin.discoverSchemas().stream()
@@ -793,7 +800,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * binding, the plan's scan emits a layout no existing group is fanning out, or the plugin
      * declares a guarantee sharing cannot keep ({@link SharedSourceGroup#whyNotShared}).
      */
-    private SharedSourceGroup groupFor(String stream, SourceBinding binding, QueryExecution execution) {
+    private @Nullable SharedSourceGroup groupFor(String stream, SourceBinding binding, QueryExecution execution) {
         // The escape hatch. A shared reader pushes the OR of its members' filters (ADR-039 item 6),
         // which is wider than any one of them: a deployment running one query against a set it
         // cares about may want its own narrower filter more than it wants the sharing.
@@ -874,7 +881,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * <p>Part of the sharing key rather than an assumption, because a pushed projection makes two
      * scans of one set emit different rows -- see {@link SharedSourceGroup.Key}.
      */
-    private static StreamSchema scanSchemaOf(
+    private static @Nullable StreamSchema scanSchemaOf(
             com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan, String stream) {
         if (plan instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator scan
                 && scan.streamName().equals(stream)) {
@@ -1157,7 +1164,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         } catch (java.io.UncheckedIOException wrapped) {
             // computeIfAbsent cannot throw a checked exception, so opening the file wraps its
             // IOException; it is unwrapped here so the refusal names the cause and not the wrapper.
-            throw unusable(directory, wrapped.getCause());
+            throw unusable(
+                    directory,
+                    java.util.Objects.requireNonNull(wrapped.getCause(), "an UncheckedIOException has its cause"));
         } catch (java.io.IOException | RuntimeException cannot) {
             throw unusable(directory, cannot);
         }

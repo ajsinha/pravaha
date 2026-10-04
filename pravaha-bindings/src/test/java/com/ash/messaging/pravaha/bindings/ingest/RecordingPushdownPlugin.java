@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
@@ -97,12 +99,13 @@ public final class RecordingPushdownPlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return createReader(partition, resumeFrom, ReadRequest.NOTHING);
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
+    public PartitionReader createReader(
+            SourcePartition partition, @Nullable SourceOffset resumeFrom, ReadRequest request) {
         OFFERED.add(request);
         return new PartitionReader() {
             @Override

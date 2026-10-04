@@ -24,6 +24,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -94,13 +96,13 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     static volatile int holdEmptyPollForReaderNumber;
 
     /** The gate {@link #holdEmptyPollForReaderNumber}'s held poll waits on. Set by the test. */
-    static volatile java.util.concurrent.CountDownLatch heldPollGate;
+    static volatile java.util.concurrent.@Nullable CountDownLatch heldPollGate;
 
     /**
      * FEED-1. Thrown by the next scan of any reader once set, as a store that goes away mid-read
      * throws: a revoked credential, a dropped set. Null means scans succeed.
      */
-    static volatile RuntimeException failNextScan;
+    static volatile @Nullable RuntimeException failNextScan;
 
     static final StreamSchema SCHEMA = StreamSchema.builder("shared")
             .field("id", Types.int64())
@@ -193,12 +195,13 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return createReader(partition, resumeFrom, ReadRequest.NOTHING);
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
+    public PartitionReader createReader(
+            SourcePartition partition, @Nullable SourceOffset resumeFrom, ReadRequest request) {
         OPEN.incrementAndGet();
         int ordinal = CREATED.incrementAndGet();
         ReadRequest honoured = request == null ? ReadRequest.NOTHING : request;
@@ -265,7 +268,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         private boolean closed;
         private long sequence;
 
-        Reader(SourceOffset from, int ordinal, ReadRequest request) {
+        Reader(@Nullable SourceOffset from, int ordinal, ReadRequest request) {
             this.watermark = from == null || from.isBeginning() ? 0 : Integer.parseInt(from.token());
             this.scanStart = watermark;
             this.ordinal = ordinal;

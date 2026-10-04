@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.bindings.ingest;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 
 /**
@@ -39,11 +41,11 @@ import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 final class ResumePositions {
 
     private final Map<String, String> offsets;
-    private final Map<String, String> byPartition = new HashMap<>();
+    private final Map<String, @Nullable String> byPartition = new HashMap<>();
     private final boolean restoring;
     private int ordinal;
 
-    private ResumePositions(Map<String, String> offsets) {
+    private ResumePositions(@Nullable Map<String, String> offsets) {
         this.offsets = offsets == null ? Map.of() : offsets;
         boolean anyOffset = false;
         for (Map.Entry<String, String> entry : this.offsets.entrySet()) {
@@ -58,7 +60,7 @@ final class ResumePositions {
         this.restoring = anyOffset;
     }
 
-    static ResumePositions of(Map<String, String> offsets) {
+    static ResumePositions of(@Nullable Map<String, String> offsets) {
         return new ResumePositions(offsets);
     }
 
@@ -67,6 +69,7 @@ final class ResumePositions {
      * once for each partition, in the order a fresh open creates them: a checkpoint without partition
      * names is matched by that order.
      */
+    @Nullable
     String tokenFor(String stream, int partition) {
         int at = ordinal++;
         if (!byPartition.isEmpty()) {
@@ -76,7 +79,7 @@ final class ResumePositions {
     }
 
     /** True when this is a restore and {@code token} -- from {@link #tokenFor} -- is absent. */
-    boolean isNew(String token) {
+    boolean isNew(@Nullable String token) {
         return restoring && token == null;
     }
 }
