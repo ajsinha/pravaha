@@ -384,7 +384,7 @@ down as such.
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.security.authentication` | `none` | `none` or `token` — whether callers present a bearer token |
-| `pravaha.security.policy` | `permissive` | `permissive` (everyone sees everything) or `authenticated` (only verified callers see anything); or a `SecurityPolicy` of your own |
+| `pravaha.security.policy` | `permissive` | `permissive` (everyone sees everything) or `authenticated` (only verified callers see anything). A `SecurityPolicy` bean of your own takes its place |
 | `pravaha.security.allow-anonymous` | `false` | Acknowledges an open server. Deliberately awkward to set by accident |
 | `pravaha.security.tokens` | *none* | Static credentials for development and tests: a map from **the token itself** to `id` (**required**), `tenant` (default `public`) and `roles`. The `id` is what the audit trail and the registry journal record, so it must not be allowed to fall back to the map key -- which is the credential. A real deployment implements a `TokenVerifier` |
 | `pravaha.security.audit` | `none` | `none`, `memory` (in-process only, readable by nothing) or `file` (JSON Lines an operator can read) |

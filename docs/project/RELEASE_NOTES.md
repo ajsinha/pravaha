@@ -122,6 +122,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `engine` health indicator is `DEGRADED` while it lasts, and two new meters say so:
   `pravaha_audit_failing` and `pravaha_audit_unrecorded_total`. `AuditSink` gains `failure()` and
   `unrecorded()` (default: none) for a custom sink to report the same.
+- **A node takes a `SecurityPolicy`, `TokenVerifier` or `AuditSink` of your own** (POLICYPLUG-1). On
+  `pravaha-server`, a Spring bean of the type takes the place of `pravaha.security.policy`, the token
+  table or `pravaha.security.audit` on every surface — engine, Flight, the PostgreSQL gateway and HTTP —
+  with the node's own beans `@Primary` so injection by type still finds one object. The embedded engine
+  takes a policy and a sink with `securedBy(...)` and `auditingTo(...)` before `start()`. Refused at start
+  with `PRV-7004` where one would be ignored or ambiguous: two beans of a type, a policy bean beside the
+  catalogue, a verifier bean without `authentication: token` or beside identity. The refusal of an unknown
+  `pravaha.security.policy`, which said "or implement SecurityPolicy" when nothing on a node would use
+  one, now names the catalogue and the bean. See docs/development/guides/SECURITY_EXTENSIONS.md.
 
 Register: **572 findings — 549 fixed, 4 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
 

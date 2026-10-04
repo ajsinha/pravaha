@@ -174,8 +174,11 @@ the same entitlement share; two with different ones do not. See [row filters](/h
 ## A policy of your own
 
 The shipped policies are coarse by design. Per-view rules, tenants, row filters and separated
-operator rights come from implementing `SecurityPolicy` against your own identity model, in Java,
-where the Flight server (or your embedded engine) is built:
+operator rights come from implementing `SecurityPolicy` against your own identity model, in Java. On a
+node, supply it as a Spring bean and it takes the place of `pravaha.security.policy` on every surface
+(refused beside the catalogue, which already decides); in the embedded engine, pass it to
+`engine.securedBy(policy)` before `start()`; in a host you assemble, give it to the registry and the
+Flight server:
 
 ```java
 SecurityPolicy policy = new SecurityPolicy() {

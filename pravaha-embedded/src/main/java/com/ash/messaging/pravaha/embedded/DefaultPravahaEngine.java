@@ -101,6 +101,11 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private final Map<String, SinkBinding> declaredSinks = new LinkedHashMap<>();
     private final Map<String, String> declaredEventTimes = new LinkedHashMap<>();
     private final List<ContinuousQuery> declaredQueries = new ArrayList<>();
+
+    /** Who may do what, and where the decisions go: the host's own, else permissive and discarded (POLICYPLUG-1). */
+    private SecurityPolicy policy = SecurityPolicy.PERMISSIVE;
+
+    private AuditSink audit = AuditSink.NONE;
     private final Map<String, Duration> declaredEventTimeTracking = new LinkedHashMap<>();
 
     /**
@@ -204,6 +209,22 @@ final class DefaultPravahaEngine implements PravahaEngine {
     }
 
     @Override
+    public synchronized PravahaEngine securedBy(SecurityPolicy policy) {
+        Objects.requireNonNull(policy, "policy");
+        requireDeclaring("set the security policy");
+        this.policy = policy;
+        return this;
+    }
+
+    @Override
+    public synchronized PravahaEngine auditingTo(AuditSink sink) {
+        Objects.requireNonNull(sink, "sink");
+        requireDeclaring("set the audit sink");
+        this.audit = sink;
+        return this;
+    }
+
+    @Override
     public synchronized PravahaEngine declareQuery(ContinuousQuery query) {
         Objects.requireNonNull(query, "query");
         requireDeclaring("declare query '" + query.name() + "'");
@@ -254,7 +275,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
         StreamSchema[] streams = declaredStreams.values().toArray(new StreamSchema[0]);
         ViewCatalog views = new ViewCatalog();
-        QueryRegistry built = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams);
+        QueryRegistry built = new QueryRegistry(views, policy, audit, streams);
         // Who may drop, pause or replace a view: its owner, a grant or an admin. The setting accepts only
         // 'ownership'; the removed 'legacy-read' is refused by name (PRV-7004).
         built.owners()
@@ -270,7 +291,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 .getString(com.ash.messaging.pravaha.runtime.window.WindowLimits.SETTING)
                 .orElse(null)));
         registry = built;
-        reads = new ViewQuery(views);
+        reads = new ViewQuery(views, policy, audit);
 
         // Checkpoints before the feeds, so a query is checkpointed from its first row.
         configuration
@@ -659,8 +680,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
                         SqlErrors.STATEMENT_MALFORMED,
                         statement.get().verb() + " takes no parameters; write the values into the statement.");
             }
-            return new ContinuousQueryStatements(target, target.policy(), AuditSink.NONE)
-                    .execute(statement.get(), CALLER);
+            return new ContinuousQueryStatements(target, target.policy(), audit).execute(statement.get(), CALLER);
         }
         ViewQuery current = reads;
         if (parameters == null || parameters.length == 0) {

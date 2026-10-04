@@ -45,9 +45,9 @@ tighten its rules without touching authentication.
 passwords (Argon2id), API keys and sessions itself ([below](#users-passwords-api-keys-and-sessions-adr-052),
 ADR-052); without it a node verifies a static token table, and stores no passwords at all.
 `StaticTokenVerifier` exists for tests and single-tenant installs and says so in its name. A verifier
-of your own — your identity provider — plugs into a host you assemble from the library modules, as in
-*Setting it up* below; a node offers no plug-in point for one
-([security extension guide](../development/guides/SECURITY_EXTENSIONS.md)).
+of your own — your identity provider — is a `TokenVerifier` bean on a node, used in place of the token
+table, or plugs into a host you assemble from the library modules, as in *Setting it up* below
+([security extension guide](../development/guides/SECURITY_EXTENSIONS.md#plugging-one-into-a-node)).
 
 **The HTTP API decides with the same policy.** `pravaha-server`'s REST controllers authenticate a
 bearer token through `BearerTokenFilter`, and since SX-3 authorize through `HttpAuthorizer`, which asks
@@ -74,7 +74,11 @@ and `AdminHttpTest`.
 
 On a node, the policy is chosen by configuration — `pravaha.security.policy` (`permissive` or
 `authenticated`), or the catalogue with `pravaha.catalog.enabled` — and the verifier is the token table or
-the identity store. The three seams as code are for a host you assemble yourself from the library modules:
+the identity store, **unless the application context holds a `SecurityPolicy`, `TokenVerifier` or
+`AuditSink` bean of its own, which then takes the configured one's place** (POLICYPLUG-1; the rules and
+the refusals are in the [security extension guide](../development/guides/SECURITY_EXTENSIONS.md#plugging-one-into-a-node)).
+The embedded engine takes a policy and a sink with `securedBy(...)` and `auditingTo(...)` before `start()`.
+The three seams as code, in a host you assemble yourself from the library modules:
 
 ```java
 PravahaFlightServer server = new PravahaFlightServer(views)
@@ -377,7 +381,7 @@ and the file is where everything older is.
 an audit sink can never fail the query it is auditing; a full queue drops and the next line written
 is an `audit.dropped` marker with the count, because a gap nothing records is a trail that lies. A
 path that cannot be written is `PRV-7004` at startup rather than a discovery at the first decision
-nobody sees. A durable sink of your own is still an `AuditSink` implementation you supply.
+nobody sees. A durable sink of your own is an `AuditSink` bean, which takes the place of this setting.
 
 *A trail that stops being writable is never silent (AUDITROTATE-1).* A full disk or a directory or file
 made read-only after startup does not fail queries — auditing never does — and does not go
