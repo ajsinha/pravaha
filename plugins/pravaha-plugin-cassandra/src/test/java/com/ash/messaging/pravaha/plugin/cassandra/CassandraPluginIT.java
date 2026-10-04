@@ -397,4 +397,34 @@ class CassandraPluginIT {
             return new ValueWriter(schema, rows::add, eventTimestampsNanos::add);
         }
     }
+
+    /**
+     * CASSDC-1: {@code local.datacenter} is documented optional, inferred from the contact points,
+     * and every registration without it failed with the driver's IllegalStateException.
+     */
+    @Test
+    void aSourceWithoutLocalDatacenterInfersItFromTheContactPoints() {
+        put(7, "NEW", 70);
+        Map<String, String> config = new HashMap<>(Map.of(
+                "contact.points",
+                contactPoints,
+                "keyspace",
+                CassandraTestContainer.KEYSPACE,
+                "table",
+                "orders",
+                "schema",
+                SCHEMA,
+                "partition.key",
+                "id",
+                "stream",
+                "orders"));
+        CassandraSourcePlugin plugin = new CassandraSourcePlugin();
+        plugin.configure(new Ctx("orders", config));
+        plugin.open();
+        try {
+            assertThat(drainAllPartitions(plugin)).hasSize(1);
+        } finally {
+            plugin.close();
+        }
+    }
 }

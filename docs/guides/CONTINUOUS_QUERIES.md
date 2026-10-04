@@ -468,7 +468,7 @@ pravaha:
 | `schema` | yes | — |
 | `partition.key` | yes | — |
 | `stream` | no | the table name |
-| `local.datacenter` | no | auto-detected — name it if the cluster has more than one datacenter |
+| `local.datacenter` | no | inferred from the contact points, which must then all be in one datacenter (else `PRV-5088`); name it for a multi-datacenter cluster |
 | `event.time` | no | none |
 | `strategy` | no | `token-range-scan` |
 | `partitions` | no | `1` |

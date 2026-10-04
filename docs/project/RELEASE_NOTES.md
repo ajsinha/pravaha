@@ -52,6 +52,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `numeric` and binary integers), and a float is refused (`PRV-2062` on pgwire, before sending in the
   SDKs) rather than read as the nearest decimal. The Java SDK binds `BigDecimal` and integers to a
   decimal placeholder and refuses a value with more places than the column.
+- **Cassandra's `local.datacenter` is inferred, as documented** (CASSDC-1). The option was documented
+  as optional and detected from the contact points, but the 4.x driver refuses explicit contact points
+  without a local datacenter, so every registration that left it out failed `PRV-5091` wrapping the
+  driver's `IllegalStateException`. Left out, the driver's `DcInferringLoadBalancingPolicy` now takes
+  the datacenter the contact points are in; contact points in more than one, or a named datacenter no
+  contact point is in, are refused `PRV-5088` naming the setting.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 
