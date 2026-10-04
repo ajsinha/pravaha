@@ -161,7 +161,7 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "{{ $labels.query }} is failing to checkpoint"
-          description: "Check the node log and the checkpoint directory's disk."
+          description: "The reason is a WARN line in the node log and checkpoint.lastFailure in GET /api/v1/queries/{name}; check the checkpoint directory's disk."
 
       - alert: PravahaSpillNearQuota
         expr: pravaha_state_spill_bytes_mapped > 0.8 * 20e9

@@ -211,6 +211,12 @@ The console's operations screen flags "Checkpoints are failing" on any new failu
 checkpoint" when the last one is more than fifteen minutes old. Rules are in
 [Metrics and alerts](/help/topics/observability).
 
+**Why it failed** is in two places (CKPTWHY-1): a `WARN` line in the node's log for every failure —
+`query 'totals': checkpoint failed (3 so far): cannot store checkpoint 12. Recovery will fall back to
+the newest stored checkpoint, which is getting older` — and `checkpoint` in
+`GET /api/v1/queries/{name}`: `enabled`, `last` (when one was last stored), `failures` and
+`lastFailure`, the most recent reason, including a checkpoint that could not be restored at start.
+
 ## Backup
 
 Checkpoints are files; recovery restores from the newest complete one. To back a node up, copy the

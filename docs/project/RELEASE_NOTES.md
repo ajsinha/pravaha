@@ -58,6 +58,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   driver's `IllegalStateException`. Left out, the driver's `DcInferringLoadBalancingPolicy` now takes
   the datacenter the contact points are in; contact points in more than one, or a named datacenter no
   contact point is in, are refused `PRV-5088` naming the setting.
+- **Why a checkpoint failed is said** (CKPTWHY-1). A failing checkpoint raised
+  `pravaha_query_checkpoint_failures_total` and nothing said why: the checkpointer's narrative went to
+  a no-op and the reason kept on the query had no reader. Each failure is now a `WARN` line naming the
+  query, and `GET /api/v1/queries/{name}` carries `checkpoint` — `enabled`, `last`, `failures` and
+  `lastFailure` (a checkpoint that could not be restored at start included). Additive API change;
+  `api/openapi.lock.json` updated.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

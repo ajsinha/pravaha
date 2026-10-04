@@ -242,7 +242,8 @@ under the checkpoint root.
 A checkpoint records the schema of the query's output — each column's name and type — and a restart
 whose query now produces another (a stream redeclared with `v` as `VARCHAR` where it was `BIGINT`) does
 **not** restore it: the view would hold values of the old type beside rows of the new. The query
-starts from the beginning of its sources instead, and the reason is its last checkpoint failure. A
+starts from the beginning of its sources instead, and the reason is its last checkpoint failure
+(`checkpoint.lastFailure` in `GET /api/v1/queries/{name}`, and a `WARN` line in the node's log). A
 column added to the stream that the query does not select changes nothing, and the state comes back.
 Until RETYPERESTORE-1 the old values were restored into the new columns. A checkpoint written before
 2.0.1 records no schema and is restored as before. A debug session forked from such a checkpoint is

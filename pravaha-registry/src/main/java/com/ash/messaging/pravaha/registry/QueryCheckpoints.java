@@ -184,7 +184,12 @@ final class QueryCheckpoints {
                 // Failures only. PeriodicCheckpointer reports every one rather than the first,
                 // precisely so that a query which has silently not checkpointed for six hours does
                 // not look like one that has -- and the registry used to throw each report away.
-                .reportingFailuresTo(query::recordCheckpointFailure)
+                // CKPTWHY-1: and logged, because the counter said a checkpoint failed and nothing
+                // anywhere said why.
+                .reportingFailuresTo(message -> {
+                    LOG.log(System.Logger.Level.WARNING, "query '" + query.anyName() + "': " + message);
+                    query.recordCheckpointFailure(message);
+                })
                 // The second phase: what each transactional sink prepared at the cut is committed
                 // once, and only once, the checkpoint recording it is durable.
                 .tellingWhenDurable(query::checkpointDurable);

@@ -370,6 +370,8 @@ public final class ApiDtos {
      *     started (IDXVIS-1)
      * @param owner the id of the principal who registered it, or replaced it last: who may drop, pause
      *     or replace it without a grant ({@code pravaha.security.administer}); null when none is recorded
+     * @param checkpoint whether it checkpoints, when it last did, and why its last checkpoint failed
+     *     (CKPTWHY-1); null for a registration refused at recovery
      */
     public record QueryDetail(
             String name,
@@ -392,7 +394,19 @@ public final class ApiDtos {
             List<String> readsFrom,
             List<String> dependants,
             AccessPaths accessPaths,
-            String owner) {}
+            String owner,
+            QueryCheckpoint checkpoint) {}
+
+    /**
+     * A registered query's checkpoints (CKPTWHY-1): the failure count was a metric and the reason was
+     * kept on the query with nothing reading it.
+     *
+     * @param enabled whether this query checkpoints at all ({@code pravaha.checkpoint.directory})
+     * @param last when it last stored one, or null when it never has
+     * @param failures checkpoints that failed since it started, a restore that could not be used included
+     * @param lastFailure the most recent failure's reason, or null when none has failed
+     */
+    public record QueryCheckpoint(boolean enabled, Instant last, long failures, String lastFailure) {}
 
     /**
      * How the reads of one view found their rows (IDXVIS-1): every read of a view -- Flight SQL,
