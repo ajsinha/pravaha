@@ -28,7 +28,7 @@ No finding is open ([`../project/qa/FINDINGS.md`](../project/qa/FINDINGS.md)). W
 | The manual WCAG 2.2 AA audit | a person's task; the automated axe half is green | [`TESTING.md`](TESTING.md#console) |
 | ADR-059 phases 3–4 | only if wanted | [ADR-059](../design/adr/059-the-pravaha-catalog-governs-live-answers.md) |
 | First versions' follow-ups: `mysql-cdc` initial snapshot and TLS; `iceberg-sink` object stores, catalogs, partitioning; one reader per Delta or JDBC source; showing which access path a read took | buildable | README, "First versions" |
-| NullAway: about 2,800 warnings outside `pravaha-api` and the SDKs (Error Prone and javac are at 0, gated in CI by `-Pep`) | a list to work down | [`TESTING.md`](TESTING.md#static-analysis-error-prone-and-nullaway--pep) |
+| NullAway: 1,802 warnings in 17 modules -- `pravaha-server`, `pravaha-it`, `pravaha-identity`, `pravaha-bindings`, the remaining plugins and the small front ends; the engine core, Flight, pgwire, the API and the SDKs are at 0 and gated (Error Prone and javac are at 0 everywhere, gated in CI by `-Pep`) | a list to work down | [`TESTING.md`](TESTING.md#static-analysis-error-prone-and-nullaway--pep) |
 | A stream declared over HTTP lasts until the node restarts (DECLSTREAM-1); the console's session vault is per process, so several console instances need sticky sessions (COOKIETOKEN-1) | known limits of the fixes | [`../guides/LIMITS.md`](../guides/LIMITS.md), [`../operations/SECURITY.md`](../operations/SECURITY.md) |
 | CI: the workflows parse and are checked; whether each has run as a workflow is recorded in DEPLOYMENT.md | release engineering | [`../operations/DEPLOYMENT.md`](../operations/DEPLOYMENT.md#ci) |
 

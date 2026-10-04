@@ -12,6 +12,17 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+- **NullAway gates the engine core, Flight and pgwire.** Eighteen more modules -- `pravaha-common`
+  through `pravaha-registry`, `pravaha-flight`, `pravaha-pgwire`, the ZooKeeper coordinator and the
+  Iceberg sink -- are at zero NullAway findings and held there under `-Pep` (NullAway at ERROR,
+  `failOnWarning`), as `pravaha-api` and the SDKs were. Nullness is now written down with JSpecify's
+  `@Nullable` where null is meant, and the reactor's count fell from 2,698 to 1,802. No behaviour
+  changes but one bug it found (NULLREFUSAL-1): a registration or replacement that failed at
+  recovery with an exception carrying no message made its own refusal throw, which stopped the
+  recovery of every entry after it; it is now refused naming the exception. Elsewhere an invariant
+  the analysis cannot see is a `requireNonNull` where the code dereferenced the value anyway. Also:
+  `-DskipTests` skips failsafe's integration tests again (SKIPFAILSAFE-1); failsafe 3.6.0 had
+  stopped reading the property, so a test-free build started Testcontainers.
 - **Every SDK request has a deadline** (SDKDEADLINE-1). `ClientOptions.requestTimeout` (Java) and
   `request_timeout_seconds` (Python; also `connect(…, timeout=)` and the CLI's `--timeout`), 60 s by
   default, now bound every unary Flight call — a query up to its first batch, and every action — and

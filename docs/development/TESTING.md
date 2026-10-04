@@ -107,6 +107,7 @@ holds it, with a `// reason` on the same line; never module-wide.
 |---|---|---|---|---|
 | 2026-10-02, ERRORPRONE-1 | 2,833 | 600 (`StringSplitter` 100, `ArrayRecordComponent` 61, `NotJavadoc` 54, `MissingOverride` 42, `UnusedVariable` 39, …) | 207 (`try` 109, `dangling-doc-comments` 57, `deprecation` 31, …) | 3,642 |
 | 2026-10-03, ERRORPRONE-2 | 2,826, counted before `pravaha-api` and the SDKs were cleared (those three are 0 and held there by `failOnWarning`) | 0 | 0 | 2,826 at most |
+| 2026-10-04, the engine core, Flight and pgwire gated | 1,802 (2,698 the same day before the sweep), in 17 modules; 21 modules at 0 and held there | 0 | 0 | 1,802 |
 
 The ERRORPRONE-1 run counted 3,570 because it compiled main and test code in separate passes. Of the
 roughly 800 cleared, most were fixed in place; the suppressions are mainly `ArrayRecordComponent` on
@@ -131,6 +132,29 @@ which adds nothing for a client because Guava, through Arrow, already depends on
 test that passes null on purpose, to pin a refusal or a tolerance, says so with
 `@SuppressWarnings("NullAway")` and a comment. To bring another module to zero, fix it under `-Pep`,
 then copy the `ep` profile from one of these three poms.
+
+**The engine core and two surfaces are gated (2.1.1).** Eighteen more modules were brought to zero
+and carry the same `ep` profile: `pravaha-common`, `-algebra`, `-catalog`, `-sql`, `-runtime`,
+`-state`, `-security`, `-backfill`, `-codegen`, `-testkit`, `-cluster`, `-connect`, `-serving`,
+`-registry`, `-flight`, `-pgwire`, `plugins/pravaha-cluster-zookeeper` and
+`plugins/pravaha-plugin-iceberg` (before: 13, 3, 39, 113, 176, 19, 21, 11, 14, 7, 31, 4, 51, 205, 86,
+85, 6 and 10). `pravaha-common` takes jspecify at compile scope, so every engine module sees it;
+`pravaha-security` takes it `provided`, staying dependency-free. Most findings were a method or field
+that is null by design saying so; where an invariant the analysis cannot follow makes a value
+non-null (a fused chain ends at a scan, a described sink was named, a stopped source has its stop),
+the read is `Objects.requireNonNull(value, "the reason")` at the place the code already dereferenced
+it, so nothing behaves differently. `PravahaException.getMessage()` is declared non-null, which it
+always was. One finding was a bug (NULLREFUSAL-1): a recovery refusal built from a message-less
+exception threw from inside the catch meant to keep one bad journal entry from stopping the rest.
+Suppressions in main code are 17, each on one member with its reason: 9 `NullAway.Init` on fields a
+lifecycle sets before use (a row cursor's region, a lane's batch arrays, a plugin's settings from
+`configure()`), and 8 where the analysis cannot see the contract (an expression's `evaluateString`,
+read only when `isNull` is false; `ViewNames.localName`/`shown`, null only for a null name; a
+probe-only null principal; an unreachable sink factory; a record constructor that defaults a null).
+Test code adds 83 nulls-on-purpose and 55 `NullAway.Init` on fields a test's own setup assigns. Still
+at WARN: `pravaha-server`, `pravaha-it`, `pravaha-identity`, `pravaha-bindings`, `pravaha-embedded`,
+`pravaha-cli`, `pravaha-benchmarks`, `pravaha-spring-boot-starter` and nine plugins -- see the table
+above.
 
 ### Which Maven to call: stale jars (MAVENRACE-1)
 
