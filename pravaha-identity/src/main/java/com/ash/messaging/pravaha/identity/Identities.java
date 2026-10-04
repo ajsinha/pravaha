@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What the engine knows about the people and programs that may call it (ADR-052). Immutable: a change
  * is a new value, written whole to the journal, so replay is last-writer-wins and needs no diffing.
@@ -37,20 +39,20 @@ public final class Identities {
      */
     public record User(
             String username,
-            String displayName,
-            String email,
-            String tenant,
+            @Nullable String displayName,
+            @Nullable String email,
+            @Nullable String tenant,
             Set<String> roles,
             String status,
             boolean service,
-            String passwordHash,
+            @Nullable String passwordHash,
             List<String> previousHashes,
             boolean mustChangePassword,
-            Instant passwordChangedAt,
+            @Nullable Instant passwordChangedAt,
             int failedAttempts,
-            Instant firstFailedAt,
-            Instant lockedUntil,
-            Instant lastLoginAt,
+            @Nullable Instant firstFailedAt,
+            @Nullable Instant lockedUntil,
+            @Nullable Instant lastLoginAt,
             Instant createdAt,
             Map<String, String> attributes) {
 
@@ -87,7 +89,7 @@ public final class Identities {
                     attributes);
         }
 
-        User withFailures(int failed, Instant first, Instant locked) {
+        User withFailures(int failed, @Nullable Instant first, @Nullable Instant locked) {
             return new User(
                     username,
                     displayName,
@@ -108,7 +110,7 @@ public final class Identities {
                     attributes);
         }
 
-        User withLogin(Instant at, String rehashed, boolean mustChange) {
+        User withLogin(Instant at, @Nullable String rehashed, boolean mustChange) {
             return new User(
                     username,
                     displayName,
@@ -129,7 +131,8 @@ public final class Identities {
                     attributes);
         }
 
-        User withProfile(String display, String mail, String tenantName, String newStatus) {
+        User withProfile(
+                @Nullable String display, @Nullable String mail, @Nullable String tenantName, String newStatus) {
             return new User(
                     username,
                     display,
@@ -203,16 +206,16 @@ public final class Identities {
      */
     public record ApiKey(
             String keyId,
-            String name,
+            @Nullable String name,
             String holder,
             Set<String> roles,
             String secretHash,
             Instant createdAt,
-            String createdBy,
+            @Nullable String createdBy,
             Instant expiresAt,
-            Instant revokedAt,
-            String rotatedTo,
-            Instant lastUsedAt) {
+            @Nullable Instant revokedAt,
+            @Nullable String rotatedTo,
+            @Nullable Instant lastUsedAt) {
 
         public ApiKey {
             roles = Set.copyOf(roles);
@@ -252,5 +255,9 @@ public final class Identities {
     public record Session(String id, String tokenHash, String username, Instant createdAt, Instant absoluteExpiry) {}
 
     /** An administrator-issued reset token, stored as its hash, single use. */
-    public record ResetToken(String tokenHash, String username, Instant expiresAt, String issuedBy) {}
+    public record ResetToken(
+            String tokenHash,
+            String username,
+            Instant expiresAt,
+            @Nullable String issuedBy) {}
 }
