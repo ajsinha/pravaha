@@ -1,0 +1,7 @@
+EXITED
+2026-10-04T09:45:37.253Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : security: authentication=token, policy=authenticated, administer=ownership, audit=none, flight transport=TLS
+2026-10-04T09:45:37.709Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : Flight SQL listening on 0.0.0.0:19090 (pravaha.flight.host, pravaha.flight.port)
+2026-10-04T09:45:37.752Z ERROR 1 --- [pravaha] [           main] o.s.boot.SpringApplication               : Application run failed
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-6206  /opt/pravaha/pki/server-key-pkcs1.pem is '-----BEGIN RSA PRIVATE KEY-----', not PKCS#8. This server reads unencrypted PKCS#8 keys only ('-----BEGIN PRIVATE KEY-----'); convert with `openssl pkcs8 -topk8 -nocrypt -in server-key-pkcs
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-6206  /opt/pravaha/pki/server-key-pkcs1.pem is '-----BEGIN RSA PRIVATE KEY-----', not PKCS#8. This server reads unencrypted PKCS#8 keys only ('-----BEGIN PRIVATE KEY-----'); convert with `openssl pkcs8 -topk8 -nocrypt -in server-key-pkcs1.pem -out key8.pem` if this is a PKCS#1 ('RSA PRIVATE KEY') or an encrypted key.
+exited exit=1

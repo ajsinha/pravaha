@@ -1,0 +1,28 @@
+### QG-D01 start on a 16 MiB tmpfs
+started after 4s
+2026-10-04T09:46:03.281Z  WARN 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : authentication is on and Flight is serving plaintext, so credentials travel in the clear; set pravaha.flight.tls.certificate and .key unless something in front of this node is terminating TLS
+2026-10-04T09:46:03.287Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : security: authentication=token, policy=authenticated, administer=ownership, audit=none, flight transport=PLAINTEXT
+2026-10-04T09:46:03.487Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : Flight SQL listening on 0.0.0.0:19090 (pravaha.flight.host, pravaha.flight.port)
+2026-10-04T09:46:03.495Z  INFO 1 --- [pravaha] [           main] c.a.m.p.server.PravahaServerApplication  : Started PravahaServerApplication in 2.656 seconds (process running for 3.097)
+registered v1
+{'v1': [{'n': 100, 's': 50500}], 'v2': "QueryError: PRV-1041  PRV-4023  'v2' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not r"}
+v1 RUNNING RUNNING None
+v2 404 {"code":"PRV-8002","message":"PRV-8002  no registered query named 'v2' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T09:46:09.751421453Z","path":"/api/v1/queries/v2"} 
+Filesystem     1K-blocks  Used Available Use% Mounted on
+tmpfs              16384    28     16356   1% /opt/pravaha/data
+.:
+total 16
+drwxrwxrwt 5 root    root     140 Oct  4 09:46 .
+drwxr-xr-x 1 root    root    4096 Oct  4 09:46 ..
+-rw------- 1 pravaha pravaha  218 Oct  4 09:46 .pravaha-owner
+drwx------ 3 pravaha pravaha   80 Oct  4 09:46 checkpoints
+drwx------ 2 pravaha pravaha   60 Oct  4 09:46 dlq
+-rw------- 1 pravaha pravaha   86 Oct  4 09:46 registry.journal
+drwx------ 2 pravaha pravaha   40 Oct  4 09:46 spill
+
+checkpoints:
+total 4
+drwx------ 3 pravaha pravaha  80 Oct  4 09:46 .
+drwxrwxrwt 5 root    root    140 Oct  4 09:46 ..
+-rw------- 1 pravaha pravaha 218 Oct  4 09:46 .pravaha-owner
+drwx------ 2 pravaha pravaha  80 Oct  4 09:46 v1

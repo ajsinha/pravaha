@@ -1,0 +1,28 @@
+### QG-S01 baseline (50 records, sum 12750)
+05:56:59 v_aero: rows=[{'n': 50, 's': 12750}] state=RUNNING feed=RUNNING failure=None None
+### QG-S02 aerospike stopped mid-stream
+05:57:02 v_aero: rows=[{'n': 50, 's': 12750}] state=RUNNING feed=RUNNING failure=None None
+05:57:12 v_aero: rows=[{'n': 50, 's': 12750}] state=RUNNING feed=STOPPED failure=PRV-5081 PRV-5081  scan of test.orders partitions [0, 4096) failed, and nothing from it was emitted: Error 9,5,0,3000,10000,5: Client timeout
+05:57:33 v_aero: rows=[{'n': 50, 's': 12750}] state=RUNNING feed=STOPPED failure=PRV-5081 PRV-5081  scan of test.orders partitions [0, 4096) failed, and nothing from it was emitted: Error 9,5,0,3000,10000,5: Client timeout
+2026-10-04T09:57:10.395Z ERROR 1 --- [pravaha] [aha-feed-v_aero] c.a.m.p.bindings.ingest.PumpingFeed      : the source feed for query 'v_aero' stopped reading s_aero#0 with PRV-5081 and will not retry; the view keeps answering at the frontier it reached: PRV-5081  scan of test.orders partitions [0, 4096) failed, and nothing from it was emitted: Error 9,5,0,3000,10000,5: Client timeout
+### QG-S03 aerospike started again; 10 more records
+put ids 51..60
+05:57:49 v_aero: rows=[{'n': 50, 's': 12750}] state=RUNNING feed=STOPPED failure=PRV-5081 PRV-5081  scan of test.orders partitions [0, 4096) failed, and nothing from it was emitted: Error 9,5,0,3000,10000,5: Client timeout
+### QG-S03b drop and register again (TROUBLESHOOTING: fix the cause, then drop and register)
+dropped v_aero
+registered v_aero (0.0s)
+05:57:54 v_aero: rows=[{'n': 60, 's': 18300}] state=RUNNING feed=RUNNING failure=None None
+### QG-S04 truncate the set while running (deletes: detect)
+truncated test.orders
+05:58:00 v_aero: rows=[{'n': 0, 's': None}] state=RUNNING feed=RUNNING failure=None None
+records in test.orders: 0
+### QG-S05 credentials against the community server
+register v_aero_auth -> QueryError PRV-1041  PRV-5091  the 'aerospike' plugin could not be opened for stream 's_aero_auth': com.ash.messaging.pravaha.api.PravahaException: PRV-5080  plugin 's_aero_auth' cannot reach Aerospike at qg-aerospike:3000: Error -8: Failed to connect to [1] host(s): 
+qg-aerospike 3000 Error 51: Login failed
+. Check the host list, that the cluster is up, and that this process can reach the service port -- the client also needs the fabric and heartbeat addresses the cluster advertises, which is the usual ca (0.1s)
+05:58:05 v_aero_auth: rows=QueryError: PRV-1041  PRV-4023  'v_aero_auth' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Use t state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_aero_auth' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T09:58:05.314560582Z","path":"/api/v1/queries/v_aero_auth"} failure=None None
+### QG-S06 unreachable at registration
+register v_aero_nowhere -> QueryError PRV-1041  PRV-5091  the 'aerospike' plugin could not be opened for stream 's_aero_nowhere': com.ash.messaging.pravaha.api.PravahaException: PRV-5080  plugin 's_aero_nowhere' cannot reach Aerospike at qg-nowhere:3000: Error -8: Failed to connect to [1] host(s): 
+qg-nowhere 3000 Error -8: Invalid host: qg-nowhere 3000
+. Check the host list, that the cluster is up, and that this process can reach the service port -- the client also needs the fabric and heartbeat addresses the cluster advertises, wh (0.1s)
+05:58:08 v_aero_nowhere: rows=QueryError: PRV-1041  PRV-4023  'v_aero_nowhere' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not read them that they exist. Us state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_aero_nowhere' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T09:58:08.555760273Z","path":"/api/v1/queries/v_aero_nowhere"} failure=None None

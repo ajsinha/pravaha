@@ -1,0 +1,57 @@
+### probe1 (repository NpgsqlProbe, Npgsql 4.0.17), SSL Mode=Disable
+
+OK open: server=9.4.26 sslmode=disable
+OK getschema-tables: public.sales:BASE TABLE,public.t_dec:BASE TABLE
+OK getschema-columns: region:text:NO:1,revenue:int8:NO:2
+OK pbi-charsets: 1 rows: character_set_name=UTF8(String)
+OK pbi-tables: 2 rows: table_schema=public(String) table_name=sales(String) table_type=BASE TABLE(String); table_schema=public(String) table_name=t_dec(String) table_type=BASE TABLE(String)
+OK pbi-columns: 2 rows: column_name=region(String) ordinal_position=1(Int32) is_nullable=NO(String) data_type=text(String); column_name=revenue(String) ordinal_position=2(Int32) is_nullable=NO(String) data_type=bigint(String)
+OK pbi-foreign-keys-out: 0 rows: 
+OK pbi-foreign-keys-in: 0 rows: 
+OK pbi-indexes: 0 rows: 
+OK import-select-star: 3 rows: region=EMEA(String) revenue=900000(Int64); region=APAC(String) revenue=300000(Int64); region=AMER(String) revenue=800000(Int64)
+OK import-power-bi-shape: 3 rows: region=EMEA(String) revenue=900000(Int64); region=APAC(String) revenue=300000(Int64); region=AMER(String) revenue=800000(Int64)
+OK navigator-preview: 3 rows: region=EMEA(String) revenue=900000(Int64); region=APAC(String) revenue=300000(Int64); region=AMER(String) revenue=800000(Int64)
+OK directquery-filter: 1 rows: region=EMEA(String) revenue=900000(Int64)
+OK directquery-group-by: 3 rows: region=EMEA(String) a0=900000(Int64); region=APAC(String) a0=300000(Int64); region=AMER(String) a0=800000(Int64)
+OK directquery-count: 1 rows: a0=3(Int64)
+REFUSED directquery-top-n: 42000 PRV-2020  ORDER BY is not executed by this engine, and 'ORDER BY `_`.`revenue` DESC' is refused rather than ignored. A continuous view has no row order to maintain: rows arrive, update and retract, so an order fixed when the query was registered would be wrong before anybody read it. Sort the rows in whatever reads the view. Refused on the SQL rather than on the plan because the optimiser deletes a sort it can prove harmless -- one inside a derived table with no FETCH -- and the query then ran as though the clause had never been written. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+OK parameter: 2 rows: region=EMEA(String); region=AMER(String)
+OK transaction: 1 rows: region=EMEA(String)
+REFUSED insert-refused: 42000 PRV-2020  INSERT is not built: this engine answers questions and maintains views, and it has no DML surface -- there is nothing here whose rows a statement may edit in place. A continuous query names where its output goes beside its own name and key, not instead of them: CREATE CONTINUOUS QUERY <name> KEYED BY (<column>, ...) WRITING TO <sink> AS <select>. The same thing is said by WITH (sink = '<sink>'), by `pravaha register --sink <sink>`, and by the fourth field of the pravaha.register Flight action. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+OK pooled-reopen: 1 rows: region=APAC(String)
+### probe1, SSL Mode=Require;Trust Server Certificate=true
+OK open: server=9.4.26 sslmode=require
+OK pooled-reopen: 1 rows: region=APAC(String)
+### probe2 on Npgsql 4.0.17, plaintext
+Npgsql 4.0.17.0
+OK open: server=9.4.26
+OK int4-param-vs-bigint: 2 rows: region=AMER(String/text); region=EMEA(String/text)
+OK int8-param-vs-bigint: 2 rows: region=AMER(String/text); region=EMEA(String/text)
+OK int2-param-vs-bigint: 3 rows: region=AMER(String/text); region=APAC(String/text); region=EMEA(String/text)
+OK string-param: 1 rows: revenue=300000(Int64/bigint)
+OK decimal-read: 3 rows: id=1(Int64/bigint) price=19.99(Decimal/numeric(22, 2)); id=2(Int64/bigint) price=0.01(Decimal/numeric(22, 2)); id=3(Int64/bigint) price=12345678.90(Decimal/numeric(22, 2))
+FAIL decimal-param: 42000 PRV-2021  expression '?0' is a RexDynamicParam, which Pravaha cannot evaluate yet. Supported: column references, numeric literals, and + - * / % over integers and floating point.
+FAIL decimal-param-exact-eq: 42000 PRV-2021  expression '?0' is a RexDynamicParam, which Pravaha cannot evaluate yet. Supported: column references, numeric literals, and + - * / % over integers and floating point.
+OK decimal-sum: 1 rows: s=12345698.90(Decimal/numeric(38, 2))
+OK tx-commit: 1 rows: EXPR$0=3(Int64/bigint)
+OK tx-rollback: 1 rows: EXPR$0=3(Int64/bigint)
+OK tx-error-then-statement: error=42000 next-in-tx=25P02 after-rollback=1 rows: EXPR$0=3(Int64/bigint)
+OK prepared-reuse: 3 rows: region=AMER(String/text); region=APAC(String/text); region=EMEA(String/text) | 1 rows: region=EMEA(String/text)
+OK ssl: 1 rows: one=1(Int32/integer) (connection string SSL Mode as given)
+### probe2 on Npgsql 8.0.5, VerifyFull with the CA
+Npgsql 8.0.5.0
+FAIL open: 0A000 PRV-6201  this Query message carries 4 statements; this gateway runs one at a time. Multi-statement queries are not implemented in this slice: each statement produces its own result set, and a client that got one merged answer for several questions would have no way to tell which rows answered which.
+FAIL int4-param-vs-bigint: InvalidOperationException Connection is not open
+FAIL int8-param-vs-bigint: InvalidOperationException Connection is not open
+FAIL int2-param-vs-bigint: InvalidOperationException Connection is not open
+FAIL string-param: InvalidOperationException Connection is not open
+FAIL decimal-read: InvalidOperationException Connection is not open
+FAIL decimal-param: InvalidOperationException Connection is not open
+FAIL decimal-param-exact-eq: InvalidOperationException Connection is not open
+FAIL decimal-sum: InvalidOperationException Connection is not open
+FAIL tx-commit: InvalidOperationException Connection is not open
+FAIL tx-rollback: InvalidOperationException Connection is not open
+FAIL tx-error-then-statement: InvalidOperationException Connection is not open
+FAIL prepared-reuse: InvalidOperationException Connection is not open
+FAIL ssl: InvalidOperationException Connection is not open

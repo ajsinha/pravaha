@@ -1,0 +1,8 @@
+started after 5s
+2026-10-04T09:45:11.889Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : security: authentication=token, policy=authenticated, administer=ownership, audit=none, flight transport=TLS
+2026-10-04T09:45:12.310Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : Flight SQL listening on 0.0.0.0:19090 (pravaha.flight.host, pravaha.flight.port)
+2026-10-04T09:45:12.313Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : PostgreSQL wire protocol listening on 0.0.0.0:5432 -- NO TLS, the credential crosses the wire in the clear; set pravaha.pgwire.tls.certificate and .key, or use loopback or a terminator
+2026-10-04T09:45:12.320Z  INFO 1 --- [pravaha] [           main] c.a.m.p.server.PravahaServerApplication  : Started PravahaServerApplication in 2.79 seconds (process running for 3.24)
+### QG-T13 psql sslmode=require against a gateway with no pair
+psql: error: connection to server at "localhost" (127.0.0.1), port 36432 failed: server does not support SSL, but SSL was required
+exit=2

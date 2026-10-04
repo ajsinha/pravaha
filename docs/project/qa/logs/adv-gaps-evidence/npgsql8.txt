@@ -1,0 +1,16 @@
+### probe2 on Npgsql 8.0.5, VerifyFull with the CA, Server Compatibility Mode=NoTypeLoading
+Npgsql 8.0.5.0
+OK open: server=9.4.26
+OK int4-param-vs-bigint: 2 rows: region=AMER(String/text); region=EMEA(String/text)
+OK int8-param-vs-bigint: 2 rows: region=AMER(String/text); region=EMEA(String/text)
+OK int2-param-vs-bigint: 3 rows: region=AMER(String/text); region=APAC(String/text); region=EMEA(String/text)
+OK string-param: 1 rows: revenue=300000(Int64/bigint)
+OK decimal-read: 3 rows: id=1(Int64/bigint) price=19.99(Decimal/numeric(22, 2)); id=2(Int64/bigint) price=0.01(Decimal/numeric(22, 2)); id=3(Int64/bigint) price=12345678.90(Decimal/numeric(22, 2))
+FAIL decimal-param: 42000 PRV-2021  expression '?0' is a RexDynamicParam, which Pravaha cannot evaluate yet. Supported: column references, numeric literals, and + - * / % over integers and floating point.
+FAIL decimal-param-exact-eq: 42000 PRV-2021  expression '?0' is a RexDynamicParam, which Pravaha cannot evaluate yet. Supported: column references, numeric literals, and + - * / % over integers and floating point.
+OK decimal-sum: 1 rows: s=12345698.90(Decimal/numeric(38, 2))
+OK tx-commit: 1 rows: EXPR$0=3(Int64/bigint)
+OK tx-rollback: 1 rows: EXPR$0=3(Int64/bigint)
+OK tx-error-then-statement: error=42000 next-in-tx=25P02 after-rollback=1 rows: EXPR$0=3(Int64/bigint)
+OK prepared-reuse: 3 rows: region=AMER(String/text); region=APAC(String/text); region=EMEA(String/text) | 1 rows: region=EMEA(String/text)
+OK ssl: 1 rows: one=1(Int32/integer) (connection string SSL Mode as given)

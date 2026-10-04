@@ -1,0 +1,13 @@
+### QG-T08 pgjdbc verify-full
+pgjdbc verify-full ca.pem: OK EMEA=900000 AMER=800000  (0.2s)
+pgjdbc verify-full other-ca.pem: org.postgresql.util.PSQLException SSL error: (certificate_unknown) PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target (0.0s)
+### QG-T09/T10 Java SDK grpc+tls
+java sdk ca.pem: OK 3 rows; queries=2 (0.5s)
+java sdk other-ca.pem: PravahaClientException PRV-1040 (CLIENT_CONNECT_FAILED) retryable=true PRV-1040  cannot reach localhost:39090: io exception Channel Pipeline: [SslHandler#0, ProtocolNegotiators$ClientTlsHandler#0, WriteBufferingAndExceptionHandler#0, DefaultChannelPipeline$TailContext#0]. Check that a Pravaha node is running there and that the scheme matches (grpc:// for plaintext, grpc+tls:// for TLS) (0.0s)
+### QG-T12 Java SDK grpc:// against TLS Flight
+java sdk grpc:// no token: PravahaClientException PRV-1040 (CLIENT_CONNECT_FAILED) retryable=true PRV-1040  cannot reach localhost:39090: Network closed for unknown reason. Check that a Pravaha node is running there and that the scheme matches (grpc:// for plaintext, grpc+tls:// for TLS) (0.0s)
+### QG-T16 Java SDK client certificate (CA's, other CA's)
+java sdk client cert (CA): OK 3 rows; queries=2 (0.1s)
+java sdk client cert (other CA): OK 3 rows; queries=2 (0.1s)
+### QG-T17 Java SDK wrong token over TLS
+java sdk wrong token: PravahaClientException PRV-7001 (SERVER_REPORTED) retryable=false PRV-7001  the credential presented was not accepted (0.0s)

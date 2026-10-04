@@ -1,0 +1,23 @@
+### QG-K04/K05/K06 produce
+t_file: v1 ids 1..3; added-field ids 4..6; swapped-order ids 7..8 (amount first)
+t_pb: ids 1,2,4 amount int64; id 3 amount sent as a string on field 2
+t_framed: one Confluent-framed record
+registered v_file
+registered v_pb
+registered v_framed
+### QG-K04
+v_file: rows=[(1, 100), (2, 200), (3, 300), (700, 7), (800, 8)]
+   state=RUNNING feed=RUNNING failure=None None
+   dead letters (3):
+     t_file/0@5: the record leaves 8 byte(s) of the value unread, so the value was not written with this schema
+     t_file/0@4: the record leaves 7 byte(s) of the value unread, so the value was not written with this schema
+     t_file/0@3: the record leaves 6 byte(s) of the value unread, so the value was not written with this schema
+### QG-K05
+v_pb: rows=[(1, 100), (2, 200), (3, 0), (4, 400)]
+   state=RUNNING feed=RUNNING failure=None None
+   dead letters (0):
+### QG-K06
+v_framed: rows=[]
+   state=RUNNING feed=RUNNING failure=None None
+   dead letters (1):
+     t_framed/0@0: the record leaves 6 byte(s) of the value unread, so the value was not written with this schema. The value begins with 0x00 and the four-byte schema id 1, which is the schema registry's wire format: this topic's producer registers 

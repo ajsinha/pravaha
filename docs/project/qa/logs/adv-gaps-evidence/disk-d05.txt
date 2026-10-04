@@ -1,0 +1,37 @@
+### fresh node on the 16 MiB tmpfs; v1 and q3..q41 so the journal is near a page boundary
+started after 4s
+registered v1
+4032
+### fill, then register q43
+register q43 -> QueryError PRV-1041  PRV-8006  cannot append to the registry journal at /opt/pravaha/data/registry.journal. The registration would be lost at the next restart, so it is refused now rather than acknowledged and forgotten
+4096
+### free, register q44, more rows
+registered q44
+4195
+{'v1': [{'n': 150, 's': 113250}], 'v2': "QueryError: PRV-1041  PRV-4023  'v2' is not a registered view on this server. The list of views is not part of this message on purpose: it would tell a caller who may not r"}
+v1 RUNNING RUNNING None
+v2 404 {"code":"PRV-8002","message":"PRV-8002  no registered query named 'v2' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T09:50:31.181021167Z","path":"/api/v1/queries/v2"} 
+### copy the data out (tar through exec: docker cp does not see a tmpfs), stop
+0007700  \0  \0  \0   _   P   R   V   H 001  \0  \0  \0 006  \0  \0  \0
+0007720 001   R  \0  \0  \0 003   q   4   3  \0  \0  \0   0   S   E   L
+0007740   E   C   T       i   d   ,       a   m   o   u   n   t       F
+0007760   R   O   M       r   o   w   s   _   i   n       W   H   E   R
+0010000  \0  \0  \0   _   P   R   V   H 001  \0  \0  \0 006  \0  \0  \0
+0010020 001   R  \0  \0  \0 003   q   4   4  \0  \0  \0   0   S   E   L
+0010040   E   C   T       i   d   ,       a   m   o   u   n   t       F
+0010060   R   O   M       r   o   w   s   _   i   n       W   H   E   R
+0010100   E       a   m   o   u   n   t       >       4   4  \0  \0  \0
+0010120 001   0  \0  \0  \0 002   q   a  \0  \0  \0  \a   f   o   r   e
+0010140   v   e   r
+0010143
+### QG-D05 restart on a bind mount with room
+EXITED
+2026-10-04T09:50:35.244Z  WARN 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : authentication is on and Flight is serving plaintext, so credentials travel in the clear; set pravaha.flight.tls.certificate and .key unless something in front of this node is terminating TLS
+2026-10-04T09:50:35.250Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : security: authentication=token, policy=authenticated, administer=ownership, audit=none, flight transport=PLAINTEXT
+2026-10-04T09:50:35.336Z ERROR 1 --- [pravaha] [           main] o.s.boot.SpringApplication               : Application run failed
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-8005  record 42 of the registry journal at /opt/pravaha/data/registry.journal (byte offset 4032) cannot be decoded. Earlier records are fine; this one is not, and replaying past it would silently drop whatever it said
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-6102  this Pravaha request is malformed
+2026-10-04T09:50:35.292Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : claimed the registry journal directory /opt/pravaha/data for node 'qg-disk'
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-8005  record 42 of the registry journal at /opt/pravaha/data/registry.journal (byte offset 4032) cannot be decoded. Earlier records are fine; this one is not, and replaying past it would silently drop whatever it said
+Caused by: com.ash.messaging.pravaha.api.PravahaException: PRV-6102  this Pravaha request is malformed
+Exited (1) Less than a second ago

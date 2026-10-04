@@ -1,0 +1,23 @@
+### QG-S07 baseline (40 rows, sum 8200), stable across passes (2 s interval)
+registered v_cass (1.4s)
+06:01:46 v_cass: rows=[{'n': 40, 's': 8200}] state=RUNNING feed=RUNNING failure=None None
+06:01:52 v_cass: rows=[{'n': 40, 's': 8200}] state=RUNNING feed=RUNNING failure=None None
+### QG-S08 cassandra stopped mid-stream
+06:02:02 v_cass: rows=[{'n': 40, 's': 8200}] state=RUNNING feed=STOPPED failure=PRV-5086 PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: No node was available to execute the query
+06:02:17 v_cass: rows=[{'n': 40, 's': 8200}] state=RUNNING feed=STOPPED failure=PRV-5086 PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: No node was available to execute the query
+2026-10-04T10:01:53.296Z ERROR 1 --- [pravaha] [aha-feed-v_cass] c.a.m.p.bindings.ingest.PumpingFeed      : the source feed for query 'v_cass' stopped reading s_cass#0 with PRV-5086 and will not retry; the view keeps answering at the frontier it reached: PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: No node was available to execute the query
+### cassandra started again; 5 more rows
+06:02:35 v_cass: rows=[{'n': 40, 's': 8200}] state=RUNNING feed=STOPPED failure=PRV-5086 PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: No node was available to execute the query
+### drop and register again
+dropped v_cass
+registered v_cass (0.3s)
+06:02:43 v_cass: rows=[{'n': 45, 's': 10350}] state=RUNNING feed=RUNNING failure=None None
+### QG-S09 table dropped while running
+06:02:49 v_cass: rows=[{'n': 45, 's': 10350}] state=RUNNING feed=STOPPED failure=PRV-5086 PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: table orders does not exist
+06:02:59 v_cass: rows=[{'n': 45, 's': 10350}] state=RUNNING feed=STOPPED failure=PRV-5086 PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: table orders does not exist
+2026-10-04T10:02:45.828Z ERROR 1 --- [pravaha] [aha-feed-v_cass] c.a.m.p.bindings.ingest.PumpingFeed      : the source feed for query 'v_cass' stopped reading s_cass#0 with PRV-5086 and will not retry; the view keeps answering at the frontier it reached: PRV-5086  scan of token range [-9223372036854775808,9223372036854775807] failed: table orders does not exist
+### QG-S10 wrong password
+register v_cass_badpw -> QueryError PRV-1041  PRV-5091  the 'cassandra' plugin could not be opened for stream 's_cass_badpw': com.ash.messaging.pravaha.api.PravahaException: PRV-5085  source 's_cass_badpw' cannot reach Cassandra at [qg-cassandra/<unresolved>:9042]: Could not reach any contact point, make sure you've provided valid addresses (showing first 1 nodes, use getAllErrors() for more): Node(endPoint=qg-cassandra/<unresolved>:9042, hostId=null, hashCode=2026ca16): [com.datastax.oss.driver.api.core.auth.AuthenticationExcepti (2.2s)
+log lines carrying the password: 0
+### QG-S11 keyspace absent
+register v_cass_nokeyspace -> QueryError PRV-1041  PRV-5091  the 'cassandra' plugin could not be opened for stream 's_cass_nokeyspace': com.datastax.oss.driver.api.core.InvalidKeyspaceException: Invalid keyspace nope (2.2s)
