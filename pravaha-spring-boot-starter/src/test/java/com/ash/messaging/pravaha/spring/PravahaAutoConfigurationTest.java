@@ -75,7 +75,7 @@ class PravahaAutoConfigurationTest {
                             .containsExactly(Map.of("amount", 700L));
                     assertThat(template.query("SELECT * FROM big_txn").size()).isEqualTo(2);
                 });
-        assertThat(seen.get().state())
+        assertThat(java.util.Objects.requireNonNull(seen.get()).state())
                 .as("closing the context closes the engine")
                 .isEqualTo(EngineState.STOPPED);
     }

@@ -33,6 +33,7 @@ import java.util.function.Function;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.ReflectionUtils;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -78,12 +79,13 @@ public final class ListenerContainer implements AutoCloseable {
     private final AtomicLong undelivered = new AtomicLong();
 
     private volatile PravahaListenerErrorHandler errorHandler = PravahaListenerErrorHandler.logAndContinue();
-    private volatile PravahaListenerErrorHandler.Failure lastFailure;
+    private volatile PravahaListenerErrorHandler.@Nullable Failure lastFailure;
 
-    private volatile Subscription subscription;
+    private volatile @Nullable Subscription subscription;
     private ThreadPoolExecutor[] workers = new ThreadPoolExecutor[0];
     private int[] keyOrdinals = new int[0];
-    private Function<RowChange, Object> rowReader;
+    /** For the row-and-retraction shape only: how a change becomes the method's row argument. */
+    private @Nullable Function<RowChange, Object> rowReader;
 
     /** The three method shapes {@link PravahaListener} documents. */
     private enum Shape {
@@ -244,7 +246,11 @@ public final class ListenerContainer implements AutoCloseable {
             } else {
                 // Read inside the call, so a row the record cannot take is a failure the handler
                 // hears about rather than an exception lost on a pool thread.
-                call(List.of(change), () -> new Object[] {rowReader.apply(change), change.isRetraction()});
+                call(List.of(change), () -> new Object[] {
+                    java.util.Objects.requireNonNull(rowReader, "set at subscribe for this shape")
+                            .apply(change),
+                    change.isRetraction()
+                });
             }
         }
     }

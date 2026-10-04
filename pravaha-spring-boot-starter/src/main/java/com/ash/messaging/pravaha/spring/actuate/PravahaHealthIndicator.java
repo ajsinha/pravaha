@@ -94,8 +94,10 @@ public class PravahaHealthIndicator implements HealthIndicator {
             engine.find(name)
                     .map(RegisteredQuery::feedStatus)
                     .flatMap(FeedStatus::firstStopped)
-                    .ifPresent(source ->
-                            stoppedFeeds.add(name + ": " + source.stop().code() + " reading " + source.where()));
+                    .ifPresent(source -> stoppedFeeds.add(name + ": "
+                            + java.util.Objects.requireNonNull(source.stop(), "a stopped source says why")
+                                    .code()
+                            + " reading " + source.where()));
         }
         health.withDetail("stoppedFeeds", stoppedFeeds);
         if (!stoppedFeeds.isEmpty()) {

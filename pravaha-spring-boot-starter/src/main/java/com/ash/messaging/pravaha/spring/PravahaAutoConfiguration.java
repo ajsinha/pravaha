@@ -180,7 +180,7 @@ public class PravahaAutoConfiguration {
         });
     }
 
-    private static void setIfPresent(ConfigurationBuilder builder, String key, String value) {
+    private static void setIfPresent(ConfigurationBuilder builder, String key, @Nullable String value) {
         if (value != null && !value.isBlank()) {
             builder.set(key, value);
         }
@@ -190,7 +190,7 @@ public class PravahaAutoConfiguration {
         return value == null ? null : value.toString();
     }
 
-    private static String nanos(Duration duration) {
+    private static @Nullable String nanos(@Nullable Duration duration) {
         return duration == null ? null : duration.toNanos() + "ns";
     }
 }

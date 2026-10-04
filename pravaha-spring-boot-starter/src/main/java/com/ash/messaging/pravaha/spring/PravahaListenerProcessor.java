@@ -57,6 +57,8 @@ public class PravahaListenerProcessor implements BeanPostProcessor, SmartLifecyc
     private final ObjectProvider<PravahaProperties> properties;
     private final List<ListenerContainer> containers = new ArrayList<>();
     private volatile boolean running;
+
+    @SuppressWarnings("NullAway.Init") // BeanFactoryAware: Spring sets it before any bean is post-processed
     private BeanFactory beanFactory;
 
     public PravahaListenerProcessor(

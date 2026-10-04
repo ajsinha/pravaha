@@ -239,6 +239,7 @@ class ListenerErrorHandlerTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // a handler that returns no decision, on purpose
     void aHandlerThatThrowsOrDecidesNothingStopsTheListenerLoudly(CapturedOutput output) {
         runner.withBean(PravahaListenerErrorHandler.class, () -> failure -> {
                     throw new IllegalArgumentException("handler broke");

@@ -143,35 +143,35 @@ public class PravahaProperties {
     public static class Stream {
 
         /** {@code name:TYPE,...}, the spelling the CLI and the server use. */
-        private String schema;
+        private @Nullable String schema;
 
         /** The column carrying event time; without one no window over this stream ever closes. */
-        private String eventTime;
+        private @Nullable String eventTime;
 
         /** How late this stream's rows may be. */
-        private Duration outOfOrderness;
+        private @Nullable Duration outOfOrderness;
 
-        public String getSchema() {
+        public @Nullable String getSchema() {
             return schema;
         }
 
-        public void setSchema(String schema) {
+        public void setSchema(@Nullable String schema) {
             this.schema = schema;
         }
 
-        public String getEventTime() {
+        public @Nullable String getEventTime() {
             return eventTime;
         }
 
-        public void setEventTime(String eventTime) {
+        public void setEventTime(@Nullable String eventTime) {
             this.eventTime = eventTime;
         }
 
-        public Duration getOutOfOrderness() {
+        public @Nullable Duration getOutOfOrderness() {
             return outOfOrderness;
         }
 
-        public void setOutOfOrderness(Duration outOfOrderness) {
+        public void setOutOfOrderness(@Nullable Duration outOfOrderness) {
             this.outOfOrderness = outOfOrderness;
         }
     }
@@ -179,14 +179,14 @@ public class PravahaProperties {
     /** {@code pravaha.sources|lookups|sinks.<name>.*}: a plugin, by the name it reports, and its options. */
     public static class Binding {
 
-        private String plugin;
+        private @Nullable String plugin;
         private Map<String, String> options = new LinkedHashMap<>();
 
-        public String getPlugin() {
+        public @Nullable String getPlugin() {
             return plugin;
         }
 
-        public void setPlugin(String plugin) {
+        public void setPlugin(@Nullable String plugin) {
             this.plugin = plugin;
         }
 
@@ -202,22 +202,22 @@ public class PravahaProperties {
     /** {@code pravaha.queries.<name>.*}: a continuous query registered when the engine starts. */
     public static class Query {
 
-        private String sql;
+        private @Nullable String sql;
 
         /** The output columns the view is keyed by. */
         private List<String> keys = new ArrayList<>();
 
         /** A bound sink the changelog is also written to. */
-        private String sink;
+        private @Nullable String sink;
 
         /** How long the view remembers; unset for the engine's default. */
-        private Duration retention;
+        private @Nullable Duration retention;
 
-        public String getSql() {
+        public @Nullable String getSql() {
             return sql;
         }
 
-        public void setSql(String sql) {
+        public void setSql(@Nullable String sql) {
             this.sql = sql;
         }
 
@@ -229,19 +229,19 @@ public class PravahaProperties {
             this.keys = keys == null ? new ArrayList<>() : keys;
         }
 
-        public String getSink() {
+        public @Nullable String getSink() {
             return sink;
         }
 
-        public void setSink(String sink) {
+        public void setSink(@Nullable String sink) {
             this.sink = sink;
         }
 
-        public Duration getRetention() {
+        public @Nullable Duration getRetention() {
             return retention;
         }
 
-        public void setRetention(Duration retention) {
+        public void setRetention(@Nullable Duration retention) {
             this.retention = retention;
         }
     }
@@ -250,13 +250,13 @@ public class PravahaProperties {
     public static class Registry {
 
         /** A file: registrations written here come back after a restart. Unset keeps them in memory. */
-        private String journal;
+        private @Nullable String journal;
 
-        public String getJournal() {
+        public @Nullable String getJournal() {
             return journal;
         }
 
-        public void setJournal(String journal) {
+        public void setJournal(@Nullable String journal) {
             this.journal = journal;
         }
     }
@@ -265,17 +265,17 @@ public class PravahaProperties {
     public static class Checkpoint {
 
         /** A directory: each query's state is checkpointed under it. Unset keeps no checkpoints. */
-        private String directory;
+        private @Nullable String directory;
 
         private Duration interval = Duration.ofMinutes(1);
         private int keep = 3;
         private Duration timeout = Duration.ofSeconds(30);
 
-        public String getDirectory() {
+        public @Nullable String getDirectory() {
             return directory;
         }
 
-        public void setDirectory(String directory) {
+        public void setDirectory(@Nullable String directory) {
             this.directory = directory;
         }
 
@@ -308,13 +308,13 @@ public class PravahaProperties {
     public static class Dlq {
 
         /** Where records a source cannot decode are written, instead of stopping the source. */
-        private String directory;
+        private @Nullable String directory;
 
-        public String getDirectory() {
+        public @Nullable String getDirectory() {
             return directory;
         }
 
-        public void setDirectory(String directory) {
+        public void setDirectory(@Nullable String directory) {
             this.directory = directory;
         }
     }

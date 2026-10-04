@@ -126,7 +126,7 @@ class PravahaActuatorTest {
                     assertThat(engine.state()).isEqualTo("RUNNING");
                     assertThat(engine.queries()).containsOnlyKeys("big_txn");
 
-                    PravahaEndpoint.QueryDescriptor query = endpoint.query("big_txn");
+                    PravahaEndpoint.QueryDescriptor query = java.util.Objects.requireNonNull(endpoint.query("big_txn"));
                     assertThat(query.state()).isEqualTo("RUNNING");
                     assertThat(query.lane()).isEqualTo("own");
                     assertThat(query.rowsIn()).isEqualTo(1);
@@ -138,9 +138,12 @@ class PravahaActuatorTest {
                     assertThat(query.watermarkLagSeconds())
                             .as("no event time, so no lag -- not a lag of zero")
                             .isNull();
-                    assertThat(query.sink().name()).isEqualTo("large");
-                    assertThat(query.sink().guarantee()).startsWith("at-least-once");
-                    assertThat(query.sink().failure()).isNull();
+                    assertThat(java.util.Objects.requireNonNull(query.sink()).name())
+                            .isEqualTo("large");
+                    assertThat(java.util.Objects.requireNonNull(query.sink()).guarantee())
+                            .startsWith("at-least-once");
+                    assertThat(java.util.Objects.requireNonNull(query.sink()).failure())
+                            .isNull();
                     assertThat(query.listeners()).singleElement().satisfies(listener -> {
                         assertThat(listener.listener()).endsWith(".on");
                         assertThat(listener.running()).isTrue();
@@ -180,7 +183,9 @@ class PravahaActuatorTest {
                     PravahaEndpoint endpoint = context.getBean(PravahaEndpoint.class);
                     PravahaHealthIndicator indicator = context.getBean(PravahaHealthIndicator.class);
                     awaitFeed(endpoint, "RUNNING");
-                    assertThat(endpoint.query("big_txn").feed().sources())
+                    assertThat(java.util.Objects.requireNonNull(endpoint.query("big_txn"))
+                                    .feed()
+                                    .sources())
                             .singleElement()
                             .satisfies(source -> {
                                 assertThat(source.stream()).isEqualTo("txn");
@@ -192,7 +197,7 @@ class PravahaActuatorTest {
                     java.nio.file.Files.writeString(incoming, "u2,lots\n", java.nio.file.StandardOpenOption.APPEND);
                     awaitFeed(endpoint, "STOPPED");
 
-                    PravahaEndpoint.QueryDescriptor query = endpoint.query("big_txn");
+                    PravahaEndpoint.QueryDescriptor query = java.util.Objects.requireNonNull(endpoint.query("big_txn"));
                     assertThat(query.state()).as("the state keeps its meaning").isEqualTo("RUNNING");
                     assertThat(query.feed().sources()).singleElement().satisfies(source -> {
                         assertThat(source.state()).isEqualTo("STOPPED");
@@ -211,12 +216,17 @@ class PravahaActuatorTest {
     private static void awaitFeed(PravahaEndpoint endpoint, String state) throws InterruptedException {
         long deadline = System.nanoTime() + java.time.Duration.ofSeconds(15).toNanos();
         while (System.nanoTime() < deadline) {
-            if (state.equals(endpoint.query("big_txn").feed().state())) {
+            if (state.equals(java.util.Objects.requireNonNull(endpoint.query("big_txn"))
+                    .feed()
+                    .state())) {
                 return;
             }
             Thread.sleep(10);
         }
-        assertThat(endpoint.query("big_txn").feed().state()).isEqualTo(state);
+        assertThat(java.util.Objects.requireNonNull(endpoint.query("big_txn"))
+                        .feed()
+                        .state())
+                .isEqualTo(state);
     }
 
     @Test
