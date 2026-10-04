@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.backfill;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -86,7 +88,7 @@ public final class ShadowDeployment {
     private final String initialVersion;
     private final List<Segment> segments = new ArrayList<>();
 
-    private String candidate;
+    private @Nullable String candidate;
     private long activeFrontier;
     private long candidateFrontier;
     private State state = State.BACKFILLING;
@@ -216,7 +218,7 @@ public final class ShadowDeployment {
     }
 
     /** The version being prepared, or null. */
-    public String shadowVersion() {
+    public @Nullable String shadowVersion() {
         return candidate;
     }
 

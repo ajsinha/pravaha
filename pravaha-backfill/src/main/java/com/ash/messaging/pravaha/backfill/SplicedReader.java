@@ -20,6 +20,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -86,7 +88,7 @@ public final class SplicedReader implements PartitionReader {
      * fall behind the present to protect the store from the past, which is backwards: the change
      * feed is the load the store is already carrying, and the backfill is the load being added.
      */
-    private final BackfillThrottle throttle;
+    private final @Nullable BackfillThrottle throttle;
 
     /**
      * The newest version buffered for each changed key.
@@ -140,7 +142,7 @@ public final class SplicedReader implements PartitionReader {
             StreamSchema schema,
             SpliceSpec spec,
             int maxBufferedRows,
-            BackfillThrottle throttle) {
+            @Nullable BackfillThrottle throttle) {
         this.throttle = throttle;
         this.snapshot = snapshot;
         this.changes = changes;
@@ -305,7 +307,7 @@ public final class SplicedReader implements PartitionReader {
         };
     }
 
-    private Object valueOf(RowView row, int ordinal) {
+    private @Nullable Object valueOf(RowView row, int ordinal) {
         if (row.isNull(ordinal)) {
             return null;
         }
