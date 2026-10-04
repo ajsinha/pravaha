@@ -241,7 +241,10 @@ public final class CatalogService {
             case 0 -> true;
             case 1 -> name.equals(caller.tenant()) || name.equals(CatalogNames.NODE) || holdsAnything(caller, object);
             case 2 -> access.check(caller, Privilege.USE, name).allowed() || holdsAnything(caller, object);
-            default -> access.check(caller, Privilege.USE, object.parent()).allowed() || holdsAnything(caller, object);
+            default ->
+                access.check(caller, Privilege.USE, java.util.Objects.requireNonNull(object.parent(), name))
+                                .allowed()
+                        || holdsAnything(caller, object);
         };
     }
 

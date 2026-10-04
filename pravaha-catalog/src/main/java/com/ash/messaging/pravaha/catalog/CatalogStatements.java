@@ -206,7 +206,7 @@ public final class CatalogStatements {
                     try {
                         privileges.add(Privilege.parse(word));
                     } catch (RuntimeException e) {
-                        throw malformed(e.getMessage());
+                        throw malformed(String.valueOf(e.getMessage()));
                     }
                 } while (symbol(","));
             }

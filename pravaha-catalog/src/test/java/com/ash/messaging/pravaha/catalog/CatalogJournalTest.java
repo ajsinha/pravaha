@@ -83,6 +83,7 @@ class CatalogJournalTest {
      * the same bare name is another object.
      */
     @Test
+    @SuppressWarnings("NullAway") // a principal without claims or groups, as an embedded caller makes one
     void aViewRecordedUnderItsBareNameIsReKeyedToItsEngineNameWithWhatItHad() {
         Path file = directory.resolve("catalog.journal");
         Catalog before = Catalog.open(file, CLOCK);

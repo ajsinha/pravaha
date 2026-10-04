@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -33,7 +34,7 @@ class PolicyExpressionTest {
 
     private static final Principal ANA = new Principal("ana", "acme", Set.of("eu"), Map.of("region", "EU"));
 
-    private static void refused(String expression, String column, String because) {
+    private static void refused(String expression, @Nullable String column, String because) {
         assertThatThrownBy(() -> PolicyExpression.of(expression, column))
                 .isInstanceOfSatisfying(PravahaException.class, e -> {
                     assertThat(e.errorCode()).isEqualTo(CatalogErrors.POLICY_INVALID);

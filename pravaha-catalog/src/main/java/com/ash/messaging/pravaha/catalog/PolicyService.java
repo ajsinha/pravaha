@@ -120,7 +120,7 @@ public final class PolicyService {
             Collection<String> exceptRoles,
             String description) {
         String fullName = nameOf(caller, parts);
-        String namespace = CatalogNames.parentOf(fullName);
+        String namespace = java.util.Objects.requireNonNull(CatalogNames.parentOf(fullName), fullName);
         if (catalog.object(namespace).isEmpty()) {
             if (!CatalogAccess.implicitlyUsable(caller, namespace)) {
                 throw noSuch("NAMESPACE " + namespace);
@@ -313,7 +313,7 @@ public final class PolicyService {
                 try {
                     detail = policy.parsed().boundTo(principal);
                 } catch (PravahaException unbindable) {
-                    detail = unbindable.getMessage();
+                    detail = String.valueOf(unbindable.getMessage()); // a PravahaException's is never null
                 }
             }
             lines.add(new PolicyLine(policy, via(binding), exempt.isEmpty(), detail));
