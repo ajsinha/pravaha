@@ -46,7 +46,7 @@ jobs:
 
   # The Error Prone ratchet (ERRORPRONE-2, TESTING.md "Static analysis"). Every check Error Prone
   # enables at WARNING is an ERROR under -Pep in every module but pravaha-api and the Java SDKs, so a
-  # new warning fails here. NullAway runs too and stays a warning. Main and test code: test-compile,
+  # new warning fails here. NullAway runs at ERROR in every module (ep.nullaway.level). Main and test code: test-compile,
   # not compile, because half the findings so far were in tests.
   errorprone:
     runs-on: ubuntu-latest
@@ -61,5 +61,5 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Error Prone at ERROR, NullAway at WARNING
+      - name: Error Prone and NullAway at ERROR
         run: ./mvnw -B -Pep -DskipTests clean test-compile

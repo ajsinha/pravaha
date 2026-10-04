@@ -95,8 +95,9 @@ part of the default build or of `-Pall` (`-Pall,ep` for both).
 Error Prone's `BuiltInCheckerSuppliers.ENABLED_WARNINGS` — regenerate it when `errorprone.version`
 moves), so in every module that is clean a new Error Prone warning is a compile error. `pravaha-api`,
 `sdk/pravaha-sdk-java` and `sdk/pravaha-sdk-java-flight` are not clean yet and set the property empty;
-removing that override is how one joins. NullAway is not on the list and stays a warning: the code is
-not `@Nullable`-annotated throughout, so its findings are a list to work down rather than a gate. The
+removing that override is how one joins. NullAway is not on the list; its level is `ep.nullaway.level`,
+ERROR for the whole reactor since every module reached zero (2.1.1), so a NullAway finding fails `-Pep`
+as well. The
 `fast` workflow's `errorprone` job runs `./mvnw -Pep -DskipTests clean test-compile` (main and test
 code) on every push. A finding the code is right about is suppressed at the narrowest member that
 holds it, with a `// reason` on the same line; never module-wide.
@@ -109,6 +110,7 @@ holds it, with a `// reason` on the same line; never module-wide.
 | 2026-10-03, ERRORPRONE-2 | 2,826, counted before `pravaha-api` and the SDKs were cleared (those three are 0 and held there by `failOnWarning`) | 0 | 0 | 2,826 at most |
 | 2026-10-04, the engine core, Flight and pgwire gated | 1,802 (2,698 the same day before the sweep), in 17 modules; 21 modules at 0 and held there | 0 | 0 | 1,802 |
 | 2026-10-04, the hosts and front ends gated | 1,051, in 10 modules (`pravaha-it` 276 and nine plugins); 28 modules at 0 and held there | 0 | 0 | 1,051 |
+| 2026-10-04, the plugins and `pravaha-it` gated | 0; all 38 modules at 0 and held there, and `ep.nullaway.level` is ERROR for the reactor | 0 | 0 | 0 |
 
 The ERRORPRONE-1 run counted 3,570 because it compiled main and test code in separate passes. Of the
 roughly 800 cleared, most were fixed in place; the suppressions are mainly `ArrayRecordComponent` on
@@ -122,7 +124,7 @@ error naming an object's identity (FEEDGONE-1).
 **The client modules are gated (2.1).** `pravaha-api`, `pravaha-sdk-java` and
 `pravaha-sdk-java-flight` were brought to zero — NullAway, Error Prone's WARNING checks and javac's
 `-Xlint`, main and test code — and each module's own `ep` profile holds them there: NullAway at ERROR
-(`ep.nullaway.level`, which the parent sets to `WARN`) and `failOnWarning`, so any new warning in
+(`ep.nullaway.level`, which the parent set to `WARN` until every module was at zero) and `failOnWarning`, so any new warning in
 them fails `-Pep`. Before: 72, 6 and 61 warnings; after: 0. Nullness there is a contract, written
 with [JSpecify](https://jspecify.dev)'s `@Nullable` (`org.jspecify:jspecify`, the version in
 `jspecify.version`): a parameter, return or record component without it is never null, and the
@@ -166,8 +168,27 @@ them (`QueryRegistry.checkpointingTo`, `PravahaFlightServer`/`PravahaPgWireServe
 handled. No bug was found. Suppressions in main code are 21: 15 `NullAway.Init` on JMH `@Param` and
 `@Setup` state, 3 on a shared reader's member and route (set by `join` before use), 2 on fields
 Spring sets through an `Aware` callback, and one `NullAway` where a builder hands a missing SQL to the
-constructor that refuses it. Tests add 6 nulls-on-purpose and 2 `NullAway.Init`. Still at WARN:
-`pravaha-it` and nine plugins -- see the table above.
+constructor that refuses it. Tests add 6 nulls-on-purpose and 2 `NullAway.Init`.
+
+**The plugins and `pravaha-it` are gated, and NullAway is ERROR everywhere (2.1.1).** The last ten
+modules carry the `ep` profile: the `feedfile`, `filesystem`, `delta`, `mysql-cdc`, `postgres-cdc`,
+`aerospike`, `cassandra`, `jdbc` and `kafka` plugins and `pravaha-it` (before: 18, 27, 36, 83, 85, 97,
+99, 136, 194 and 276), and the root POM's `ep.nullaway.level` is now ERROR, so a module added later
+starts gated. Every `createReader` takes the `@Nullable` resume offset the API declares; what a
+plugin builds in `open()` and drops in `close()` (a client, a session, a connection, a pool) is
+`@Nullable` and read through the `requireOpen()` that already guarded it, now returning it; optional
+settings (a registry, TLS, a reader schema, an upsert statement) and documented "or null" answers say
+so; and a value an earlier branch guarantees (an Avro array's items, a pushed plan's reads, a decoded
+snapshot row's key) is `Objects.requireNonNull` where the code dereferenced it anyway. No bug was
+found. Suppressions in main code: 113 `NullAway.Init` on settings `configure()` or `open()` assigns
+before use, and 3 `NullAway`: the JDBC and Kafka sinks' `closeQuietly()`, which let go of clients
+that `requireOpen()` guards at every one of their uses, and Delta's `ColumnVector.getString`, which
+returns null for a null cell through Kernel's unannotated signature. Plugin tests add 4
+nulls-on-purpose and 8 `NullAway.Init`. `pravaha-it`, test code only, annotates its row records and
+helpers with `@Nullable`, has 21 `NullAway.Init` on fields a case's setup assigns, and 118
+suppressions at the narrowest member (often one local declaration), each with its reason -- nulls
+passed into production APIs on purpose, or a lookup the case has just made. Its `ep` profile also
+turns off `-Xlint:path`, since a module without main sources has no `target/classes` to point at.
 
 ### Which Maven to call: stale jars (MAVENRACE-1)
 
