@@ -21,7 +21,7 @@ app:
   # in the README and the design document, and a sentence kept in three places
   # is a sentence that ends up saying three things.
   principle: A view is a question you asked once and never have to ask again.
-  version: "2.3.0"
+  version: "2.3.1"
   author:
     name: Ashutosh Sinha
     email: ajsinha@gmail.com

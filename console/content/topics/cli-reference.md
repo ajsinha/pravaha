@@ -439,7 +439,7 @@ pravaha status
 
 ```text
 instance       node-1
-version        2.3.0
+version        2.3.1
 engine         RUNNING
 uptime         5321 s
 queries        4
