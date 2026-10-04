@@ -355,3 +355,4 @@ configured, and this page offers to add the first provider.
 - [Audit](/help/topics/audit) — the engine records what was registered, and by whom
 - [Observability](/help/topics/observability) — the assistant's metrics and dashboard
 - The long form: [Python SDK](/help/python-sdk)
+- How it is built: [Architecture: the assistant](/help/architecture-clients-console#the-assistant)

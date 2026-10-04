@@ -275,3 +275,4 @@ state, with the read path the only thing standing between them.
 - [Authorization](/help/topics/authorization) — the policy the grants implement, and the shipped ones
 - [Sharing by fingerprint](/help/topics/sharing) — why two readers narrowed differently never share
 - [Audit](/help/topics/audit) — every binding, and every filtered read, is recorded
+- How it is built: [Architecture: row filters and masks](/help/architecture-governance#row-filters-and-masks)

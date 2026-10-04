@@ -644,3 +644,4 @@ SELECT a.txn_id FROM txn a JOIN txn b ON a.user_id = b.user_id      -- refused a
 - [The SQL reference](/help/topics/sql-reference) — the positive half.
 - [SQL error codes](/help/topics/errors-sql) — every PRV-2xxx code.
 - [Troubleshooting: the five you will actually meet](/help/troubleshooting#the-five-you-will-actually-meet).
+- How it is built: [Architecture: planning](/help/architecture-planning)

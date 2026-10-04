@@ -180,3 +180,4 @@ table now changes once per checkpoint, all of a checkpoint's rows together.
 - [The Kafka sink](/help/topics/sink-kafka) — the staging topic, and what `read_committed` has to do with it
 - [The Kafka source](/help/topics/source-kafka) — reading such a topic back, exactly once
 - [How a query writes to a sink](/help/topics/sinks-overview)
+- How it is built: [Architecture: the checkpoint cut](/help/architecture-registry#the-checkpoint-cut)

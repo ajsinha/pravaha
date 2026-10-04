@@ -393,9 +393,11 @@ source may be idle, or behind; check `pravaha_query_watermark_lag_seconds`. `TIM
 ### PRV-4026, PRV-4027, PRV-4028 — the node is busy
 
 **Admission control.** Reads and continuous queries share a machine, and an unbounded read path is how
-a client in a loop stops a continuous query keeping up with its input. So reads are admitted — a
-number concurrently, a bounded queue, and a share per tenant — and refused past that. The three are
-separate because the fix differs:
+a client in a loop stops a continuous query keeping up with its input. So a gateway given a
+`ReadAdmission` admits reads — a number concurrently, a bounded queue, and a share per tenant — and
+refuses past that. **A node does not configure one yet**: `pravaha-server`'s Flight and PostgreSQL
+gateways admit every read, so these four codes come from an engine an application assembled with one
+([serving](/help/architecture-serving)). The three are separate because the fix differs:
 
 | Code | What happened | Your move |
 |---|---|---|

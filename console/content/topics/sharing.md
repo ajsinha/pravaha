@@ -193,3 +193,4 @@ further: ten browsers on one live view are **one** subscription on the engine.
 - [Parameters](/help/topics/sql-reference#parameters) — when a parameter forks a computation
 - [Row filters](/help/topics/row-filters-and-masks) — the security predicates in a fingerprint
 - The long form: [Concepts §5–§6](/help/concepts#5-sharing-is-by-fingerprint-not-by-name-or-text)
+- How it is built: [Architecture: registration and sharing](/help/architecture-registry#registration-and-sharing)

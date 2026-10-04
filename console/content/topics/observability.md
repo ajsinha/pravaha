@@ -607,3 +607,4 @@ Saying so beats implying a dashboard exists.
 - [Lanes](/help/topics/lanes) and [state and spill](/help/topics/state-spill) — what the lane and state gauges measure
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery)
 - The long form: [Operations](/help/operations#watching-a-running-node)
+- How it is built: [Architecture: observability and packaging](/help/architecture-observability-packaging)

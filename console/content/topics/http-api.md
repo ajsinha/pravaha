@@ -316,3 +316,4 @@ names.
 - [SDK reference](/help/topics/clients#sdk-reference) — the calls that wrap these endpoints.
 - [Metrics and alerts](/help/topics/observability) — what `/actuator/prometheus` exports.
 - [Audit](/help/topics/audit) — reading the trail.
+- How it is built: [Architecture: the server](/help/architecture-hosts#pravaha-server)

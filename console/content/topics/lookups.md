@@ -251,3 +251,4 @@ txn_id	user_id	amount	tier
 - [Temporal joins](/help/topics/joins#temporal-joins) — the SQL in depth, and what a lookup join may and may not do
 - [Stream joins](/help/topics/joins) — joining two sources, with a time bound
 - [The Aerospike source](/help/topics/source-aerospike) and [the jdbc source](/help/topics/source-jdbc) — the same stores, consumed as streams
+- How it is built: [Architecture: sinks and lookups](/help/architecture-ingest-egress#sinks-and-lookups)

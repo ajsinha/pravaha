@@ -344,3 +344,4 @@ a run that reports `ok` while having discarded input is what the queue exists to
 - [The Kafka source](/help/topics/source-kafka) — its dead letters are named `topic/partition@offset`
 - [Metrics and alerts](/help/topics/observability)
 - [Configuring a node](/help/topics/configuration)
+- How it is built: [Architecture: dead letters](/help/architecture-ingest-egress#dead-letters)

@@ -156,7 +156,7 @@ CATEGORIES: list[Category] = [
                             "Every encrypted connection Pravaha makes or accepts.")]),
     Category("embedding", "Embedding", "plug",
              "Pravaha inside your own JVM process: the embedded engine and the Spring Boot starter.",
-             guide="architecture"),
+             guide="architecture-hosts"),
     Category("errors", "Errors", "exclamation-octagon",
              "Every PRV code, range by range: what it means, why the engine says it, and what to do.",
              guide="troubleshooting",
@@ -173,7 +173,11 @@ CATEGORIES: list[Category] = [
                            "Every long-form document the engine ships with, rendered in place.",
                            "BROWSER", "guide document long form reference manual"),
                      _guide("architecture", "Architecture", "diagram-3",
-                            "The modules, the data path, and why each boundary is where it is."),
+                            "How every component fits together: the module graph, a row and a registration "
+                            "traced end to end, and the query and feed lifecycles."),
+                     _guide("architecture-components", "Architecture, component by component", "diagram-3",
+                            "One page per layer — planning, runtime, registry, ingest, serving, governance, "
+                            "hosts, clients — with key types, threads, invariants, codes and examples."),
                      _guide("decisions", "Decision records", "signpost-split",
                             "Every architecture decision, numbered and never renumbered."),
                      _guide("system-design", "System design", "diagram-2",

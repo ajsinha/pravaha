@@ -447,3 +447,4 @@ pravaha_lane_shared_queries{lane="3"} 1.0
 - [Reading the numbers on a plan](/help/topics/reading-a-plan) — a query blocked by a neighbour, told from one blocking itself
 - [Sharing by fingerprint](/help/topics/sharing) — one computation for one question, and one reader for many queries
 - [The execution model, long form](/help/execution-model#4-the-inbox)
+- How it is built: [Architecture: runtime](/help/architecture-runtime)

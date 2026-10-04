@@ -312,3 +312,4 @@ anything on a network.
 - [Authorization](/help/topics/authorization) — what a principal may do
 - [Audit](/help/topics/audit) — every decision, recorded
 - [TLS everywhere](/help/topics/tls) — so the token is not in the clear
+- How it is built: [Architecture: governance](/help/architecture-governance)

@@ -8,7 +8,7 @@ summary: "Reading maintained views from Power BI Desktop and the Power BI servic
 badge: GATEWAY
 audience: Analysts
 keywords: [power bi, powerbi, directquery, direct query, import, npgsql, fabric, eventstream, event hubs, on-premises data gateway, dashboard, navigator, "limit 1000001", PostgreSQL.Database, realtime, real-time]
-guide: architecture
+guide: architecture-serving
 related: [pgwire, sink-kafka, tls, authentication, views-and-keys, zset-weights]
 ---
 
@@ -300,3 +300,4 @@ statements are the shapes its SQL generator produces.
 - [The PostgreSQL gateway](/help/topics/pgwire) — turning it on, TLS, and every refusal's SQLSTATE.
 - [The Kafka sink](/help/topics/sink-kafka) — every option the Fabric section uses.
 - [Authentication](/help/topics/authentication) — where the token comes from.
+- How it is built: [Architecture: the PostgreSQL gateway](/help/architecture-serving#pravaha-pgwire)

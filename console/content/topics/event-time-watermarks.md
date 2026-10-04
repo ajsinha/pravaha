@@ -389,3 +389,4 @@ revises, and can go anywhere. See [sinks](/help/topics/sinks-overview).
 - [Observability](/help/topics/observability) — alerting on watermark lag
 - [The embedded engine](/help/topics/embedded-engine) — declaring lateness in code
 - The long form: [Concepts §2–§3](/help/concepts#3-watermarks-nothing-earlier-is-coming) and [Operations](/help/operations#running-against-a-source-that-does-not-end)
+- How it is built: [Architecture: windows and watermarks](/help/architecture-runtime#windows-and-watermarks)

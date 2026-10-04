@@ -240,3 +240,4 @@ rules and reading by the other.
 - [Row filters](/help/topics/row-filters-and-masks) — allow, but only these rows
 - [Audit](/help/topics/audit) — every decision this page describes, recorded
 - [Authentication](/help/topics/authentication) — where the principal comes from
+- How it is built: [Architecture: governance](/help/architecture-governance)

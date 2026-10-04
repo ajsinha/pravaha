@@ -842,3 +842,4 @@ name `pravaha-engine`.
 - [Client snippets](/help/topics/clients#snippets) — the same operations from code.
 - [HTTP API](/help/topics/http-api) — the endpoints the HTTP commands call.
 - [Quick start](/help/quickstart) — the CLI end to end against a fresh node.
+- How it is built: [Architecture: the SDKs and the CLI](/help/architecture-clients-console#the-python-sdk-and-the-pravaha-cli)
