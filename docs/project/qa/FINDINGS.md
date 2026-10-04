@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **554 findings carrying a
-status — 534 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **566 findings carrying a
+status — 536 FIXED, 11 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 11 open, **0 are
+GA-BLOCKER, 2 GA-REQUIRED, 9 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7704,6 +7704,68 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 ### CONNECTTIMEOUT-1 (LOW) — the Java SDK's `ClientOptions.connectTimeout` is read by nothing
 
-> **Status:** OPEN — the option is accepted and documented, but Arrow's Flight client builder has no setting it could feed, so it never bounds anything; since SDKDEADLINE-1 the request deadline covers connecting (the connection is made inside the first call), so no call is unbounded, but a setting that does nothing is one an operator believes is in force. Either wire it to the channel or deprecate it and say requestTimeout bounds the connect.
-> **Disposition:** POST-GA — no call is unbounded; the setting only promises more than it does.
+> **Status:** FIXED — Arrow 19's Flight client builder exposes no channel option, so the setting cannot be wired; `ClientOptions.connectTimeout` (getter and builder) is `@Deprecated(since = "2.1.1")`, still accepted and validated so 2.x callers compile, and its javadoc, the SDK README and the clients topic say `requestTimeout` bounds the connect (the connection is made inside the first call). `JavaSdkConnectTimeoutTest`: a listener that completes TCP and never speaks HTTP/2 fails the first call PRV-1045 at a 500 ms request deadline despite a 5-minute connectTimeout. Python's `connect_timeout_seconds`, likewise unread, is documented the same way.
 
+## Found by the adversarial pass over the first round's blind spots (2026-10-04), 12 findings
+
+Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](logs/ADV-GAPS.md).
+
+### DLQFULL-1 (HIGH) — a dead letter that cannot be written is dropped with nothing said
+
+> **Status:** OPEN — `FileDeadLetterQueue.accept` catches the `IOException` of a write and only counts it (`failures++`); in the node nothing reads that count, nothing is logged, the dead-letter metrics do not move, and the source reads on. On a full disk (ADV-GAPS QG-D04, a 16 MiB tmpfs) five undecodable lines reached one query's queue and not the other's: `v1.dlq` 0 bytes, `pravaha_query_dead_letters{query="v1"}` 0, feed RUNNING. Repro: `pravaha.dlq.directory` on a full filesystem, one undecodable line into a file source. Fix direction: a write that fails stops the feed with a code (as with no queue configured, which "fails loudly"), or at least logs ERROR and counts it in a metric and on the query.
+> **Disposition:** GA-REQUIRED — records lost without a refusal, at exactly the moment (a full disk) the queue exists for.
+
+### DISKJOURNAL-1 (HIGH) — after a full disk refuses one registration, the next one makes the node refuse to start
+
+> **Status:** FIXED — `77d6733f`: a journal append that a full disk fails part way leaves the bytes that fitted; `RegistryJournal` checked for a torn tail only before the first append of the process, so once the disk freed the next registration was acknowledged behind the torn bytes, and the next start refused with `PRV-8005` (damage in the middle) — the node would not come up until someone cut the journal by hand. A failed append now re-arms the tail check, so the next append cuts the torn bytes first. Found in ADV-GAPS QG-D05 on a 16 MiB tmpfs; `RegistryJournalTest#anAppendAfterAFailedOneInTheSameProcessLandsOnARecordBoundary`, seed-proven. The alerts and identity journals append the same way and were not checked.
+> **Disposition:** GA-REQUIRED — a transient full disk turned into a node that does not start.
+
+### PGTLSONLY-1 (MEDIUM) — a TLS-configured PostgreSQL gateway still accepts plaintext and asks for the token in clear
+
+> **Status:** OPEN — with `pravaha.pgwire.tls.*` set, a client that sends a startup packet without `SSLRequest` (`sslmode=disable`; Npgsql 4.0.17's default) is answered `AuthenticationCleartextPassword` over plaintext and signed in. The `pgwire` topic says "authenticates **after** the handshake, so the token is always inside it" and `PgWireConnection.authenticate` "a configured certificate always covers the password". Repro: ADV-GAPS QG-T06 (raw startup → `R 3`, token → `R 0`). Fix direction: when a certificate is configured, refuse a startup that did not come through `SSLRequest` (`28000`, naming `sslmode=verify-full`) — PostgreSQL's `hostssl` — with an explicit opt-out if plaintext must stay possible.
+> **Disposition:** GA-REQUIRED — a documented credential protection that a client can switch off without the server's say.
+
+### DECPARAM-1 (MEDIUM) — a parameter compared with a DECIMAL column is refused on every transport
+
+> **Status:** OPEN — `SELECT id FROM v WHERE price > ?` (price DECIMAL) is `PRV-2021 expression '?0' is a RexDynamicParam, which Pravaha cannot evaluate yet` for a `Decimal` or an integer value, over Flight (Python SDK), pgwire text and binary (psycopg) and Npgsql; the literal answers. CONTINUOUS_QUERIES §9 says parameters are supported in `WHERE`, with no type excluded, and the message names a Calcite class. Repro: ADV-GAPS QG-N05, `decparam.txt`.
+> **Disposition:** POST-GA — refused with a code, never a wrong answer; but parameterised filters on money columns are the common case for BI tools and prepared statements.
+
+### CASSDC-1 (MEDIUM) — `local.datacenter` is documented as auto-detected and is required
+
+> **Status:** OPEN — `source-cassandra` and the plugin javadoc say a single-datacenter cluster's `local.datacenter` "is detected from the contact points"; the plugin builds the session with explicit contact points and no local DC, and the 4.x driver refuses that: every Cassandra registration without the option fails `PRV-5091 … java.lang.IllegalStateException: Since you provided explicit contact points, the local DC must be explicitly set`. The topic's own examples set it, which is why nothing caught it. Repro: ADV-GAPS QG-S07. Fix direction: configure the driver's `DcInferringLoadBalancingPolicy` when the option is blank (or make it required and say so), and turn the raw exception into `PRV-5088`.
+> **Disposition:** POST-GA — fails at registration with a message that names the fix.
+
+### CKPTWHY-1 (LOW) — why a checkpoint failed is recorded and shown nowhere
+
+> **Status:** OPEN — on a full disk `pravaha_query_checkpoint_failures_total` rises, but no log line says a checkpoint failed or why: `QueryCheckpoints.start` hands the checkpointer's narrative (one line per failure) to `message -> {}`, and `RegisteredQuery.lastCheckpointFailure()` has no reader. `errors-state` (PRV-4095) says "the reason is its last checkpoint failure" as if it were visible. Repro: ADV-GAPS QG-D03.
+> **Disposition:** POST-GA — the failure is counted and alerted on; only its cause is missing.
+
+### TLSDIAG-1 (LOW) — the Java SDK reports a certificate it does not trust as a node it cannot reach
+
+> **Status:** OPEN — an untrusted or expired server certificate is `PRV-1040 CLIENT_CONNECT_FAILED`, `retryable=true`, "cannot reach host:port: io exception Channel Pipeline: [SslHandler#0, …]. Check that a Pravaha node is running there and that the scheme matches" — nothing about the certificate. The Python SDK, psql and pgjdbc all say "certificate verify failed"/"certificate has expired". Repro: ADV-GAPS QG-T10, QG-T14.
+> **Disposition:** POST-GA — diagnosability.
+
+### SDKCLOSE-1 (LOW) — closing the Java client with an unclosed `QueryResult` throws an uncoded `IllegalStateException`
+
+> **Status:** OPEN — `client.query(sql).toList()` without closing the result, then `client.close()` → `IllegalStateException: Memory was leaked by query … Allocator(flight-client)` from the allocator, replacing whatever the try block returned or threw. `close()` already closes subscriptions and swallows the transport's failure; open results are neither tracked nor closed. Repro: ADV-GAPS QG-T09 (`tls-java-unclosed-result.txt`).
+> **Disposition:** POST-GA — the documented pattern closes the result; the failure is the client's, loud, and late.
+
+### MTLSDOC-1 (LOW) — the SDKs offer "mutual TLS" to a node that never asks for a certificate
+
+> **Status:** OPEN — the node's Flight and pgwire listeners never request a client certificate (no setting exists), so a client certificate from any CA, or none, is accepted alike; the `tls` topic's SDK table lists `client_certificate`/`client_key` "for mutual TLS" without saying it only matters to a terminator in front of the node. Repro: ADV-GAPS QG-T16.
+> **Disposition:** POST-GA — documentation; server-side mTLS is a feature not built.
+
+### NPGSQLNEW-1 (LOW) — Npgsql after 4.x fails to open with PRV-6201, and the workaround is undocumented
+
+> **Status:** OPEN — Npgsql 8.0.5 sends its type loading as one four-statement Query and gets `PRV-6201`; the `power-bi` topic says such versions get `PRV-6205`. With `Server Compatibility Mode=NoTypeLoading` Npgsql 8 opens and every read works. Repro: ADV-GAPS QG-N07.
+> **Disposition:** POST-GA — Power BI pins 4.0.17; document the code and the connection-string setting for other .NET clients.
+
+### PBDRIFT-1 (LOW) — a protobuf field of the wrong wire type reads as zero
+
+> **Status:** OPEN — a record whose field 2 (declared `int64`) arrives length-delimited is read with that column at its default (0), not dead-lettered: `DynamicMessage` keeps the field among the unknown fields and the proto3 default rule fills the column. Repro: ADV-GAPS QG-K05. Fix direction: a declared field number present in the unknown fields is a dead letter naming the field and both wire types.
+> **Disposition:** POST-GA — a producer-side schema break, but answered with a wrong number under a success status.
+
+### CERTEXP-1 (LOW) — a node starts on an expired certificate without a word
+
+> **Status:** OPEN — with an expired pair the node logs `over TLS`/`flight transport=TLS` and every verifying client then fails its handshake. The pair is checked at startup (SX-17); its validity dates are not. Repro: ADV-GAPS QG-T14. Fix direction: WARN at startup (and a metric) when the leaf is expired or expires within N days.
+> **Disposition:** POST-GA.

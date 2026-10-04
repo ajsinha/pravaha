@@ -149,7 +149,7 @@ in [`LIMITS.md`](docs/guides/LIMITS.md). What is left is below.
 - The eight-lane scaling target: measured at 28–42 % of linear against 90 %, on a laptop, with no
   reference hardware (below).
 - The manual WCAG 2.2 AA audit, which is a person's task.
-- The [findings register](docs/project/qa/FINDINGS.md) holds 554 findings, 534 fixed and one open, POST-GA (CONNECTTIMEOUT-1), on 2026-10-04; the adversarial QA's reproductions are kept as opt-in suites
+- The [findings register](docs/project/qa/FINDINGS.md) holds 566 findings, 536 fixed and 11 open from the second adversarial pass (2 GA-REQUIRED), on 2026-10-04; the adversarial QA's reproductions are kept as opt-in suites
   ([TESTING](docs/development/TESTING.md#the-adversarial-suites)).
 
 **Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.

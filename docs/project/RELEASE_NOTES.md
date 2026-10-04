@@ -32,7 +32,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   registration was written after them, and the next start refused the journal with `PRV-8005`. A
   failed append now has the next one cut the torn bytes first. Found by the ADV-GAPS QA pass.
 
-Register: **554 findings — 534 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 
 ## 2.1.0 — 2026-10-03
 
