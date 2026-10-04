@@ -15,6 +15,11 @@
  */
 package com.ash.messaging.pravaha.cli;
 
+import java.io.Console;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -32,14 +37,48 @@ public final class Ansi {
     private Ansi() {}
 
     // Error Prone holds that System.console() is never null on JDK 22+; under surefire's forked JVM
-    // (no stdin) it still is, and isTerminal() is the question either way.
+    // (no stdin) it still is, and on JDK 21 a null console is exactly "not a terminal".
     @SuppressWarnings("SystemConsoleNull") // still null in a JVM with no console at all
     private static boolean detect() {
         if (System.getenv("NO_COLOR") != null) {
             return false;
         }
-        java.io.Console console = System.console();
-        return detect(System.getenv("TERM"), console != null && console.isTerminal());
+        return detect(System.getenv("TERM"), isTerminal(System.console()));
+    }
+
+    /**
+     * Whether this JVM's console is a terminal, on every JDK from 21. On 21 {@code System.console()}
+     * is null unless the JVM is attached to one, so non-null is the answer. From 22 it is never null
+     * and {@code Console.isTerminal()} (new in 22) is the question; the classes target 21, so it is
+     * looked up rather than called (ANSICONSOLE-1).
+     */
+    static boolean isTerminal(@Nullable Console console) {
+        if (console == null) {
+            return false;
+        }
+        MethodHandle probe = IsTerminal.HANDLE;
+        if (probe == null) {
+            return true;
+        }
+        try {
+            return (boolean) probe.invokeExact(console);
+        } catch (Throwable unexpected) {
+            return false;
+        }
+    }
+
+    /** {@code Console.isTerminal()} where the JDK has it (22 and later), else null. */
+    private static final class IsTerminal {
+        static final @Nullable MethodHandle HANDLE = find();
+
+        private static @Nullable MethodHandle find() {
+            try {
+                return MethodHandles.publicLookup()
+                        .findVirtual(Console.class, "isTerminal", MethodType.methodType(boolean.class));
+            } catch (NoSuchMethodException | IllegalAccessException onJdk21) {
+                return null;
+            }
+        }
     }
 
     /**

@@ -194,6 +194,7 @@ class QueryReplacementTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void everySubscriberIsToldTheViewWasReplacedRatherThanHandedTheOtherQuerysChanges() {
         ReplayableLog log = history(12);
         QueryRegistry registry = registry(log);
@@ -244,17 +245,19 @@ class QueryReplacementTest {
 
         // Subscribing again to the name gets the new version, from its own snapshot.
         List<ViewChange> after = new CopyOnWriteArrayList<>();
-        try (Subscription _ = registry.find("orders").orElseThrow().subscribeFromSnapshot(new SubscriptionListener() {
-            @Override
-            public void onSnapshot(List<ViewChange> rows, long frontier) {
-                after.addAll(rows);
-            }
+        try (Subscription ignored = registry.find("orders")
+                .orElseThrow()
+                .subscribeFromSnapshot(new SubscriptionListener() {
+                    @Override
+                    public void onSnapshot(List<ViewChange> rows, long frontier) {
+                        after.addAll(rows);
+                    }
 
-            @Override
-            public void onCommit(@Nullable List<ViewChange> changes, long frontier) {
-                after.addAll(changes);
-            }
-        })) {
+                    @Override
+                    public void onCommit(@Nullable List<ViewChange> changes, long frontier) {
+                        after.addAll(changes);
+                    }
+                })) {
             await(() -> !after.isEmpty());
             assertThat(after).allSatisfy(change -> assertThat(change.values()).hasSize(3));
         }

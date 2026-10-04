@@ -64,6 +64,7 @@ class SnapshotHandoffTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void theCommitInFlightReachesNeitherAPlainSubscriptionNorTheReadBesideIt() throws Exception {
         // What SUB-1 recorded, kept as the statement of why a plain subscription is gapful: the
         // rows are applied, the subscriber attaches, the read happens, then the commit.
@@ -72,7 +73,7 @@ class SnapshotHandoffTest {
         write(sink.begin(), "a", 10, 1, 1);
 
         List<ViewChange> heard = new ArrayList<>();
-        try (AutoCloseable _ = sink.onCommit((changes, frontier) -> heard.addAll(changes))) {
+        try (AutoCloseable ignored = sink.onCommit((changes, frontier) -> heard.addAll(changes))) {
             List<Object[]> read = view.scan();
             sink.commitApplied();
 
@@ -87,6 +88,7 @@ class SnapshotHandoffTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aSnapshotSubscriptionAttachedMidCommitIsHandedTheViewThatCommitProduced() throws Exception {
         ServedView view = view();
         ViewSink sink = new ViewSink(view, SCHEMA);
@@ -95,7 +97,7 @@ class SnapshotHandoffTest {
         write(sink.begin(), "b", 20, 1, 2);
 
         Recorder recorder = new Recorder();
-        try (AutoCloseable _ = sink.onCommitFromSnapshot(recorder)) {
+        try (AutoCloseable ignored = sink.onCommitFromSnapshot(recorder)) {
             assertThat(recorder.events)
                     .as("a commit is in flight, so the snapshot waits for its end")
                     .isEmpty();
@@ -118,6 +120,7 @@ class SnapshotHandoffTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void withNoCommitInFlightTheSnapshotIsTakenAtOnceAndTheNextCommitIsDeliveredWhole() throws Exception {
         ServedView view = view();
         ViewSink sink = new ViewSink(view, SCHEMA);
@@ -125,7 +128,7 @@ class SnapshotHandoffTest {
         sink.commitApplied();
 
         Recorder recorder = new Recorder();
-        try (AutoCloseable _ = sink.onCommitFromSnapshot(recorder)) {
+        try (AutoCloseable ignored = sink.onCommitFromSnapshot(recorder)) {
             assertThat(recorder.events).hasSize(1);
             assertThat(recorder.events.get(0).snapshot()).isTrue();
             assertThat(recorder.events.get(0).frontier()).isEqualTo(1L);
@@ -143,11 +146,12 @@ class SnapshotHandoffTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void anEmptyViewStillSendsASnapshotAndARowPresentTwiceArrivesWithItsWeight() throws Exception {
         ServedView view = view();
         ViewSink sink = new ViewSink(view, SCHEMA);
         Recorder empty = new Recorder();
-        try (AutoCloseable _ = sink.onCommitFromSnapshot(empty)) {
+        try (AutoCloseable ignored = sink.onCommitFromSnapshot(empty)) {
             assertThat(empty.events).singleElement().satisfies(event -> {
                 assertThat(event.snapshot()).isTrue();
                 assertThat(event.changes()).isEmpty();
@@ -158,7 +162,7 @@ class SnapshotHandoffTest {
         write(sink.begin(), "a", 10, 1, 2);
         sink.commitApplied();
         Recorder twice = new Recorder();
-        try (AutoCloseable _ = sink.onCommitFromSnapshot(twice)) {
+        try (AutoCloseable ignored = sink.onCommitFromSnapshot(twice)) {
             write(sink.begin(), "a", 10, -1, 3);
             sink.commitApplied();
         }
@@ -187,6 +191,7 @@ class SnapshotHandoffTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aListenerThatKnowsNothingOfSnapshotsIsHandedTheRowsAsItsFirstBatch() throws Exception {
         ServedView view = view();
         ViewSink sink = new ViewSink(view, SCHEMA);
@@ -194,7 +199,7 @@ class SnapshotHandoffTest {
         sink.commitApplied();
 
         List<List<ViewChange>> batches = new ArrayList<>();
-        try (AutoCloseable _ = sink.onCommitFromSnapshot((changes, frontier) -> batches.add(changes))) {
+        try (AutoCloseable ignored = sink.onCommitFromSnapshot((changes, frontier) -> batches.add(changes))) {
             write(sink.begin(), "b", 20, 1, 2);
             sink.commitApplied();
         }

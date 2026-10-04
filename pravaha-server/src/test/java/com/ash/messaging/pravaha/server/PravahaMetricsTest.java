@@ -220,6 +220,7 @@ class PravahaMetricsTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void subscribersAreCountedAndAQueryNotCheckpointingSaysNothingRatherThanZero() throws Exception {
         var registry = node.registry().orElseThrow();
         registry.register("watched", "SELECT user_id, amount FROM txn", List.of(0), DANA);
@@ -230,7 +231,7 @@ class PravahaMetricsTest {
                         .gauge()
                         .value())
                 .isZero();
-        try (var _ = registry.require("acme.default.watched").subscribe(batch -> {})) {
+        try (var ignored = registry.require("acme.default.watched").subscribe(batch -> {})) {
             assertThat(meters.find("pravaha.query.subscribers")
                             .tag("query", "acme.default.watched")
                             .gauge()

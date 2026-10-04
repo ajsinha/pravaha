@@ -165,6 +165,7 @@ public class PravahaTester {
                 woken();
             }
 
+            @SuppressWarnings("try") // the resource is only held, never referenced
             private void woken() {
                 synchronized (commits) {
                     seen[0]++;
@@ -172,7 +173,7 @@ public class PravahaTester {
                 }
             }
         };
-        try (Subscription _ = engine.subscribeFromSnapshot(query, wake)) {
+        try (Subscription ignored = engine.subscribeFromSnapshot(query, wake)) {
             while (true) {
                 long before;
                 synchronized (commits) {

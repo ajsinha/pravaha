@@ -682,6 +682,7 @@ class SqlSupportMatrixTest {
         w.setBoolean(5, flagged).setLong(6, id);
     }
 
+    @SuppressWarnings("try") // the resource is only held, never referenced
     private static String outcomeOf(Case testCase) {
         String message = messageOf(testCase);
         if (message == null) {
@@ -705,7 +706,7 @@ class SqlSupportMatrixTest {
                 testCase.lookup() ? SqlPlanner.withLookups(TXN, DIM) : SqlPlanner.withStreams(TXN, OTHER, THIRD);
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder().build(planner.plan(testCase.sql()));
-            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline ignored = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("the matrix builds pipelines but never runs rows through them");
             })) {
                 return null;

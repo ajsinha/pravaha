@@ -95,8 +95,9 @@ class FlightAdmissionTest {
             new Principal("holder", "globex", java.util.Set.of(), java.util.Map.of());
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aSaturatedNodeRefusesWithAStatusClientsRetry() {
-        try (ReadAdmission.Lease _ = admission.acquire(OTHER_TENANT)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(OTHER_TENANT)) {
             assertThatThrownBy(() -> client.execute("SELECT user_id FROM user_volume"))
                     .isInstanceOf(FlightRuntimeException.class)
                     .satisfies(e -> assertThat(
@@ -107,8 +108,9 @@ class FlightAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void theNodeAnswersAgainAsSoonAsThePermitComesBack() throws Exception {
-        try (ReadAdmission.Lease _ = admission.acquire(OTHER_TENANT)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(OTHER_TENANT)) {
             assertThatThrownBy(() -> client.execute("SELECT user_id FROM user_volume"))
                     .isInstanceOf(FlightRuntimeException.class);
         }
@@ -120,10 +122,11 @@ class FlightAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aTenantOverItsShareIsAlsoToldToRetry() {
         // Same tenant as the wire caller, so the per-tenant limit fires first -- and it must arrive
         // as RESOURCE_EXHAUSTED too, because the answer is the same: back off and come back.
-        try (ReadAdmission.Lease _ = admission.acquire(Principal.ANONYMOUS)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(Principal.ANONYMOUS)) {
             assertThatThrownBy(() -> client.execute("SELECT user_id FROM user_volume"))
                     .isInstanceOf(FlightRuntimeException.class)
                     .satisfies(e -> assertThat(

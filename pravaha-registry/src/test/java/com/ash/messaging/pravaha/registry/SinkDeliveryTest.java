@@ -284,13 +284,14 @@ class SinkDeliveryTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aSinkIsNotCountedAsASubscriber() {
         sinks.bind("orders", SinkCapabilities.appendOnly());
         RegisteredQuery query =
                 registry.registerWritingTo("q", "SELECT user_id, amount FROM txn", List.of(0), DANA, "orders");
 
         assertThat(query.subscriberCount()).isZero();
-        try (Subscription _ = query.subscribe(changes -> {})) {
+        try (Subscription ignored = query.subscribe(changes -> {})) {
             assertThat(query.subscriberCount()).isEqualTo(1);
         }
     }

@@ -212,7 +212,9 @@ class AerospikeContinuousQueryIT {
     @org.junit.jupiter.api.io.TempDir
     java.nio.file.Path deleteState;
 
-    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
+    // NullAway: a value the case has just put there, or one whose absence should fail it; try: the
+    // lookup plugin is only held open, never referenced
+    @SuppressWarnings({"NullAway", "try"})
     @Test
     void theReadmesQueryRunsOverAerospikeThroughTheDeploymentPath() {
         // The test below drives the engine through its own API: it compiles a pipeline by hand,
@@ -284,7 +286,7 @@ class AerospikeContinuousQueryIT {
                                 // A node always turns these on; a registry constructed by hand does
                                 // not, and without them no window ever closes.
                                 .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50));
-                AerospikeLookupPlugin _ = profiles) {
+                AerospikeLookupPlugin ignored = profiles) {
             com.ash.messaging.pravaha.registry.RegisteredQuery query = registry.register(
                     "user_volume", SQL, List.of(1), com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
 

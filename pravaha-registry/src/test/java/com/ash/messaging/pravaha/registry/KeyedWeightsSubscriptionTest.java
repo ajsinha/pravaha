@@ -160,13 +160,14 @@ class KeyedWeightsSubscriptionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void theChangelogOfAQueryOverTheViewIsTheViewsAnswerSoItsWeightsSumToTheView() {
         // What CONCEPTS §4 tells a client on the wire to do: a query over a query is fed the
         // upstream's answer changing (ADR-056), so a plain subscription to it sums to the upstream.
         RegisteredQuery copy =
                 registry.register("latest_copy", "SELECT user_id, amount FROM latest", List.of(0), Principal.ANONYMOUS);
         List<ViewChange> heard = new CopyOnWriteArrayList<>();
-        try (Subscription _ = copy.subscribe(heard::addAll)) {
+        try (Subscription ignored = copy.subscribe(heard::addAll)) {
             feed("u1", 10, 1);
             latest.commit();
             feed("u1", 20, 1);
