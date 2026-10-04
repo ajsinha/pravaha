@@ -84,16 +84,16 @@ final class SubscriptionIngestCostTest {
     /** Rows between commits, standing in for a publish tick. */
     private static final int COMMIT_EVERY = 250;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private BufferAllocator allocator;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaFlightServer server;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryRegistry registry;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private FlightClient client;
 
     @AfterEach

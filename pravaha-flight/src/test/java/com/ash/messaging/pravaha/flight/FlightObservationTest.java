@@ -92,16 +92,16 @@ class FlightObservationTest {
         }
     };
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private BufferAllocator allocator;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaFlightServer server;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private FlightClient client;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryRegistry registry;
 
     @AfterEach

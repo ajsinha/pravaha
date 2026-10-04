@@ -64,7 +64,7 @@ class PsqlSessionTest {
 
     private static final Principal ANALYST = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @TempDir

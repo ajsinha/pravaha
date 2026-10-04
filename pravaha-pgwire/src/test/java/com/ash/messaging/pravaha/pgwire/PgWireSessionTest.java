@@ -61,7 +61,7 @@ class PgWireSessionTest {
     private static final Principal ANALYST = new Principal("dana", "public", Set.of("analyst"), Map.of());
     private static final Principal INTERN = new Principal("sam", "public", Set.of("intern"), Map.of());
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @AfterEach

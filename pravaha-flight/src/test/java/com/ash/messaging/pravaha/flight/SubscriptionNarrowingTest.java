@@ -201,7 +201,7 @@ class SubscriptionNarrowingTest {
         final List<String> rows = new CopyOnWriteArrayList<>();
         final AtomicReference<Throwable> error = new AtomicReference<>();
 
-        @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+        @SuppressWarnings("NullAway.Init") // a test sets it before reading it
         private VectorSchemaRoot root;
 
         @Override

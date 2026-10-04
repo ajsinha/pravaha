@@ -72,13 +72,13 @@ class NpgsqlClientTest {
 
     private static @Nullable Path dotnet;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private static Path probe;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private static String skipReason;
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @TempDir

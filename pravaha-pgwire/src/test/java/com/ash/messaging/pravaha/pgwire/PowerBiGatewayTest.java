@@ -65,7 +65,7 @@ class PowerBiGatewayTest {
     private static final SecurityPolicy DENY_PAYROLL = (principal, view) ->
             "payroll".equals(view) ? AccessDecision.deny("not for this test") : AccessDecision.allow();
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @AfterEach

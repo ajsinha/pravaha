@@ -58,7 +58,7 @@ class PgCatalogShimTest {
     private static final StreamSchema PAYROLL_SCHEMA =
             StreamSchema.builder("payroll").field("employee_id", Types.string()).build();
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @AfterEach

@@ -58,7 +58,7 @@ class PgWireLimitsTest {
 
     private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
-    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     private final List<Socket> sockets = new ArrayList<>();
