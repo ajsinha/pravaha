@@ -367,6 +367,12 @@ refused (PRV-5108).
     as NULL when they are absent. If "unknown" must be tellable from "zero", declare the field
     `optional` or wrap it.
 
+A field the descriptor declares that arrives with **another wire type** — an `int64` sent
+length-delimited, the producer's schema having drifted — makes the record undecodable, naming the field
+and both types; it goes to the dead-letter queue (or stops the source without one). Before PBDRIFT-1
+it was read as the column's default, `0`. A field number the descriptor does not declare is skipped,
+which is protobuf's own rule for a newer producer.
+
 ### A schema registry, over its REST API
 
 A registry-aware producer writes each value as **one `0x00` byte, a four-byte big-endian schema id,

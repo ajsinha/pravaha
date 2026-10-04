@@ -199,11 +199,48 @@ final class ProtobufValueDecoder implements KafkaValueDecoder {
         } catch (java.io.IOException e) {
             throw new Undecodable("the value is not a " + message.getFullName() + ": " + e.getMessage());
         }
+        refuseWireTypeDrift(decoded);
         Object[] values = new Object[schema.fieldCount()];
         for (int ordinal = 0; ordinal < values.length; ordinal++) {
             values[ordinal] = value(decoded, fields[ordinal], ordinal);
         }
         return KafkaValueDecoder.finish(schema, values, eventTimeOrdinal, 1L, recordTimestampMillis);
+    }
+
+    /**
+     * A declared field that arrived with another wire type is refused, not read as its default.
+     *
+     * <p>PBDRIFT-1. The parser keeps a field whose wire type does not match its declaration among the
+     * unknown fields, and the proto3 default rule then filled the column with 0 -- a wrong number under a
+     * success status, where the producer's schema had drifted from this one. A field number the
+     * descriptor declares has no business among the unknown fields; one that is there is that drift.
+     */
+    private void refuseWireTypeDrift(DynamicMessage decoded) throws Undecodable {
+        for (java.util.Map.Entry<Integer, com.google.protobuf.UnknownFieldSet.Field> unknown :
+                decoded.getUnknownFields().asMap().entrySet()) {
+            FieldDescriptor declared = message.findFieldByNumber(unknown.getKey());
+            if (declared != null) {
+                throw new Undecodable("field '" + declared.getName() + "' (number " + unknown.getKey() + ") of "
+                        + message.getFullName() + " is declared " + described(declared) + " and arrived as "
+                        + wireTypeOf(unknown.getValue()) + ": the producer's schema does not match this one");
+            }
+        }
+    }
+
+    private static String wireTypeOf(com.google.protobuf.UnknownFieldSet.Field field) {
+        if (!field.getLengthDelimitedList().isEmpty()) {
+            return "length-delimited bytes";
+        }
+        if (!field.getVarintList().isEmpty()) {
+            return "a varint";
+        }
+        if (!field.getFixed32List().isEmpty()) {
+            return "a fixed 32-bit value";
+        }
+        if (!field.getFixed64List().isEmpty()) {
+            return "a fixed 64-bit value";
+        }
+        return "a group";
     }
 
     /** Past the registry's five-byte prefix and Confluent's message-index array. */

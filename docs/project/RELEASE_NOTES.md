@@ -87,6 +87,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   Mode=NoTypeLoading` in the connection string, with which Npgsql 8 opens and reads every type — and
   the `power-bi`, `pgwire` and `errors-gateway` topics and TROUBLESHOOTING say so. The type-loading
   batch itself is still not answered.
+- **A protobuf field of the wrong wire type is dead-lettered, not read as zero** (PBDRIFT-1). A
+  record whose field 2 (declared `int64`) arrived length-delimited was read with that column at its
+  default, `0`: the parser kept the field among the unknown fields and the proto3 default rule filled
+  the column. A declared field number among the unknown fields is now undecodable, naming the field and
+  both wire types, and is dead-lettered (or stops the source without a queue). Undeclared field numbers
+  are still skipped. **Changes behaviour:** such records used to produce rows.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

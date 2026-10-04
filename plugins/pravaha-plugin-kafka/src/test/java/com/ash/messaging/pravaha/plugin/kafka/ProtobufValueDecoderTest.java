@@ -189,6 +189,34 @@ class ProtobufValueDecoderTest {
     }
 
     @Test
+    void aDeclaredFieldOfAnotherWireTypeIsUndecodableNotReadAsItsDefault() {
+        // PBDRIFT-1: field 1 is declared int64 (a varint) and arrives length-delimited. The parser
+        // kept it among the unknown fields and the column read 0.
+        Descriptor order = ProtobufSchemas.message(ProtoFixtures.orderDescriptorSet(), ProtoFixtures.ORDER);
+        ProtobufValueDecoder decoder =
+                ProtobufValueDecoder.map(KafkaSchema.parse("orders", "id:INT64"), -1, order, false);
+
+        byte[] drifted = {0x0A, 0x02, 'a', 'b'};
+        assertThatThrownBy(() -> decoder.decode(drifted, 0))
+                .isInstanceOf(Undecodable.class)
+                .hasMessageContaining("field 'id' (number 1)")
+                .hasMessageContaining("declared int64")
+                .hasMessageContaining("length-delimited");
+    }
+
+    @Test
+    void anUndeclaredFieldIsStillSkipped() throws Undecodable {
+        // A producer one schema version ahead adds field 99; that is protobuf's compatibility rule and
+        // not drift, so the record still decodes.
+        Descriptor order = ProtobufSchemas.message(ProtoFixtures.orderDescriptorSet(), ProtoFixtures.ORDER);
+        ProtobufValueDecoder decoder =
+                ProtobufValueDecoder.map(KafkaSchema.parse("orders", "id:INT64"), -1, order, false);
+
+        byte[] ahead = {0x08, 0x07, (byte) 0x98, 0x06, 0x01};
+        assertThat(decoder.decode(ahead, 0).values()).containsExactly(7L);
+    }
+
+    @Test
     void bytesThatAreNotTheMessageAreUndecodable() {
         Descriptor order = ProtobufSchemas.message(ProtoFixtures.orderDescriptorSet(), ProtoFixtures.ORDER);
         ProtobufValueDecoder decoder =
