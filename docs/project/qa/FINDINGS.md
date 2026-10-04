@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **553 findings carrying a
-status — 533 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+only part that is kept current. Counting the register as it stands: **554 findings carrying a
+status — 534 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7698,6 +7698,12 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 ### SDKDEADLINE-1 (MEDIUM) — the Java SDK's blocking calls have no deadline, so a slow server holds a caller forever
 
-> **Status:** OPEN — `PravahaFlightClient.query` (and the other blocking calls) go through gRPC's blocking stub with no deadline. Under the full parallel build, with the container suites running beside it, `JavaSdkTlsTest#disablingHostnameVerificationInsecureAlsoAcceptsTheMismatch` sat in `getFlightInfo` until JUnit's 60 s timeout, twice; it passes alone, beside the new decimal test, and in its whole module in one JVM (68/68). Why the call stalls only under that load is not yet known; that a client cannot bound the wait is the defect either way. Fix: a configurable per-call deadline in `ClientOptions` with a sensible default, refused calls coded, and the hang reproduced and explained.
-> **Disposition:** POST-GA — a client-side robustness gap seen only under heavy load in a test; no wrong answer.
+> **Status:** FIXED — every SDK request has a deadline: `ClientOptions.requestTimeout` / `request_timeout_seconds` / `connect(…, timeout=)` / `--timeout`, 30 s by default, bounding each unary Flight call and the opening of every stream (an open stream then runs unbounded); past it a call fails PRV-1045 CLIENT_DEADLINE_EXCEEDED, retryable, naming the call and the deadline. The gate stall was not a hang: a cold first query (the Calcite planner starting in a fresh fork) under full-build CPU load, reproduced under oversubscription with thread dumps showing the server making progress. JavaSdkDeadlineTest, test_deadline.py.
+
+## Found fixing SDKDEADLINE-1 (2026-10-04), 1 finding
+
+### CONNECTTIMEOUT-1 (LOW) — the Java SDK's `ClientOptions.connectTimeout` is read by nothing
+
+> **Status:** OPEN — the option is accepted and documented, but Arrow's Flight client builder has no setting it could feed, so it never bounds anything; since SDKDEADLINE-1 the request deadline covers connecting (the connection is made inside the first call), so no call is unbounded, but a setting that does nothing is one an operator believes is in force. Either wire it to the channel or deprecate it and say requestTimeout bounds the connect.
+> **Disposition:** POST-GA — no call is unbounded; the setting only promises more than it does.
 

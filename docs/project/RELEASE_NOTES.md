@@ -22,6 +22,8 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   first query (Calcite bootstrap in a fresh JVM, under full-build load) still making progress, not a
   hang.
 
+Register: **554 findings — 534 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.1.0 — 2026-10-03
 
 **Everything the adversarial QA of 2.0.0 found, fixed — and several answers change.** 2.1.0 carries
