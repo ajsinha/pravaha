@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.plugin.jdbc;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
@@ -52,7 +54,7 @@ public record JdbcOffset(long watermark, long key, long emittedAtWatermark) {
         }
     }
 
-    public static JdbcOffset parse(SourceOffset offset) {
+    public static JdbcOffset parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return BEGINNING;
         }

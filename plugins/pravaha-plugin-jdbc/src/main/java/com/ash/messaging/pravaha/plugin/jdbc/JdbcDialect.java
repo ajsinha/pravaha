@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 
 /**
@@ -50,7 +52,7 @@ enum JdbcDialect {
     PORTABLE;
 
     /** The dialect a {@code dialect} setting names, or {@code null} for {@code auto}. */
-    static JdbcDialect named(String setting) {
+    static @Nullable JdbcDialect named(String setting) {
         return switch (setting.strip().toLowerCase(Locale.ROOT)) {
             case "", "auto" -> null;
             case "postgresql", "postgres" -> POSTGRESQL;
@@ -79,6 +81,7 @@ enum JdbcDialect {
      * The single statement that inserts or replaces a row, with parameters in column order; {@code
      * null} for {@link #PORTABLE}, which has none and uses {@link #update} then {@link #insert}.
      */
+    @Nullable
     String upsert(String table, List<String> columns, List<String> keys) {
         return switch (this) {
             case POSTGRESQL -> {

@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.EmitMode;
@@ -111,11 +113,22 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
     private static final String HANDLE_PREFIX = "jdbc-sink:v1:";
 
     private String instanceName = "jdbc-sink";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String url;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String user;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String password;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String tableSetting;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
     private List<String> keyNames = List.of();
     private int[] keyOrdinals = new int[0];
     private boolean append;
@@ -131,17 +144,37 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
      */
     private boolean prepared;
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String transactionId;
-    private String stagingTable;
-    private JdbcDialect dialectSetting;
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
+    private String stagingTable;
+
+    /** Null for {@code auto}: the driver names the database. */
+    private @Nullable JdbcDialect dialectSetting;
+
+    @SuppressWarnings("NullAway.Init") // set by open(); closeQuietly() clears it and requireOpen() guards every use
     private Connection connection;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private JdbcDialect dialect;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private JdbcSinkTable table;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private JdbcSinkRows rows;
-    private String upsertSql;
+
+    /** Null where the dialect has no upsert. */
+    private @Nullable String upsertSql;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private String updateSql;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private String insertSql;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private String deleteSql;
 
     /** The open transaction's label, or -1 when none is open. */
@@ -955,6 +988,7 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         closeQuietly();
     }
 
+    @SuppressWarnings("NullAway") // lets go of the connection; requireOpen() stands before every later use
     private void closeQuietly() {
         Connection closing = connection;
         connection = null;

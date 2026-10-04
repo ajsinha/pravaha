@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,7 +75,8 @@ class JdbcProjectionAndPartialTest {
         }
     }
 
-    private void insert(long id, Integer region, Long qty, String status, long updatedAt) throws SQLException {
+    private void insert(long id, Integer region, @Nullable Long qty, String status, long updatedAt)
+            throws SQLException {
         execute("INSERT INTO sales VALUES (" + id + ", " + region + ", " + qty + ", "
                 + (status == null ? "NULL" : "'" + status + "'") + ", " + updatedAt + ")");
     }

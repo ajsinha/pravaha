@@ -24,7 +24,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -55,14 +58,30 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class JdbcLookupPlugin implements LookupSourcePlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String url;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String table;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String user;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String password;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private List<String> keyColumns;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Duration cacheFor;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String query;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
     private int poolSize;
 
     /**
@@ -73,7 +92,7 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
      * cleanly -- it interleaves statements and result sets, and the rows come back attached to the
      * wrong query. A pool sized to the concurrency the engine is told about is the whole fix.
      */
-    private java.util.concurrent.ArrayBlockingQueue<Connection> pool;
+    private java.util.concurrent.@Nullable ArrayBlockingQueue<Connection> pool;
 
     @Override
     public String name() {
@@ -168,7 +187,7 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
      */
     private Connection borrow() {
         try {
-            return pool.take();
+            return Objects.requireNonNull(pool, "open() first").take();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PravahaException(
@@ -188,7 +207,7 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
                     "cannot read the schema of lookup table '" + table + "': " + e.getMessage() + "\n  query: " + probe,
                     e);
         } finally {
-            pool.add(connection);
+            Objects.requireNonNull(pool, "open() first").add(connection);
         }
     }
 
@@ -231,7 +250,7 @@ public final class JdbcLookupPlugin implements LookupSourcePlugin {
                     "lookup in '" + table + "' failed: " + e.getMessage() + "\n  query: " + query,
                     e);
         } finally {
-            pool.add(connection);
+            Objects.requireNonNull(pool, "open() first").add(connection);
         }
     }
 
