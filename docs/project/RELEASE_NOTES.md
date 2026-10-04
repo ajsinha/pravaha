@@ -10,7 +10,33 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.1.0 — 2026-10-03
+
+**Everything the adversarial QA of 2.0.0 found, fixed — and several answers change.** 2.1.0 carries
+the three fix waves (all 50 QA findings, 10 of them HIGH), the documentation sweep, DECIMAL over
+Arrow Flight, and static analysis gated in CI. It is a minor release because some fixes make the
+engine answer differently or refuse what 2.0.0 accepted; [COMPATIBILITY.md](../operations/COMPATIBILITY.md)
+tables every one ("fixes that change an answer").
+
+**Read before upgrading from 2.0.0.**
+
+- **Answers that change:** SUM, AVG, MIN and MAX of a group with no non-null value are NULL, not 0;
+  INT/SMALLINT/TINYINT arithmetic, narrowing casts and `Long.MIN_VALUE / -1` are overflows, never
+  wrapped values; ±0.0 and every NaN group together; HOP windows start on multiples of the slide.
+- **Now refused:** a window finer than `pravaha.lane.max-windows-per-row` (PRV-3026); MIN/MAX over an
+  input that can retract (PRV-2076) — a journalled one is refused at recovery and shown FAILED;
+  `pravaha.identity.mode` other than `password`; trailing separators in host lists, schemas and
+  offsets.
+- **State on disk:** new checkpoints carry a CRC32C tail (2.0.0 checkpoints still load); a few 2.0.0
+  checkpoints keyed on -0.0 or a non-canonical NaN rebuild from their sources.
+- **Operations:** new limits on pgwire and HTTP before sign-in, per-address sign-in throttling (list
+  the console in `pravaha.identity.lockout.trusted-proxies`), the console keeps its engine token
+  server-side (a console restart signs everyone out; several consoles need sticky sessions), and the
+  `users` profile runs the `authenticated` policy.
+- **Open:** one POST-GA finding, SDKDEADLINE-1 — the Java SDK's blocking calls take no deadline.
+
+What changed, in detail:
+
 
 - **Error Prone and javac warnings cleared, and gated (ERRORPRONE-2).** Every module but `pravaha-api`
   and the two Java SDKs now compiles under `-Pep` with no Error Prone warning and no `-Xlint` warning:
