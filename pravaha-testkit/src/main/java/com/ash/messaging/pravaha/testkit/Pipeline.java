@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.testkit;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
@@ -64,7 +66,7 @@ public final class Pipeline implements AutoCloseable {
             Stage stage = new Stage(
                     spec.name,
                     spec.operator,
-                    upstream,
+                    java.util.Objects.requireNonNull(upstream, "every stage but the last has a downstream ring"),
                     upstreamArena,
                     upstreamLayout,
                     RowLayout.of(spec.outputSchema),
@@ -72,7 +74,7 @@ public final class Pipeline implements AutoCloseable {
                     last ? null : new MpscLongRing(b.ringCapacity),
                     last ? output : null);
             stages.add(stage);
-            upstream = stage.downstream;
+            upstream = stage.downstream; // null only after the last stage, where the loop ends
             upstreamArena = stage.outputArena;
             upstreamLayout = stage.outputLayout;
         }
@@ -143,8 +145,8 @@ public final class Pipeline implements AutoCloseable {
         final RowLayout outputLayout;
         final RowArena outputArena;
         final BinaryRowWriter writer;
-        final MpscLongRing downstream;
-        final List<byte[]> sink;
+        final @Nullable MpscLongRing downstream;
+        final @Nullable List<byte[]> sink;
 
         Stage(
                 String name,
@@ -154,8 +156,8 @@ public final class Pipeline implements AutoCloseable {
                 RowLayout upstreamLayout,
                 RowLayout outputLayout,
                 RowArena outputArena,
-                MpscLongRing downstream,
-                List<byte[]> sink) {
+                @Nullable MpscLongRing downstream,
+                @Nullable List<byte[]> sink) {
             this.name = name;
             this.operator = operator;
             this.upstream = upstream;
@@ -214,7 +216,8 @@ public final class Pipeline implements AutoCloseable {
                 // The terminal stage materialises bytes, which is what the determinism test diffs.
                 BinaryRowView out = new BinaryRowView(stage.outputLayout)
                         .wrap(stage.outputArena.regionOf(pending), stage.outputArena.offsetOf(pending));
-                stage.sink.add(out.toByteArray());
+                java.util.Objects.requireNonNull(stage.sink, "a last stage has a sink")
+                        .add(out.toByteArray());
             }
             emitted++;
             pending = ArenaHandle.NULL;
