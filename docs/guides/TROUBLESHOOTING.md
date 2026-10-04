@@ -159,7 +159,11 @@ Admission control, and the three are separate because the fix differs:
 | `4028` | Your tenant is over its share | Capacity may still be free — this protects the other tenants |
 
 All three arrive at a client as `RESOURCE_EXHAUSTED`, so a driver retries them and does not treat
-them as a malformed query.
+them as a malformed query. They come from `pravaha.serving.read.*` (READADMIT-1): `max-concurrent`,
+`max-queued` with `queue-timeout`, and `tenant-share` respectively, and `pravaha_read_refused_total{reason=}`
+counts each. A read stopped by `pravaha.serving.read.deadline` is `PRV-4029`; split the read or raise the
+deadline. A node with these unset admits every read and sets no deadline, so none of the four can occur.
+A value out of range stops the node with `PRV-1026` naming the key.
 
 ---
 

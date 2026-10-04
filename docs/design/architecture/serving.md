@@ -58,9 +58,9 @@ the clause is `RETAIN FOR`, in [`CONTINUOUS_QUERIES.md`](../../guides/CONTINUOUS
 ([ADR-030](../adr/030-flight-sql-as-the-client-protocol.md)), so an unbounded read path lets a client in
 a loop starve a query of CPU. `ReadAdmission` bounds the work happening, the work waiting, and any one
 tenant's share of both, and a gateway is given one with `admitting(admission, readDeadline)`.
-**As built, `pravaha-server` does not call it**: a node's Flight and PostgreSQL gateways run with
-`ReadAdmission.UNLIMITED` and no read deadline, so `PRV-4026`–`PRV-4029` are raised only by a gateway an
-application assembles itself (suggested finding LETTERS-2).
+On a node, `pravaha.serving.read.*` (`ReadLimits`) builds one admission that the Flight and PostgreSQL
+gateways share, and one read deadline; the embedded engine reads the same keys. The defaults admit every
+read with no deadline, as before READADMIT-1 ([OPERATIONS](../../operations/OPERATIONS.md#admission-control)).
 
 ### A read, step by step
 

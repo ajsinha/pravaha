@@ -94,6 +94,9 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private final AtomicReference<EngineState> state = new AtomicReference<>(EngineState.CREATED);
     private final Duration pushTimeout;
 
+    /** pravaha.serving.read.* (READADMIT-1): read admission and the read deadline, as a node reads them. */
+    private final com.ash.messaging.pravaha.serving.ReadLimits readLimits;
+
     // Declarations. Guarded by `this`, and frozen once start() has read them.
     private final Map<String, StreamSchema> declaredStreams = new LinkedHashMap<>();
     private final Map<String, SourceBinding> declaredSources = new LinkedHashMap<>();
@@ -134,6 +137,8 @@ final class DefaultPravahaEngine implements PravahaEngine {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.instanceId = configuration.getString("pravaha.node.id", "pravaha-embedded");
         this.pushTimeout = configuration.getDuration("pravaha.embedded.push-timeout", Duration.ofSeconds(30));
+        // READADMIT-1. Read here, so a value out of range is refused (PRV-1026) while the host builds the engine.
+        this.readLimits = com.ash.messaging.pravaha.serving.ReadLimits.from(configuration);
         // DOCX-21. Where a failure's help page lives, for a host that publishes one. Read here --
         // at construction, before anything can fail -- so a bad value is refused while the host is
         // still building the engine rather than inside the first error it tries to report. Unset
@@ -291,7 +296,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 .getString(com.ash.messaging.pravaha.runtime.window.WindowLimits.SETTING)
                 .orElse(null)));
         registry = built;
-        reads = new ViewQuery(views, policy, audit);
+        reads = new ViewQuery(views, policy, audit, readLimits.admission(), readLimits.deadline());
 
         // Checkpoints before the feeds, so a query is checkpointed from its first row.
         configuration

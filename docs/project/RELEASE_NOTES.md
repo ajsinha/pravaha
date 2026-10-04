@@ -131,6 +131,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   catalogue, a verifier bean without `authentication: token` or beside identity. The refusal of an unknown
   `pravaha.security.policy`, which said "or implement SecurityPolicy" when nothing on a node would use
   one, now names the catalogue and the bean. See docs/development/guides/SECURITY_EXTENSIONS.md.
+- **Read admission and a read deadline are settings** (READADMIT-1). `pravaha.serving.read.max-concurrent`,
+  `max-queued`, `queue-timeout`, `tenant-share` and `deadline` build one admission that a node's Flight
+  and PostgreSQL gateways share, and the embedded engine reads the same keys. Before, every read on a
+  node was admitted with no deadline and nothing could change it, so `PRV-4026`–`PRV-4029` never
+  occurred. The defaults keep that behaviour (every read admitted, no deadline); a value out of range
+  stops the node with `PRV-1026` naming the key; the node logs the limits at start, and
+  `pravaha_read_refused_total{reason}` and `pravaha_read_in_flight` are published.
 
 Register: **572 findings — 549 fixed, 4 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
 

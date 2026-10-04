@@ -197,6 +197,19 @@ pravaha:
 #     max-message-size: 1MB
 #     idle-timeout: 0s
 
+  # Read admission (READADMIT-1): one limit shared by the Flight and PostgreSQL gateways. Unset, every
+  # read is admitted and none has a deadline, as before. Past max-concurrent a read waits (up to
+  # max-queued, for queue-timeout) or is refused: PRV-4026 queue full, PRV-4027 waited too long,
+  # PRV-4028 its tenant is over tenant-share of max-concurrent. A read running past deadline is stopped
+  # (PRV-4029). An out-of-range value stops the node with PRV-1026.
+# serving:
+#   read:
+#     max-concurrent: 0       # 0 = every read admitted
+#     max-queued: 0
+#     queue-timeout: 2s
+#     tenant-share: 1.0
+#     deadline: 0s            # 0 = none
+
   flight:
     enabled: true
     # Write the address in full. `127` is legal input to InetAddress and means 0.0.0.127, so a

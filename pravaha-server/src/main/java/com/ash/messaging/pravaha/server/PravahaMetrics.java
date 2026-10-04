@@ -94,6 +94,21 @@ public final class PravahaMetrics implements AutoCloseable {
                                 .orElse(0))
                 .description("Journalled registrations refused at recovery, listed FAILED until dropped")
                 .register(meters);
+        // READADMIT-1: the reads the node's admission refused, by which of the three limits, and the
+        // reads running now. Zero while pravaha.serving.read.max-concurrent is 0 (every read admitted).
+        java.util.Map.<String, java.util.function.ToDoubleFunction<PravahaNode>>of(
+                        "rejected", n -> n.readAdmission().rejectedCount(),
+                        "queue_timed_out", n -> n.readAdmission().queueTimedOutCount(),
+                        "tenant_share", n -> n.readAdmission().tenantRejectedCount())
+                .forEach((reason, count) -> io.micrometer.core.instrument.FunctionCounter.builder(
+                                "pravaha.read.refused", node, count)
+                        .description("Reads refused by admission (PRV-4026 rejected, 4027 queue_timed_out, "
+                                + "4028 tenant_share)")
+                        .tags("reason", reason)
+                        .register(meters));
+        Gauge.builder("pravaha.read.in_flight", node, n -> n.readAdmission().inFlight())
+                .description("Reads holding an admission permit now")
+                .register(meters);
         // AUDITROTATE-1: decisions the durable audit sink accepted and did not record, and whether it
         // is failing now. Non-zero / 1 is an audit trail with a gap in it.
         io.micrometer.core.instrument.FunctionCounter.builder(

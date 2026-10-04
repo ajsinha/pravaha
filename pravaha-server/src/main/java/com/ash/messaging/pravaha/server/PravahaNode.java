@@ -276,6 +276,22 @@ public class PravahaNode implements SmartLifecycle {
 
     private PgWireLimits pgWireLimits = PgWireLimits.DEFAULTS;
 
+    /** pravaha.serving.read.* (READADMIT-1): validated here, so a bad value stops the node at start. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setReadLimits(ReadLimitsProperties properties) {
+        readLimits = properties == null ? com.ash.messaging.pravaha.serving.ReadLimits.NONE : properties.limits();
+    }
+
+    private com.ash.messaging.pravaha.serving.ReadLimits readLimits = com.ash.messaging.pravaha.serving.ReadLimits.NONE;
+
+    private volatile com.ash.messaging.pravaha.serving.ReadAdmission readAdmission =
+            com.ash.messaging.pravaha.serving.ReadAdmission.UNLIMITED;
+
+    /** The admission both gateways share since the last start: its counts are the node's read refusals. */
+    public com.ash.messaging.pravaha.serving.ReadAdmission readAdmission() {
+        return readAdmission;
+    }
+
     /** pravaha.pgwire.tls.allow-plaintext (PGTLSONLY-1): off, so a certificate is PostgreSQL's hostssl. */
     @org.springframework.beans.factory.annotation.Value("${pravaha.pgwire.tls.allow-plaintext:false}")
     private boolean pgwireAllowPlaintext;
@@ -1202,6 +1218,9 @@ public class PravahaNode implements SmartLifecycle {
                     + "a restart will lose them without saying so");
         }
 
+        com.ash.messaging.pravaha.serving.ReadAdmission reads = readLimits.admission();
+        readAdmission = reads;
+        log.info("{}", readLimits.describe());
         if (flightEnabled) {
             // The same policy object the registry authorizes against, and set BEFORE hosting().
             //
@@ -1216,6 +1235,7 @@ public class PravahaNode implements SmartLifecycle {
                     // B5. The same files the HTTP endpoints read, so `pravaha dlq` and the REST
                     // API cannot disagree about what is in the queue.
                     .withDeadLetters(feeds.deadLetters())
+                    .admitting(reads, readLimits.deadline()) // READADMIT-1: one admission for both gateways
                     .observedBy(flightObservation)
                     .hosting(registry);
             TokenVerifier flightVerifier = transportVerifier();
@@ -1257,7 +1277,8 @@ public class PravahaNode implements SmartLifecycle {
                     new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
                             .authorizedBy(securityPolicyOf(registry), auditSink())
                             // PGPREAUTH-1: connection, handshake, message-size and idle limits.
-                            .limitedBy(pgWireLimits);
+                            .limitedBy(pgWireLimits)
+                            .admitting(reads, readLimits.deadline());
             TokenVerifier pgVerifier = transportVerifier();
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);
