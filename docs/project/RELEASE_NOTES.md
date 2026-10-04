@@ -38,6 +38,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   stops at that record (FEED-1: describe and health show it) exactly as it would with no queue
   configured; a row whose evaluation failed stops its query the same way, and `pravaha-engine run
   --dlq` fails the run. A failed append no longer leaves a torn line for the next entry to join.
+- **A TLS-configured PostgreSQL gateway refuses plaintext clients** (PGTLSONLY-1). With
+  `pravaha.pgwire.tls.*` set, a client that sent its startup without `SSLRequest` (`sslmode=disable`,
+  Npgsql 4's default) was asked for its token in the clear and signed in. It is now refused
+  `FATAL 28000` with the new `PRV-6221 PGWIRE_TLS_REQUIRED` before any credential is requested —
+  PostgreSQL's `hostssl`. `pravaha.pgwire.tls.allow-plaintext: true` (off by default) accepts both,
+  for a migration window. **Changes behaviour:** a client at `sslmode=disable` against a TLS gateway
+  that used to connect is refused; connect with `sslmode=verify-full`.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

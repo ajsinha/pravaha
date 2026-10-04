@@ -180,6 +180,7 @@ pravaha:
 #   tls:
 #     certificate: ""
 #     key: ""
+#     allow-plaintext: false   # with TLS set, a client that does not ask for it is refused (PRV-6221)
   # What the gateway holds at once (PGPREAUTH-1). Past max-connections, or max-unauthenticated
   # connections still in their handshake, a new socket is answered FATAL 53300 (PRV-6216) at once,
   # without a thread. The handshake -- startup to AuthenticationOk -- has one authentication-timeout

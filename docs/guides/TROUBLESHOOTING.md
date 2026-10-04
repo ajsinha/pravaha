@@ -443,6 +443,11 @@ The gateway verifies the credential before every statement, so this is revocatio
 Reconnect with a current key. `57P05` / `PRV-6219` is `pravaha.pgwire.limits.idle-timeout` ending an
 idle connection.
 
+**A PostgreSQL client is refused `FATAL 28000` / `PRV-6221` before any password prompt.** The gateway
+has TLS configured and the client did not ask for it (`sslmode=disable`, Npgsql 4's default). Connect
+with `sslmode=verify-full` (Npgsql: `SSL Mode=Require`), or set `pravaha.pgwire.tls.allow-plaintext:
+true` to accept plaintext clients too, whose token then crosses the wire in the clear (PGTLSONLY-1).
+
 **`RST_STREAM ... CANCEL` from a Flight client, with nothing explaining why.** Almost always the JVM
 missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED`.
 Arrow fails *inside the server* and cancels the stream; the client sees only the cancellation. Add
@@ -1156,6 +1161,7 @@ client models the error rather than an empty object.
 | `PRV-6218` | PGWIRE_CREDENTIAL_REVOKED | gateway |
 | `PRV-6219` | PGWIRE_IDLE_TIMEOUT | gateway |
 | `PRV-6220` | PGWIRE_BAD_LIMITS | gateway |
+| `PRV-6221` | PGWIRE_TLS_REQUIRED | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

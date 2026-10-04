@@ -7,7 +7,7 @@ icon: server
 summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
-keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", "select 1", hikari, "connectionTestQuery", "search_path", copy, PRV-6201, PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, "53300", max-connections, idle-timeout, revoked]
+keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", "select 1", hikari, "connectionTestQuery", "search_path", copy, PRV-6201, PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, PRV-6221, allow-plaintext, "53300", max-connections, idle-timeout, revoked]
 guide: architecture
 related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
@@ -64,7 +64,11 @@ PostgreSQL wire protocol listening on 127.0.0.1:5433 -- NO TLS, the credential c
     travels as it is — which is what that startup line says. Bind it to loopback, or configure TLS.
 
 With the pair set, the gateway negotiates TLS on the same port and authenticates **after** the
-handshake, so the token is always inside it:
+handshake, so the token is always inside it. A client that does not ask for TLS — `sslmode=disable`,
+`sslmode=prefer` against a client without TLS support, Npgsql 4's default — is refused
+`FATAL 28000` with [PRV-6221](/help/codes/PRV-6221) before it is asked for anything: PostgreSQL's
+`hostssl`. `pravaha.pgwire.tls.allow-plaintext: true` (off by default) accepts such clients as well,
+for a migration window; their token then crosses the wire in the clear (PGTLSONLY-1).
 
 ```yaml
 pravaha:

@@ -4,7 +4,7 @@ slug: errors-gateway
 category: errors
 order: 70
 icon: hdd-network
-summary: "PRV-6100 to PRV-6220: what the Flight SQL and PostgreSQL gateways refuse — types, unimplemented requests, unreadable TLS, writes, statements in a failed block, connections past the limits, and revoked credentials."
+summary: "PRV-6100 to PRV-6221: what the Flight SQL and PostgreSQL gateways refuse — types, unimplemented requests, unreadable TLS, writes, statements in a failed block, connections past the limits, and revoked credentials."
 badge: PRV-6XXX
 audience: Developers, operators
 keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate, transaction, savepoint, "25P02", "53300", too many connections, revoked, idle timeout, max-message-size]
@@ -55,6 +55,7 @@ as "gateway".)
 | PRV-6218 | PGWIRE_CREDENTIAL_REVOKED | PostgreSQL | `28000` |
 | PRV-6219 | PGWIRE_IDLE_TIMEOUT | PostgreSQL | `57P05` |
 | PRV-6220 | PGWIRE_BAD_LIMITS | PostgreSQL | (startup) |
+| PRV-6221 | PGWIRE_TLS_REQUIRED | PostgreSQL | `28000` |
 
 ## Arrow Flight SQL
 
@@ -337,6 +338,16 @@ The node does not start: a `pravaha.pgwire.limits.*` value is out of range — `
 `max-message-size` below 64KB. The message names the key.
 
 **Do:** fix the value it names.
+
+### PRV-6221 — pgwire TLS required
+
+`FATAL 28000`, before the client is asked for a credential. The gateway has a certificate
+(`pravaha.pgwire.tls.*`) and the client sent its startup packet without asking for TLS first —
+`sslmode=disable`, or a driver whose default is no TLS (Npgsql 4). Refused so the token never crosses
+the wire in the clear on a node configured to prevent exactly that (PGTLSONLY-1).
+
+**Do:** connect with `sslmode=verify-full` (or `require`; for Npgsql `SSL Mode=Require`). To accept
+plaintext clients as well, for a migration window, set `pravaha.pgwire.tls.allow-plaintext: true`.
 
 ## Where next
 

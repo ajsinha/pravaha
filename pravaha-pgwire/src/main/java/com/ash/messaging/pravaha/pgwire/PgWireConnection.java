@@ -76,6 +76,7 @@ final class PgWireConnection implements Runnable {
     private final PgCatalogShim catalog;
     private final TokenVerifier verifier;
     private final PgTls tls;
+    private final boolean allowPlaintext;
     private final String serverVersion;
     private final PgWireLimits limits;
     private final PgConnections.Ticket ticket;
@@ -87,6 +88,7 @@ final class PgWireConnection implements Runnable {
             PgCatalogShim catalog,
             TokenVerifier verifier,
             PgTls tls,
+            boolean allowPlaintext,
             String serverVersion,
             PgWireLimits limits,
             PgConnections.Ticket ticket,
@@ -96,6 +98,7 @@ final class PgWireConnection implements Runnable {
         this.catalog = catalog;
         this.verifier = verifier;
         this.tls = tls;
+        this.allowPlaintext = allowPlaintext;
         this.serverVersion = serverVersion;
         this.limits = limits;
         this.ticket = ticket;
@@ -250,6 +253,17 @@ final class PgWireConnection implements Runnable {
                             "this server speaks PostgreSQL protocol 3.0; the client asked for " + major + "."
                                     + (startup.code() & 0xffff)
                                     + ". Protocol 2 clients predate PostgreSQL 7.4 and are not supported.");
+                }
+                if (tls != null && active == initial && !allowPlaintext) {
+                    // PGTLSONLY-1. A certificate protected only the clients that asked for it: one
+                    // that sent its startup in the clear was asked for the token in the clear. Refused
+                    // here, before any credential is requested -- PostgreSQL's hostssl.
+                    throw new PravahaException(
+                            PgWireErrors.TLS_REQUIRED,
+                            "this gateway requires TLS and the client did not ask for it: connect with "
+                                    + "sslmode=verify-full (or require); the credential is never asked for "
+                                    + "in the clear. pravaha.pgwire.tls.allow-plaintext=true accepts plaintext "
+                                    + "clients as well.");
                 }
                 return new Prelude(active, startup);
             }

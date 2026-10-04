@@ -198,6 +198,9 @@ name you typed, so:
 Without the pair the gateway declines TLS, and Power BI offers to connect unencrypted. Refusing that
 offer is the right answer across a network.
 
+With the pair set, a connection with **Encrypt connection** turned off is refused `FATAL 28000`
+(PRV-6221) before the token is asked for, unless `pravaha.pgwire.tls.allow-plaintext` is `true`.
+
 ## Publishing: the on-premises data gateway
 
 A published report reaches a Pravaha node inside your network through Microsoft's **on-premises data

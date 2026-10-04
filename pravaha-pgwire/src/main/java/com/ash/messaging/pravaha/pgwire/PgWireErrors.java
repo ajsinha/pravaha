@@ -191,6 +191,16 @@ public final class PgWireErrors {
     public static final ErrorCode BAD_LIMITS = new ErrorCode(6220, "PGWIRE_BAD_LIMITS");
 
     /**
+     * A gateway with a certificate configured was sent a startup packet that did not come through
+     * {@code SSLRequest} -- a client at {@code sslmode=disable}, or Npgsql 4's default -- and refuses
+     * it, {@code FATAL 28000}, before asking for the credential (PGTLSONLY-1). PostgreSQL's {@code
+     * hostssl}: the password would otherwise cross the wire in the clear on a node whose operator
+     * configured TLS to stop exactly that. Connect with {@code sslmode=verify-full} (or {@code
+     * require}); {@code pravaha.pgwire.tls.allow-plaintext=true} accepts plaintext as well.
+     */
+    public static final ErrorCode TLS_REQUIRED = new ErrorCode(6221, "PGWIRE_TLS_REQUIRED");
+
+    /**
      * The statements PostgreSQL has and this gateway does not: {@code COPY}, SQL-level cursors
      * ({@code DECLARE}, {@code FETCH}, {@code MOVE}, {@code CLOSE}), {@code LISTEN}/{@code NOTIFY}, and
      * Pravaha's own {@code SELECT STREAM}, a subscription that never ends and so has no PostgreSQL
@@ -313,6 +323,7 @@ public final class PgWireErrors {
             case "PRV-6218" -> "28000"; // invalid_authorization_specification: the credential is gone
             case "PRV-6219" -> "57P05"; // idle_session_timeout
             case "PRV-6220" -> "08000";
+            case "PRV-6221" -> "28000"; // invalid_authorization_specification, as pg_hba's hostssl
             // 54000 program_limit_exceeded: the result was larger than one response may carry.
             case "PRV-4024" -> "54000";
             // Everything else is the query's fault as far as the client can tell: a name that does
