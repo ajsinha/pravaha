@@ -29,12 +29,15 @@ public final class Ansi {
 
     private Ansi() {}
 
+    // Error Prone holds that System.console() is never null on JDK 22+; under surefire's forked JVM
+    // (no stdin) it still is, and isTerminal() is the question either way.
+    @SuppressWarnings("SystemConsoleNull") // still null in a JVM with no console at all
     private static boolean detect() {
         if (System.getenv("NO_COLOR") != null) {
             return false;
         }
-        // Never null on JDK 22 and later; whether it is a terminal is the question.
-        return detect(System.getenv("TERM"), System.console().isTerminal());
+        java.io.Console console = System.console();
+        return detect(System.getenv("TERM"), console != null && console.isTerminal());
     }
 
     /**
