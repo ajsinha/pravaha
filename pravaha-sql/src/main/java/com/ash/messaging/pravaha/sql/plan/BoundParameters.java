@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.sql.plan;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.List;
 
@@ -125,6 +127,9 @@ public final class BoundParameters {
                     case STRING -> value instanceof CharSequence;
                     case BOOLEAN -> value instanceof Boolean;
                     case BYTES -> value instanceof byte[];
+                    // DECPARAM-1: exact values only. A double is refused rather than read as the
+                    // decimal nearest to it, which is a rounding nobody asked for.
+                    case DECIMAL -> exactDecimal(value) != null;
                     default -> false;
                 };
         if (!ok) {
@@ -133,6 +138,22 @@ public final class BoundParameters {
                     "?" + (index + 1) + " is used where the query needs " + expected + ", but a "
                             + value.getClass().getSimpleName() + " was bound");
         }
+    }
+
+    /**
+     * {@code value} as the exact decimal it is -- a {@link BigDecimal}, or any integer -- or null when
+     * it is not one (a double, text, anything else).
+     */
+    public static BigDecimal exactDecimal(Object value) {
+        return switch (value) {
+            case BigDecimal exact -> exact;
+            case BigInteger whole -> new BigDecimal(whole);
+            case Long whole -> BigDecimal.valueOf(whole);
+            case Integer whole -> BigDecimal.valueOf(whole);
+            case Short whole -> BigDecimal.valueOf(whole);
+            case Byte whole -> BigDecimal.valueOf(whole);
+            case null, default -> null;
+        };
     }
 
     @Override

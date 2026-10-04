@@ -80,6 +80,13 @@ final class FlightTlsPair {
      */
     static void requireMatching(File certificateChain, File privateKey) {
         Certificate certificate = firstCertificateOf(certificateChain);
+        // CERTEXP-1: its dates, as checkable here as the pair is.
+        com.ash.messaging.pravaha.common.net.CertificateValidity.requireCurrent(
+                certificate,
+                certificateChain.getAbsolutePath(),
+                "pravaha.flight.tls.certificate",
+                FlightErrors.TLS_UNREADABLE,
+                java.time.Instant.now());
         PrivateKey key = keyOf(privateKey);
         PublicKey published = certificate.getPublicKey();
 

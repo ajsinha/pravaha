@@ -96,7 +96,7 @@ PRV-1032.
 | Flag | Environment | |
 |---|---|---|
 | `--tls-ca` | `PRAVAHA_TLS_CA` | A PEM CA certificate to trust (a private CA, a self-signed node) |
-| `--tls-cert`, `--tls-key` | `PRAVAHA_TLS_CERT`, `PRAVAHA_TLS_KEY` | A client certificate and its key, for mutual TLS; both or neither |
+| `--tls-cert`, `--tls-key` | `PRAVAHA_TLS_CERT`, `PRAVAHA_TLS_KEY` | A client certificate and its key, for mutual TLS with a terminator in front of the node (the node does not ask for one); both or neither |
 | `--tls-trust-store`, `--tls-trust-store-password`, `--tls-trust-store-type` | `PRAVAHA_TLS_TRUST_STORE_PASSWORD` | A JKS or PKCS12 trust store instead of PEM (Flight only) |
 | `--tls-key-store`, `--tls-key-store-password`, `--tls-key-store-type` | `PRAVAHA_TLS_KEY_STORE_PASSWORD` | A JKS or PKCS12 key store (Flight only) |
 | `--tls-override-hostname` | | Check the certificate against this name rather than the URL's host |

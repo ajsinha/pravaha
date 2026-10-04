@@ -105,6 +105,7 @@ public final class PravahaPgWireServer implements AutoCloseable {
     private Duration readDeadline = Duration.ZERO;
     private TokenVerifier verifier;
     private volatile PgTls tls;
+    private volatile boolean allowPlaintext;
     private PgWireLimits limits = PgWireLimits.DEFAULTS;
     private volatile PgConnections connections;
 
@@ -168,6 +169,21 @@ public final class PravahaPgWireServer implements AutoCloseable {
      */
     public PravahaPgWireServer encryptedWith(java.io.File certificateChain, java.io.File privateKey) {
         this.tls = PgTls.load(certificateChain, privateKey);
+        return this;
+    }
+
+    /**
+     * Whether a server with a certificate also accepts a client that did not ask for TLS.
+     *
+     * <p>{@code false} by default, and then such a client is refused {@code FATAL 28000}, {@link
+     * PgWireErrors#TLS_REQUIRED}, before it is asked for the credential (PGTLSONLY-1) -- PostgreSQL's
+     * {@code hostssl}. Before, a certificate protected only the clients that asked for it: one at
+     * {@code sslmode=disable} was asked for its token in the clear and signed in. {@code true} is
+     * PostgreSQL's {@code host}: both, for a migration window. Meaningless without {@link
+     * #encryptedWith}, where every connection is plaintext.
+     */
+    public PravahaPgWireServer allowingPlaintext(boolean allow) {
+        this.allowPlaintext = allow;
         return this;
     }
 
@@ -303,7 +319,16 @@ public final class PravahaPgWireServer implements AutoCloseable {
             }
             try {
                 sessions.execute(new PgWireConnection(
-                        client, queries, catalogShim, verifier, tls, SERVER_VERSION, limits, ticket, deadlines));
+                        client,
+                        queries,
+                        catalogShim,
+                        verifier,
+                        tls,
+                        allowPlaintext,
+                        SERVER_VERSION,
+                        limits,
+                        ticket,
+                        deadlines));
             } catch (RuntimeException rejected) {
                 ticket.close();
                 closeQuietly(client);

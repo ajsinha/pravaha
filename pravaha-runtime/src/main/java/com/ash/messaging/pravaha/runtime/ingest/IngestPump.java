@@ -426,9 +426,9 @@ public final class IngestPump implements AutoCloseable {
             // the entry it would replay next is a different one -- so a client retrying blindly
             // walks forward through ids rather than round the same one for ever.
             String note = replayingId == null ? reason : "replay of " + replayingId + " failed again: " + reason;
-            // accept must not throw -- the reader is already handling a failure and cannot handle a
-            // second one. FileDeadLetterQueue counts its own write failures instead, which is what
-            // failures() is for.
+            // accept throws PRV-4090 when the entry could not be written (DLQFULL-1), and that is
+            // left to propagate out of the reader's poll: the feed stops at this record, as it would
+            // with no queue configured, rather than read past a record nobody kept.
             queue.accept(new DeadLetter(
                     deadLetterQueryId,
                     note,

@@ -86,7 +86,8 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p>Configuration: {@code contact.points} (required, {@code host:port,host:port}), {@code keyspace}
  * (required), {@code table} (required), {@code schema} (required, {@code column:TYPE,...}),
  * {@code partition.key} (required, comma-separated column names, in CQL's own partition-key order),
- * {@code local.datacenter} (optional; a single-DC cluster is auto-detected from the contact points),
+ * {@code local.datacenter} (optional; left out, it is inferred from the contact points, which must
+ * then all be in one datacenter -- CASSDC-1),
  * {@code strategy} (default {@code token-range-scan}), {@code partitions} (default 1),
  * {@code scan.interval.ms} (default 60000 -- ten times the Aerospike plugin's default, because this
  * scan is not incremental: every pass reads the whole assigned range, and a short interval on a large
@@ -320,6 +321,12 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                 CqlSession.builder().addContactPoints(contactPoints).withKeyspace(keyspace);
         if (!localDatacenter.isBlank()) {
             builder.withLocalDatacenter(localDatacenter);
+        } else {
+            // CASSDC-1. Documented as detected from the contact points, and never was: the 4.x
+            // driver's default policy refuses explicit contact points with no local DC. The
+            // inferring policy is the driver's own way to keep the promise -- it takes the
+            // datacenter the contact points report, and refuses contact points in more than one.
+            builder.withConfigLoader(inferringLocalDatacenter());
         }
         if (!user.isBlank()) {
             builder.withAuthCredentials(user, password);
@@ -329,6 +336,16 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         }
         try {
             this.session = builder.build();
+        } catch (IllegalStateException e) {
+            // The local datacenter could not be settled: contact points in several datacenters with
+            // none named, or a named one no contact point is in. The driver's own sentence, coded and
+            // with the setting that resolves it.
+            throw new PravahaException(
+                    CassandraErrors.BAD_CONFIGURATION,
+                    "source '" + instanceName + "' cannot settle Cassandra's local datacenter for " + contactPoints
+                            + ": " + e.getMessage() + ". Set local.datacenter to the datacenter these contact "
+                            + "points are in; it can be left out only when they are all in one.",
+                    e);
         } catch (AllNodesFailedException e) {
             throw new PravahaException(
                     CassandraErrors.CONNECT_FAILED,
@@ -344,6 +361,18 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         this.greaterThan = all[0];
         this.greaterOrEqual = all[1];
         readKeyMetadata();
+    }
+
+    /**
+     * The driver's configuration with {@code DcInferringLoadBalancingPolicy}: the local datacenter is
+     * the one the contact points are in, and contact points in more than one are refused.
+     */
+    static com.datastax.oss.driver.api.core.config.DriverConfigLoader inferringLocalDatacenter() {
+        return com.datastax.oss.driver.api.core.config.DriverConfigLoader.programmaticBuilder()
+                .withClass(
+                        com.datastax.oss.driver.api.core.config.DefaultDriverOption.LOAD_BALANCING_POLICY_CLASS,
+                        com.datastax.oss.driver.internal.core.loadbalancing.DcInferringLoadBalancingPolicy.class)
+                .build();
     }
 
     /**

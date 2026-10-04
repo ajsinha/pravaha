@@ -62,9 +62,20 @@ final class SimpleQueryText {
                     "this Query message carries " + statements.size() + " statements; this gateway runs one at a "
                             + "time. Multi-statement queries are not implemented in this slice: each statement "
                             + "produces its own result set, and a client that got one merged answer for several "
-                            + "questions would have no way to tell which rows answered which.");
+                            + "questions would have no way to tell which rows answered which."
+                            + (loadsTypes(statements)
+                                    ? " This looks like Npgsql 5 or later loading types: add 'Server Compatibility "
+                                            + "Mode=NoTypeLoading' to its connection string (NPGSQLNEW-1)."
+                                    : ""));
         }
         return statements.get(0);
+    }
+
+    /** Whether a batch reads {@code pg_type}: newer Npgsql's type loading, sent as one Query. */
+    private static boolean loadsTypes(List<String> statements) {
+        return statements.stream()
+                .anyMatch(statement ->
+                        statement.toLowerCase(java.util.Locale.ROOT).contains("pg_type"));
     }
 
     /** Statements, in order, with empty ones dropped. */

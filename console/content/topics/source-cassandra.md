@@ -51,7 +51,7 @@ quietly misses rows**.
 | `table` | yes | — | The table |
 | `schema` | yes | — | `column:TYPE,…`. Types: `BOOLEAN`, `INT8`/`TINYINT`, `INT16`/`SMALLINT`, `INT32`/`INT`, `INT64`/`BIGINT`/`COUNTER`, `FLOAT32`/`FLOAT`, `FLOAT64`/`DOUBLE`, `STRING`/`TEXT`/`VARCHAR`/`ASCII`, `UUID`/`TIMEUUID`/`INET` (read as `STRING`), `BYTES`/`BLOB`, `TIMESTAMP`. `DECIMAL` and `VARINT` are refused with PRV-5087 |
 | `partition.key` | yes | — | The table's partition-key columns, comma-separated, **in CQL's order** — what `token()` is computed over. Each must be in `schema` |
-| `local.datacenter` | no | auto-detected | Name it when the cluster has more than one datacenter; a single-datacenter cluster is detected from the contact points |
+| `local.datacenter` | no | inferred | Left out, it is the datacenter the contact points are in, and they must all be in one (otherwise PRV-5088 naming this setting). Name it for a multi-datacenter cluster |
 | `event.time` | no | on a server, the stream's declared `event-time` | A `TIMESTAMP` column holding each row's event time. Any other type is refused with PRV-5088. Without it every row carries the time its pass started |
 | `strategy` | no | `token-range-scan` | `writetime-incremental` and `commitlog-cdc` are named and refused with PRV-5088 |
 | `partitions` | no | `1` | Parallel readers over the ring |

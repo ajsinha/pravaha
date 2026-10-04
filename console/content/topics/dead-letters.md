@@ -249,7 +249,7 @@ afternoon or a bound throwing two thousand a minute away, and those need opposit
 | `pravaha_query_dead_letters` | How many are waiting now — **the one to alert on**. The running total keeps rising for a queue somebody is on top of; the depth does not |
 | `pravaha_query_dead_letters_bytes` | How large the file is, against `max-bytes` |
 | `pravaha_query_dead_letters_evicted_total` | What retention has thrown away and will not give back |
-| `pravaha_query_dead_letters_write_failures_total` | Records the queue itself could not write. Non-zero means the DLQ needs attention **before** the records in it do: those records are gone and nothing else says so |
+| `pravaha_query_dead_letters_write_failures_total` | Records the queue itself could not write — a full disk, a directory gone. Each one stopped what fed it with PRV-4090 (below), so non-zero means a feed is stopped at a record that was not kept |
 | `pravaha_query_dead_letters_fraction` | The share of records rejected in the current window |
 | `pravaha_query_dead_letters_degraded` | 1 once that share passes the threshold |
 
@@ -285,6 +285,17 @@ PRV-4090  pravaha.dlq.directory is /opt/pravaha/data/dlq and this node cannot wr
 Deliberately fatal: an operator who configured a queue asked for bad records to be kept. Fix the
 path and its permissions, or unset the key to go back to failing loudly.
 
+The same code stops a running query when one entry cannot be written — the disk filled, the directory
+was removed. The record is **not dropped**: what was feeding it stops at it, exactly as it would with
+no queue configured, the query's feed shows as stopped (health DEGRADED) with the message below, the
+node logs it at ERROR, and `pravaha_query_dead_letters_write_failures_total` counts it. A row whose
+evaluation failed (PRV-3027) stops its query the same way. Free the space, then drop and register the query or restart the node;
+the message names the stream and the source offset of the record that was not kept.
+
+```text
+PRV-4090  the dead letter for query 'v1' on stream 'orders' at source offset 5 could not be written to /opt/pravaha/data/dlq/v1.dlq (No space left on device); 1 write failure(s) so far. The record was not kept, so what fed it stops here rather than read past it. ...
+```
+
 ## The same thing from the CLI
 
 `pravaha-engine run`, which runs a query over a file with no server, takes the queue as a flag and prints
@@ -317,7 +328,8 @@ a run that reports `ok` while having discarded input is what the queue exists to
 !!! warning "Pitfall: a quiet queue is not a healthy feed"
     A queue that is not growing is not the same as a feed that is healthy. Alert on
     `pravaha_query_dead_letters` rising, not on it being non-zero, and on
-    `pravaha_query_dead_letters_write_failures_total` at all: those records are gone.
+    `pravaha_query_dead_letters_write_failures_total` at all: a feed has stopped at a record it could
+    not keep.
 
 !!! warning "Pitfall: replaying is not re-reading"
     A replayed record is a new row now, at the frontier the query has reached. If what you wanted was

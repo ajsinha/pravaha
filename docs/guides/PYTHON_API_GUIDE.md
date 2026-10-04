@@ -421,7 +421,9 @@ TlsOptions.create(ca_certificate=None, client_certificate=None, client_key=None,
                   trust_store=None, key_store=None, ...)
 ```
 
-PEM paths for the CA and, for mutual TLS, the client's certificate and key. Keystores need the
+PEM paths for the CA and, for mutual TLS, the client's certificate and key — presented to a TLS
+terminator in front of the node that asks for one; the node itself does not request or verify client
+certificates (MTLSDOC-1). Keystores need the
 `tls-keystore` extra. Certificate material given for a plaintext endpoint is refused
 (`InvalidTlsOptionsError`) rather than ignored.
 

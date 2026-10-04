@@ -113,4 +113,23 @@ class PgTlsTest {
         // PsqlSessionTest and JdbcClientTest against real clients; this only confirms loading a
         // genuine PEM pair succeeds and produces something PgWireConnection can hand a socket to.
     }
+
+    @Test
+    void anExpiredCertificateIsRefusedAtStartNamingTheDate() throws Exception {
+        // CERTEXP-1: the node started on it, logged "over TLS", and every verifying client failed.
+        SelfSignedTestCertificate expired = SelfSignedTestCertificate.generate(dir, "-10d", 1);
+        assertThatThrownBy(() -> PgTls.load(expired.certificatePem, expired.privateKeyPem))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-6206")
+                .hasMessageContaining("expired at")
+                .hasMessageContaining("pravaha.pgwire.tls.certificate");
+    }
+
+    @Test
+    void aCertificateNotValidYetIsRefusedToo() throws Exception {
+        SelfSignedTestCertificate early = SelfSignedTestCertificate.generate(dir, "+10d", 30);
+        assertThatThrownBy(() -> PgTls.load(early.certificatePem, early.privateKeyPem))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("is not valid until");
+    }
 }

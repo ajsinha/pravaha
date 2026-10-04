@@ -24,20 +24,26 @@ package com.ash.messaging.pravaha.runtime.dlq;
  * what nobody notices. And a bad record <strong>never stops the pipeline</strong> -- one malformed
  * message from one partner cannot be allowed to halt a query carrying nine others.
  *
- * <p>Those two rules pull against each other exactly once: when the DLQ itself fails. An
- * implementation that throws would break the second rule; one that swallows would break the first.
- * The resolution is {@link #failures()} -- writing is best-effort, and the count of entries that
- * could not be written is itself reported, so the gap is visible rather than invisible.
+ * <p>Those two rules pull against each other exactly once: when the DLQ itself fails. The first
+ * wins (DLQFULL-1). Counting the entry and carrying on was tried, and on a full disk it dropped
+ * records with nothing said while the source read past them; so an entry that cannot be written is
+ * counted in {@link #failures()} and refused with {@code PRV-4090}, and what was feeding it stops at
+ * that record -- the behaviour of a node with no queue configured, which fails loudly.
  */
 public interface DeadLetterQueue extends AutoCloseable {
 
-    /** Records one rejected record. Must not throw: the caller is already handling a failure. */
+    /**
+     * Records one rejected record.
+     *
+     * @throws com.ash.messaging.pravaha.api.PravahaException {@code PRV-4090} when the entry could not
+     *     be written; the caller lets it propagate, so the record stops what fed it rather than vanish
+     */
     void accept(DeadLetter letter);
 
     /** Entries accepted. */
     long count();
 
-    /** Entries that could not be written. Non-zero means the DLQ itself needs attention. */
+    /** Entries that could not be written, each one refused. Non-zero means the DLQ needs attention. */
     long failures();
 
     /**

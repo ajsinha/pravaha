@@ -7,7 +7,7 @@ icon: server
 summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
-keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", "select 1", hikari, "connectionTestQuery", "search_path", copy, PRV-6201, PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, "53300", max-connections, idle-timeout, revoked]
+keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", "select 1", hikari, "connectionTestQuery", "search_path", copy, PRV-6201, PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, PRV-6221, allow-plaintext, "53300", max-connections, idle-timeout, revoked]
 guide: architecture
 related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
@@ -29,7 +29,7 @@ It is **read-only**, and **off by default**.
 | Protocol | Simple **and** extended query protocol (Parse/Bind/Describe/Execute/Sync); `$1`-style parameters |
 | Announces itself as | PostgreSQL `9.4.26 (Pravaha)` — the version whose catalogue queries `psql` sends and the shim answers |
 | Catalogue | A minimal read-only `pg_catalog` (`pg_class`, `pg_namespace`, `pg_attribute`, `version()`, `current_schema()`), Npgsql's type loading (`pg_type`) and the `information_schema` questions Npgsql's `GetSchema` and Power BI's navigator ask — all filtered by what you may read — so `\d`, a driver's `getTables()` and Power BI's navigator work |
-| Tested clients | `psql`, pgjdbc 42.7 (simple and extended protocol, autocommit on or off), **Npgsql 4.0.17** — the driver inside Power BI — and psycopg 3 in its default (non-autocommit) mode, each driven by the module's own tests. DBeaver connects through pgjdbc |
+| Tested clients | `psql`, pgjdbc 42.7 (simple and extended protocol, autocommit on or off), **Npgsql 4.0.17** — the driver inside Power BI — and psycopg 3 in its default (non-autocommit) mode, each driven by the module's own tests. DBeaver connects through pgjdbc. Npgsql 5 and later need `Server Compatibility Mode=NoTypeLoading` in the connection string: their type loading is one multi-statement query, refused PRV-6201 (NPGSQLNEW-1) |
 | Transactions | `BEGIN`, `COMMIT`, `ROLLBACK`, savepoints and `SET TRANSACTION` are accepted as no-ops with PostgreSQL's tags and transaction status; reads in a block are `READ COMMITTED` — see [Transactions](#transactions) |
 | Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); with the engine's own accounts on, an **API key** or a **session token** — never the account's own password (PGWIREPASS-1). The user name is informational |
 | Writes | None. `INSERT`/`UPDATE`/`DELETE` are refused by the planner; continuous-query statements with PRV-6211 (SQLSTATE `25006`) |
@@ -64,7 +64,11 @@ PostgreSQL wire protocol listening on 127.0.0.1:5433 -- NO TLS, the credential c
     travels as it is — which is what that startup line says. Bind it to loopback, or configure TLS.
 
 With the pair set, the gateway negotiates TLS on the same port and authenticates **after** the
-handshake, so the token is always inside it:
+handshake, so the token is always inside it. A client that does not ask for TLS — `sslmode=disable`,
+`sslmode=prefer` against a client without TLS support, Npgsql 4's default — is refused
+`FATAL 28000` with [PRV-6221](/help/codes/PRV-6221) before it is asked for anything: PostgreSQL's
+`hostssl`. `pravaha.pgwire.tls.allow-plaintext: true` (off by default) accepts such clients as well,
+for a migration window; their token then crosses the wire in the clear (PGTLSONLY-1).
 
 ```yaml
 pravaha:
@@ -306,8 +310,10 @@ Results go out in **text** unless a client's `Bind` asks for **binary**, which N
 does for every query; the gateway then sends PostgreSQL's own binary format for each type above. One
 difference follows from that format: a binary `timestamptz` is a count of **microseconds**, so a
 value's sub-microsecond digits are truncated (toward the past) where the text form keeps all nine.
-A binary **parameter** is decoded for the fixed-width types and text; any other binary parameter is
-refused with PRV-6209. A binary number is read as the type the client declared for it in `Parse` and
+A binary **parameter** is decoded for the fixed-width types, `numeric` and text; any other binary
+parameter is refused with PRV-6209. A parameter compared with a `DECIMAL` column takes a `numeric`, text
+or integer value and is compared exactly; a `float4`/`float8` there is refused with PRV-2062 rather
+than rounded (DECPARAM-1). A binary number is read as the type the client declared for it in `Parse` and
 widened to the column it is compared with, as PostgreSQL does: pgjdbc's `setInt`/`setShort`,
 psycopg's `%b` with a small `int` and Npgsql's `int` parameters send `int4`/`int2`, and against a
 `BIGINT` they are read as such; a `float4` widens to `DOUBLE`. A wider integer than the column is

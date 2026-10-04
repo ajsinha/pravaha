@@ -70,6 +70,9 @@ class RetypedRestoreTest {
                         >= 2) {
                     return;
                 }
+            } catch (java.io.UncheckedIOException pruned) {
+                // The checkpointer pruned a file between the walk listing it and reading its
+                // attributes; the directory is live, so look again.
             }
             Thread.sleep(20);
         }

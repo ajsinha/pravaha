@@ -198,6 +198,9 @@ name you typed, so:
 Without the pair the gateway declines TLS, and Power BI offers to connect unencrypted. Refusing that
 offer is the right answer across a network.
 
+With the pair set, a connection with **Encrypt connection** turned off is refused `FATAL 28000`
+(PRV-6221) before the token is asked for, unless `pravaha.pgwire.tls.allow-plaintext` is `true`.
+
 ## Publishing: the on-premises data gateway
 
 A published report reaches a Pravaha node inside your network through Microsoft's **on-premises data
@@ -224,8 +227,10 @@ service cannot map the model to the connection.
   anything a read accepts works. Power BI may fold further steps around it as a derived table
   (`select … from (…) "_"`), which reads answer.
 - **A million rows per statement** (PRV-4024), the same ceiling Power BI applies to DirectQuery.
-- The driver is Npgsql **4.0.17**, the only version Power BI runs; newer Npgsql versions send different
-  type-loading queries, which the gateway does not recognise (PRV-6205).
+- The driver is Npgsql **4.0.17**, the only version Power BI runs. Npgsql 5 and later (any other .NET
+  application) send their type loading as one multi-statement query, which the gateway refuses with
+  PRV-6201 and the connection does not open; add `Server Compatibility Mode=NoTypeLoading` to the
+  connection string and Npgsql 8 opens and reads every type the gateway sends (NPGSQLNEW-1).
 
 ## Real-time dashboards in Microsoft Fabric
 

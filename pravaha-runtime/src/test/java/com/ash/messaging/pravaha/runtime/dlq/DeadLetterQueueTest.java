@@ -25,9 +25,12 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.state.StateErrors;
+
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * The dead-letter queue.
@@ -86,19 +89,42 @@ class DeadLetterQueueTest {
     }
 
     @Test
-    void writingIsBestEffortAndNeverThrows(@TempDir Path dir) throws IOException {
-        // The caller is already handling a failure and cannot handle a second one. An exception here
-        // would turn a bad record into a stopped pipeline -- exactly what the DLQ exists to prevent.
+    void anEntryThatCannotBeWrittenIsRefusedAndCountedNotDropped(@TempDir Path dir) throws IOException {
+        // DLQFULL-1. It used to be counted and nothing else, so on a full disk the records went
+        // nowhere while the source read past them. Refused now, with the code a node with an
+        // unwritable queue starts with, so what fed the record stops at it.
         Path file = dir.resolve("rejects.jsonl");
         FileDeadLetterQueue dlq = new FileDeadLetterQueue(file);
         dlq.close();
 
-        assertThatCode(() -> dlq.accept(letter("after close", "x", new byte[0])))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> dlq.accept(letter("after close", "orders.csv:7", new byte[0])))
+                .isInstanceOf(PravahaException.class)
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(StateErrors.DLQ_UNUSABLE))
+                .hasMessageContaining("q-1")
+                .hasMessageContaining("orders.csv:7")
+                .hasMessageContaining("stops here rather than read past it");
         assertThat(dlq.failures())
-                .as("the gap is counted rather than hidden: a non-zero count means the DLQ needs attention")
+                .as("still counted, for the write-failures metric")
                 .isEqualTo(1);
         assertThat(dlq.count()).isZero();
+    }
+
+    @Test
+    void aFullDiskRefusesTheEntry(@TempDir Path dir) throws IOException {
+        // /dev/full answers every write with ENOSPC: the full disk of ADV-GAPS QG-D04, on demand.
+        Path full = Path.of("/dev/full");
+        assumeTrue(Files.isWritable(full), "needs /dev/full");
+        Path file = dir.resolve("v1.dlq");
+        Files.createSymbolicLink(file, full);
+        try (FileDeadLetterQueue dlq = new FileDeadLetterQueue(file)) {
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                assertThatThrownBy(() -> dlq.accept(letter("not a number", "line 3", new byte[] {'x'})))
+                        .isInstanceOf(PravahaException.class)
+                        .hasMessageStartingWith("PRV-4090");
+                assertThat(dlq.failures()).isEqualTo(attempt);
+            }
+            assertThat(dlq.count()).isZero();
+        }
     }
 
     @Test

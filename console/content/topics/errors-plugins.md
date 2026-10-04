@@ -366,6 +366,9 @@ A column of a CQL type this plugin will not guess at; the column is named.
 A configuration that cannot be honoured — including a `strategy` that is declared and not built:
 `writetime-incremental` and `commitlog-cdc` are refused; `token-range-scan` is the one implemented.
 **A full periodic scan that says what it is beats an incremental one that quietly misses rows.**
+Also a local datacenter that cannot be settled: `local.datacenter` left out with contact points in
+more than one datacenter, or set to one no contact point is in. Name the datacenter the contact
+points are in (CASSDC-1).
 
 ### PRV-5089 — Cassandra malformed offset
 

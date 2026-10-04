@@ -26,6 +26,7 @@ import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.rex.RexVisitorImpl;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.TypeMapping;
@@ -53,8 +54,12 @@ public final class ParameterMetadata {
 
     private final List<TypeName> types;
 
-    private ParameterMetadata(List<TypeName> types) {
-        this.types = List.copyOf(types);
+    /** The full types, which for a DECIMAL carry the precision and scale its column has (DECPARAM-1). */
+    private final List<PravahaType> dataTypes;
+
+    private ParameterMetadata(List<PravahaType> dataTypes) {
+        this.dataTypes = List.copyOf(dataTypes);
+        this.types = this.dataTypes.stream().map(PravahaType::typeName).toList();
     }
 
     /** How many values this statement needs. */
@@ -69,6 +74,14 @@ public final class ParameterMetadata {
 
     public List<TypeName> types() {
         return types;
+    }
+
+    /**
+     * The full type inferred for one placeholder: for a DECIMAL, the precision and scale of what it
+     * is compared with, which a transport needs to declare the parameter exactly (DECPARAM-1).
+     */
+    public PravahaType dataTypeOf(int index) {
+        return dataTypes.get(index);
     }
 
     public boolean isEmpty() {
@@ -88,7 +101,7 @@ public final class ParameterMetadata {
         // Sorted and de-duplicated by index: the same ?1 may appear twice in a condition, and it is
         // still one value the caller binds once.
         found.sort((a, b) -> Integer.compare(a.getIndex(), b.getIndex()));
-        List<TypeName> types = new ArrayList<>();
+        List<PravahaType> types = new ArrayList<>();
         for (RexDynamicParam param : found) {
             if (param.getIndex() < types.size()) {
                 continue;
@@ -114,9 +127,9 @@ public final class ParameterMetadata {
                         + "size, and the first anyone would know of it is a memory alarm.");
     }
 
-    private static TypeName typeOf(RexDynamicParam param) {
+    private static PravahaType typeOf(RexDynamicParam param) {
         try {
-            return TypeMapping.fromCalcite(param.getType()).typeName();
+            return TypeMapping.fromCalcite(param.getType());
         } catch (RuntimeException e) {
             throw new PravahaException(
                     SqlErrors.PARAMETER_TYPE,

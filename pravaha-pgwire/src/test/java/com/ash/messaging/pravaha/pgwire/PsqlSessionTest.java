@@ -220,13 +220,11 @@ class PsqlSessionTest {
     }
 
     /**
-     * A TLS-configured server must not become TLS-only: {@code sslmode=disable} never sends an
-     * {@code SSLRequest} at all, so this exercises the plaintext path exactly as {@link
-     * #psqlConnectsAndSelectsFromAView} does, on a server that happens to also hold a certificate.
-     * A client that opts out is not refused, and it is not silently upgraded behind its back either.
+     * A TLS-configured server is TLS-only unless told otherwise (PGTLSONLY-1): {@code sslmode=disable}
+     * never sends an {@code SSLRequest}, and is refused {@code 28000} before any password is asked for.
      */
     @Test
-    void psqlStillConnectsInPlaintextWhenTheServerHasACertificateButTheClientDisablesSsl() throws Exception {
+    void psqlWithSslDisabledIsRefusedByAServerWithACertificate() throws Exception {
         requirePsql();
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
         server = new PravahaPgWireServer(populated())
@@ -235,8 +233,7 @@ class PsqlSessionTest {
 
         String output = psql(null, "SELECT user_id, tier, total FROM user_volume", "disable");
 
-        assertThat(output).contains("u1").contains("gold").contains("300");
-        assertThat(output).contains("(3 rows)");
+        assertThat(output).contains("PRV-6221").doesNotContain("(3 rows)");
     }
 
     @Test

@@ -190,6 +190,12 @@ public final class PredicateCompiler {
                     : left instanceof RexLiteral literal && right instanceof RexInputRef ref
                             ? decimalAgainstLiteral(ref.getIndex(), flip(op), literal)
                             : null;
+            // DECPARAM-1: a bound value is a literal that arrived late, and takes the same path.
+            if (typed == null && left instanceof RexInputRef ref && right instanceof RexDynamicParam param) {
+                typed = decimalAgainstParameter(ref.getIndex(), op, param);
+            } else if (typed == null && left instanceof RexDynamicParam param && right instanceof RexInputRef ref) {
+                typed = decimalAgainstParameter(ref.getIndex(), flip(op), param);
+            }
             return typed != null ? typed : compareExpressions(call, op);
         }
 
@@ -256,13 +262,42 @@ public final class PredicateCompiler {
                 || isDecimal(call.getOperands().get(1));
         DecimalCompiler decimals = new DecimalCompiler(expressions);
         Expression left = decimal
-                ? decimals.operand(call.getOperands().get(0))
+                ? decimalOperand(decimals, call.getOperands().get(0))
                 : expressions.compile(call.getOperands().get(0));
         Expression right = decimal
-                ? decimals.operand(call.getOperands().get(1))
+                ? decimalOperand(decimals, call.getOperands().get(1))
                 : expressions.compile(call.getOperands().get(1));
         rejectTextOrdering(call, op, left, right);
         return new Predicate.CompareExpressions(left, op, right);
+    }
+
+    /**
+     * One side of a DECIMAL comparison: a bound placeholder as the exact decimal it holds, which is
+     * how a literal is compiled, and anything else as {@link DecimalCompiler#operand} compiles it.
+     */
+    private Expression decimalOperand(DecimalCompiler decimals, RexNode node) {
+        if (!(node instanceof RexDynamicParam param)) {
+            return decimals.operand(node);
+        }
+        java.math.BigDecimal value = boundDecimal(param);
+        return value == null ? Expression.Literal.ofNull(TypeName.INT64) : new Expression.DecimalLiteral(value);
+    }
+
+    /** A placeholder compared with a DECIMAL, exactly: a decimal or an integer, never a double. */
+    private java.math.BigDecimal boundDecimal(RexDynamicParam param) {
+        Object value = parameters.at(param.getIndex());
+        BoundParameters.checkAssignable(param.getIndex(), value, TypeName.DECIMAL);
+        return BoundParameters.exactDecimal(value);
+    }
+
+    /**
+     * {@code column op ?} over a DECIMAL column: the typed comparison a literal gets when the bound
+     * value fits the column's scale, false for a bound NULL, and null -- the general, exact path --
+     * otherwise.
+     */
+    private Predicate decimalAgainstParameter(int ordinal, Predicate.Op op, RexDynamicParam param) {
+        java.math.BigDecimal value = boundDecimal(param);
+        return value == null ? new Predicate.False() : decimalAgainstValue(ordinal, op, value);
     }
 
     /**
@@ -271,13 +306,15 @@ public final class PredicateCompiler {
      * is not a plain decimal.
      */
     private Predicate decimalAgainstLiteral(int ordinal, Predicate.Op op, RexLiteral literal) {
-        if (!(schema.field(ordinal).type() instanceof com.ash.messaging.pravaha.api.data.DecimalType column)
-                || literal.isNull()
-                || literal.getType().getSqlTypeName() != org.apache.calcite.sql.type.SqlTypeName.DECIMAL) {
+        if (literal.isNull() || literal.getType().getSqlTypeName() != org.apache.calcite.sql.type.SqlTypeName.DECIMAL) {
             return null;
         }
         java.math.BigDecimal value = literal.getValueAs(java.math.BigDecimal.class);
-        if (value == null) {
+        return value == null ? null : decimalAgainstValue(ordinal, op, value);
+    }
+
+    private Predicate decimalAgainstValue(int ordinal, Predicate.Op op, java.math.BigDecimal value) {
+        if (!(schema.field(ordinal).type() instanceof com.ash.messaging.pravaha.api.data.DecimalType column)) {
             return null;
         }
         try {

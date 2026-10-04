@@ -15,10 +15,14 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
@@ -87,6 +91,7 @@ final class Parameters {
                 doubles.setSafe(0, asNumber(index, value).doubleValue());
             case Float4Vector floats -> floats.setSafe(0, asNumber(index, value).floatValue());
             case BitVector bit -> bit.setSafe(0, Boolean.TRUE.equals(value) ? 1 : 0);
+            case DecimalVector decimal -> decimal.setSafe(0, asDecimal(index, value, decimal));
             case TimeStampNanoTZVector stamp ->
                 stamp.setSafe(0, asNumber(index, value).longValue());
             case VarBinaryVector binary -> {
@@ -110,6 +115,43 @@ final class Parameters {
             return text.toString();
         }
         throw mismatch(index, value, "text");
+    }
+
+    /**
+     * A placeholder compared with a DECIMAL column (DECPARAM-1), at that column's scale exactly: a
+     * {@link BigDecimal} or an integer. A double is refused rather than sent as the decimal nearest to
+     * it, and a value with more decimal places than the column, or more digits, rather than rounded.
+     */
+    private static BigDecimal asDecimal(int index, Object value, DecimalVector vector) {
+        BigDecimal exact =
+                switch (value) {
+                    case BigDecimal decimal -> decimal;
+                    case BigInteger whole -> new BigDecimal(whole);
+                    case Long whole -> BigDecimal.valueOf(whole);
+                    case Integer whole -> BigDecimal.valueOf(whole);
+                    case Short whole -> BigDecimal.valueOf(whole);
+                    case Byte whole -> BigDecimal.valueOf(whole);
+                    default -> throw mismatch(index, value, "a BigDecimal or an integer (DECIMAL is exact)");
+                };
+        BigDecimal scaled;
+        try {
+            scaled = exact.setScale(vector.getScale(), RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException moreDecimalPlaces) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    "?" + (index + 1) + " is compared with a DECIMAL(" + vector.getPrecision() + ", "
+                            + vector.getScale() + ") and " + exact.toPlainString() + " has more decimal places "
+                            + "than that; Pravaha does not round it",
+                    false);
+        }
+        if (scaled.precision() > vector.getPrecision()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    "?" + (index + 1) + " is compared with a DECIMAL(" + vector.getPrecision() + ", "
+                            + vector.getScale() + ") and " + exact.toPlainString() + " has more digits than that",
+                    false);
+        }
+        return scaled;
     }
 
     private static Number asNumber(int index, Object value) {

@@ -385,7 +385,8 @@ public class QueryController {
                 List.of(),
                 List.of(),
                 null,
-                refused.owner().isEmpty() ? null : refused.owner());
+                refused.owner().isEmpty() ? null : refused.owner(),
+                null);
     }
 
     /**
@@ -486,7 +487,12 @@ public class QueryController {
                 listing.readsFrom(principal, entry, action),
                 listing.dependants(principal, entry, action),
                 accessPaths(view),
-                entry.owner().orElse(null));
+                entry.owner().orElse(null),
+                new ApiDtos.QueryCheckpoint(
+                        query.isCheckpointing(),
+                        query.lastCheckpoint().orElse(null),
+                        query.checkpointFailures(),
+                        query.lastCheckpointFailure().map(registry::redact).orElse(null)));
     }
 
     /** How this view's reads found their rows (IDXVIS-1), read from the view's own counters. */

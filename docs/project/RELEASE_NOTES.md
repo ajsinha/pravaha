@@ -31,6 +31,74 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   append that the disk failed part way left its bytes behind; once space returned, the next
   registration was written after them, and the next start refused the journal with `PRV-8005`. A
   failed append now has the next one cut the torn bytes first. Found by the ADV-GAPS QA pass.
+- **A dead letter that cannot be written stops the feed instead of vanishing** (DLQFULL-1). On a
+  full disk `FileDeadLetterQueue` counted the failed write and nothing else: the record went
+  nowhere, nothing was logged, and the source read on. Now the write failure is logged at ERROR,
+  counted in `pravaha_query_dead_letters_write_failures_total`, and refused `PRV-4090`, so the feed
+  stops at that record (FEED-1: describe and health show it) exactly as it would with no queue
+  configured; a row whose evaluation failed stops its query the same way, and `pravaha-engine run
+  --dlq` fails the run. A failed append no longer leaves a torn line for the next entry to join.
+- **A TLS-configured PostgreSQL gateway refuses plaintext clients** (PGTLSONLY-1). With
+  `pravaha.pgwire.tls.*` set, a client that sent its startup without `SSLRequest` (`sslmode=disable`,
+  Npgsql 4's default) was asked for its token in the clear and signed in. It is now refused
+  `FATAL 28000` with the new `PRV-6221 PGWIRE_TLS_REQUIRED` before any credential is requested —
+  PostgreSQL's `hostssl`. `pravaha.pgwire.tls.allow-plaintext: true` (off by default) accepts both,
+  for a migration window. **Changes behaviour:** a client at `sslmode=disable` against a TLS gateway
+  that used to connect is refused; connect with `sslmode=verify-full`.
+- **A parameter compared with a DECIMAL column works, exactly** (DECPARAM-1). `WHERE price > ?` over
+  a `DECIMAL` was refused `PRV-2021 '?0' is a RexDynamicParam` on every transport. The placeholder is
+  now typed by its column and compared exactly: a decimal or an integer binds (Flight declares the
+  parameter as `decimal128` at the column's precision and scale; pgwire decodes text, binary
+  `numeric` and binary integers), and a float is refused (`PRV-2062` on pgwire, before sending in the
+  SDKs) rather than read as the nearest decimal. The Java SDK binds `BigDecimal` and integers to a
+  decimal placeholder and refuses a value with more places than the column.
+- **Cassandra's `local.datacenter` is inferred, as documented** (CASSDC-1). The option was documented
+  as optional and detected from the contact points, but the 4.x driver refuses explicit contact points
+  without a local datacenter, so every registration that left it out failed `PRV-5091` wrapping the
+  driver's `IllegalStateException`. Left out, the driver's `DcInferringLoadBalancingPolicy` now takes
+  the datacenter the contact points are in; contact points in more than one, or a named datacenter no
+  contact point is in, are refused `PRV-5088` naming the setting.
+- **Why a checkpoint failed is said** (CKPTWHY-1). A failing checkpoint raised
+  `pravaha_query_checkpoint_failures_total` and nothing said why: the checkpointer's narrative went to
+  a no-op and the reason kept on the query had no reader. Each failure is now a `WARN` line naming the
+  query, and `GET /api/v1/queries/{name}` carries `checkpoint` — `enabled`, `last`, `failures` and
+  `lastFailure` (a checkpoint that could not be restored at start included). Additive API change;
+  `api/openapi.lock.json` updated.
+- **The Java SDK names a certificate it does not trust** (TLSDIAG-1). An untrusted, expired or
+  wrongly named server certificate was `PRV-1040 CLIENT_CONNECT_FAILED`, retryable, "cannot reach
+  host:port: io exception Channel Pipeline: [SslHandler#0, …]". A handshake failure (an
+  `SSLHandshakeException` or certificate exception in the cause chain) is now the new
+  `PRV-1046 CLIENT_TLS_HANDSHAKE_FAILED`, not retryable, carrying the JVM's reason. The Python SDK
+  already said "certificate verify failed" under `PRV-1040` and is unchanged.
+- **Closing the Java client closes the results its caller left open** (SDKCLOSE-1).
+  `client.query(sql).toList()` without closing the `QueryResult`, then `client.close()`, threw an
+  uncoded `IllegalStateException: Memory was leaked by query` from the Arrow allocator, replacing
+  whatever the try block had returned or thrown. The client now tracks open results and closes them
+  (after its subscriptions) before its allocator; closing a result twice is harmless.
+- **The documentation no longer promises mutual TLS the node does not do** (MTLSDOC-1). The SDKs'
+  `client_certificate`/`client_key` (and the CLI's `--tls-cert`) were offered "for mutual TLS", and
+  the node's Flight and PostgreSQL listeners never request or verify a client certificate. The `tls`,
+  `clients` and `cli-reference` topics, the Python guide and SECURITY.md now say so: a client
+  certificate is for a TLS terminator in front of the node, and the token is what authenticates.
+  Documentation only; server-side mTLS remains unbuilt.
+- **Npgsql 5 and later are told how to connect** (NPGSQLNEW-1). Newer Npgsql sends its type loading
+  as one multi-statement query, refused `PRV-6201`, while the `power-bi` topic said such versions got
+  `PRV-6205`. The refusal now names the fix when the batch reads `pg_type` — `Server Compatibility
+  Mode=NoTypeLoading` in the connection string, with which Npgsql 8 opens and reads every type — and
+  the `power-bi`, `pgwire` and `errors-gateway` topics and TROUBLESHOOTING say so. The type-loading
+  batch itself is still not answered.
+- **A protobuf field of the wrong wire type is dead-lettered, not read as zero** (PBDRIFT-1). A
+  record whose field 2 (declared `int64`) arrived length-delimited was read with that column at its
+  default, `0`: the parser kept the field among the unknown fields and the proto3 default rule filled
+  the column. A declared field number among the unknown fields is now undecodable, naming the field and
+  both wire types, and is dead-lettered (or stops the source without a queue). Undeclared field numbers
+  are still skipped. **Changes behaviour:** such records used to produce rows.
+- **A node refuses to start on an expired certificate** (CERTEXP-1). With an expired TLS pair the node
+  logged `over TLS`/`flight transport=TLS` and every verifying client then failed its handshake. The
+  leaf certificate's dates are now checked at start beside the pair (SX-17): expired or not yet valid
+  is refused — `PRV-6104` (Flight), `PRV-6206` (PostgreSQL gateway) — naming the date and the setting,
+  and one that expires within 30 days starts with a `WARN` naming the date. **Changes behaviour:** a
+  node that used to start on an expired certificate does not.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

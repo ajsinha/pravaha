@@ -468,7 +468,7 @@ pravaha:
 | `schema` | yes | — |
 | `partition.key` | yes | — |
 | `stream` | no | the table name |
-| `local.datacenter` | no | auto-detected — name it if the cluster has more than one datacenter |
+| `local.datacenter` | no | inferred from the contact points, which must then all be in one datacenter (else `PRV-5088`); name it for a multi-datacenter cluster |
 | `event.time` | no | none |
 | `strategy` | no | `token-range-scan` |
 | `partitions` | no | `1` |
@@ -1506,6 +1506,14 @@ client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1");
 client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"])
 ```
 
+A placeholder compared with a `DECIMAL` column is typed by that column and compared **exactly**
+(DECPARAM-1): bind a decimal (`BigDecimal`, Python `Decimal`) or an integer, never a float — a
+`double` is refused (`PRV-2062` on the PostgreSQL gateway; the SDKs refuse it before sending) rather
+than read as the decimal nearest to it. Over Flight the parameter is declared at the column's own
+precision and scale, so the SDKs refuse a value with more decimal places than the column instead of
+rounding it; over the PostgreSQL gateway such a value (`price > 19.985` against `DECIMAL(10, 2)`) is
+compared exactly. Text, binary `numeric` and binary integers are all accepted on pgwire.
+
 A registered query may also carry bound values, **in embedded use only** — through
 `QueryRegistry.register(name, sql, keys, principal, BoundParameters.of(...))`:
 
@@ -2016,8 +2024,8 @@ never a float. A value that would need rounding to fit its column is refused wit
 the column rather than rounded on the way out. The CLI prints a decimal's digits (`0.0000000000`, not
 `0E-10`) and puts it in `--json` as a string, as the console does, so no JSON reader turns it into a
 float. Until 2.1 a `DECIMAL` column was refused over Flight with `PRV-6100` and could be read only
-through the PostgreSQL gateway; a `?` placeholder compared with a `DECIMAL` is still refused
-(`PRV-2021`), so write that value into the SQL.
+through the PostgreSQL gateway. A `?` placeholder compared with a `DECIMAL` was refused (`PRV-2021`)
+until 2.1.1 (DECPARAM-1); it is now compared exactly, below.
 
 **Correction, and then a correction to the correction.** A QA round on 2026-09-14 found that
 `VARBINARY` (`BYTES`) and `TIME` were declarable and computed correctly but **crashed when a non-null

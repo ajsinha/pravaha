@@ -56,9 +56,15 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
 
     private boolean iterated;
 
-    QueryResult(FlightStream stream, PravahaFlightClient owner) {
+    /** Tells the client this result no longer needs closing for it (SDKCLOSE-1). */
+    private final java.util.function.Consumer<QueryResult> onClose;
+
+    private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+
+    QueryResult(FlightStream stream, PravahaFlightClient owner, java.util.function.Consumer<QueryResult> onClose) {
         this.stream = stream;
         this.owner = owner;
+        this.onClose = onClose;
         this.columns = new ArrayList<>();
         stream.getSchema().getFields().forEach(field -> columns.add(field.getName()));
     }
@@ -92,6 +98,11 @@ public final class QueryResult implements Iterable<Row>, AutoCloseable {
 
     @Override
     public void close() {
+        // Once: the client closes a result its caller left open, and the caller may close it too.
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        onClose.accept(this);
         // Cancel first, then close, and both matter for the *server*. Closing a stream the server
         // is still writing to leaves it writing: it finds out that nobody is listening from the
         // cancellation, and until it does it holds Arrow buffers and, for a subscription, an

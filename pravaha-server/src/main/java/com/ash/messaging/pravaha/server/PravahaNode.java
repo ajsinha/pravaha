@@ -259,6 +259,10 @@ public class PravahaNode implements SmartLifecycle {
 
     private PgWireLimits pgWireLimits = PgWireLimits.DEFAULTS;
 
+    /** pravaha.pgwire.tls.allow-plaintext (PGTLSONLY-1): off, so a certificate is PostgreSQL's hostssl. */
+    @org.springframework.beans.factory.annotation.Value("${pravaha.pgwire.tls.allow-plaintext:false}")
+    private boolean pgwireAllowPlaintext;
+
     /** The node's alerts, once it has started (ADR-057). */
     public Optional<com.ash.messaging.pravaha.registry.alert.AlertService> alerts() {
         return alerts.service();
@@ -1311,13 +1315,10 @@ public class PravahaNode implements SmartLifecycle {
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);
             }
-            // HLP-5. The gateway has had TLS since its third slice, and application.yaml and
-            // CONNECTOR_TLS.md documented pravaha.pgwire.tls.*, but nothing here read those keys:
-            // a deployment that configured them was served plaintext, and told so only by the log
-            // line below. Either half set hands both to PgTls.load, which refuses the missing one
-            // by name (CFG-6's rule), rather than ignoring half a pair.
+            // HLP-5: either half set hands both to PgTls.load, which refuses the missing one by name
+            // (CFG-6) rather than ignoring half a pair. PGTLSONLY-1: and then plaintext is refused.
             if (pgwireTlsCertificate != null || pgwireTlsKey != null) {
-                server.encryptedWith(pgwireTlsCertificate, pgwireTlsKey);
+                server.encryptedWith(pgwireTlsCertificate, pgwireTlsKey).allowingPlaintext(pgwireAllowPlaintext);
             }
             pgwire = server.start(pgwireHost, pgwirePort);
             if (server.isEncrypted()) {

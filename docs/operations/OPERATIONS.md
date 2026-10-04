@@ -795,7 +795,7 @@ it then arrives in order.
 | `pravaha_query_dead_letters{query=}` | How many are waiting now — the one to alert on. The running total keeps rising for a queue somebody is on top of; the depth does not |
 | `pravaha_query_dead_letters_bytes{query=}` | How large the file is, against `max-bytes` |
 | `pravaha_query_dead_letters_evicted_total{query=}` | What retention has thrown away and will not give back |
-| `pravaha_query_dead_letters_write_failures_total{query=}` | Records the queue itself could not write. Non-zero means the queue needs attention *before* the records in it do: those records are gone and nothing else says so |
+| `pravaha_query_dead_letters_write_failures_total{query=}` | Records the queue itself could not write (a full disk). Each stopped what fed it with `PRV-4090` rather than drop the record, so non-zero means a feed is stopped at a record that was not kept: free the space, then drop and register the query or restart the node |
 | `pravaha_query_dead_letters_fraction{query=}` | The share rejected in the current window |
 | `pravaha_query_dead_letters_degraded{query=}` | 1 once that share passes the threshold |
 
@@ -1693,7 +1693,7 @@ refused that nobody has dropped or registered again — each a view a client exp
 | `pravaha_query_subscribers{query=}` | How many subscribers are attached to the computation. A sink writing the query's changelog is **not** counted — it listens on the same commit and nobody is watching it. Two names on one computation report the same number, because they are one |
 | `pravaha_query_checkpoint_last_success_timestamp_seconds{query=}` | When the query last **stored** a checkpoint, as Unix seconds. Alert on its age (`time() - ...`): that is how much recovery would now replay. `NaN` while the query is not checkpointing or has not stored one yet — never zero, which would read as 1970 |
 | `pravaha_query_checkpoint_duration_seconds{query=}` | How long that last stored checkpoint took, snapshot to stored. `NaN` as above |
-| `pravaha_query_checkpoint_failures_total{query=}` | Checkpoints that did not happen. Rising while the last-success age rises is a query whose recovery story is getting older by the minute |
+| `pravaha_query_checkpoint_failures_total{query=}` | Checkpoints that did not happen. Rising while the last-success age rises is a query whose recovery story is getting older by the minute. Why: a `WARN` per failure in the node log, and `checkpoint.lastFailure` in `GET /api/v1/queries/{name}` (CKPTWHY-1) |
 | `pravaha_query_replacement_state{query=}` | Whether this name is being replaced, and where that has got to: 0 none, 1 backfilling, 2 caught up, 3 cut over and retaining the version it replaced, 4 rolled back, 5 abandoned, 6 failed, 7 finished (ADR-046). An ordinal rather than a tag per state, so a panel following one query keeps its history across the transitions |
 | `pravaha_query_backfill_history_rows{query=}` | Records of history the backfill has read. Flat while it should be rising is a backfill that is paused, throttled to nothing, or blocked on the store |
 | `pravaha_query_backfill_rows_per_second{query=}` | What it is reading at, over the last sample. **This is the number to plot beside the store's own p99 latency**: the impact you are causing, not just the progress you are making |

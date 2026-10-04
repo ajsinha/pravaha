@@ -58,6 +58,17 @@ public final class ClientErrors {
     public static final ErrorCode DEADLINE_EXCEEDED = new ErrorCode(1045, "CLIENT_DEADLINE_EXCEEDED");
 
     /**
+     * The TLS handshake with the node failed: its certificate is not trusted by this client, has
+     * expired, or does not name the host connected to. Not retryable -- the same certificate fails the
+     * same way until the trust or the certificate changes.
+     *
+     * <p>TLSDIAG-1. It was {@link #CONNECT_FAILED}, retryable, "cannot reach host:port: io exception
+     * Channel Pipeline: [SslHandler#0, ...]. Check that a Pravaha node is running there" -- a node that
+     * was running and answering, described as one that was not, with nothing about the certificate.
+     */
+    public static final ErrorCode TLS_HANDSHAKE_FAILED = new ErrorCode(1046, "CLIENT_TLS_HANDSHAKE_FAILED");
+
+    /**
      * The engine's own parameter-arity refusal, raised here because here is where it is noticed.
      *
      * <p>X-8. The server declares this as {@code SqlErrors.PARAMETER_ARITY} and

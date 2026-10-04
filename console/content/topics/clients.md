@@ -601,9 +601,9 @@ that is not `http(s)://` (and, with a token, `http://` without `allow_insecure_t
 | Java builder | Python field | |
 |---|---|---|
 | `.caCertificate(Path)` | `ca_certificate` | A PEM CA bundle to trust |
-| `.clientCertificate(Path)`, `.clientKey(Path)` | `client_certificate`, `client_key` | mTLS, PEM; one without the other is refused, naming which is missing |
+| `.clientCertificate(Path)`, `.clientKey(Path)` | `client_certificate`, `client_key` | A client certificate, PEM; one without the other is refused, naming which is missing. Only for a TLS terminator in front of the node: the node does not request or verify one (MTLSDOC-1) |
 | `.trustStore(path, password, type)` | `trust_store`, `trust_store_password`, `trust_store_type` | JKS or PKCS12 instead of PEM |
-| `.keyStore(path, password, type)` | `key_store`, `key_store_password`, `key_store_type` | mTLS from a keystore |
+| `.keyStore(path, password, type)` | `key_store`, `key_store_password`, `key_store_type` | The same client certificate from a keystore |
 | `.overrideHostname(String)` | `override_hostname` | Check the certificate against this name instead (e.g. `localhost` while dialling `127.0.0.1`) |
 | `.disableHostnameVerificationInsecure(true)` | `disable_hostname_verification=True` | Named so nobody enables it by accident |
 
@@ -766,6 +766,7 @@ code.
 | `ClientErrors.CLOSED` | — | PRV-1043 | The client was used after `close()` |
 | `ClientErrors.TLS_UNREADABLE` | — | PRV-1044 | Certificate or keystore material that cannot be read |
 | `ClientErrors.DEADLINE_EXCEEDED` (retryable) | `DeadlineExceededError` (retryable; `call`, `deadline`) | PRV-1045 | A call was not answered within the request timeout; the message names the call and the deadline |
+| `ClientErrors.TLS_HANDSHAKE_FAILED` | `ConnectError` (PRV-1040, "certificate verify failed") | PRV-1046 | The node's certificate is not trusted, has expired or does not name the host; not retryable |
 | — | `ApiError` (`status`, `engine_code`, `message`) | the engine's own, else 1040 / 1041 | An HTTP call failed; `status` is the HTTP status (`0` when nothing answered), `code` the engine's number when it gave one (`7002` for PRV-7002), retryable when nothing answered or the status was 5xx |
 
 Every Python error's `str()` starts with its own code (`PRV-1041  …`). A refusal from the engine over

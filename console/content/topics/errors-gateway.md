@@ -4,7 +4,7 @@ slug: errors-gateway
 category: errors
 order: 70
 icon: hdd-network
-summary: "PRV-6100 to PRV-6220: what the Flight SQL and PostgreSQL gateways refuse — types, unimplemented requests, unreadable TLS, writes, statements in a failed block, connections past the limits, and revoked credentials."
+summary: "PRV-6100 to PRV-6221: what the Flight SQL and PostgreSQL gateways refuse — types, unimplemented requests, unreadable TLS, writes, statements in a failed block, connections past the limits, and revoked credentials."
 badge: PRV-6XXX
 audience: Developers, operators
 keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate, transaction, savepoint, "25P02", "53300", too many connections, revoked, idle timeout, max-message-size]
@@ -55,6 +55,7 @@ as "gateway".)
 | PRV-6218 | PGWIRE_CREDENTIAL_REVOKED | PostgreSQL | `28000` |
 | PRV-6219 | PGWIRE_IDLE_TIMEOUT | PostgreSQL | `57P05` |
 | PRV-6220 | PGWIRE_BAD_LIMITS | PostgreSQL | (startup) |
+| PRV-6221 | PGWIRE_TLS_REQUIRED | PostgreSQL | `28000` |
 
 ## Arrow Flight SQL
 
@@ -107,6 +108,10 @@ with the certificate's public key, which is the same question TLS itself asks a 
 given the wrong way round — the certificate in `key` and the key in `certificate` — used to escape
 as a raw Java exception with no code at all, and now arrives here.
 
+**So are its dates** (CERTEXP-1). A certificate that has expired, or is not valid yet, is refused
+here naming the date and the setting: a node started on it logged `over TLS` and every verifying
+client failed its handshake. One that expires within 30 days starts with a `WARN` naming the date.
+
 ```yaml
 pravaha:
   flight:
@@ -154,9 +159,11 @@ result it might treat as complete. Read such a view over Flight, or project the 
 
 A message or statement the gateway does not implement, refused by name with SQLSTATE `0A000`:
 `COPY` (the statement, or its protocol messages), SQL-level cursors (`DECLARE`, `FETCH`, `MOVE`,
-`CLOSE`), `LISTEN`/`UNLISTEN`/`NOTIFY`, `SELECT STREAM` and a `FunctionCall`. Read a view with a plain
-`SELECT`; to follow a view as it changes, subscribe over Flight (`pravaha subscribe`, an SDK's
-`subscribe()`, the console's live tail).
+`CLOSE`), `LISTEN`/`UNLISTEN`/`NOTIFY`, `SELECT STREAM`, a `FunctionCall`, and a `Query` message
+carrying several statements. Read a view with a plain `SELECT`; to follow a view as it changes,
+subscribe over Flight (`pravaha subscribe`, an SDK's `subscribe()`, the console's live tail). Npgsql 5
+and later open with a multi-statement type-loading query and meet this code: add `Server
+Compatibility Mode=NoTypeLoading` to the connection string (NPGSQLNEW-1).
 
 ### PRV-6202 — pgwire protocol violation
 
@@ -200,8 +207,9 @@ this; the query editor still works.
 ### PRV-6206 — pgwire TLS unreadable
 
 A configured TLS certificate or private key the gateway cannot use — one of the pair without the
-other, an unreadable file, or a PEM key shape it cannot parse (PKCS#1 versus PKCS#8). Refused at
-startup, never silently served in plaintext.
+other, an unreadable file, a PEM key shape it cannot parse (PKCS#1 versus PKCS#8), or a certificate
+that has expired or is not valid yet (CERTEXP-1; one expiring within 30 days starts with a `WARN`).
+Refused at startup, never silently served in plaintext.
 
 ### PRV-6207 — pgwire unknown statement
 
@@ -217,7 +225,7 @@ completion. SQLSTATE `34000`.
 ### PRV-6209 — pgwire unsupported wire format
 
 A `Bind` parameter in **binary** format for a type the gateway does not decode in binary (anything but
-the booleans, integers, floats, text, `date` and `timestamptz`), or a result format code other than
+the booleans, integers, floats, `numeric`, text, `date` and `timestamptz`), or a result format code other than
 `0` (text) or `1` (binary). Binary **results** are served for every type the gateway sends — Npgsql,
 and so Power BI, asks for them on every query. A value the gateway cannot decode is refused by name
 rather than read as though it were something else, which is how a number becomes garbage instead of an
@@ -337,6 +345,16 @@ The node does not start: a `pravaha.pgwire.limits.*` value is out of range — `
 `max-message-size` below 64KB. The message names the key.
 
 **Do:** fix the value it names.
+
+### PRV-6221 — pgwire TLS required
+
+`FATAL 28000`, before the client is asked for a credential. The gateway has a certificate
+(`pravaha.pgwire.tls.*`) and the client sent its startup packet without asking for TLS first —
+`sslmode=disable`, or a driver whose default is no TLS (Npgsql 4). Refused so the token never crosses
+the wire in the clear on a node configured to prevent exactly that (PGTLSONLY-1).
+
+**Do:** connect with `sslmode=verify-full` (or `require`; for Npgsql `SSL Mode=Require`). To accept
+plaintext clients as well, for a migration window, set `pravaha.pgwire.tls.allow-plaintext: true`.
 
 ## Where next
 

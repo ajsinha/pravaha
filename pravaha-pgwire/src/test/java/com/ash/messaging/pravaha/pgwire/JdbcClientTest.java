@@ -40,6 +40,7 @@ import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Gate P6's other half: a real driver, not a real terminal. {@code psql} proves a human at a prompt
@@ -321,16 +322,63 @@ class JdbcClientTest {
     }
 
     /**
-     * The same proof {@code PsqlSessionTest} makes for {@code psql}: a TLS-configured server is not
-     * TLS-only. {@code sslmode=disable} tells pgjdbc never to send {@code SSLRequest} at all, so this
-     * exercises the identical plaintext path {@link #jdbcConnectsListsTablesAndColumnsAndReadsRows}
-     * does, on a server that happens to also hold a certificate.
+     * PGTLSONLY-1: a TLS-configured server is TLS-only. {@code sslmode=disable} tells pgjdbc never to
+     * send {@code SSLRequest}, and that client used to be asked for its token in the clear and signed
+     * in. Refused now, {@code 28000}, naming the setting a person changes.
      */
     @Test
-    void jdbcStillConnectsInPlaintextWhenTheServerHasACertificateButTheClientDisablesSsl() throws Exception {
+    void jdbcWithSslDisabledIsRefusedByAServerWithACertificate() throws Exception {
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
         server = new PravahaPgWireServer(populated())
                 .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        Properties props = new Properties();
+        props.setProperty("user", "dana");
+        props.setProperty("sslmode", "disable");
+        assertThatThrownBy(() ->
+                        DriverManager.getConnection("jdbc:postgresql://127.0.0.1:" + server.port() + "/pravaha", props))
+                .isInstanceOfSatisfying(
+                        java.sql.SQLException.class,
+                        e -> assertThat(e.getSQLState()).isEqualTo("28000"))
+                .hasMessageContaining("PRV-6221")
+                .hasMessageContaining("sslmode=verify-full");
+    }
+
+    /**
+     * The raw protocol, as a client with no TLS at all sends it: a startup packet straight away. The
+     * answer is the refusal and nothing else -- in particular no {@code AuthenticationCleartextPassword},
+     * which is the request that put the token on the wire in the clear.
+     */
+    @Test
+    void aPlaintextStartupIsRefusedBeforeAnyCredentialIsAskedFor() throws Exception {
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .authenticatedBy(com.ash.messaging.pravaha.security.StaticTokenVerifier.of("s3cret", ANALYST))
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .start("127.0.0.1", 0);
+
+        try (PgTestClient client = new PgTestClient(server.port())) {
+            client.startup(Map.of("user", "dana", "database", "pravaha"));
+            PgTestClient.Message first = client.read();
+            assertThat(first.type())
+                    .as("an ErrorResponse, not a password request")
+                    .isEqualTo('E');
+            Map<Character, String> fields = PgTestClient.errorFields(first);
+            assertThat(fields.get('S')).isEqualTo("FATAL");
+            assertThat(fields.get('C')).isEqualTo("28000");
+            assertThat(fields.get('M')).startsWith("PRV-6221");
+            assertThat(client.read()).as("and the connection closes").isNull();
+        }
+    }
+
+    /** {@code pravaha.pgwire.tls.allow-plaintext}: PostgreSQL's {@code host} rather than {@code hostssl}. */
+    @Test
+    void aServerThatAllowsPlaintextStillServesAClientThatDisablesSsl() throws Exception {
+        SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(tlsDir);
+        server = new PravahaPgWireServer(populated())
+                .encryptedWith(cert.certificatePem, cert.privateKeyPem)
+                .allowingPlaintext(true)
                 .start("127.0.0.1", 0);
 
         Properties props = new Properties();
@@ -339,7 +387,6 @@ class JdbcClientTest {
         props.setProperty("sslmode", "disable");
         try (Connection conn =
                 DriverManager.getConnection("jdbc:postgresql://127.0.0.1:" + server.port() + "/pravaha", props)) {
-            assertThat(conn.isValid(5)).isTrue();
             try (Statement st = conn.createStatement();
                     ResultSet rs = st.executeQuery("SELECT user_id, tier, total FROM user_volume")) {
                 int rows = 0;
@@ -373,5 +420,50 @@ class JdbcClientTest {
             props.setProperty("password", password);
         }
         return DriverManager.getConnection(url, props);
+    }
+
+    /**
+     * DECPARAM-1: {@code price > ?} over a DECIMAL column was refused PRV-2021 for a decimal and for an
+     * integer alike. Both compare exactly now -- a value with more places than the column too -- and a
+     * double is refused rather than read as the decimal nearest to it.
+     */
+    @Test
+    void aDecimalParameterComparesExactlyOverTheExtendedProtocol() throws Exception {
+        StreamSchema prices = StreamSchema.builder("prices")
+                .field("sku", Types.string())
+                .field("price", Types.decimal(10, 2))
+                .build();
+        ServedView view = new ServedView("prices", prices, List.of(0), 1_000);
+        view.applyValues(new Object[] {"a", new java.math.BigDecimal("9.99")}, 1, 10);
+        view.applyValues(new Object[] {"b", new java.math.BigDecimal("19.98")}, 1, 10);
+        view.applyValues(new Object[] {"c", new java.math.BigDecimal("29.97")}, 1, 10);
+        view.commit(10);
+        server = new PravahaPgWireServer(new ViewCatalog().register(view)).start("127.0.0.1", 0);
+
+        try (Connection conn = connectExtended(server.port(), null);
+                PreparedStatement ps = conn.prepareStatement("SELECT sku FROM prices WHERE price > ?")) {
+            ps.setBigDecimal(1, new java.math.BigDecimal("19.98"));
+            assertThat(skus(ps)).containsExactly("c");
+            ps.setInt(1, 19);
+            assertThat(skus(ps)).containsExactlyInAnyOrder("b", "c");
+            ps.setBigDecimal(1, new java.math.BigDecimal("19.979"));
+            assertThat(skus(ps))
+                    .as("more places than the column, compared exactly")
+                    .containsExactlyInAnyOrder("b", "c");
+            ps.setNull(1, java.sql.Types.NUMERIC);
+            assertThat(skus(ps)).as("x > NULL is unknown for every row").isEmpty();
+            ps.setDouble(1, 19.98);
+            assertThatThrownBy(() -> skus(ps)).hasMessageContaining("PRV-2062");
+        }
+    }
+
+    private static List<String> skus(PreparedStatement ps) throws java.sql.SQLException {
+        List<String> skus = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                skus.add(rs.getString(1));
+            }
+        }
+        return skus;
     }
 }

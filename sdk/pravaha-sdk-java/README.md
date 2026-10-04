@@ -23,7 +23,9 @@ try (PravahaFlightClient client = PravahaFlightClient.connect("grpc+tls://pravah
 
 A `DECIMAL(p, s)` column is a `BigDecimal` at the column's scale — `row.getBigDecimal("amount")`, or
 `row.get(...)` — exactly as the engine holds it, never a `double` (FLIGHTDECIMAL-1, 2.1);
-`row.getString(...)` writes its plain digits. Every other type's Java class is in
+`row.getString(...)` writes its plain digits. A `?` compared with a `DECIMAL` column binds a
+`BigDecimal` or an integer at the column's scale, and refuses a `double` or a value with more places
+than the column rather than round it (DECPARAM-1). Every other type's Java class is in
 [CONTINUOUS_QUERIES.md §16](../../docs/guides/CONTINUOUS_QUERIES.md#16-types).
 
 **Nullness is in the types.** A parameter, return value or record component that may be null is

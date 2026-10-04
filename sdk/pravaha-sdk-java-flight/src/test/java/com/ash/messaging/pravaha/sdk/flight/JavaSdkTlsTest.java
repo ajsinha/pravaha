@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Timeout;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
+import com.ash.messaging.pravaha.sdk.ClientErrors;
 import com.ash.messaging.pravaha.sdk.ClientOptions;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
 import com.ash.messaging.pravaha.sdk.TlsOptions;
@@ -144,7 +145,13 @@ class JavaSdkTlsTest {
                         insecure.query("SELECT user_id FROM user_volume").close();
                     }
                 })
-                .isInstanceOf(PravahaClientException.class);
+                .isInstanceOfSatisfying(PravahaClientException.class, e -> {
+                    // TLSDIAG-1: a certificate this client does not trust, said as such -- not
+                    // PRV-1040 "cannot reach", retryable, about a node that answered.
+                    assertThat(e.errorCode()).isEqualTo(ClientErrors.TLS_HANDSHAKE_FAILED);
+                    assertThat(e.retryable()).isFalse();
+                    assertThat(e.getMessage()).contains("TLS handshake").contains("certificate");
+                });
     }
 
     @Test

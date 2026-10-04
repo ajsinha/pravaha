@@ -360,6 +360,7 @@ A few keys are bound from configuration classes rather than written out in the s
 | `pravaha.pgwire.port` | `5432` | Its port. Change it if a PostgreSQL server on the host already has 5432 |
 | `pravaha.pgwire.tls.certificate` | *empty* | PEM certificate; `sslmode=require` then negotiates on the same port. Refused at startup if half-set (PRV-6206) |
 | `pravaha.pgwire.tls.key` | *empty* | PEM private key |
+| `pravaha.pgwire.tls.allow-plaintext` | `false` | With TLS configured, also accept a client that does not ask for it. Off: such a client is refused `FATAL 28000` (PRV-6221) before the credential is asked for |
 | `pravaha.pgwire.limits.max-connections` | `100` | PostgreSQL connections, signed in or not; past it `FATAL 53300` (PRV-6216) at once, without a thread |
 | `pravaha.pgwire.limits.max-unauthenticated` | `32` | Connections still in their handshake, likewise |
 | `pravaha.pgwire.limits.max-connections-per-principal` | `0` | One credential's share; `0` is no share smaller than `max-connections` |

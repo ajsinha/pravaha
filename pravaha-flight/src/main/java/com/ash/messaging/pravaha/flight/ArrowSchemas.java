@@ -139,7 +139,12 @@ final class ArrowSchemas {
     static Schema parameterSchema(com.ash.messaging.pravaha.sql.plan.ParameterMetadata parameters) {
         List<Field> fields = new ArrayList<>(parameters.count());
         for (int i = 0; i < parameters.count(); i++) {
-            fields.add(new Field("param_" + (i + 1), FieldType.nullable(arrowTypeOf(parameters.typeOf(i))), null));
+            // DECPARAM-1: a DECIMAL placeholder is declared at the precision and scale of what it is
+            // compared with, so a client binds it exactly instead of guessing a scale.
+            ArrowType type = parameters.dataTypeOf(i) instanceof DecimalType decimal
+                    ? new ArrowType.Decimal(decimal.precision(), decimal.scale(), 128)
+                    : arrowTypeOf(parameters.typeOf(i));
+            fields.add(new Field("param_" + (i + 1), FieldType.nullable(type), null));
         }
         return new Schema(fields);
     }

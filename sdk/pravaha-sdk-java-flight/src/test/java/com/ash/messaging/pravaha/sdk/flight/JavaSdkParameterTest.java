@@ -60,7 +60,20 @@ class JavaSdkParameterTest {
         view.applyValues(new Object[] {"u3", null, 7L}, 1, 10);
         view.commit(10);
 
-        server = new PravahaFlightServer(new ViewCatalog().register(view)).start("localhost", 0);
+        ServedView prices = new ServedView(
+                "prices",
+                StreamSchema.builder("prices")
+                        .field("user_id", Types.string())
+                        .field("price", Types.decimal(10, 2))
+                        .build(),
+                List.of(0),
+                1_000);
+        prices.applyValues(new Object[] {"a", new java.math.BigDecimal("9.99")}, 1, 10);
+        prices.applyValues(new Object[] {"b", new java.math.BigDecimal("19.98")}, 1, 10);
+        prices.applyValues(new Object[] {"c", new java.math.BigDecimal("29.97")}, 1, 10);
+        prices.commit(10);
+
+        server = new PravahaFlightServer(new ViewCatalog().register(view).register(prices)).start("localhost", 0);
         client = PravahaFlightClient.connect("grpc://localhost:" + server.port());
     }
 
@@ -172,5 +185,39 @@ class JavaSdkParameterTest {
     @Test
     void aQueryWithNoParametersTakesTheSimplePath() {
         assertThat(userIds("SELECT user_id FROM user_volume")).hasSize(3);
+    }
+
+    @Test
+    void aDecimalOrAnIntegerBindsToADecimalPlaceholderExactly() {
+        // DECPARAM-1: refused PRV-2021 on every transport until the comparison learned parameters.
+        assertThat(userIds("SELECT user_id FROM prices WHERE price > ?", new java.math.BigDecimal("19.98")))
+                .containsExactly("c");
+        assertThat(userIds("SELECT user_id FROM prices WHERE price > ?", 19)).containsExactlyInAnyOrder("b", "c");
+        assertThat(userIds("SELECT user_id FROM prices WHERE price = ?", new java.math.BigDecimal("9.99")))
+                .containsExactly("a");
+    }
+
+    @Test
+    void aDoubleOrAValueWithMorePlacesThanTheColumnIsRefusedNotRounded() {
+        assertThatThrownBy(() -> userIds("SELECT user_id FROM prices WHERE price > ?", 19.98))
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("?1 needs a BigDecimal or an integer");
+        assertThatThrownBy(
+                        () -> userIds("SELECT user_id FROM prices WHERE price > ?", new java.math.BigDecimal("19.985")))
+                .isInstanceOf(PravahaClientException.class)
+                .hasMessageContaining("more decimal places");
+    }
+
+    @Test
+    void closingTheClientClosesAResultItsCallerLeftOpen() {
+        // SDKCLOSE-1: the allocator refused to close under an unclosed result, and its uncoded
+        // IllegalStateException ("Memory was leaked") replaced whatever the try block returned.
+        PravahaFlightClient careless = PravahaFlightClient.connect("grpc://localhost:" + server.port());
+        QueryResult leftOpen = careless.query("SELECT user_id FROM user_volume WHERE total > ?", 40L);
+        assertThat(leftOpen.toList()).hasSize(2);
+        org.assertj.core.api.Assertions.assertThatCode(careless::close).doesNotThrowAnyException();
+        org.assertj.core.api.Assertions.assertThatCode(leftOpen::close)
+                .as("and the caller closing it afterwards is harmless")
+                .doesNotThrowAnyException();
     }
 }
