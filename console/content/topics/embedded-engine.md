@@ -26,7 +26,7 @@ Spring integration is a separate layer — [Spring Boot starter](/help/topics/sp
 
 | | |
 |---|---|
-| Artifact | `com.ash.messaging:pravaha-embedded` (version `2.2.0` in this repository) |
+| Artifact | `com.ash.messaging:pravaha-embedded` (version `2.2.1-SNAPSHOT` in this repository) |
 | Entry point | `PravahaEngine.createDefault()` or `PravahaEngine.create(Configuration)` |
 | Lifecycle | create → **declare** → `start()` → register, push, read, subscribe → `close()` |
 | Security | None: every call runs as the anonymous principal under a permissive policy. The host decides who may call |

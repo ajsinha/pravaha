@@ -362,7 +362,7 @@ short.
 ```xml
 <groupId>com.ash.messaging</groupId>
 <artifactId>pravaha</artifactId>
-<version>2.2.0</version>
+<version>2.2.1-SNAPSHOT</version>
 ```
 
 Base package `com.ash.messaging.pravaha`. Requires **JDK 25**, for building and running alike: every module, the API and the Java SDKs included, targets Java 25 ([ADR-061](docs/design/adr/061-jdk-25-is-the-baseline-from-2-0.md), from 2.0; 1.x ran on 21). The Maven wrapper is vendored.
