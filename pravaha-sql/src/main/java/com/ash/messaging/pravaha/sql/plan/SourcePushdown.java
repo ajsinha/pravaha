@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PushdownKind;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
@@ -178,7 +180,7 @@ public final class SourcePushdown {
      * Predicate.CompareExpressions} in particular, whose operands are arbitrary expressions this
      * method does not walk.
      */
-    private static Set<Integer> referencedOrdinals(Predicate predicate) {
+    private static @Nullable Set<Integer> referencedOrdinals(Predicate predicate) {
         return switch (predicate) {
             case Predicate.True ignored -> Set.of();
             case Predicate.False ignored -> Set.of();
@@ -200,7 +202,7 @@ public final class SourcePushdown {
         };
     }
 
-    private static Set<Integer> unionOrNull(List<Predicate> parts) {
+    private static @Nullable Set<Integer> unionOrNull(List<Predicate> parts) {
         Set<Integer> union = new LinkedHashSet<>();
         for (Predicate part : parts) {
             Set<Integer> referenced = referencedOrdinals(part);

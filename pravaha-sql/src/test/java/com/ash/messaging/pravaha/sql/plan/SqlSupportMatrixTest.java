@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.sql.plan;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -88,7 +89,12 @@ class SqlSupportMatrixTest {
     private static final String TUMBLING = "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND))";
 
     /** One row of the support matrix: what it is, the SQL, and {@code "OK"} or the PRV code. */
-    private record Case(String label, String sql, String expected, boolean lookup, List<String> answer) {
+    private record Case(
+            String label,
+            String sql,
+            String expected,
+            boolean lookup,
+            @Nullable List<String> answer) {
 
         Case(String label, String sql, String expected, boolean lookup) {
             this(label, sql, expected, lookup, null);
@@ -570,7 +576,7 @@ class SqlSupportMatrixTest {
                     .startsWith("PRV-");
             // Not a bare code. A refusal a user cannot act on costs a support call, and the whole
             // point of refusing rather than approximating is that the message says what to do.
-            assertThat(message.length())
+            assertThat(java.util.Objects.requireNonNull(message).length())
                     .as("%s is refused with a code and almost no explanation: '%s'", testCase.label(), message)
                     .isGreaterThan(40);
         }
@@ -657,7 +663,13 @@ class SqlSupportMatrixTest {
             w -> row(w, 4, "cat", 400L, 4.0, null, true));
 
     private static void row(
-            BinaryRowWriter w, long id, String user, long amount, double price, String status, boolean flagged) {
+            BinaryRowWriter w,
+            long id,
+            String user,
+            long amount,
+            double price,
+            @Nullable String status,
+            boolean flagged) {
         // txn_id is STRING in this schema, not a number. Writing a long into it failed at the row
         // writer -- which is the mechanism proving itself before it ever compared an answer.
         // status is the only nullable column in this schema, so it carries the null case.
@@ -688,7 +700,7 @@ class SqlSupportMatrixTest {
      * side a row belongs to. A matrix that stopped at the planner called that supported, and the
      * documentation it backs repeated the claim. "Supported" has to mean executable.
      */
-    private static String messageOf(Case testCase) {
+    private static @Nullable String messageOf(Case testCase) {
         SqlPlanner planner =
                 testCase.lookup() ? SqlPlanner.withLookups(TXN, DIM) : SqlPlanner.withStreams(TXN, OTHER, THIRD);
         try {

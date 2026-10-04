@@ -33,6 +33,7 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -312,7 +313,7 @@ public final class PhysicalPlanBuilder {
     /** A time column on one side, optionally shifted by an interval literal. */
     private record Offset(boolean fromLeft, long nanos) {}
 
-    private Offset asOffset(RexNode node, int leftWidth) {
+    private @Nullable Offset asOffset(RexNode node, int leftWidth) {
         if (node instanceof RexInputRef ref) {
             return isTimestamp(ref) ? new Offset(ref.getIndex() < leftWidth, 0) : null;
         }
@@ -349,7 +350,7 @@ public final class PhysicalPlanBuilder {
                 || type == org.apache.calcite.sql.type.SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
     }
 
-    private Long intervalMillis(org.apache.calcite.rex.RexLiteral literal) {
+    private @Nullable Long intervalMillis(org.apache.calcite.rex.RexLiteral literal) {
         if (!(literal.getType().getSqlTypeName().getFamily()
                 == org.apache.calcite.sql.type.SqlTypeFamily.INTERVAL_DAY_TIME)) {
             // Months and years have no fixed length, so they cannot become a number of nanoseconds
@@ -369,8 +370,8 @@ public final class PhysicalPlanBuilder {
      * the second cannot be written.
      */
     private static final class TimeBounds {
-        private Long lower;
-        private Long upper;
+        private @Nullable Long lower;
+        private @Nullable Long upper;
 
         void atLeast(long nanos) {
             lower = lower == null ? nanos : Math.max(lower, nanos);
@@ -386,11 +387,13 @@ public final class PhysicalPlanBuilder {
 
         /** A one-sided bound is closed on the other side at zero: the unstated side is "no shift". */
         long lower() {
-            return lower != null ? lower : Math.min(0, upper);
+            Long l = lower;
+            return l != null ? l : Math.min(0, java.util.Objects.requireNonNull(upper, "read only once stated()"));
         }
 
         long upper() {
-            return upper != null ? upper : Math.max(0, lower);
+            Long u = upper;
+            return u != null ? u : Math.max(0, java.util.Objects.requireNonNull(lower, "read only once stated()"));
         }
     }
 
@@ -473,7 +476,10 @@ public final class PhysicalPlanBuilder {
      * asked in that order, because a store answers only on the keys it is indexed for.
      */
     private void collectLookupKeys(
-            RexNode condition, int leftWidth, List<Integer> streamKeys, org.apache.calcite.rel.core.Correlate node) {
+            @Nullable RexNode condition,
+            int leftWidth,
+            List<Integer> streamKeys,
+            org.apache.calcite.rel.core.Correlate node) {
         if (condition == null) {
             throw unsupported("a lookup join needs an equality on the dimension table's key; without one every record "
                     + "would ask the store for its whole contents");
@@ -499,7 +505,7 @@ public final class PhysicalPlanBuilder {
     }
 
     /** The stream-side ordinal behind {@code $cor0.column}, or null if this is not one. */
-    private static Integer correlatedOrdinal(RexNode node) {
+    private static @Nullable Integer correlatedOrdinal(RexNode node) {
         if (node instanceof org.apache.calcite.rex.RexFieldAccess access
                 && access.getReferenceExpr() instanceof org.apache.calcite.rex.RexCorrelVariable) {
             return access.getField().getIndex();
@@ -544,7 +550,7 @@ public final class PhysicalPlanBuilder {
      * <p>Only an inner join with a condition that is literally {@code true}; a join that already has
      * an {@code ON} condition is left as written.
      */
-    private static RelNode joinConditionFromWhere(Filter filter) {
+    private static @Nullable RelNode joinConditionFromWhere(Filter filter) {
         if (!(filter.getInput() instanceof org.apache.calcite.rel.core.Join join)
                 || join.getJoinType() != org.apache.calcite.rel.core.JoinRelType.INNER
                 || !join.getCondition().isAlwaysTrue()) {
@@ -680,7 +686,7 @@ public final class PhysicalPlanBuilder {
     }
 
     /** The {@code $TUMBLE} or {@code $HOP} call in a projection, or null if there is none. */
-    private static RexCall groupedWindowCall(Project project) {
+    private static @Nullable RexCall groupedWindowCall(Project project) {
         for (RexNode expression : project.getProjects()) {
             if (expression instanceof RexCall call
                     && call.getOperator()
@@ -1195,7 +1201,7 @@ public final class PhysicalPlanBuilder {
      * that looks bounded and is not, which is the exact failure the bounded-state check exists to
      * prevent.
      */
-    private static WindowAssignOperator windowBelow(PhysicalOperator operator) {
+    private static @Nullable WindowAssignOperator windowBelow(PhysicalOperator operator) {
         PhysicalOperator current = operator;
         while (true) {
             if (current instanceof WindowAssignOperator window) {
@@ -1251,7 +1257,7 @@ public final class PhysicalPlanBuilder {
      * ordinals and group by whichever columns happened to be there, producing correct-looking
      * numbers for the wrong grouping.
      */
-    private static int[] windowBoundaryOrdinals(StreamSchema schema, List<Integer> groupKeys) {
+    private static int @Nullable [] windowBoundaryOrdinals(StreamSchema schema, List<Integer> groupKeys) {
         int start = -1;
         int end = -1;
         for (int ordinal : groupKeys) {
@@ -1359,7 +1365,7 @@ public final class PhysicalPlanBuilder {
     /** What an aggregate's argument ordinal really reads, seen through the casts Calcite inserts. */
     private record Operand(String name, SqlTypeName type) {}
 
-    private static Operand operandOf(RelNode input, int ordinal) {
+    private static @Nullable Operand operandOf(RelNode input, int ordinal) {
         if (ordinal < 0 || ordinal >= input.getRowType().getFieldCount()) {
             return null;
         }
@@ -1437,7 +1443,7 @@ public final class PhysicalPlanBuilder {
             survives |= field.getName().equals(eventTimeColumn);
         }
         if (survives) {
-            builder.eventTime(eventTimeColumn);
+            builder.eventTime(java.util.Objects.requireNonNull(eventTimeColumn)); // it matched a field
         }
         return builder.build();
     }

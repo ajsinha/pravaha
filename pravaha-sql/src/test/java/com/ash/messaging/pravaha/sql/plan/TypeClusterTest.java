@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -363,7 +364,15 @@ class TypeClusterTest {
     }
 
     private static void row(
-            BinaryRowWriter w, long id, long n, float r, double f, String s, String tag, byte[] bin, long eventTime) {
+            BinaryRowWriter w,
+            long id,
+            long n,
+            float r,
+            double f,
+            String s,
+            @Nullable String tag,
+            byte[] bin,
+            long eventTime) {
         w.setLong(0, id).setLong(1, n).setFloat(2, r).setDouble(3, f).setString(4, s);
         if (tag == null) {
             w.setNull(5);

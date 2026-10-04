@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -65,12 +67,16 @@ public final class NarrowingPlan {
     /** Nothing narrowed. */
     public static final NarrowingPlan NONE = new NarrowingPlan(null, null, Set.of(), Narrowing.NONE);
 
-    private final Predicate predicate;
-    private final List<Expression> expressions;
+    private final @Nullable Predicate predicate;
+    private final @Nullable List<Expression> expressions;
     private final Set<String> masked;
     private final Narrowing narrowing;
 
-    private NarrowingPlan(Predicate predicate, List<Expression> expressions, Set<String> masked, Narrowing narrowing) {
+    private NarrowingPlan(
+            @Nullable Predicate predicate,
+            @Nullable List<Expression> expressions,
+            Set<String> masked,
+            Narrowing narrowing) {
         this.predicate = predicate;
         this.expressions = expressions == null ? null : List.copyOf(expressions);
         this.masked = Collections.unmodifiableSet(new LinkedHashSet<>(masked));
@@ -177,7 +183,7 @@ public final class NarrowingPlan {
 
     // ------------------------------------------------------------------------------ compiling
 
-    private static Predicate filterOf(StreamSchema schema, String filter, Judgement judgement) {
+    private static @Nullable Predicate filterOf(StreamSchema schema, String filter, Judgement judgement) {
         PhysicalOperator plan;
         try {
             plan = new PhysicalPlanBuilder()
@@ -288,7 +294,7 @@ public final class NarrowingPlan {
         return expressions;
     }
 
-    private static Predicate predicateOf(PhysicalOperator plan) {
+    private static @Nullable Predicate predicateOf(PhysicalOperator plan) {
         if (plan instanceof FilterOperator filter) {
             return filter.predicate();
         }

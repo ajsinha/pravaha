@@ -22,6 +22,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -296,7 +297,7 @@ final class ExpressionCompiler {
      * @return null if this call is not something {@link PredicateCompiler} understands, so that the
      *     ordinary projection refusal names the function instead of a predicate-shaped message
      */
-    private Expression booleanValued(RexCall call) {
+    private @Nullable Expression booleanValued(RexCall call) {
         Predicate predicate;
         try {
             predicate = new PredicateCompiler(inputSchema).compile(call);
@@ -347,7 +348,7 @@ final class ExpressionCompiler {
      *
      * @return null if this call is not a floating modulo, leaving every other path unchanged
      */
-    private Expression floatingModulo(RexCall call) {
+    private @Nullable Expression floatingModulo(RexCall call) {
         String name = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
         if ((!name.equals("MOD") && !name.equals("%"))
                 || call.getOperands().size() != 2
@@ -375,7 +376,7 @@ final class ExpressionCompiler {
     }
 
     /** FLOAT64 if either side is a DOUBLE, FLOAT32 if either is a REAL, null if neither floats. */
-    private static TypeName widestApproximate(RexNode left, RexNode right) {
+    private static @Nullable TypeName widestApproximate(RexNode left, RexNode right) {
         SqlTypeName leftType = left.getType().getSqlTypeName();
         SqlTypeName rightType = right.getType().getSqlTypeName();
         if (leftType == SqlTypeName.DOUBLE || rightType == SqlTypeName.DOUBLE) {
@@ -442,7 +443,7 @@ final class ExpressionCompiler {
      * <p>Null rather than an exception for "not mine", because the caller tries arithmetic next and
      * a refusal raised here would pre-empt it with the wrong message.
      */
-    private Expression textCall(RexCall call) {
+    private @Nullable Expression textCall(RexCall call) {
         String name = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
         java.util.List<RexNode> operands = call.getOperands();
         return switch (name) {
@@ -603,7 +604,7 @@ final class ExpressionCompiler {
                         + "FROM start, optionally FOR length.");
     }
 
-    private static Expression.Function unaryFunction(String name) {
+    private static Expression.@Nullable Function unaryFunction(String name) {
         return switch (name.toUpperCase(java.util.Locale.ROOT)) {
             case "ABS" -> Expression.Function.ABS;
             case "FLOOR" -> Expression.Function.FLOOR;

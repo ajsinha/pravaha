@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.Field;
@@ -118,7 +119,12 @@ class ExpressionMatrixTest {
      * then throws on one of them -- which is a worse experience and, where the QA case says so, a
      * finding in its own right. An <em>answer</em> is neither: it ran and these are the rows.
      */
-    private record Case(String id, String sql, List<String> answer, String refusal, String runtimeFailure) {
+    private record Case(
+            String id,
+            String sql,
+            @Nullable List<String> answer,
+            @Nullable String refusal,
+            @Nullable String runtimeFailure) {
 
         static Case answers(String id, String sql, String... rows) {
             return new Case(id, sql, List.of(rows), null, null);
@@ -1342,7 +1348,7 @@ class ExpressionMatrixTest {
     }
 
     /** The refusal message, or null if the statement planned, built and compiled. */
-    private static String messageOf(String sql) {
+    private static @Nullable String messageOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(TXN, OTHER).plan(sql));
@@ -1362,7 +1368,7 @@ class ExpressionMatrixTest {
             String user,
             long amount,
             double price,
-            String status,
+            @Nullable String status,
             boolean flagged,
             long eventTime) {
         w.setLong(0, id).setString(1, user).setLong(2, amount).setDouble(3, price);

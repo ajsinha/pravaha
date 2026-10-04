@@ -237,6 +237,7 @@ class ContinuousStatementsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // null on purpose: pins the tolerance
     void nullIsNothing() {
         assertThat(ContinuousStatements.recognize(null)).isEmpty();
         assertThat(ContinuousStatements.isContinuousStatement(null)).isFalse();

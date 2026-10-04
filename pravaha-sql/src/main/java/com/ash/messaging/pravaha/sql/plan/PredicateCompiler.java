@@ -24,6 +24,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -284,7 +285,7 @@ public final class PredicateCompiler {
     }
 
     /** A placeholder compared with a DECIMAL, exactly: a decimal or an integer, never a double. */
-    private java.math.BigDecimal boundDecimal(RexDynamicParam param) {
+    private java.math.@Nullable BigDecimal boundDecimal(RexDynamicParam param) {
         Object value = parameters.at(param.getIndex());
         BoundParameters.checkAssignable(param.getIndex(), value, TypeName.DECIMAL);
         return BoundParameters.exactDecimal(value);
@@ -295,7 +296,7 @@ public final class PredicateCompiler {
      * value fits the column's scale, false for a bound NULL, and null -- the general, exact path --
      * otherwise.
      */
-    private Predicate decimalAgainstParameter(int ordinal, Predicate.Op op, RexDynamicParam param) {
+    private @Nullable Predicate decimalAgainstParameter(int ordinal, Predicate.Op op, RexDynamicParam param) {
         java.math.BigDecimal value = boundDecimal(param);
         return value == null ? new Predicate.False() : decimalAgainstValue(ordinal, op, value);
     }
@@ -305,7 +306,7 @@ public final class PredicateCompiler {
      * when the literal is not exactly representable at the column's scale in 128 bits, or either side
      * is not a plain decimal.
      */
-    private Predicate decimalAgainstLiteral(int ordinal, Predicate.Op op, RexLiteral literal) {
+    private @Nullable Predicate decimalAgainstLiteral(int ordinal, Predicate.Op op, RexLiteral literal) {
         if (literal.isNull() || literal.getType().getSqlTypeName() != org.apache.calcite.sql.type.SqlTypeName.DECIMAL) {
             return null;
         }
@@ -313,7 +314,7 @@ public final class PredicateCompiler {
         return value == null ? null : decimalAgainstValue(ordinal, op, value);
     }
 
-    private Predicate decimalAgainstValue(int ordinal, Predicate.Op op, java.math.BigDecimal value) {
+    private @Nullable Predicate decimalAgainstValue(int ordinal, Predicate.Op op, java.math.BigDecimal value) {
         if (!(schema.field(ordinal).type() instanceof com.ash.messaging.pravaha.api.data.DecimalType column)) {
             return null;
         }
@@ -361,7 +362,7 @@ public final class PredicateCompiler {
      * True where {@code operand} is not null; null when it can never be null (a present literal or
      * bound value); {@link Predicate.False} when it is always null.
      */
-    private Predicate present(RexNode operand) {
+    private @Nullable Predicate present(RexNode operand) {
         if (operand instanceof RexLiteral literal) {
             return literal.isNull() ? new Predicate.False() : null;
         }

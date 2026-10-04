@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.sql.plan;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -43,13 +44,13 @@ class ParameterBindingTest {
             .field("total", Types.int64())
             .build();
 
-    private static Predicate predicateOf(String sql, Object... values) {
+    private static @Nullable Predicate predicateOf(String sql, Object... values) {
         var rel = SqlPlanner.withStreams(SCHEMA).plan(sql);
         var plan = new PhysicalPlanBuilder().bind(BoundParameters.of(values)).build(rel);
         return find(plan);
     }
 
-    private static Predicate find(com.ash.messaging.pravaha.runtime.plan.PhysicalOperator operator) {
+    private static @Nullable Predicate find(com.ash.messaging.pravaha.runtime.plan.PhysicalOperator operator) {
         if (operator instanceof com.ash.messaging.pravaha.runtime.plan.FilterOperator filter) {
             return filter.predicate();
         }

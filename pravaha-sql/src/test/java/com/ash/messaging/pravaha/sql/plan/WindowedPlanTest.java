@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.sql.plan;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -43,7 +44,7 @@ class WindowedPlanTest {
     private static final long SECOND = 1_000_000_000L;
 
     /** The window assignment feeding an aggregate, looking through the projection Calcite inserts. */
-    private static WindowAssignOperator windowBelow(WindowedAggregateOperator aggregate) {
+    private static @Nullable WindowAssignOperator windowBelow(WindowedAggregateOperator aggregate) {
         PhysicalOperator current = aggregate.input();
         while (current != null) {
             if (current instanceof WindowAssignOperator window) {
@@ -105,7 +106,7 @@ class WindowedPlanTest {
                 + "GROUP BY window_start, window_end, user_id");
 
         WindowAssignOperator assign = windowBelow((WindowedAggregateOperator) plan);
-        assertThat(assign.outputSchema().fieldCount())
+        assertThat(java.util.Objects.requireNonNull(assign).outputSchema().fieldCount())
                 .as("the source's four columns plus two boundaries")
                 .isEqualTo(6);
         assertThat(assign.outputSchema().field(4).name()).isEqualTo("window_start");
