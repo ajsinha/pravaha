@@ -696,3 +696,15 @@ def test_the_competitive_page_is_public_and_both_about_and_help_lead_to_it(anony
     about = anonymous.get("/about").text
     for card in shine:
         assert f'href="/about/competitive#{card["id"]}"' in about, card["title"]
+
+
+def test_an_image_by_a_relative_path_shows_its_description_not_a_broken_image():
+    # The IDE guide, which the help includes, embeds screenshots from docs/assets/ by relative path;
+    # the console does not serve that directory.
+    from core.content.renderer import MarkdownRenderer
+
+    html, _ = MarkdownRenderer().render("![The console signed in](../../assets/screenshots/x.png)\n\n"
+                                        "![Remote](https://example.com/y.png)")
+    assert "assets/screenshots" not in html
+    assert "Screenshot: The console signed in" in html
+    assert 'src="https://example.com/y.png"' in html

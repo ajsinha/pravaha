@@ -17,7 +17,7 @@
 > for Pravaha 2.x (the PDF beside this file), supersedes it where they differ. The second edition (1.0.0)
 > closed the served-view finding (VIEWW-1), the change-feed replacement (CDCREPL-1), the Kafka seam and
 > shared-lane fate by tests, and added queries on queries and alerts (a seam with no position),
-> governance, the release and the test tiers. The third (2.x, Java 25) adds an adversarial test round
+> governance, the release and the test tiers. The third (2.x; Java 25 in 2.0.0, Java 21 or later again from 2.3.0) adds an adversarial test round
 > against 2.0.0 — 322 cases, 46 defects and 4 design notes, all fixed — and states the semantics its fixes
 > changed: an aggregate of only NULLs is NULL, narrow integers overflow rather than wrap, grouping on a
 > DOUBLE follows SQL equality, and a HOP's windows start on multiples of its slide. Its ledger has

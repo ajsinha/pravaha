@@ -24,7 +24,7 @@ tools/deck/.venv/bin/python -m pytest -q tests/deck               # the audit, a
 **Who it is for.** The people who have to trust the engine's answers: an architect
 deciding whether it belongs in a design, an SRE who will be paged for it, a
 data-platform lead who will be asked why a number moved. It describes the 2.x line —
-release 2.0.0 on Java 25 and the fixes since (one node; cluster mode, wave 11, on
+release 2.0.0 and the releases since, on Java 21 or later from 2.3.0 (one node; cluster mode, wave 11, on
 hold). After the title and a slide on what 2.0 is and what it breaks, it answers their
 questions in the order they ask them, in twelve parts:
 

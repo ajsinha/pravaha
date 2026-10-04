@@ -151,7 +151,7 @@ PART1: list[dict[str, Any]] = [
         "kicker": "Pravaha in one slide",
         "title": "Continuous SQL where your data already lives",
         "stats": [
-            ("Java 25", "One language. Calcite plans; Pravaha's own operators execute"),
+            ("Java 21+", "One language. Calcite plans; Pravaha's own operators execute"),
             ("10 plugins", "Source and sink connectors under plugins/, each its own jar"),
             ("1 node", "Clustering is not built; a node refuses PARTITIONED mode (PRV-9002)"),
             ("13 studies", "Worked systems, each run and checked by the build"),

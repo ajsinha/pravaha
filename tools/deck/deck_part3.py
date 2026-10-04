@@ -721,7 +721,7 @@ PART9: list[dict[str, Any]] = [
              "An engine bean from pravaha.*, PravahaTemplate, @PravahaListener delivering committed "
              "changes to a method, and a @PravahaTest slice."),
             ("AS A SERVER", "pravaha-server",
-             "The engine, Flight SQL, the PostgreSQL gateway and /status. A non-root image on a Java 25 "
+             "The engine, Flight SQL, the PostgreSQL gateway and /status. A non-root image on a Java 21 "
              "glibc base, and a Helm chart that installs one node as a StatefulSet."),
         ],
         "note": "The engine core contains no Spring, enforced by the build (ADR-019). The console is "

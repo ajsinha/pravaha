@@ -12,7 +12,7 @@
 
 [![Release](https://img.shields.io/badge/release-2.0.0-crimson)](docs/project/RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/status-wave%2010%20of%2011-blue)](docs/development/HANDOVER.md)
-[![Java](https://img.shields.io/badge/Java-25%20LTS-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
+[![Java](https://img.shields.io/badge/Java-21%2B-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/design/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
 
@@ -233,6 +233,7 @@ The console is then at <http://localhost:17070>. Step by step, test suites inclu
 **Without Docker** (JDK 21 or later, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
 from a distribution unpacked anywhere (`deploy/release/dist.sh`; [`docs/operations/DEPLOYMENT.md`](docs/operations/DEPLOYMENT.md),
 "Without Docker: the same layout"). The walkthrough is [docs/development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](docs/development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
+**From an IDE**: the server in IntelliJ IDEA and the console in PyCharm, with ready-made run configurations — [docs/development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md](docs/development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md).
 
 ```bash
 ./mvnw -q -DskipTests install
@@ -317,7 +318,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [The deck](docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | 99 slides for 2.x: why, the vocabulary, correctness, scale, replacement, queries on queries and alerts, connectors, security and governance, operations, case studies, the evidence — the adversarial QA round against 2.0.0 among it — and what 2.x promises. Generated from [`tools/deck`](tools/deck/GUIDE.md) |
 | [The Medium post](docs/publications/medium/pravaha-medium-post.md) | The design and its trade-offs for engineers, what 1.0 added, 2.0 on Java 25 (since relaxed to Java 21 or later) and the adversarial QA round run against it, 20 diagrams and three case studies worked end to end; also [as one self-contained page](docs/publications/medium/pravaha-medium-post.html); [how to publish it](docs/publications/medium/README.md) |
 | [Python API guide](docs/guides/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
-| [Running from an IDE](docs/development/setup/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
+| [Running in IntelliJ and PyCharm](docs/development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md) | The server in IntelliJ IDEA and the console in PyCharm: shared run configurations, debugging, tests |
 | [Testing](docs/development/TESTING.md) | Every test tier, with and without Docker, what skips and why, measured times; and a [step-by-step build and test without Docker](docs/development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
 
 | Reference | |
@@ -427,7 +428,7 @@ hold: the membership, lease and handoff libraries exist and no node uses them. "
 performance gate passed.
 
 Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
-release is `v2.0.0`, one node on JDK 25 (`develop` carries 2.0.1's fixes), with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+releases are in [RELEASE_NOTES.md](docs/project/RELEASE_NOTES.md): 2.x is one node on Java 21 or later, tested on 21 and 25, with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
 packs the server and console images and their YAML files into one files-only bundle for a QA host,
 everything under `/opt/pravaha` ([Deployment](docs/operations/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/design/system_design.md#31-delivery-roadmap)
 

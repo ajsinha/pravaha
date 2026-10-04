@@ -58,7 +58,7 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 **Environment.** The runs below used
 
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64   # or any JDK 21 or later, e.g. java-25-openjdk-amd64
 export TMPDIR=$HOME/.cache/pravaha-tmp
 export MAVEN_OPTS=-Djava.io.tmpdir=$HOME/.cache/pravaha-tmp
 ```

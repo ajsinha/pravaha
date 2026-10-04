@@ -21,4 +21,4 @@ Not here because they are covered elsewhere: **embedding the engine** in an appl
 [`USER_GUIDE.md` §9–§10](../../guides/USER_GUIDE.md#9-embed-the-engine-in-your-application) (with the
 component on [hosts](../../design/architecture/hosts.md#pravaha-embedded)); **an assistant provider** is
 [`ASSIST.md`](../../guides/ASSIST.md#writing-a-provider-plugin); **building, testing and the IDE** are
-[`TESTING.md`](../TESTING.md), the two build guides and [`DEVELOPING_IN_AN_IDE.md`](../setup/DEVELOPING_IN_AN_IDE.md).
+[`TESTING.md`](../TESTING.md), the two build guides and [`RUNNING_IN_INTELLIJ_AND_PYCHARM.md`](../setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md).

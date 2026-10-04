@@ -15,7 +15,7 @@ description of the system (DOCX-042, DOCX-046).
 
 | # | Decision |
 |---|---|
-| [001](001-language-and-platform.md) | Java for everything, baseline Java 21 LTS (`pravaha-api` at 17), 25 supported; Scala only in... — **baseline superseded by ADR-061** (Java 25 from 2.0) |
+| [001](001-language-and-platform.md) | Java for everything, baseline Java 21 LTS (`pravaha-api` at 17), 25 supported; Scala only in... — **baseline superseded by ADR-061** (Java 25 in 2.0), **amended by ADR-062** (Java 21 or later again from 2.3) |
 | [002](002-calcite-as-compiler.md) | Calcite as compiler, custom runtime |
 | [003](003-binary-flyweight-rows.md) | Binary flyweight rows over an arena |
 | [004](004-partitioned-lanes.md) | Partitioned lanes, single-writer |
