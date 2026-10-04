@@ -28,8 +28,8 @@ final class CassandraContactPoints {
 
     static List<InetSocketAddress> parse(String spec) {
         List<InetSocketAddress> points = new ArrayList<>();
-        for (String entry : spec.split(",")) {
-            String[] parts = entry.strip().split(":");
+        for (String entry : spec.split(",", -1)) {
+            String[] parts = entry.strip().split(":", -1);
             if (parts.length != 2) {
                 throw new ConfigurationException(
                         CassandraErrors.BAD_CONFIGURATION,

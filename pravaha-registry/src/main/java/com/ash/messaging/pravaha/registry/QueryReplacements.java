@@ -93,7 +93,6 @@ public final class QueryReplacements implements AutoCloseable {
     private static final Duration FREEZE_TIMEOUT = Duration.ofSeconds(10);
 
     private final QueryRegistry registry;
-    private final SecurityPolicy policy;
     private final AuditSink audit;
 
     /** Concurrent so that a drop can ask "is this name being replaced?" without taking a lock. */
@@ -107,7 +106,6 @@ public final class QueryReplacements implements AutoCloseable {
 
     QueryReplacements(QueryRegistry registry, SecurityPolicy policy, AuditSink audit) {
         this.registry = registry;
-        this.policy = policy == null ? SecurityPolicy.PERMISSIVE : policy;
         this.audit = audit == null ? AuditSink.NONE : audit;
     }
 
@@ -701,6 +699,8 @@ public final class QueryReplacements implements AutoCloseable {
      * <p>One thread for the node, started when the first replacement does and never while none is
      * running -- a registry that never replaces anything starts no thread at all.
      */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     private void watch() {
         if (watcher == null) {
             watcher = Executors.newSingleThreadScheduledExecutor(runnable -> {

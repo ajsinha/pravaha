@@ -57,7 +57,7 @@ class ReadAdmissionTest {
     void aReadThatFitsIsAdmitted() {
         ReadAdmission admission = new ReadAdmission(2, 0, 1.0, Duration.ZERO);
 
-        try (ReadAdmission.Lease lease = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
             assertThat(admission.inFlight()).isEqualTo(1);
         }
 
@@ -69,7 +69,7 @@ class ReadAdmissionTest {
     void aFullNodeWithNoQueueRefusesRatherThanWaits() {
         ReadAdmission admission = new ReadAdmission(1, 0, 1.0, Duration.ZERO);
 
-        try (ReadAdmission.Lease held = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER))
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-4026")
@@ -85,7 +85,7 @@ class ReadAdmissionTest {
     void aReadThatWaitsTooLongIsToldApartFromOneThatNeverWaited() {
         ReadAdmission admission = new ReadAdmission(1, 4, 1.0, Duration.ofMillis(50));
 
-        try (ReadAdmission.Lease held = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER))
                     .isInstanceOf(PravahaException.class)
                     // PRV-4027, not PRV-4026. One says "the node is full right now" and the other
@@ -107,7 +107,7 @@ class ReadAdmissionTest {
         ReadAdmission.Lease held = admission.acquire(ACME);
         Thread second = Thread.ofVirtual().start(() -> {
             waiting.countDown();
-            try (ReadAdmission.Lease lease = admission.acquire(OTHER)) {
+            try (ReadAdmission.Lease _ = admission.acquire(OTHER)) {
                 finished.countDown();
             } catch (Throwable t) {
                 failure.set(t);
@@ -129,8 +129,8 @@ class ReadAdmissionTest {
         // Four permits, half of them any one tenant's share.
         ReadAdmission admission = new ReadAdmission(4, 0, 0.5, Duration.ZERO);
 
-        try (ReadAdmission.Lease first = admission.acquire(ACME);
-                ReadAdmission.Lease second = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease _ = admission.acquire(ACME);
+                ReadAdmission.Lease _ = admission.acquire(ACME)) {
 
             assertThatThrownBy(() -> admission.acquire(ACME))
                     .isInstanceOf(PravahaException.class)
@@ -138,7 +138,7 @@ class ReadAdmissionTest {
 
             // And the capacity acme could not have is still there for somebody else. Without this,
             // the symptom the other tenants report is "Pravaha is down".
-            try (ReadAdmission.Lease other = admission.acquire(OTHER)) {
+            try (ReadAdmission.Lease _ = admission.acquire(OTHER)) {
                 assertThat(admission.inFlight()).isEqualTo(3);
             }
         }
@@ -151,7 +151,7 @@ class ReadAdmissionTest {
         ReadAdmission admission = new ReadAdmission(4, 0, 0.5, Duration.ZERO);
 
         for (int i = 0; i < 10; i++) {
-            try (ReadAdmission.Lease lease = admission.acquire(ACME)) {
+            try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
                 assertThat(admission.inFlight()).isEqualTo(1);
             }
         }
@@ -170,7 +170,7 @@ class ReadAdmissionTest {
         // If close were not idempotent, the node would now believe it has two permits and would run
         // two reads where it was configured for one -- quietly, and only under load.
         assertThat(admission.inFlight()).isZero();
-        try (ReadAdmission.Lease one = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER)).isInstanceOf(PravahaException.class);
         }
     }
@@ -181,7 +181,7 @@ class ReadAdmissionTest {
         // which is a configuration mistake that must not become an outage.
         ReadAdmission admission = new ReadAdmission(4, 0, 0.01, Duration.ZERO);
 
-        try (ReadAdmission.Lease lease = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
             assertThat(admission.inFlight()).isEqualTo(1);
         }
     }
@@ -228,7 +228,7 @@ class ReadAdmissionTest {
                 admission,
                 Duration.ZERO);
 
-        try (ReadAdmission.Lease held = admission.acquire(OTHER)) {
+        try (ReadAdmission.Lease _ = admission.acquire(OTHER)) {
             assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", ACME))
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-4026");

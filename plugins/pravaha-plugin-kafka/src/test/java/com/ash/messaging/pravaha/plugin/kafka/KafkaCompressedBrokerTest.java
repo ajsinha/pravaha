@@ -76,6 +76,8 @@ class KafkaCompressedBrokerTest {
         rows.close();
     }
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     @ParameterizedTest
     @ValueSource(strings = {"snappy", "zstd"})
     void theSourceReadsBatchesAProducerCompressed(String codec) {

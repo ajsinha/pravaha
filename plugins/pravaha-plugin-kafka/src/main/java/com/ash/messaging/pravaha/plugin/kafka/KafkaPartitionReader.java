@@ -69,6 +69,7 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
 
     private record Decoded(long offset, KafkaValueDecoder.Row row) implements Item {}
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Rejected(long offset, byte[] raw, String reason) implements Item {}
 
     /** Offsets up to {@code next} hold nothing to hand over: a skipped tombstone, a marker, an aborted record. */
@@ -180,8 +181,8 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
             if (item == null) {
                 break;
             }
-            if (item instanceof Decoded d && d.offset() >= before
-                    || item instanceof Rejected r && r.offset() >= before) {
+            if ((item instanceof Decoded d && d.offset() >= before)
+                    || (item instanceof Rejected r && r.offset() >= before)) {
                 // The next record is at or past the bound, so nothing before the bound remains.
                 position = before;
                 break;

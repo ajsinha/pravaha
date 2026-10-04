@@ -824,7 +824,7 @@ class DocumentationFreshnessTest {
                 continue;
             }
             while (!indents.isEmpty() && indents.get(indents.size() - 1) >= indent) {
-                indents.remove(indents.size() - 1);
+                indents.removeLast();
                 keys.remove(keys.size() - 1);
             }
             indents.add(indent);

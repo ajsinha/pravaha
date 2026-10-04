@@ -93,7 +93,7 @@ class PravahaNodePgWireTlsTest {
             node.start();
             try {
                 int port = node.pgwirePort().orElseThrow();
-                try (Socket plain = new Socket("127.0.0.1", port)) {
+                try (Socket plain = new Socket(java.net.InetAddress.getLoopbackAddress(), port)) {
                     assertThat(sslRequest(plain))
                             .as("a TLS-configured gateway accepts the SSLRequest rather than serving plaintext")
                             .isEqualTo('S');
@@ -130,7 +130,8 @@ class PravahaNodePgWireTlsTest {
         PravahaNode node = node().build();
         node.start();
         try {
-            try (Socket plain = new Socket("127.0.0.1", node.pgwirePort().orElseThrow())) {
+            try (Socket plain = new Socket(
+                    java.net.InetAddress.getLoopbackAddress(), node.pgwirePort().orElseThrow())) {
                 assertThat(sslRequest(plain)).isEqualTo('N');
             }
         } finally {

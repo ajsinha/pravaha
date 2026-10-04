@@ -69,6 +69,7 @@ class DeclaredStreamRegistrationTest {
                 .andExpect(status().isCreated());
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<String> act(String type, String... fields) {
         try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
                 FlightClient flight = FlightClient.builder(

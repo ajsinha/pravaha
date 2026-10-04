@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -154,7 +155,7 @@ final class TopNRanking implements RowProcessor, HeldRows {
     }
 
     /** The first N rows of a partition, a row held twice appearing twice. */
-    private List<Object[]> top(TreeMap<Object[], long[]> partition) {
+    private List<Object[]> top(NavigableMap<Object[], long[]> partition) {
         List<Object[]> first = new ArrayList<>();
         for (Map.Entry<Object[], long[]> entry : partition.entrySet()) {
             for (long c = 0; c < entry.getValue()[0] && first.size() < plan.limit(); c++) {

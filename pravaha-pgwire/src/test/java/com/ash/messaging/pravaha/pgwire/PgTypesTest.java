@@ -103,8 +103,8 @@ class PgTypesTest {
 
     @Test
     void booleansAreTAndFWhichIsWhatPostgresSends() {
-        assertThat(PgTypes.encode(TypeName.BOOLEAN, Boolean.TRUE)).asString().isEqualTo("t");
-        assertThat(PgTypes.encode(TypeName.BOOLEAN, Boolean.FALSE)).asString().isEqualTo("f");
+        assertThat(PgTypes.encode(TypeName.BOOLEAN, true)).asString().isEqualTo("t");
+        assertThat(PgTypes.encode(TypeName.BOOLEAN, false)).asString().isEqualTo("f");
     }
 
     @Test
@@ -209,9 +209,9 @@ class PgTypesTest {
         assertThat(PgTypes.decodeParameter(TypeName.STRING, PgBackend.FORMAT_TEXT, bytes("hello")))
                 .isEqualTo("hello");
         assertThat(PgTypes.decodeParameter(TypeName.BOOLEAN, PgBackend.FORMAT_TEXT, bytes("t")))
-                .isEqualTo(Boolean.TRUE);
+                .isEqualTo(true);
         assertThat(PgTypes.decodeParameter(TypeName.BOOLEAN, PgBackend.FORMAT_TEXT, bytes("false")))
-                .isEqualTo(Boolean.FALSE);
+                .isEqualTo(false);
     }
 
     @Test
@@ -293,7 +293,7 @@ class PgTypesTest {
         assertThat(PgTypes.decodeParameter(TypeName.INT32, (short) 1, new byte[] {0, 0, 0, 42}))
                 .isEqualTo(42L);
         assertThat(PgTypes.decodeParameter(TypeName.BOOLEAN, (short) 1, new byte[] {1}))
-                .isEqualTo(Boolean.TRUE);
+                .isEqualTo(true);
         assertThat(PgTypes.decodeParameter(TypeName.FLOAT64, (short) 1, longBytes(Double.doubleToLongBits(2.5))))
                 .isEqualTo(2.5);
     }

@@ -81,19 +81,15 @@ final class AlertCondition {
     }
 
     private static boolean holds(Test test, Object value) {
-        switch (test.operator()) {
-            case "IS_NULL" -> {
-                return value == null;
-            }
-            case "IS_NOT_NULL" -> {
-                return value != null;
-            }
+        return switch (test.operator()) {
+            case "IS_NULL" -> value == null;
+            case "IS_NOT_NULL" -> value != null;
             default -> {
                 if (value == null) {
-                    return false;
+                    yield false;
                 }
                 int order = compare(value, test.literal());
-                return switch (test.operator()) {
+                yield switch (test.operator()) {
                     case "=" -> order == 0;
                     case "!=" -> order != 0;
                     case "<" -> order < 0;
@@ -102,7 +98,7 @@ final class AlertCondition {
                     default -> order >= 0;
                 };
             }
-        }
+        };
     }
 
     private static int compare(Object value, Object literal) {

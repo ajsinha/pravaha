@@ -16,7 +16,6 @@
 package com.ash.messaging.pravaha.it;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -409,10 +408,9 @@ class JoinOnLanesTest {
                 (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
 
             IngestPump pump = execution.pumpInto(0, new FiniteReader(10, 3, 8), BackpressurePolicy.defaults());
-            List<Integer> moved = new ArrayList<>();
             long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
             while (pump.rowsPumped() < 10 && System.nanoTime() < deadline) {
-                moved.add(pump.pumpOnce(16));
+                pump.pumpOnce(16);
             }
 
             assertThat(pump.rowsPumped()).isEqualTo(10);

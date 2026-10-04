@@ -88,6 +88,7 @@ public final class SlicedAggregateState implements AutoCloseable {
      *     values} entry is then 0 and means nothing. It used to be published as that 0, which is
      *     indistinguishable from a real total of zero. Never null; all false when nothing is NULL.
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     public record WindowResult(
             long keyHigh,
             long keyLow,

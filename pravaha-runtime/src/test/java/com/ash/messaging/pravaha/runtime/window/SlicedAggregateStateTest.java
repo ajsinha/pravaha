@@ -392,7 +392,7 @@ class SlicedAggregateStateTest {
                         g,
                         g * 31,
                         new Object[] {g},
-                        slice * 10 * SECOND + SECOND,
+                        slice * 10L * SECOND + SECOND,
                         new long[] {0, g % 7, 5},
                         new boolean[] {true, true, true},
                         new Object[] {null, "v" + (g + slice) % 5, null},

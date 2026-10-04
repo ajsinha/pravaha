@@ -114,6 +114,7 @@ class FlightServerTlsEndToEndTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<String> query(String sql) {
         FlightInfo info = client.execute(sql);
         List<String> rows = new java.util.ArrayList<>();
@@ -141,6 +142,7 @@ class FlightServerTlsEndToEndTest {
         assertThat(query("SELECT user_id FROM user_volume")).containsExactlyInAnyOrder("u1", "u2");
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aClientThatDoesNotTrustTheCertificateIsRefused() throws Exception {
         // The other half of the proof: this is TLS actually checking something, not a transport that

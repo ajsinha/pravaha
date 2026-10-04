@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -218,8 +219,8 @@ class TypeBatch2Test {
         };
     }
 
-    private static final Object[] L1 =
-            left(1, true, (byte) 7, (short) 700, 70000, 7_000_000_000L, 1.5, "alpha", "cafe".getBytes(), T0, 1.5f, 0);
+    private static final Object[] L1 = left(
+            1, true, (byte) 7, (short) 700, 70000, 7_000_000_000L, 1.5, "alpha", "cafe".getBytes(UTF_8), T0, 1.5f, 0);
     private static final Object[] L2 = left(
             2,
             false,
@@ -229,16 +230,28 @@ class TypeBatch2Test {
             -8_000_000_000L,
             2.5,
             "beta",
-            "beef".getBytes(),
+            "beef".getBytes(UTF_8),
             T0 + S,
             2.5f,
             1);
     private static final Object[] L3 = left(3, null, null, null, null, null, null, null, null, null, null, 2);
-    private static final Object[] L4 =
-            left(4, true, (byte) 7, (short) 700, 70000, 7_000_000_000L, 1.5, "alpha", "cafe".getBytes(), T0, 1.5f, 3);
+    private static final Object[] L4 = left(
+            4, true, (byte) 7, (short) 700, 70000, 7_000_000_000L, 1.5, "alpha", "cafe".getBytes(UTF_8), T0, 1.5f, 3);
 
     private static final Object[] R1 = right(
-            1, true, (byte) 7, (short) 700, 70000, 7_000_000_000L, 1.5, "alpha", "cafe".getBytes(), T0, 1.5f, "L", 0.5);
+            1,
+            true,
+            (byte) 7,
+            (short) 700,
+            70000,
+            7_000_000_000L,
+            1.5,
+            "alpha",
+            "cafe".getBytes(UTF_8),
+            T0,
+            1.5f,
+            "L",
+            0.5);
     private static final Object[] R2 = right(
             2,
             true,
@@ -248,7 +261,7 @@ class TypeBatch2Test {
             9_000_000_000L,
             3.5,
             "gamma",
-            "dead".getBytes(),
+            "dead".getBytes(UTF_8),
             T0 + 2 * S,
             3.5f,
             "M",
@@ -263,7 +276,7 @@ class TypeBatch2Test {
             -8_000_000_000L,
             2.5,
             "beta",
-            "beef".getBytes(),
+            "beef".getBytes(UTF_8),
             T0 + S,
             2.5f,
             "O",
@@ -643,6 +656,9 @@ class TypeBatch2Test {
         return new Object[] {id, b, i8, i16, i32, i64, f32, f64, s, bin, ts};
     }
 
+    // Row 5 spells the integer it starts from, 2^24 + 1 and 2^53 + 1, as the float and double literal
+    // the case file writes; the literal rounding is the point of the row.
+    @SuppressWarnings("FloatingPointLiteralPrecision")
     private static final List<Object[]> TYPES_5 = List.of(
             typesRow(
                     1,
@@ -654,7 +670,7 @@ class TypeBatch2Test {
                     3.4028235E38f,
                     1.7976931348623157E308,
                     "zed",
-                    "cafe".getBytes(),
+                    "cafe".getBytes(UTF_8),
                     1700000000000000000L),
             typesRow(
                     2,
@@ -669,7 +685,8 @@ class TypeBatch2Test {
                     null,
                     0L),
             typesRow(3, null, null, null, null, null, null, null, null, null, null),
-            typesRow(4, true, (byte) 0, (short) 0, 0, 0L, 0.0f, 0.0, null, "beef".getBytes(), 1700000000000000001L),
+            typesRow(
+                    4, true, (byte) 0, (short) 0, 0, 0L, 0.0f, 0.0, null, "beef".getBytes(UTF_8), 1700000000000000001L),
             typesRow(
                     5,
                     false,
@@ -680,7 +697,7 @@ class TypeBatch2Test {
                     16777217.0f,
                     9007199254740993.0,
                     "  pad  ",
-                    "ff".getBytes(),
+                    "ff".getBytes(UTF_8),
                     -1L));
 
     // ---------------------------------------------------------------------- TYPE-053
@@ -715,7 +732,7 @@ class TypeBatch2Test {
         // this still proves: each width reads its own bytes without cross-contamination (an i8 read
         // too wide would corrupt differently), which is the falsifier this sub-case actually guards.
         List<Object[]> six = new ArrayList<>(TYPES_5);
-        six.add(typesRow(6, true, (byte) 1, (short) 1, 1, 1L, 0.0f, 0.0, "x", "y".getBytes(), 0L));
+        six.add(typesRow(6, true, (byte) 1, (short) 1, 1, 1L, 0.0f, 0.0, "x", "y".getBytes(UTF_8), 0L));
         for (String col : List.of("i8", "i16")) {
             List<CapturingRowWriter.Captured> out =
                     runBounded(types(), "SELECT " + col + ", COUNT(*) FROM types GROUP BY " + col, six);
@@ -743,11 +760,12 @@ class TypeBatch2Test {
         // The case file's Expected walks "the ten rows": the base five, plus TYPE-054's row 6
         // (f64=0.0, so it is the second row at that value), plus this case's own rows 7-10.
         List<Object[]> rows = new ArrayList<>(TYPES_5);
-        rows.add(typesRow(6, true, (byte) 1, (short) 1, 1, 1L, 0.0f, 0.0, "x", "y".getBytes(), 0L));
-        rows.add(typesRow(7, true, (byte) 0, (short) 0, 0, 0L, 0.1f, 0.1, "g", "h".getBytes(), 0L));
-        rows.add(typesRow(8, true, (byte) 0, (short) 0, 0, 0L, 0.2f, 0.2, "g", "h".getBytes(), 0L));
-        rows.add(typesRow(9, true, (byte) 0, (short) 0, 0, 0L, 0.3f, 0.30000000000000004, "g", "h".getBytes(), 0L));
-        rows.add(typesRow(10, true, (byte) 0, (short) 0, 0, 0L, -0.0f, -0.0, "g", "h".getBytes(), 0L));
+        rows.add(typesRow(6, true, (byte) 1, (short) 1, 1, 1L, 0.0f, 0.0, "x", "y".getBytes(UTF_8), 0L));
+        rows.add(typesRow(7, true, (byte) 0, (short) 0, 0, 0L, 0.1f, 0.1, "g", "h".getBytes(UTF_8), 0L));
+        rows.add(typesRow(8, true, (byte) 0, (short) 0, 0, 0L, 0.2f, 0.2, "g", "h".getBytes(UTF_8), 0L));
+        rows.add(
+                typesRow(9, true, (byte) 0, (short) 0, 0, 0L, 0.3f, 0.30000000000000004, "g", "h".getBytes(UTF_8), 0L));
+        rows.add(typesRow(10, true, (byte) 0, (short) 0, 0, 0L, -0.0f, -0.0, "g", "h".getBytes(UTF_8), 0L));
 
         List<CapturingRowWriter.Captured> out =
                 runBounded(types(), "SELECT f64, COUNT(*) AS n FROM types GROUP BY f64", rows);
@@ -807,7 +825,7 @@ class TypeBatch2Test {
         assertThat(out).hasSize(5);
 
         List<Object[]> rows = new ArrayList<>(TYPES_5);
-        rows.add(typesRow(11, true, (byte) 0, (short) 0, 0, 0L, 0.0f, 0.0, "x", "y".getBytes(), 0L));
+        rows.add(typesRow(11, true, (byte) 0, (short) 0, 0, 0L, 0.0f, 0.0, "x", "y".getBytes(UTF_8), 0L));
         List<CapturingRowWriter.Captured> out2 =
                 runBounded(types(), "SELECT ts, COUNT(*) FROM types GROUP BY ts", rows);
         assertThat(out2).hasSize(5);

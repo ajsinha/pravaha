@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 
 import org.junit.jupiter.api.Test;
@@ -102,7 +103,7 @@ class KeyedAggregatePartialEquivalenceTest {
     }
 
     /** Feeds every row through the ordinary row-at-a-time path. */
-    private static TreeMap<String, List<Long>> runOrdinary(List<Row> rows) {
+    private static NavigableMap<String, List<Long>> runOrdinary(List<Row> rows) {
         AggregateOperator operator = operator();
         RowLayout inputLayout = RowLayout.of(inputSchema());
         List<Object[]> captured = new ArrayList<>();
@@ -124,7 +125,7 @@ class KeyedAggregatePartialEquivalenceTest {
     }
 
     /** Feeds no rows: only correctly-computed per-group partials, {@code batches} of them. */
-    private static TreeMap<String, List<Long>> runPushedDown(List<Row> rows, int batches) {
+    private static NavigableMap<String, List<Long>> runPushedDown(List<Row> rows, int batches) {
         AggregateOperator operator = operator();
         RowLayout outputLayout = RowLayout.of(outputSchema());
         List<Object[]> captured = new ArrayList<>();
@@ -168,7 +169,7 @@ class KeyedAggregatePartialEquivalenceTest {
      * every call regardless of whether the aggregates agreed, which is exactly the kind of test
      * that has not been seen to fail for the right reason.
      */
-    private static TreeMap<String, List<Long>> toMap(List<Object[]> captured) {
+    private static NavigableMap<String, List<Long>> toMap(List<Object[]> captured) {
         TreeMap<String, List<Long>> map = new TreeMap<>();
         for (Object[] row : captured) {
             map.put((String) row[0], List.of((Long) row[1], (Long) row[2]));

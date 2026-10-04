@@ -480,8 +480,7 @@ class PluginSourceFeedsTest {
         ViewCatalog second = new ViewCatalog();
         try (QueryRegistry registry =
                 new QueryRegistry(second, TXN).feedingFrom(feeds.get()).checkpointingTo(checkpoints, everySecond)) {
-            RegisteredQuery query =
-                    registry.register("resumed", "SELECT id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
+            registry.register("resumed", "SELECT id, amount FROM txn", List.of(0), Principal.ANONYMOUS);
             awaitView(second, "SELECT id, amount FROM resumed", 3);
             Thread.sleep(300);
 

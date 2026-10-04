@@ -41,6 +41,8 @@ public final class DraftFingerprint {
     private DraftFingerprint() {}
 
     /**
+     * The fingerprint a registration of this statement would have.
+     *
      * @param registry the registry the statement would be registered with
      * @param name the name it would be registered under, which a policy may judge; not part of the
      *     fingerprint

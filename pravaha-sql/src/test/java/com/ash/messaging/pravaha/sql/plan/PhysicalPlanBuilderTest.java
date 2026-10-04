@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.sql.plan;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -220,9 +222,9 @@ class PhysicalPlanBuilderTest {
     @Test
     void explainRendersAnIndentedTree() {
         String explained = PhysicalPlanBuilder.explain(plan("SELECT user_id FROM txn WHERE amount > 100"));
-        String[] lines = explained.split("\n");
-        assertThat(lines.length).isGreaterThanOrEqualTo(2);
-        assertThat(lines[lines.length - 1]).startsWith("    ").contains("Scan");
+        List<String> lines = explained.lines().toList();
+        assertThat(lines.size()).isGreaterThanOrEqualTo(2);
+        assertThat(lines.getLast()).startsWith("    ").contains("Scan");
     }
 
     @Test

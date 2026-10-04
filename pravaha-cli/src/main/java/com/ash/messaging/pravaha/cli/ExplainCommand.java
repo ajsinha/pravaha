@@ -43,11 +43,9 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 final class ExplainCommand {
 
     private final PrintStream out;
-    private final PrintStream err;
 
     ExplainCommand(PrintStream out, PrintStream err) {
         this.out = out;
-        this.err = err;
     }
 
     int run(List<String> arguments) {
@@ -107,7 +105,7 @@ final class ExplainCommand {
         try {
             FilterProjectGenerator.Fused fused = new FilterProjectGenerator().generate(plan, "ExplainStage");
             StringBuilder rendered = new StringBuilder();
-            String[] lines = fused.source().split("\n");
+            String[] lines = fused.source().lines().toArray(String[]::new);
             for (int i = 0; i < lines.length; i++) {
                 rendered.append(String.format("%4d  %s%n", i + 1, lines[i]));
             }

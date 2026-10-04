@@ -43,3 +43,23 @@ jobs:
           name: surefire-reports
           path: '**/target/surefire-reports/**'
           retention-days: 7
+
+  # The Error Prone ratchet (ERRORPRONE-2, TESTING.md "Static analysis"). Every check Error Prone
+  # enables at WARNING is an ERROR under -Pep in every module but pravaha-api and the Java SDKs, so a
+  # new warning fails here. NullAway runs too and stays a warning. Main and test code: test-compile,
+  # not compile, because half the findings so far were in tests.
+  errorprone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Error Prone at ERROR, NullAway at WARNING
+        run: ./mvnw -B -Pep -DskipTests clean test-compile

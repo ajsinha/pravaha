@@ -117,7 +117,7 @@ class AdminEndpointsTest {
                 .isTrue();
 
         PravahaException refused =
-                catchThrowableOfType(() -> read(ANALYST, null, null, null, null), PravahaException.class);
+                catchThrowableOfType(PravahaException.class, () -> read(ANALYST, null, null, null, null));
 
         assertThat(refused).as("reading the trail is not a read of a view").isNotNull();
         assertThat(refused.errorCode()).isEqualTo(SecurityErrors.FORBIDDEN);
@@ -128,7 +128,7 @@ class AdminEndpointsTest {
     @Test
     void anAnonymousCallerIsRefusedEvenWhereThePolicyWouldLetThemReadData() {
         PravahaException refused =
-                catchThrowableOfType(() -> read(Principal.ANONYMOUS, null, null, null, null), PravahaException.class);
+                catchThrowableOfType(PravahaException.class, () -> read(Principal.ANONYMOUS, null, null, null, null));
         assertThat(refused.errorCode()).isEqualTo(SecurityErrors.FORBIDDEN);
     }
 
@@ -151,7 +151,7 @@ class AdminEndpointsTest {
 
     @Test
     void readingTheTrailIsItselfOnTheTrailWhetherAllowedOrRefused() {
-        assertThat(catchThrowableOfType(() -> read(ANALYST, null, null, null, null), PravahaException.class))
+        assertThat(catchThrowableOfType(PravahaException.class, () -> read(ANALYST, null, null, null, null)))
                 .as("the analyst is refused")
                 .isNotNull();
         read(ADMIN, "ann", "deny", 5, null);
@@ -197,7 +197,7 @@ class AdminEndpointsTest {
                 () -> audit.read("yesterday", null, null, null, null, null, null, null, as(ADMIN)),
                 () -> audit.read(null, null, null, null, null, "maybe", null, null, as(ADMIN)),
                 () -> audit.read(null, null, null, null, null, null, null, "abc", as(ADMIN)))) {
-            PravahaException refused = catchThrowableOfType(call::run, PravahaException.class);
+            PravahaException refused = catchThrowableOfType(PravahaException.class, call::run);
             assertThat(refused.errorCode()).isEqualTo(ApiErrors.INVALID_PARAMETER);
             assertThat(ApiExceptionHandler.statusFor(refused.errorCode()).value())
                     .isEqualTo(400);

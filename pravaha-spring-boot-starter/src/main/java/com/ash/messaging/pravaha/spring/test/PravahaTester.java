@@ -170,7 +170,7 @@ public class PravahaTester {
                 }
             }
         };
-        try (Subscription subscription = engine.subscribeFromSnapshot(query, wake)) {
+        try (Subscription _ = engine.subscribeFromSnapshot(query, wake)) {
             while (true) {
                 long before;
                 synchronized (commits) {

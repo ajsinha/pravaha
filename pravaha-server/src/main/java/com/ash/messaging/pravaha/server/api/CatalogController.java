@@ -373,7 +373,7 @@ public class CatalogController {
             return privileges;
         }
         for (String each : written) {
-            for (String part : each.split(",")) {
+            for (String part : each.split(",", -1)) {
                 if (part.isBlank() || part.strip().equalsIgnoreCase("ALL")) {
                     continue;
                 }

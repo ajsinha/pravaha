@@ -79,7 +79,6 @@ public record SubscriptionOptions(int bufferRows, Overflow overflow, Changes cha
         return new SubscriptionOptions(bufferRows, overflow);
     }
 
-    /** What happens to a subscriber that falls behind. */
     /**
      * What a subscription's changes are (KEYEDWT-1).
      *
@@ -103,6 +102,7 @@ public record SubscriptionOptions(int bufferRows, Overflow overflow, Changes cha
         ANSWER
     }
 
+    /** What happens to a subscriber that falls behind. */
     public enum Overflow {
 
         /**

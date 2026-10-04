@@ -61,6 +61,8 @@ public final class MaskedColumnUse {
     private MaskedColumnUse() {}
 
     /**
+     * Refuses a plan that compares a masked column, or keys its view by one.
+     *
      * @param masked the masked columns of each object the plan reads, by the object's name
      * @param keyColumns the output ordinals a registration keys its view by; empty for a read
      */

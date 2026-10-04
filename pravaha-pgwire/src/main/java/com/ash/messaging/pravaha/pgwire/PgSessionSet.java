@@ -35,10 +35,10 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * extra_float_digits = 3} before it sends anything else -- not optionally, every time, in {@code
  * PgConnection}'s own connection setup -- and refusing it meant no JDBC driver could open a
  * connection to this server at all, whatever query it meant to run. Accepting it costs nothing only
- * because it is already true: see {@link #ALLOWED} below for why each entry on the list is a no-op
+ * because it is already true: see {@link Allowed} below for why each entry on the list is a no-op
  * rather than a lie.
  *
- * <p><strong>The rule this class exists to keep: nothing goes on {@link #ALLOWED} unless accepting
+ * <p><strong>The rule this class exists to keep: nothing goes on {@link Allowed} unless accepting
  * it and doing nothing is provably the same as honouring it.</strong> A setting that changes real
  * behaviour in real PostgreSQL and would silently do nothing here is not a convenience, it is a
  * client told its request succeeded when it did not -- the exact failure mode this codebase treats
@@ -121,6 +121,8 @@ final class PgSessionSet {
         SEARCH_PATH("search_path", PgSessionSet::keepsPublicResolution);
 
         private final String parameter;
+
+        @SuppressWarnings("ImmutableEnumChecker") // the field is unmodifiable or stateless; it is never changed
         private final java.util.function.Predicate<String> acceptsValue;
 
         Allowed(String parameter, java.util.function.Predicate<String> acceptsValue) {
@@ -145,7 +147,7 @@ final class PgSessionSet {
             return true;
         }
         boolean hasPublic = false;
-        for (String entry : trimmed.split(",")) {
+        for (String entry : trimmed.split(",", -1)) {
             String schema = entry.strip();
             if (schema.length() >= 2
                     && (schema.charAt(0) == '\'' || schema.charAt(0) == '"')

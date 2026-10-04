@@ -455,7 +455,7 @@ public final class RegistryJournal {
                 records.add(List.of(MOVED, survivor, directory));
             }
         }
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings({"unchecked", "rawtypes"}) // Java makes no generic array: a raw one, cast
         List<String>[] all = records.toArray(new List[0]);
         append(all);
     }
@@ -989,7 +989,7 @@ public final class RegistryJournal {
         if (encoded == null || encoded.isEmpty()) {
             return values;
         }
-        for (String part : encoded.split(",")) {
+        for (String part : encoded.split(",", -1)) {
             values.add(Integer.parseInt(part.trim()));
         }
         return values;

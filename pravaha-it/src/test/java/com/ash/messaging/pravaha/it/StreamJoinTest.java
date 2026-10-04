@@ -74,6 +74,7 @@ class StreamJoinTest {
     }
 
     /** One row on one input, with its Z-set weight. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Input(String stream, long weight, Object[] values) {}
 
     private static Input order(long id, String user, long amount, long weight) {

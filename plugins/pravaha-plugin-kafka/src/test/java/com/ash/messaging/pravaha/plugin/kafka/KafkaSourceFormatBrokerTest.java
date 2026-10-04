@@ -159,9 +159,10 @@ class KafkaSourceFormatBrokerTest {
 
     private volatile int requests;
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     private String startRegistry(int id, String schema) {
         try {
-            registry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            registry = HttpServer.create(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }

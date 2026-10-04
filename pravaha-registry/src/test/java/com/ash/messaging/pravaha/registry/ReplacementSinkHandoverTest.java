@@ -342,7 +342,6 @@ class ReplacementSinkHandoverTest {
     static final class WarehouseSink implements StreamSinkPlugin {
         private final Warehouse warehouse;
         private long label;
-        private int prepares;
 
         WarehouseSink(Warehouse warehouse) {
             this.warehouse = warehouse;
@@ -402,7 +401,6 @@ class ReplacementSinkHandoverTest {
 
         @Override
         public synchronized String prepare(long checkpointId) {
-            prepares++;
             String handle = handle();
             warehouse.prepare(handle, label);
             return handle;

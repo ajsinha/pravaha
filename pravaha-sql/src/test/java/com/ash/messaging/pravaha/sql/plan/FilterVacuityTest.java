@@ -471,6 +471,7 @@ class FilterVacuityTest {
             if (ordinal == 0 && random.nextInt(8) == 0) {
                 return new Predicate.IsNull(0, "a", random.nextBoolean());
             }
+            @SuppressWarnings("EnumOrdinal") // declaration order is the meaning: a range, a precedence or a random pick
             Predicate.Op op = Predicate.Op.values()[random.nextInt(Predicate.Op.values().length)];
             long constant = constants[random.nextInt(random.nextInt(4) == 0 ? constants.length : 6)];
             return new Predicate.CompareLong(ordinal, ordinal == 0 ? "a" : "k", op, constant);

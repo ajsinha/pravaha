@@ -719,6 +719,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * @param view the view contents this sink holds once they are committed: the checkpoint's own
      *     view, or -- for a section carried forward unclaimed -- the view of the checkpoint it came from
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Restored(long checkpointId, List<Prepared> handles, byte[] view, boolean carriedView) {
 
         /** A section whose view is one this sink holds and no checkpoint of this computation does. */

@@ -383,7 +383,7 @@ PART11: list[dict[str, Any]] = [
         "col_w": [1.9, 1.1, 3.4],
         "size": 13.5,
         "note": "A green build without Docker has not tested any connector against its store. Error "
-        "Prone and NullAway run under -Pep, not as a gate: 0 errors, 3,570 warnings listed.",
+        "Prone runs under -Pep and CI gates it: 0 warnings; NullAway's backlog is listed, and the API and SDKs are at 0.",
         "source": "Source: docs/development/TESTING.md 'Where the numbers come from' (4,832 tests, 12 skipped, "
         "on 25), 'The tiers at a glance', 'With Docker', 'Static analysis: Error Prone and NullAway'; "
         "docs/project/RELEASE_NOTES.md '2.0.0' (proved on 25), '1.0.0' (PERF-1), 'Unreleased' (ERRORPRONE-1).",
@@ -391,7 +391,7 @@ PART11: list[dict[str, Any]] = [
     {
         "kind": "table",
         "kicker": "The findings register · docs/project/qa/FINDINGS.md",
-        "title": "544 findings, none open — and each found one step outside the last test",
+        "title": "552 findings, none open — and each found one step outside the last test",
         "rows": [
             ["Finding", "Found by", "What it was"],
             ["SINKKEYROWS-2", "A broker test that had not run since a fix",
@@ -407,9 +407,9 @@ PART11: list[dict[str, Any]] = [
         ],
         "col_w": [1.3, 2.2, 2.9],
         "size": 13.5,
-        "note": "525 fixed, 10 closed by design, 9 superseded, 0 open; a finding is fixed only when the "
+        "note": "533 fixed, 10 closed by design, 9 superseded, 0 open; a finding is fixed only when the "
         "case that found it has been re-run. The commonest defect: built, correct, connected to nothing.",
-        "source": "Source: docs/project/qa/FINDINGS.md (header counts: 544 — 525 FIXED, 0 OPEN, 10 BY DESIGN, "
+        "source": "Source: docs/project/qa/FINDINGS.md (header counts: 552 — 533 FIXED, 0 OPEN, 10 BY DESIGN, "
         "9 SUPERSEDED; SINKKEYROWS-2, PGWIRETX-1, SDKNETTYMIX-1, VIEWW-1, TESTNAME-1; 'The commonest defect'); "
         "docs/development/TESTING.md 'What this pass found'; docs/project/RELEASE_NOTES.md '1.0.0', 'Unreleased'.",
     },
@@ -528,7 +528,7 @@ PART11: list[dict[str, Any]] = [
             ("Wave 1", "The ten high: answers, recovery, heap, credentials"),
             ("Wave 2", "The seventeen medium: casts, checksums, grouping, hops, DLQ"),
             ("Wave 3", "The nineteen low and the four design notes"),
-            ("Register", "544 findings, 0 open; 3 more found while fixing, fixed"),
+            ("Register", "552 findings, 0 open; 3 more found while fixing, fixed"),
         ],
         "box_h": 1.95,
         "items": [

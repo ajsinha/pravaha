@@ -190,7 +190,6 @@ public final class PartitionedIngestPump implements AutoCloseable {
         return new DelegatingRowWriter(writer, this::route, eventTimeObserver);
     }
 
-    /** Hashes the staged row's key and hands it to the lane that owns it. */
     /**
      * Reports each row's event time to {@code observer} as it is written.
      *
@@ -210,6 +209,7 @@ public final class PartitionedIngestPump implements AutoCloseable {
         this.eventTimeObserver = observer == null ? nanos -> {} : observer;
     }
 
+    /** Hashes the staged row's key and hands it to the lane that owns it. */
     private void route() {
         int length = writer.sizeSoFar();
         long hash = JoinKeys.hash(view.wrap(staging, 0), keyOrdinals, schema);

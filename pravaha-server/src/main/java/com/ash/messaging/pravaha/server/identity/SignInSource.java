@@ -39,6 +39,7 @@ public final class SignInSource {
 
     private final List<Block> trusted;
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Block(byte[] network, int bits) {
         boolean contains(byte[] address) {
             if (address.length != network.length) {
@@ -75,7 +76,7 @@ public final class SignInSource {
         if (forwardedFor == null || forwardedFor.isBlank() || !isTrusted(peer)) {
             return peer;
         }
-        String[] hops = forwardedFor.split(",");
+        String[] hops = forwardedFor.split(",", -1);
         for (int i = hops.length - 1; i >= 0; i--) {
             String hop = hops[i].strip();
             if (hop.isEmpty() || hop.length() > 64) {
@@ -103,7 +104,7 @@ public final class SignInSource {
 
     /** Only a literal is resolved: a name would send a sign-in to DNS. */
     private static boolean literal(String address) {
-        return address.matches("[0-9.]+") || address.matches("[0-9a-fA-F:.]+") && address.contains(":");
+        return address.matches("[0-9.]+") || (address.matches("[0-9a-fA-F:.]+") && address.contains(":"));
     }
 
     private static Block block(String entry) {

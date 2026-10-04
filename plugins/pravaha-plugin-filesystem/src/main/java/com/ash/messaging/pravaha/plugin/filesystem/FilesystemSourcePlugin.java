@@ -130,17 +130,6 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
     }
 
     /**
-     * Parses {@code name:TYPE,name:TYPE} into a schema.
-     *
-     * <p>Declared rather than inferred. Sniffing types from the first few lines guesses wrong on
-     * exactly the columns that matter -- an identifier of all digits becomes an integer, and the
-     * first row containing a letter fails at 3 a.m.
-     *
-     * <p>Public because the spec is part of this plugin's configuration contract: anything binding a
-     * query to a filesystem stream needs the same schema the plugin will decode with, and deriving
-     * it twice is how the two drift apart.
-     */
-    /**
      * Splits a schema string on the commas that separate columns, not the ones inside a type.
      *
      * <p>TY-7. {@code spec.split(",")} cut {@code amt:DECIMAL(10,2)} in half and reported
@@ -174,7 +163,17 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
     }
 
     /**
-     * The {@code name:TYPE,name:TYPE} schema grammar, shared by every surface that writes one.
+     * Parses {@code name:TYPE,name:TYPE} into a schema.
+     *
+     * <p>Declared rather than inferred. Sniffing types from the first few lines guesses wrong on
+     * exactly the columns that matter -- an identifier of all digits becomes an integer, and the
+     * first row containing a letter fails at 3 a.m.
+     *
+     * <p>Public because the spec is part of this plugin's configuration contract: anything binding a
+     * query to a filesystem stream needs the same schema the plugin will decode with, and deriving
+     * it twice is how the two drift apart.
+     *
+     * <p>The grammar is shared by every surface that writes one.
      *
      * <p>Findings TY-8 and TY-9. Two things were wrong with the refusal rather than the parse. It
      * carried {@code PRV-5040}, a PLUGIN code, so the HTTP API -- which derives its status from the

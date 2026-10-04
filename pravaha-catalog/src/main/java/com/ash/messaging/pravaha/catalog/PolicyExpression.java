@@ -458,7 +458,7 @@ public final class PolicyExpression {
                 }
                 tokens.add(new Token(Kind.WORD, text.substring(start, at)));
             } else if (Character.isDigit(c)
-                    || c == '.' && at + 1 < text.length() && Character.isDigit(text.charAt(at + 1))) {
+                    || (c == '.' && at + 1 < text.length() && Character.isDigit(text.charAt(at + 1)))) {
                 int start = at;
                 while (at < text.length() && (Character.isLetterOrDigit(text.charAt(at)) || text.charAt(at) == '.')) {
                     at++;

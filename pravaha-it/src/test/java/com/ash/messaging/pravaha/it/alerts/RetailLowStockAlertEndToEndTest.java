@@ -93,7 +93,7 @@ class RetailLowStockAlertEndToEndTest {
     @BeforeEach
     void setUp() throws IOException {
         arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
-        receiver = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        receiver = HttpServer.create(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
         receiver.createContext("/buyers", exchange -> {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             received.add(new Received(

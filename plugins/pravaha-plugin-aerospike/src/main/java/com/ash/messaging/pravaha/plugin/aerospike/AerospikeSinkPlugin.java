@@ -144,7 +144,7 @@ public final class AerospikeSinkPlugin implements StreamSinkPlugin {
                             + "the sink would append duplicates on every replay");
         }
         List<String> names = new ArrayList<>();
-        for (String part : declared.split(",")) {
+        for (String part : declared.split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }

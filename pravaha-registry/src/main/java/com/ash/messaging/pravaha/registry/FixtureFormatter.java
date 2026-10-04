@@ -34,9 +34,10 @@ import java.lang.reflect.InvocationTargetException;
 final class FixtureFormatter {
 
     /** The comment an unformatted fixture carries, above its package line. */
-    static final String UNFORMATTED_NOTE =
-            "// Not formatted: run ./mvnw -pl pravaha-it spotless:apply before committing this file.\n"
-                    + "// (The node that wrote it has no Java formatter on its classpath.)\n";
+    static final String UNFORMATTED_NOTE = """
+            // Not formatted: run ./mvnw -pl pravaha-it spotless:apply before committing this file.
+            // (The node that wrote it has no Java formatter on its classpath.)
+            """;
 
     private static final String FORMATTER = "com.palantir.javaformat.java.Formatter";
 

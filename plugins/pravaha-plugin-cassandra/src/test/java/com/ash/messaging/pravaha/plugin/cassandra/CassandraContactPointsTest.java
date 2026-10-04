@@ -51,4 +51,16 @@ class CassandraContactPointsTest {
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("not a number");
     }
+
+    @Test
+    void aTrailingSeparatorIsRefusedLikeAnyOtherMalformedEntry() {
+        // SPLITTRAIL-1: String.split dropped trailing empty strings, so "cass-1:9042:" read as
+        // cass-1:9042 and a trailing comma vanished, while the same slip mid-list was refused.
+        assertThatThrownBy(() -> CassandraContactPoints.parse("cass-1:9042,"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("host:port");
+        assertThatThrownBy(() -> CassandraContactPoints.parse("cass-1:9042:"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("host:port");
+    }
 }

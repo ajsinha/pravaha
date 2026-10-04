@@ -120,7 +120,7 @@ public final class FileDescriptors {
                 }
                 // "Max open files            1024                 4096                 files"
                 String[] fields =
-                        line.substring("Max open files".length()).trim().split("\\s+");
+                        line.substring("Max open files".length()).trim().split("\\s+", -1);
                 if (fields.length == 0) {
                     return Optional.empty();
                 }

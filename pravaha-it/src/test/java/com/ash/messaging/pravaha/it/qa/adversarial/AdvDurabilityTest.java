@@ -29,6 +29,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -104,13 +105,13 @@ class AdvDurabilityTest {
             acc[1] += weight;
         }
 
-        TreeSet<String> proj() {
+        NavigableSet<String> proj() {
             TreeSet<String> out = new TreeSet<>();
             live.forEach((id, row) -> out.add(id + "|" + row[0] + "|" + row[1]));
             return out;
         }
 
-        TreeSet<String> win() {
+        NavigableSet<String> win() {
             TreeSet<String> out = new TreeSet<>();
             windows.forEach((key, acc) -> {
                 if (acc[1] != 0) {
@@ -120,7 +121,7 @@ class AdvDurabilityTest {
             return out;
         }
 
-        TreeSet<String> agg() {
+        NavigableSet<String> agg() {
             Map<String, long[]> groups = new TreeMap<>();
             live.values().forEach(row -> {
                 long[] acc = groups.computeIfAbsent(row[0], g -> new long[2]);
@@ -151,7 +152,7 @@ class AdvDurabilityTest {
         return last;
     }
 
-    static String diff(TreeSet<String> expected, TreeSet<String> actual) {
+    static String diff(NavigableSet<String> expected, NavigableSet<String> actual) {
         TreeSet<String> missing = new TreeSet<>(expected);
         missing.removeAll(actual);
         TreeSet<String> extra = new TreeSet<>(actual);
@@ -159,7 +160,7 @@ class AdvDurabilityTest {
         return missing.isEmpty() && extra.isEmpty() ? "ok" : "missing " + head(missing) + " extra " + head(extra);
     }
 
-    static String head(TreeSet<String> rows) {
+    static String head(NavigableSet<String> rows) {
         return rows.size() + rows.stream().limit(4).toList().toString();
     }
 
@@ -448,7 +449,7 @@ class AdvDurabilityTest {
                         throw new IllegalStateException((difference == null ? "EQUAL" : "DIFFERENT " + difference)
                                 + " | "
                                 + AdvSupport.rows(engine, "SHOW CONTINUOUS QUERIES").stream()
-                                        .map(r -> r.split("\\|")[0] + "=" + r.split("\\|")[1])
+                                        .map(r -> r.split("\\|", -1)[0] + "=" + r.split("\\|", -1)[1])
                                         .toList());
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);

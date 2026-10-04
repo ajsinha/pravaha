@@ -89,8 +89,6 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
     private String keyColumn;
     private String source;
     private String pageClause;
-    private String firstQuery;
-    private String resumeQuery;
     private int fetchSize;
     private boolean partialAggregates;
     private boolean binaryCollation;
@@ -193,19 +191,11 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
     }
 
     /**
-     * Builds the two poll statements.
-     *
-     * <p>Two rather than one because the first poll has no lower bound at all, and expressing "no
-     * bound" as a comparison against {@code Long.MIN_VALUE} would quietly exclude any row that
-     * legitimately sits at that value.
-     */
-    private void buildQueries() {
-        this.firstQuery = firstQueryWith(JdbcPushdown.NOTHING, "*");
-        this.resumeQuery = resumeQueryWith(JdbcPushdown.NOTHING, "*");
-    }
-
-    /**
      * The first-poll statement, optionally with the engine's filters folded in.
+     *
+     * <p>Two poll statements rather than one because the first poll has no lower bound at all, and
+     * expressing "no bound" as a comparison against {@code Long.MIN_VALUE} would quietly exclude any
+     * row that legitimately sits at that value.
      *
      * <p>Pure, so a reader can build its own without disturbing the plugin's. Two readers of one
      * stream can be serving different queries, and a shared statement would give one of them the
@@ -259,7 +249,6 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
                     e);
         }
         this.schema = discoverSchema();
-        buildQueries();
     }
 
     /**

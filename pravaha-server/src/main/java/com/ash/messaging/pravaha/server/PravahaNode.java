@@ -590,7 +590,7 @@ public class PravahaNode implements SmartLifecycle {
         // CFG-9/SX-12: one term (policy alone, or authentication alone) failed in one direction or the
         // other -- token + permissive + allow-anonymous=false, which refuses every stranger, could not start.
         boolean unauthenticatedCallersGetIn = !security.authenticates() || security.isAllowAnonymous();
-        boolean policyServesThemEverything = catalog != null && catalog.enabled()
+        boolean policyServesThemEverything = (catalog != null && catalog.enabled())
                 ? catalog.servesEveryone()
                 : !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
         boolean open = unauthenticatedCallersGetIn && policyServesThemEverything;
@@ -684,7 +684,7 @@ public class PravahaNode implements SmartLifecycle {
                                 + "is a name and a shape; the name alone cannot be planned against.");
             }
             StreamSchema parsed = FilesystemSourcePlugin.parseSchema(name, declaration.getSchema());
-            StreamSchema declared = withEventTime(name, parsed, declaration);
+            StreamSchema declared = withEventTime(parsed, declaration);
             streams.register(declared);
             // TIME-6. One line per stream saying what its event time is and what lateness is in
             // force, because four of the six ways to arrive at "RUNNING, ingesting, serving
@@ -717,8 +717,7 @@ public class PravahaNode implements SmartLifecycle {
      * version it was planned against, which is what stops a re-declaration changing the meaning of a
      * query already in flight.
      */
-    private StreamSchema withEventTime(
-            String name, StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
+    private StreamSchema withEventTime(StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
         boolean namesAnEventTime = declaration.getEventTime() != null
                 && !declaration.getEventTime().isBlank();
         // T-6. `getOutOfOrderness() != null` is the new clause, and it is the whole of the second
@@ -800,15 +799,15 @@ public class PravahaNode implements SmartLifecycle {
      * still be invisible, and the configuration would now look right. Sharing the instance is the
      * fix; the cache below is what makes sharing safe to ask for before {@link #start()}.
      */
+    @SuppressWarnings("AssignmentExpression") // made once, on the first ask, and cached in place
     AuditSink auditSink() {
         // CFG-21. Validated by SecurityProperties, so an unknown name is refused while the
         // properties bean is initialising rather than four Caused-by levels under Tomcat.
         return switch (security.trimmedAudit()) {
             case "memory" -> audit == null ? (audit = readable(memorySink(), "memory")) : audit;
-            // CFG-23. The setting that produces a trail an operator can read after the fact, and
-            // the reason it is a file: an endpoint listing who-read-what is a disclosure surface
-            // needing an authorization this codebase's policy SPI cannot express, while a file's
-            // readers are already decided by the operating system. See FileAuditSink.
+            // CFG-23. The setting that produces a trail an operator can read after the fact, and a file
+            // because an endpoint listing who-read-what would need an authorization this policy SPI
+            // cannot express, while a file's readers are the operating system's. See FileAuditSink.
             case "file" -> audit == null ? (audit = readable(fileSink(), "file")) : audit;
             default -> AuditSink.NONE;
         };
@@ -1432,10 +1431,6 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     /**
-     * The source bindings this node reads, for striking their option values out of a stopped feed's
-     * message before it leaves the node (FEED-1); empty before it starts.
-     */
-    /**
      * What has been dead-lettered on this node, readable (B5).
      *
      * <p>{@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} until the node is
@@ -1448,6 +1443,10 @@ public class PravahaNode implements SmartLifecycle {
         return open == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE : open.deadLetters();
     }
 
+    /**
+     * The source bindings this node reads, for striking their option values out of a stopped feed's
+     * message before it leaves the node (FEED-1); empty before it starts.
+     */
     public Optional<PluginSourceFeeds> sources() {
         return Optional.ofNullable(feeds);
     }

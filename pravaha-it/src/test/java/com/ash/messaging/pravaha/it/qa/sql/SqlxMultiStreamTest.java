@@ -72,7 +72,7 @@ class SqlxMultiStreamTest {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(txn(), other(), third()).plan(sql));
-            try (InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("no row is fed while a refusal is being checked");
             })) {
                 return null;
@@ -224,7 +224,7 @@ class SqlxMultiStreamTest {
     @Test
     void aBoundValueOfTheWrongTypeIsRefusedWithACodeNamingThePlaceholderAndTheType() {
         // A Boolean where the query needs STRING.
-        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE user_id = ?", Boolean.TRUE))
+        assertThat(bindingRefusalOf("SELECT txn_id FROM txn WHERE user_id = ?", true))
                 .startsWith("PRV-2062")
                 .contains("?1");
         // A String where the query needs INT64.

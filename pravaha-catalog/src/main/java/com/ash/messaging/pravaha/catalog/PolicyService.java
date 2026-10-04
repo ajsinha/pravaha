@@ -66,7 +66,11 @@ public final class PolicyService {
      */
     @FunctionalInterface
     public interface Checker {
-        /** @throws PravahaException {@code PRV-7038} naming what is wrong */
+        /**
+         * Refuses a policy this target cannot take.
+         *
+         * @throws PravahaException {@code PRV-7038} naming what is wrong
+         */
         void check(PolicyDefinition policy, CatalogObject target);
     }
 

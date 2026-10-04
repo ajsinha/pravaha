@@ -80,8 +80,8 @@ final class PgValues {
         return switch (type.typeName()) {
             case BOOLEAN ->
                 switch (text) {
-                    case "t" -> Boolean.TRUE;
-                    case "f" -> Boolean.FALSE;
+                    case "t" -> true;
+                    case "f" -> false;
                     default -> throw new IllegalArgumentException("'" + text + "' is not a boolean");
                 };
             case INT16 -> Short.parseShort(text);
@@ -114,6 +114,7 @@ final class PgValues {
     }
 
     /** {@code 2026-09-19 10:11:12.5+05:30}: the offset is the trailing sign and what follows it. */
+    @SuppressWarnings("JavaLocalDateTimeGetNano") // nano-of-second beside toEpochSecond is the whole instant
     private static long zoned(String text) {
         int sign = Math.max(text.lastIndexOf('+'), text.lastIndexOf('-'));
         if (sign < 19) {
@@ -124,6 +125,7 @@ final class PgValues {
         return nanos(local.toEpochSecond(offset), local.getNano());
     }
 
+    @SuppressWarnings("JavaLocalDateTimeGetNano") // nano-of-second beside toEpochSecond is the whole instant
     private static long utc(LocalDateTime local) {
         return nanos(local.toEpochSecond(ZoneOffset.UTC), local.getNano());
     }

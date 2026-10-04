@@ -299,7 +299,7 @@ public final class SpillBeyondRamWorkload {
             Phase insert = new Phase("insert");
             long n = 0;
             for (int slice = 0; slice < SLICES; slice++) {
-                long time = slice * 10 * SECOND + SECOND;
+                long time = slice * 10L * SECOND + SECOND;
                 for (long group = 0; group < groups; group++) {
                     values[1] = group;
                     distinct[2] = group % 5;
@@ -344,7 +344,7 @@ public final class SpillBeyondRamWorkload {
                         group,
                         group * 0x9E3779B97F4A7C15L,
                         new Object[] {group},
-                        slice * 10 * SECOND + SECOND,
+                        slice * 10L * SECOND + SECOND,
                         values,
                         present,
                         distinct,
@@ -482,14 +482,14 @@ public final class SpillBeyondRamWorkload {
         out.put("cgroup_memory_max", read(group.resolve("memory.max")).trim());
         String peak = read(group.resolve("memory.peak")).trim();
         out.put("cgroup_memory_peak_mib", peak.isEmpty() ? "?" : mib(Long.parseLong(peak)));
-        for (String line : read(group.resolve("memory.events")).split("\n")) {
-            String[] parts = line.split(" ");
+        for (String line : read(group.resolve("memory.events")).lines().toList()) {
+            String[] parts = line.split(" ", -1);
             if (parts.length == 2 && (parts[0].equals("oom_kill") || parts[0].equals("max"))) {
                 out.put("cgroup_events_" + parts[0], parts[1]);
             }
         }
-        for (String line : read(group.resolve("memory.stat")).split("\n")) {
-            String[] parts = line.split(" ");
+        for (String line : read(group.resolve("memory.stat")).lines().toList()) {
+            String[] parts = line.split(" ", -1);
             if (parts.length == 2 && (parts[0].equals("anon") || parts[0].equals("file"))) {
                 out.put("cgroup_" + parts[0] + "_mib", mib(Long.parseLong(parts[1])));
             }
@@ -497,7 +497,7 @@ public final class SpillBeyondRamWorkload {
     }
 
     static Path cgroupPath() {
-        for (String line : read(Path.of("/proc/self/cgroup")).split("\n")) {
+        for (String line : read(Path.of("/proc/self/cgroup")).lines().toList()) {
             if (line.startsWith("0::")) {
                 return Path.of("/sys/fs/cgroup" + line.substring(3).trim());
             }
@@ -510,12 +510,12 @@ public final class SpillBeyondRamWorkload {
         if (stat.isEmpty()) {
             return 0;
         }
-        String[] fields = stat.substring(stat.lastIndexOf(')') + 2).split(" ");
+        String[] fields = stat.substring(stat.lastIndexOf(')') + 2).split(" ", -1);
         return Long.parseLong(fields[9]);
     }
 
     private static long io(String field) {
-        for (String line : read(Path.of("/proc/self/io")).split("\n")) {
+        for (String line : read(Path.of("/proc/self/io")).lines().toList()) {
             if (line.startsWith(field + ":")) {
                 return Long.parseLong(line.substring(field.length() + 1).trim());
             }
@@ -546,7 +546,7 @@ public final class SpillBeyondRamWorkload {
                     .start();
             String text = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             process.waitFor();
-            return Long.parseLong(text.split("\\s+")[0]) * 1024;
+            return Long.parseLong(text.split("\\s+", -1)[0]) * 1024;
         } catch (IOException | InterruptedException | NumberFormatException e) {
             return -1;
         }

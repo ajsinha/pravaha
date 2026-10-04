@@ -75,7 +75,6 @@ public final class DebugSessions implements AutoCloseable {
     private static final Duration RESTORE_TIMEOUT = Duration.ofSeconds(30);
 
     private final QueryRegistry registry;
-    private final SecurityPolicy policy;
     private final AuditSink audit;
     private final int maxSessions;
     private final Duration ttl;
@@ -89,7 +88,6 @@ public final class DebugSessions implements AutoCloseable {
 
     DebugSessions(QueryRegistry registry, SecurityPolicy policy, AuditSink audit, Configuration configuration) {
         this.registry = registry;
-        this.policy = policy == null ? SecurityPolicy.PERMISSIVE : policy;
         this.audit = audit == null ? AuditSink.NONE : audit;
         Configuration settings = configuration == null ? Configuration.builder().build() : configuration;
         this.maxSessions = (int) settings.getLong("pravaha.debug.sessions.max", DEFAULT_MAX_SESSIONS);

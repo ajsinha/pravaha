@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Random;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
@@ -70,6 +71,7 @@ class AdvPredicateDifferentialTest {
     static final String[] COLUMNS = {"id", "n", "m", "d", "t", "f"};
 
     record Cmp(int col, String op, Object literal) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Object v = row[col];
             if (v == null || literal == null) {
@@ -104,6 +106,7 @@ class AdvPredicateDifferentialTest {
             };
         }
 
+        @Override
         public String sql() {
             String lit = literal instanceof String s
                     ? "'" + s.replace("'", "''") + "'"
@@ -111,6 +114,7 @@ class AdvPredicateDifferentialTest {
             return COLUMNS[col] + " " + op + " " + lit;
         }
 
+        @Override
         public boolean notOverDouble() {
             return false;
         }
@@ -122,15 +126,18 @@ class AdvPredicateDifferentialTest {
     }
 
     record Not(P inner) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Boolean b = inner.eval(row);
             return b == null ? null : !b;
         }
 
+        @Override
         public String sql() {
             return "NOT (" + inner.sql() + ")";
         }
 
+        @Override
         public boolean notOverDouble() {
             return touchesDouble(inner) || inner.notOverDouble();
         }
@@ -148,52 +155,61 @@ class AdvPredicateDifferentialTest {
     }
 
     record And(P l, P r) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Boolean a = l.eval(row);
             Boolean b = r.eval(row);
             if (Boolean.FALSE.equals(a) || Boolean.FALSE.equals(b)) {
                 return false;
             }
-            return a == null || b == null ? null : true;
+            return (a == null || b == null) ? null : true;
         }
 
+        @Override
         public String sql() {
             return "(" + l.sql() + " AND " + r.sql() + ")";
         }
 
+        @Override
         public boolean notOverDouble() {
             return l.notOverDouble() || r.notOverDouble();
         }
     }
 
     record Or(P l, P r) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Boolean a = l.eval(row);
             Boolean b = r.eval(row);
             if (Boolean.TRUE.equals(a) || Boolean.TRUE.equals(b)) {
                 return true;
             }
-            return a == null || b == null ? null : false;
+            return (a == null || b == null) ? null : false;
         }
 
+        @Override
         public String sql() {
             return "(" + l.sql() + " OR " + r.sql() + ")";
         }
 
+        @Override
         public boolean notOverDouble() {
             return l.notOverDouble() || r.notOverDouble();
         }
     }
 
     record IsNull(int col, boolean want) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             return (row[col] == null) == want;
         }
 
+        @Override
         public String sql() {
             return COLUMNS[col] + (want ? " IS NULL" : " IS NOT NULL");
         }
 
+        @Override
         public boolean notOverDouble() {
             return false;
         }
@@ -201,6 +217,7 @@ class AdvPredicateDifferentialTest {
 
     /** IS TRUE / IS FALSE / IS NOT TRUE / IS NOT FALSE. */
     record Truth(P inner, String test) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Boolean b = inner.eval(row);
             return switch (test) {
@@ -212,16 +229,19 @@ class AdvPredicateDifferentialTest {
             };
         }
 
+        @Override
         public String sql() {
             return "(" + inner.sql() + ") " + test;
         }
 
+        @Override
         public boolean notOverDouble() {
             return touchesDouble(inner) || inner.notOverDouble();
         }
     }
 
     record Like(String pattern, boolean negated) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Object v = row[4];
             if (v == null) {
@@ -243,25 +263,30 @@ class AdvPredicateDifferentialTest {
             return negated != m;
         }
 
+        @Override
         public String sql() {
             return "t " + (negated ? "NOT LIKE '" : "LIKE '") + pattern.replace("'", "''") + "'";
         }
 
+        @Override
         public boolean notOverDouble() {
             return false;
         }
     }
 
     record Bare(boolean negated) implements P {
+        @Override
         public Boolean eval(Object[] row) {
             Object v = row[5];
             return v == null ? null : negated != (Boolean) v;
         }
 
+        @Override
         public String sql() {
             return negated ? "NOT f" : "f";
         }
 
+        @Override
         public boolean notOverDouble() {
             return false;
         }
@@ -410,7 +435,7 @@ class AdvPredicateDifferentialTest {
         }
     }
 
-    static String describe(TreeSet<Long> ids, List<Object[]> rows) {
+    static String describe(NavigableSet<Long> ids, List<Object[]> rows) {
         List<String> shown = new ArrayList<>();
         for (Long id : ids) {
             if (shown.size() == 3) {

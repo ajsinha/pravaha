@@ -444,9 +444,16 @@ class PowerBiGatewayTest {
                     + "limit 2");
             assertThat(rows(client.readUntilReady())).hasSize(2);
 
-            client.query("select \"rows\".\"region\" as \"region\", sum(\"rows\".\"revenue\") as \"a0\"\nfrom\n(\n"
-                    + "    select \"_\".\"region\", \"_\".\"revenue\"\n    from \"public\".\"region_revenue\" \"_\"\n"
-                    + ") \"rows\"\ngroup by \"region\"\nlimit 1000001");
+            client.query("""
+                         select "rows"."region" as "region", sum("rows"."revenue") as "a0"
+                         from
+                         (
+                             select "_"."region", "_"."revenue"
+                             from "public"."region_revenue" "_"
+                         ) "rows"
+                         group by "region"
+                         limit 1000001\
+                         """);
             assertThat(rows(client.readUntilReady()))
                     .containsExactlyInAnyOrder(
                             List.of("EMEA", "982300"), List.of("APAC", "611850"), List.of("AMER", "1204990"));

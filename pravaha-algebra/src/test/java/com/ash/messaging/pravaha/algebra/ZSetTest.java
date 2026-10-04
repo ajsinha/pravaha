@@ -178,7 +178,7 @@ class ZSetTest {
             for (int i = 0; i < n; i++) {
                 // A tiny key space forces collisions, which is where the arithmetic is exercised.
                 String row = "k" + r.nextInt(4);
-                long w = 1 + r.nextInt(3);
+                long w = 1L + r.nextInt(3);
                 b.add(row, r.nextBoolean() ? w : -w);
             }
             return b.build();

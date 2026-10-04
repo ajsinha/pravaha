@@ -402,13 +402,6 @@ public class SecurityProperties {
     }
 
     /**
-     * Builds the verifier, or null when authentication is off.
-     *
-     * <p>Static tokens are for a development server and a test, and the type says so by name. A
-     * deployment that needs real identity implements {@link TokenVerifier} against whatever issues
-     * its credentials; this is the rung that makes the authenticated path reachable without one.
-     */
-    /**
      * The warning a node prints at startup when it can verify no credential, or empty.
      *
      * <p>CFG-10(b). {@link #verifier()} answers {@link TokenVerifier#rejectAll()} for {@code
@@ -432,6 +425,13 @@ public class SecurityProperties {
                 + "authenticates.");
     }
 
+    /**
+     * Builds the verifier, or null when authentication is off.
+     *
+     * <p>Static tokens are for a development server and a test, and the type says so by name. A
+     * deployment that needs real identity implements {@link TokenVerifier} against whatever issues
+     * its credentials; this is the rung that makes the authenticated path reachable without one.
+     */
     public TokenVerifier verifier() {
         if (!authenticates()) {
             return null;

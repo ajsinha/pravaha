@@ -37,7 +37,7 @@ public final class AdminDtos {
      * @param recording false when the node is configured {@code audit: none}, in which case there
      *     is nothing to read and {@code events} is empty because nothing was recorded, not because
      *     nobody asked for anything
-     * @param sink what records durably: {@code file}, {@code memory} or {@code none}
+     * @param sink what records durably: {@code "file"}, {@code "memory"} or {@code "none"}
      * @param capacity how many recent decisions the node keeps readable here
      * @param retained how many it holds now
      * @param evicted how many were recorded and have since left the readable window; a {@code file}
@@ -131,6 +131,8 @@ public final class AdminDtos {
             String guarantee) {}
 
     /**
+     * A plugin's health as the node last heard it.
+     *
      * @param state {@code HEALTHY}, {@code DEGRADED}, {@code UNHEALTHY}, or {@code UNKNOWN} when the
      *     node holds no instance of it that reports
      * @param reported whether {@code state} came from a live instance
@@ -166,6 +168,8 @@ public final class AdminDtos {
     public record Decision(boolean allowed, String reason) {}
 
     /**
+     * What one principal may do with one object.
+     *
      * @param read {@code full} or {@code filtered} (a row filter applies; the predicate itself is not
      *     repeated here)
      * @param administer for a view, may this principal drop, pause or resume it; for a stream, may

@@ -75,6 +75,8 @@ public class TenancyController {
             long stateRefusals) {}
 
     /**
+     * The tenants a principal is shown, with the limits that apply to them.
+     *
      * @param scope {@code all} for a principal shown every tenant, {@code own} for one shown their own
      * @param defaults the limits a tenant has when it has no entry of its own
      */

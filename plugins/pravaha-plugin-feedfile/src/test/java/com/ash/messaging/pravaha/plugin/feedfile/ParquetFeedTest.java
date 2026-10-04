@@ -194,6 +194,8 @@ class ParquetFeedTest {
                     .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
                     .hasMessageContaining("PRV-5064")
                     .hasMessageContaining("orders-01.parquet")
+                    // FEEDGONE-1: the directory by its path, not FeedDirectory@4488aabb
+                    .hasMessageContaining("is no longer in " + dir)
                     .hasMessageContaining("skip the rest of it")
                     .hasMessageContaining("orders-02.parquet");
         }

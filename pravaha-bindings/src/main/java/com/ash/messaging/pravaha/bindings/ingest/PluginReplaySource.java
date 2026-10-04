@@ -131,7 +131,7 @@ final class PluginReplaySource implements ReplaySource {
     }
 
     /** Collects a poll's records as values, with the position each was read at. */
-    private final class CollectingSink implements PartitionReader.RecordSink {
+    private static final class CollectingSink implements PartitionReader.RecordSink {
 
         private final Partition partition;
         private final java.util.ArrayDeque<ReplayRow> queue;

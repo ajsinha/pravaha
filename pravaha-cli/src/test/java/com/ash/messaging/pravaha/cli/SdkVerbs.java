@@ -85,7 +85,7 @@ public final class SdkVerbs {
                 }
                 case "register" -> {
                     List<Integer> keys = new ArrayList<>();
-                    for (String ordinal : options.getOrDefault("keys", "0").split(",")) {
+                    for (String ordinal : options.getOrDefault("keys", "0").split(",", -1)) {
                         keys.add(Integer.parseInt(ordinal.strip()));
                     }
                     RegisteredQueryInfo registered = client.register(
@@ -102,7 +102,10 @@ public final class SdkVerbs {
                 case "subscribe" -> {
                     // Opening is the part these cases are about. A refusal can come with the
                     // schema or just after it, so the stream is read briefly before it is closed.
-                    try (Subscription subscription = client.subscribe(options.get("view"), batch -> {})) {
+                    // Closed by hand, in the middle, so the reader's thread can be joined after it;
+                    // the finally is for a refusal from awaitOpen.
+                    Subscription subscription = client.subscribe(options.get("view"), batch -> {});
+                    try {
                         subscription.awaitOpen();
                         RuntimeException[] failure = {null};
                         Thread reader = Thread.ofVirtual().start(() -> {
@@ -118,6 +121,8 @@ public final class SdkVerbs {
                         if (failure[0] != null) {
                             throw failure[0];
                         }
+                    } finally {
+                        subscription.close();
                     }
                 }
                 default -> throw new IllegalArgumentException("no such verb here: " + verb);

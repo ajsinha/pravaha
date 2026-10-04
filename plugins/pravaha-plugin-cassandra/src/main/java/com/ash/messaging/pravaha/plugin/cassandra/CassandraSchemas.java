@@ -53,8 +53,8 @@ public final class CassandraSchemas {
     /** Parses {@code name:TYPE,name:TYPE}, with {@code ?} marking a column that may be null. */
     public static StreamSchema parse(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
-        for (String column : spec.split(",")) {
-            String[] parts = column.strip().split(":");
+        for (String column : spec.split(",", -1)) {
+            String[] parts = column.strip().split(":", -1);
             if (parts.length != 2) {
                 throw new ConfigurationException(
                         CassandraErrors.BAD_CONFIGURATION,

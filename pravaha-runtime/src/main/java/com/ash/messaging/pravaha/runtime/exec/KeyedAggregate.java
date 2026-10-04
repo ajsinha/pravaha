@@ -588,6 +588,7 @@ final class KeyedAggregate implements RowProcessor {
      * does -- unlike a comparison, where NULL is UNKNOWN -- so rows with no tier group together
      * under one NULL rather than vanishing.
      */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record Key(Object[] values) {
         @Override
         public boolean equals(Object other) {

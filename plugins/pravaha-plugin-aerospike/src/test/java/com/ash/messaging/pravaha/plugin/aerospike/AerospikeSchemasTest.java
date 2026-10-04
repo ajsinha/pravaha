@@ -106,4 +106,15 @@ class AerospikeSchemasTest {
         StreamSchema schema = AerospikeSchemas.parse("t", exact + ":INT64");
         assertThat(schema.field(0).name()).isEqualTo(exact);
     }
+
+    @Test
+    void aTrailingSeparatorIsRefusedLikeAnyOtherMalformedEntry() {
+        // SPLITTRAIL-1: "id:INT64," and "id:INT64:" used to parse as "id:INT64".
+        assertThatThrownBy(() -> AerospikeSchemas.parse("t", "id:INT64,"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+        assertThatThrownBy(() -> AerospikeSchemas.parse("t", "id:INT64:"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+    }
 }

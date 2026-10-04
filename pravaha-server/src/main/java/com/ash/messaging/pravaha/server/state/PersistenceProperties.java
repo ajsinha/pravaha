@@ -56,14 +56,6 @@ public class PersistenceProperties {
     }
 
     /**
-     * Where a record the engine could not decode is written, or empty when nowhere.
-     *
-     * <p>TIME-4/W8-11. The dead-letter path exists and works and a server had no key to switch it
-     * on, so every node ran the unguarded path -- where a decode failure ends the poll and stops the
-     * source, taking every other row in the file with it. `pravaha run --dlq` had this; a server did
-     * not, which is the deployment that matters.
-     */
-    /**
      * What bounds every dead-letter file this node writes (B5).
      *
      * <p>Read even when no directory is set, so that switching the directory on later gets the
@@ -74,6 +66,14 @@ public class PersistenceProperties {
                 dlq.getMaxBytes(), dlq.getMaxEntries(), dlq.getMaxAge());
     }
 
+    /**
+     * Where a record the engine could not decode is written, or empty when nowhere.
+     *
+     * <p>TIME-4/W8-11. The dead-letter path exists and works and a server had no key to switch it
+     * on, so every node ran the unguarded path -- where a decode failure ends the poll and stops the
+     * source, taking every other row in the file with it. `pravaha run --dlq` had this; a server did
+     * not, which is the deployment that matters.
+     */
     public Optional<Path> dlqPath() {
         String directory = dlq.getDirectory();
         return directory == null || directory.isBlank() ? Optional.empty() : Optional.of(Path.of(directory));
@@ -314,7 +314,6 @@ public class PersistenceProperties {
         return value == null || value.isBlank() ? Optional.empty() : Optional.of(Path.of(value));
     }
 
-    /** {@code pravaha.registry.*} */
     /** {@code pravaha.dlq.*}: where records that could not be decoded go. */
     public static class Dlq {
 
@@ -378,6 +377,7 @@ public class PersistenceProperties {
         }
     }
 
+    /** {@code pravaha.registry.*} */
     public static class Registry {
 
         private String journal = "";

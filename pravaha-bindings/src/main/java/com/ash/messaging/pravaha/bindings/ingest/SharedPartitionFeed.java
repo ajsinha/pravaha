@@ -180,6 +180,16 @@ final class SharedPartitionFeed {
     private final StreamSourcePlugin plugin;
 
     /**
+     * The watermarks this feed's routes pause and resume at.
+     *
+     * <p>The node's configured pair, not {@code defaults()}: a shared reader that ignored it would
+     * make {@code pravaha.lane.backpressure.*} true of a query with a lane of its own and silently
+     * false of the same query once it shares one -- and sharing is a deployment's choice, not the
+     * query's, so the setting would stop holding for a reason nothing tells the operator.
+     */
+    private final BackpressurePolicy policy;
+
+    /**
      * Guards the reader, the membership and every poll.
      *
      * <p>Held for the length of a poll, so a query joining or being dropped waits for the read in
@@ -192,16 +202,6 @@ final class SharedPartitionFeed {
      * rows, and an unfair lock lets it barge ahead of a waiting registration for as long as a scan
      * takes to drain. Fairness is paid per poll -- per batch -- not per row.
      */
-    /**
-     * The watermarks this feed's routes pause and resume at.
-     *
-     * <p>The node's configured pair, not {@code defaults()}: a shared reader that ignored it would
-     * make {@code pravaha.lane.backpressure.*} true of a query with a lane of its own and silently
-     * false of the same query once it shares one -- and sharing is a deployment's choice, not the
-     * query's, so the setting would stop holding for a reason nothing tells the operator.
-     */
-    private final BackpressurePolicy policy;
-
     private final ReentrantLock lock = new ReentrantLock(true);
 
     /** Where a partition gained while queries ran was first opened: its beginning. Lock held. */

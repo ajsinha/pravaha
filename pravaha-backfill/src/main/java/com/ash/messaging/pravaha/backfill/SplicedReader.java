@@ -269,12 +269,12 @@ public final class SplicedReader implements PartitionReader {
         return replayedRows;
     }
 
-    /** How full the change buffer is, from 0 to 1. What an operator watches during a long scan. */
     /** The rate history is being read at, or -1 when nothing is limiting it. */
     public long rowsPerSecond() {
         return throttle == null ? -1 : throttle.rowsPerSecond();
     }
 
+    /** How full the change buffer is, from 0 to 1. What an operator watches during a long scan. */
     public double bufferFill() {
         return (double) buffered.size() / maxBufferedRows;
     }
@@ -348,6 +348,7 @@ public final class SplicedReader implements PartitionReader {
     }
 
     /** A key by value, so it can be a map key. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record Key(Object[] values) {
         @Override
         public boolean equals(Object other) {

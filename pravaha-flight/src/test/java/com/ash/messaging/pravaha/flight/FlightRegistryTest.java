@@ -226,6 +226,7 @@ class FlightRegistryTest {
                 new java.util.concurrent.atomic.AtomicReference<>();
         private final Thread thread;
 
+        @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
         Reader(String view, List<String> filters, int expect) {
             this.got = new CountDownLatch(expect);
             this.thread = Thread.ofVirtual().start(() -> {
@@ -242,6 +243,7 @@ class FlightRegistryTest {
                         }
                     }
                 } catch (Exception e) {
+                    // The reader is cancelled to end it, and a cancelled stream ends by throwing.
                 }
             });
         }
@@ -276,7 +278,16 @@ class FlightRegistryTest {
         }
 
         @Override
-        public void close() throws InterruptedException {
+        public void close() {
+            try {
+                cancelAndWait();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted closing a reader", e);
+            }
+        }
+
+        private void cancelAndWait() throws InterruptedException {
             // Cancelled, not interrupted. Interrupting leaves the server's call parked holding an
             // Arrow root, and the allocator then reports leaked memory at teardown -- which is Arrow
             // being right, and a real bug if it happened outside a test.
@@ -329,6 +340,7 @@ class FlightRegistryTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void subscribingToSomethingUnregisteredIsRefused() {
         assertThatThrownBy(() -> {
@@ -341,6 +353,7 @@ class FlightRegistryTest {
                 .hasMessageContaining("PRV-8002");
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void theDefaultPolicyRefusesAnonymousRegistration() throws Exception {
         ViewCatalog views = new ViewCatalog();
@@ -373,6 +386,7 @@ class FlightRegistryTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aConditionalEntitlementCannotBeSubscribedTo() throws Exception {
         ViewCatalog views = new ViewCatalog();
@@ -426,6 +440,7 @@ class FlightRegistryTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aServerWithoutARegistrySaysSoRatherThanDoingNothing() throws Exception {
         try (PravahaFlightServer plain = new PravahaFlightServer(new ViewCatalog()).start("localhost", 0);

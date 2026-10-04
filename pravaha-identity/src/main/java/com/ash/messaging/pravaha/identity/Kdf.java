@@ -77,7 +77,7 @@ public final class Kdf {
         if (secret == null || stored == null) {
             return false;
         }
-        String[] parts = stored.split("\\$");
+        String[] parts = stored.split("\\$", -1);
         if (parts.length != 4) {
             return false;
         }
@@ -163,7 +163,7 @@ public final class Kdf {
     }
 
     private static int param(String params, String name) {
-        for (String pair : params.split(",")) {
+        for (String pair : params.split(",", -1)) {
             String[] kv = pair.split("=", 2);
             if (kv.length == 2 && kv[0].equals(name)) {
                 return Integer.parseInt(kv[1]);

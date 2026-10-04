@@ -91,10 +91,10 @@ class KafkaRecordDecoderTest {
                 .encode(rows.row(ALL, -2, values))
                 .value();
 
-        KafkaRecordDecoder.Row plain = new KafkaRecordDecoder(ALL, false, -1).decode(upsert, 5_000L);
-        KafkaRecordDecoder.Row change = new KafkaRecordDecoder(ALL, true, -1).decode(changelog, 5_000L);
+        KafkaValueDecoder.Row plain = new KafkaRecordDecoder(ALL, false, -1).decode(upsert, 5_000L);
+        KafkaValueDecoder.Row change = new KafkaRecordDecoder(ALL, true, -1).decode(changelog, 5_000L);
 
-        for (KafkaRecordDecoder.Row row : new KafkaRecordDecoder.Row[] {plain, change}) {
+        for (KafkaValueDecoder.Row row : new KafkaValueDecoder.Row[] {plain, change}) {
             Object[] read = row.values();
             assertThat(read[0]).isEqualTo(7);
             assertThat(read[1]).isEqualTo(true);

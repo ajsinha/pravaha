@@ -565,7 +565,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 FlightErrors.BAD_HANDLE, "register needs a name, some SQL and key columns");
                     }
                     List<Integer> keys = new ArrayList<>();
-                    for (String ordinal : fields.get(2).split(",")) {
+                    for (String ordinal : fields.get(2).split(",", -1)) {
                         if (!ordinal.isBlank()) {
                             keys.add(Integer.parseInt(ordinal.strip()));
                         }
@@ -751,13 +751,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     }
 
     /**
-     * Refuses a control action whose body carries no query name.
-     *
-     * <p>API-142. {@code DROP}, {@code PAUSE} and {@code RESUME} read {@code fields.get(0)} without
-     * checking there is one, so an empty body reached the client as an {@code INTERNAL} carrying a
-     * Java array index -- a stack detail in place of "you did not say which query".
-     */
-    /**
      * A registration's retention, from the control wire's fifth field.
      *
      * <p>Blank means "this node's default", which is what a client that sends no fifth field gets.
@@ -875,7 +868,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     /** The key columns a replace action carries, in the comma-separated form register takes. */
     private static List<Integer> keyOrdinals(String field) {
         List<Integer> keys = new ArrayList<>();
-        for (String ordinal : field.split(",")) {
+        for (String ordinal : field.split(",", -1)) {
             if (!ordinal.isBlank()) {
                 keys.add(Integer.parseInt(ordinal.strip()));
             }
@@ -903,6 +896,13 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         return text.toString();
     }
 
+    /**
+     * Refuses a control action whose body carries no query name.
+     *
+     * <p>API-142. {@code DROP}, {@code PAUSE} and {@code RESUME} read {@code fields.get(0)} without
+     * checking there is one, so an empty body reached the client as an {@code INTERNAL} carrying a
+     * Java array index -- a stack detail in place of "you did not say which query".
+     */
     private static void requireName(List<String> fields, String verb) {
         if (fields.isEmpty() || fields.get(0).isBlank()) {
             throw new PravahaException(

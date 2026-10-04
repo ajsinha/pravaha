@@ -36,6 +36,7 @@ import java.util.Optional;
 public interface ReplaySource extends AutoCloseable {
 
     /** One row, as it was read, with where it came from. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record ReplayRow(
             String stream,
             int partition,

@@ -171,14 +171,14 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         this.schema = JdbcSinkSchema.parse(tableSetting, context.require("schema"));
 
         String mode = context.get("mode", "upsert").strip().toLowerCase(Locale.ROOT);
-        switch (mode) {
-            case "upsert" -> this.append = false;
-            case "append" -> this.append = true;
+        this.append = switch (mode) {
+            case "upsert" -> false;
+            case "append" -> true;
             default ->
                 throw new ConfigurationException(
                         JdbcErrors.BAD_CONFIGURATION,
                         "plugin '" + instanceName + "' mode '" + mode + "' is not upsert or append");
-        }
+        };
         String keys = context.get("key.columns", "").strip();
         if (append && !keys.isEmpty()) {
             throw new ConfigurationException(
@@ -195,7 +195,7 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
                             + "--keys.");
         }
         List<String> names = new ArrayList<>();
-        for (String part : keys.split(",")) {
+        for (String part : keys.split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }
@@ -333,11 +333,6 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         this.deleteSql = JdbcDialect.delete(target, keys);
     }
 
-    /**
-     * Creates the staging table when it is missing. Probed with a query that returns nothing rather
-     * than looked up in the catalogue, so it is found under exactly the spelling every statement
-     * here will use.
-     */
     /** Refuses prepared mode where the database cannot prepare a transaction, before a row moves. */
     private void requirePreparedTransactions() throws SQLException {
         if (dialect != JdbcDialect.POSTGRESQL) {
@@ -391,6 +386,11 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         }
     }
 
+    /**
+     * Creates the staging table when it is missing. Probed with a query that returns nothing rather
+     * than looked up in the catalogue, so it is found under exactly the spelling every statement
+     * here will use.
+     */
     private void ensureStagingTable() throws SQLException {
         try (Statement probe = connection.createStatement()) {
             probe.executeQuery("SELECT sink_id, label, seq, payload FROM " + stagingTable + " WHERE 1 = 0")

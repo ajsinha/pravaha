@@ -29,7 +29,6 @@ import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.queue.WaitStrategy;
-import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
@@ -172,7 +171,6 @@ class CheckpointRecoveryTest {
         private final RowArena feed = new RowArena(MemoryAccess.best(), 1 << 20, 8);
         private final RowLayout layout = RowLayout.of(schema());
         private final BinaryRowWriter writer = new BinaryRowWriter(layout);
-        private final BinaryRowView view = new BinaryRowView(layout);
         private final MemoryAccess access = MemoryAccess.best();
 
         Harness(List<String> results) {

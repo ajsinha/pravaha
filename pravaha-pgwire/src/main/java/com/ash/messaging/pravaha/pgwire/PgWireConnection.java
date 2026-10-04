@@ -139,7 +139,7 @@ final class PgWireConnection implements Runnable {
                 backend = new PgBackend(out);
                 SignedIn signedIn;
                 try {
-                    signedIn = authenticate(prelude.startup(), frontend, backend);
+                    signedIn = authenticate(frontend, backend);
                     if (signedIn == null) {
                         return; // Refused; the client has been told and the socket is closing.
                     }
@@ -311,8 +311,7 @@ final class PgWireConnection implements Runnable {
      * @return the authenticated principal and the credential it presented, or {@code null} if the
      *     connection was refused
      */
-    private SignedIn authenticate(PgFrontend.Startup startup, PgFrontend frontend, PgBackend backend)
-            throws IOException {
+    private SignedIn authenticate(PgFrontend frontend, PgBackend backend) throws IOException {
         if (verifier == null) {
             backend.authenticationOk();
             return new SignedIn(Principal.ANONYMOUS, null);

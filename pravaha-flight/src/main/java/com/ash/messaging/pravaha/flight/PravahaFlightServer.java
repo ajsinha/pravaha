@@ -216,13 +216,6 @@ public final class PravahaFlightServer implements AutoCloseable {
         return this;
     }
 
-    /**
-     * Hosts a registry, so clients can register, list, drop and subscribe to continuous queries.
-     *
-     * <p>Optional, and the two states are meant to be visible. A server without one serves views
-     * that something else maintains, and tells a client that asks to register so, rather than
-     * offering an operation that quietly does nothing.
-     */
     /** Lets clients read and replay this node's dead letters (B5). */
     public PravahaFlightServer withDeadLetters(com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore store) {
         requireNotStarted("a dead-letter store");
@@ -243,6 +236,13 @@ public final class PravahaFlightServer implements AutoCloseable {
 
     private FlightObservation observation = FlightObservation.NONE;
 
+    /**
+     * Hosts a registry, so clients can register, list, drop and subscribe to continuous queries.
+     *
+     * <p>Optional, and the two states are meant to be visible. A server without one serves views
+     * that something else maintains, and tells a client that asks to register so, rather than
+     * offering an operation that quietly does nothing.
+     */
     public PravahaFlightServer hosting(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
         requireNotStarted("a registry");
         this.registry = java.util.Objects.requireNonNull(registry, "registry");
@@ -264,6 +264,7 @@ public final class PravahaFlightServer implements AutoCloseable {
      * <p>Called from {@link #start}, so a caller may configure the registry and the policy in
      * either order.
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private void requireOnePolicy() {
         if (registry == null || policy == null) {
             return;
@@ -285,6 +286,7 @@ public final class PravahaFlightServer implements AutoCloseable {
      * @param port the port to listen on, or zero to let the operating system choose -- which is what
      *     a test wants, and the reason {@link #port()} exists
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public PravahaFlightServer start(String host, int port) {
         // Checked here, where configuration is finished, rather than in each setter.
         //
@@ -311,6 +313,8 @@ public final class PravahaFlightServer implements AutoCloseable {
                 .withDeadLetters(deadLetters)
                 .observedBy(observation);
         try {
+            @SuppressWarnings(
+                    "ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
             FlightServer.Builder builder = FlightServer.builder(
                     allocator,
                     requested,
@@ -377,7 +381,6 @@ public final class PravahaFlightServer implements AutoCloseable {
         return running.getPort();
     }
 
-    /** The URI a client connects to. */
     /**
      * How long {@link #close()} gives in-flight calls to release their buffers before it closes the
      * root allocator anyway. Long enough for a call that is already unwinding, short enough that a
@@ -385,6 +388,7 @@ public final class PravahaFlightServer implements AutoCloseable {
      */
     private static final java.time.Duration SHUTDOWN_DRAIN = java.time.Duration.ofSeconds(5);
 
+    /** The URI a client connects to. */
     public String uri() {
         return location.getUri().toString();
     }

@@ -77,6 +77,7 @@ final class AvroResolver {
      * The columns under a reader record: by the reader field's index, and every ordinal below, which a
      * {@code null} in a union around the record fills with null.
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Group(Map<Integer, Target> byField, int[] ordinals) implements Target {}
 
     /** Turns a resolved reader value into its column's value; {@link AvroRowReader} owns the rules. */

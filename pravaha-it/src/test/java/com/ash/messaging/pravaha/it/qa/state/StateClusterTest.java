@@ -96,7 +96,7 @@ class StateClusterTest extends StateTestSupport {
 
     private static int freePort() throws Exception {
         try (ServerSocket socket = new ServerSocket()) {
-            socket.bind(new InetSocketAddress("127.0.0.1", 0));
+            socket.bind(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0));
             return socket.getLocalPort();
         }
     }

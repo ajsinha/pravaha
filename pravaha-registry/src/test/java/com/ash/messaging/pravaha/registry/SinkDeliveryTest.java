@@ -289,7 +289,7 @@ class SinkDeliveryTest {
                 registry.registerWritingTo("q", "SELECT user_id, amount FROM txn", List.of(0), DANA, "orders");
 
         assertThat(query.subscriberCount()).isZero();
-        try (Subscription subscription = query.subscribe(changes -> {})) {
+        try (Subscription _ = query.subscribe(changes -> {})) {
             assertThat(query.subscriberCount()).isEqualTo(1);
         }
     }
@@ -521,6 +521,8 @@ class SinkDeliveryTest {
             return batch.size();
         }
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void flush() {
             flushes++;

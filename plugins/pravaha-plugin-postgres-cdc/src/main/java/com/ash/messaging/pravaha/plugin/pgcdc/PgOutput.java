@@ -78,12 +78,14 @@ final class PgOutput {
 
     record Truncate(List<Integer> relids, int options) implements Message {}
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record LogicalMessage(boolean transactional, long lsn, String prefix, byte[] content) implements Message {}
 
     /** Origin and Type messages, which carry nothing this source needs. */
     record Ignored(char type) implements Message {}
 
     /** A row image: one kind and, for {@code t}, one text value per column. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Tuple(char[] kinds, String[] values) {
 
         int size() {

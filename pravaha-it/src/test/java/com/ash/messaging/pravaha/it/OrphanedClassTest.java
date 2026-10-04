@@ -13,6 +13,8 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
+package com.ash.messaging.pravaha.it;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

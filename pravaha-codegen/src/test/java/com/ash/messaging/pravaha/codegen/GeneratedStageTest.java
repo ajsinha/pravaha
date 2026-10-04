@@ -105,7 +105,7 @@ class GeneratedStageTest {
                 outputSchemaWithANullableColumn(),
                 DIFFERENTIAL_PROJECTION);
 
-        List<String> interpreted = runInterpreted(plan, predicate, seed);
+        List<String> interpreted = runInterpreted(predicate, seed);
         List<String> generated = runGenerated(plan, seed);
 
         assertThat(generated)
@@ -124,7 +124,7 @@ class GeneratedStageTest {
                 outputSchemaWithANullableColumn(),
                 DIFFERENTIAL_PROJECTION);
 
-        List<String> interpreted = runInterpreted(plan, predicate, 1L);
+        List<String> interpreted = runInterpreted(predicate, 1L);
 
         // The generated stage, with its emitted comparison inverted before compilation. The
         // previous version of this guard compared two *interpreted* runs, so it proved the fixture
@@ -165,7 +165,7 @@ class GeneratedStageTest {
                 DIFFERENTIAL_PROJECTION);
 
         List<String> generated = runGenerated(plan, 7L);
-        List<String> interpreted = runInterpreted(plan, new Predicate.True(), 7L);
+        List<String> interpreted = runInterpreted(new Predicate.True(), 7L);
 
         assertThat(generated)
                 .as("every row survives this filter, so the two projections must agree row for row")
@@ -321,7 +321,7 @@ class GeneratedStageTest {
     private static final int ROWS = 64;
 
     /** Runs the interpreted path, returning the ids that survived. */
-    private static List<String> runInterpreted(PhysicalOperator plan, Predicate predicate, long seed) {
+    private static List<String> runInterpreted(Predicate predicate, long seed) {
         List<String> surviving = new ArrayList<>();
         try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 18, 8)) {
             RowLayout layout = RowLayout.of(inputSchema());

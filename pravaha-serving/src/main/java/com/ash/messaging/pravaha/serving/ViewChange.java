@@ -42,6 +42,7 @@ import java.util.Arrays;
  * no zero-weight change, so the change stream and the view agree exactly, and {@link #isRetraction()}
  * and {@link #isInsertion()} are both false for one that is constructed directly.
  */
+@SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
 public record ViewChange(Object[] values, long weight) {
 
     public ViewChange {

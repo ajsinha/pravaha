@@ -81,6 +81,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
 
     private record Change(List<Object[]> leaving, List<Object[]> entering, long frontier) {}
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Pending(Object[] row, long weight, long frontier) {}
 
     UpstreamReader(String upstream, ServedView view, StreamSchema schema, byte[] restoredImage) {
@@ -262,6 +263,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
     }
 
     /** The image as it stood at the last {@link #position}, for the checkpoint being cut. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     byte[] cut() {
         synchronized (lock) {
             Map<RowKey, Object> undone = undo == null ? Map.of() : undo;
@@ -337,6 +339,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
     }
 
     /** A view key, compared by content -- including a {@code BYTES} column's. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record RowKey(Object[] values) {
         @Override
         public boolean equals(Object other) {

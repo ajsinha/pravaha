@@ -1346,7 +1346,7 @@ class ExpressionMatrixTest {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(TXN, OTHER).plan(sql));
-            try (InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("no row is fed while a refusal is being checked");
             })) {
                 return null;

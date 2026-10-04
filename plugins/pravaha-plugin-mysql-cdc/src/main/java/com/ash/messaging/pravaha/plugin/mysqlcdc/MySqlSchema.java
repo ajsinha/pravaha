@@ -84,6 +84,7 @@ final class MySqlSchema {
      * The stream, and for each of its fields how to read the binlog value, and the column as {@code
      * information_schema} described it when the plugin opened.
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Mapping(StreamSchema schema, Kind[] kinds, Charset[] charsets, List<Column> columns) {
 
         Mapping(StreamSchema schema, Kind[] kinds, Charset[] charsets) {
@@ -334,6 +335,7 @@ final class MySqlSchema {
         return null;
     }
 
+    @SuppressWarnings("EnumOrdinal") // declaration order is the meaning: a range, a precedence or a random pick
     private static boolean isInteger(Kind kind) {
         return kind.ordinal() <= Kind.BIG_UNSIGNED.ordinal();
     }

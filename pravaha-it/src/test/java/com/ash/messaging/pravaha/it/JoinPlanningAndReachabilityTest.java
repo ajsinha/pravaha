@@ -59,8 +59,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Timeout(120)
 class JoinPlanningAndReachabilityTest {
 
-    private static final long SECOND = 1_000_000_000L;
-
     private static LaneConfig config() {
         return LaneConfig.defaults()
                 .withInbox(256, 128)
@@ -256,7 +254,7 @@ class JoinPlanningAndReachabilityTest {
         try (QueryExecution execution = QueryExecution.start(plan, 1, config(), MemoryAccess.best(), () ->
                 (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
 
-            execution.pumpInto(0, "orders", new FixedReader(orders(), List.of()), BackpressurePolicy.defaults());
+            execution.pumpInto(0, "orders", new FixedReader(List.of()), BackpressurePolicy.defaults());
 
             assertThatThrownBy(() -> execution.generatingWatermarks(
                             () -> com.ash.messaging.pravaha.runtime.time.WatermarkGenerator.boundedOutOfOrderness(0),
@@ -299,8 +297,8 @@ class JoinPlanningAndReachabilityTest {
 
         int users = 8;
         int rows = 200;
-        long oneLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 1);
-        long fourLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 4);
+        long oneLaneCount = runPartitionedJoin(plan, users, rows, 1);
+        long fourLaneCount = runPartitionedJoin(plan, users, rows, 4);
 
         assertThat(oneLaneCount).isEqualTo((long) rows);
         assertThat(fourLaneCount)
@@ -313,28 +311,23 @@ class JoinPlanningAndReachabilityTest {
         PhysicalOperator plan = wideJoinPlan();
         int users = 8;
         int rows = 200;
-        long oneLaneCount = runPartitionedJoin(plan, wideOrders(), users, rows, 1);
+        long oneLaneCount = runPartitionedJoin(plan, users, rows, 1);
 
-        assertThat(runPartitionedJoin(plan, wideOrders(), users, rows, 2))
-                .as("2 lanes")
-                .isEqualTo(oneLaneCount);
-        assertThat(runPartitionedJoin(plan, wideOrders(), users, rows, 8))
-                .as("8 lanes")
-                .isEqualTo(oneLaneCount);
+        assertThat(runPartitionedJoin(plan, users, rows, 2)).as("2 lanes").isEqualTo(oneLaneCount);
+        assertThat(runPartitionedJoin(plan, users, rows, 8)).as("8 lanes").isEqualTo(oneLaneCount);
 
         // The degenerate case: 8 lanes, only 3 distinct users, so at most 3 lanes ever emit anything
         // and the idle lanes must still quiesce rather than hang -- the failure mode here is a
         // timeout, not a wrong number, which is why runPartitionedJoin's own awaitQuiescent assertion
         // (inside it) is the load-bearing check and this is really about it not timing out.
-        long threeUsersOneLane = runPartitionedJoin(plan, wideOrders(), 3, rows, 1);
-        long threeUsersEightLanes = runPartitionedJoin(plan, wideOrders(), 3, rows, 8);
+        long threeUsersOneLane = runPartitionedJoin(plan, 3, rows, 1);
+        long threeUsersEightLanes = runPartitionedJoin(plan, 3, rows, 8);
         assertThat(threeUsersEightLanes)
                 .as("idle lanes must not change the answer, and awaitQuiescent must not time out")
                 .isEqualTo(threeUsersOneLane);
     }
 
-    private static long runPartitionedJoin(
-            PhysicalOperator plan, StreamSchema wideSchema, int userCount, int rowCount, int lanes) {
+    private static long runPartitionedJoin(PhysicalOperator plan, int userCount, int rowCount, int lanes) {
         ConcurrentLinkedQueue<CapturingRowWriter.Captured> results = new ConcurrentLinkedQueue<>();
         try (QueryExecution execution = QueryExecution.start(plan, lanes, config(), MemoryAccess.best(), () ->
                 (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
@@ -373,7 +366,7 @@ class JoinPlanningAndReachabilityTest {
                 (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), results::add))) {
 
             assertThatThrownBy(() -> execution.pumpPartitionedInto(
-                            "ordersCompute", new FixedReader(src, List.of()), BackpressurePolicy.defaults()))
+                            "ordersCompute", new FixedReader(List.of()), BackpressurePolicy.defaults()))
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-3021")
                     // The case file's quoted text has this as "Compute(...)"; the operator's actual
@@ -594,12 +587,10 @@ class JoinPlanningAndReachabilityTest {
 
     /** Emits a fixed, small list of pre-built rows and then stops. */
     private static final class FixedReader implements PartitionReader {
-        private final StreamSchema schema;
         private final List<Object[]> rows;
         private int produced;
 
-        FixedReader(StreamSchema schema, List<Object[]> rows) {
-            this.schema = schema;
+        FixedReader(List<Object[]> rows) {
             this.rows = rows;
         }
 
@@ -642,7 +633,7 @@ class JoinPlanningAndReachabilityTest {
         public void close() {}
     }
 
-    /** {@code order_id, user_id, region, amount, event_time} -- schema order matches {@link #wide}. */
+    /** {@code order_id, user_id, region, amount, event_time} -- schema order matches {@link #wideOrders}. */
     private static final class WideOrdersReader implements PartitionReader {
         private final int total;
         private final long userCount;

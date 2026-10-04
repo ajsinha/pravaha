@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedMap;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -218,7 +219,7 @@ class ViewZSetPropertyTest {
     }
 
     /** The row a key shows: the last to gain weight among those still present, or none. */
-    private static Long expected(LinkedHashMap<Long, Long> rows) {
+    private static Long expected(SequencedMap<Long, Long> rows) {
         if (rows == null || rows.isEmpty()) {
             return null;
         }
@@ -231,6 +232,7 @@ class ViewZSetPropertyTest {
         return shown;
     }
 
+    @SuppressWarnings("NonApiType") // the callers' maps hold LinkedHashMaps, and generics are invariant
     private static Map<String, LinkedHashMap<Long, Long>> copy(Map<String, LinkedHashMap<Long, Long>> rows) {
         Map<String, LinkedHashMap<Long, Long>> copy = new HashMap<>();
         rows.forEach((key, values) -> copy.put(key, new LinkedHashMap<>(values)));

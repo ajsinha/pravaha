@@ -82,7 +82,7 @@ class WindowAnswerTest extends WindowTestSupport {
         List<String> rows = configured(dir, A, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 6, 4);
 
         for (String row : rows) {
-            String[] parts = row.split("\\|");
+            String[] parts = row.split("\\|", -1);
             long start = Long.parseLong(parts[0]);
             long end = Long.parseLong(parts[1]);
             assertThat(end - start).as("every width is exactly ten seconds").isEqualTo(10 * SECOND);
@@ -355,7 +355,7 @@ class WindowAnswerTest extends WindowTestSupport {
                 4);
         assertThat(rows).hasSize(4); // one row per input row, not the 8 SQL:2016 windowing implies
         for (String row : rows) {
-            String[] parts = row.split("\\|");
+            String[] parts = row.split("\\|", -1);
             long start = Long.parseLong(parts[2]);
             long end = Long.parseLong(parts[3]);
             assertThat(end - start)
@@ -380,7 +380,7 @@ class WindowAnswerTest extends WindowTestSupport {
                 7);
         assertThat(rows).hasSize(7);
         for (String row : rows) {
-            String[] parts = row.split("\\|");
+            String[] parts = row.split("\\|", -1);
             long start = Long.parseLong(parts[2]);
             long end = Long.parseLong(parts[3]);
             assertThat(end - start).isEqualTo(10 * SECOND);
@@ -782,7 +782,7 @@ class WindowAnswerTest extends WindowTestSupport {
 
         Map<Long, Long> counts = new LinkedHashMap<>();
         for (String r : rows) {
-            String[] parts = r.split("\\|");
+            String[] parts = r.split("\\|", -1);
             counts.put(Long.parseLong(parts[0]) / SECOND, Long.parseLong(parts[3]));
         }
         assertThat(counts.get(0L)).as("rows 1..999, because there is no row 0").isEqualTo(999);
@@ -823,7 +823,7 @@ class WindowAnswerTest extends WindowTestSupport {
         assertThat(sumOf(rows, 3)).isEqualTo(10);
         assertThat(sumOf(rows, 4)).isEqualTo(70); // 7 counted once per window: 7 * 10 = 70
         List<Long> ends = rows.stream()
-                .map(r -> Long.parseLong(r.split("\\|")[1]) / SECOND)
+                .map(r -> Long.parseLong(r.split("\\|", -1)[1]) / SECOND)
                 .sorted()
                 .toList();
         assertThat(ends).containsExactly(6L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L, 15L);

@@ -82,7 +82,7 @@ final class MySqlPreflight {
             String grant = row[0].toUpperCase(Locale.ROOT);
             Matcher role = ROLE_GRANT.matcher(row[0]);
             if (role.matches()) {
-                for (String granted : role.group(1).split(",")) {
+                for (String granted : role.group(1).split(",", -1)) {
                     if (!activeRoles.contains(granted.strip())) {
                         inactiveRoles.add(granted.strip());
                     }

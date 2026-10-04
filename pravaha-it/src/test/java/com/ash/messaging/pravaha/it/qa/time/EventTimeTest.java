@@ -112,7 +112,7 @@ class EventTimeTest {
         // <= T0+110 fires: eleven of them, ends T0+10 through T0+110.
         List<String> rows = configured(dir, evB(), Duration.ofSeconds(10), Q10, 121, 11);
         assertThat(windowTotals(rows)).isEqualTo(expected(11));
-        assertThat(rows).allMatch(r -> r.split("\\|")[2].equals("10"), "every window holds ten rows");
+        assertThat(rows).allMatch(r -> r.split("\\|", -1)[2].equals("10"), "every window holds ten rows");
     }
 
     @Test
@@ -294,7 +294,7 @@ class EventTimeTest {
                 121,
                 120);
         assertThat(rows).hasSize(120);
-        assertThat(rows).allMatch(r -> r.split("\\|")[2].equals("1"), "one row per one-second window");
+        assertThat(rows).allMatch(r -> r.split("\\|", -1)[2].equals("1"), "one row per one-second window");
         // The window ending at T0+i holds the row at T0+i-1, whose amount is i-1: 0+1+...+119.
         assertThat(sumOf(rows, 3)).isEqualTo(119L * 120 / 2);
     }
@@ -330,7 +330,7 @@ class EventTimeTest {
         assertThat(totals.get(0)).isEqualTo(1770L); // 0 + 1 + ... + 59
         assertThat(totals.get(1)).isEqualTo(5370L); // 3600 * 2 - 3600 + 1770
         assertThat(totals.get(29)).isEqualTo(106_170L); // 3600 * 30 - 3600 + 1770
-        assertThat(rows).allMatch(r -> r.split("\\|")[2].equals("60"), "sixty rows per minute");
+        assertThat(rows).allMatch(r -> r.split("\\|", -1)[2].equals("60"), "sixty rows per minute");
     }
 
     // ================================================== ordering
@@ -357,7 +357,7 @@ class EventTimeTest {
         // inside it.
         StringBuilder csv = new StringBuilder();
         for (int k = 0; k <= 120; k++) {
-            long floored = T0 + (k / 10) * 10 * SECOND;
+            long floored = T0 + (k / 10) * 10L * SECOND;
             csv.append(k)
                     .append(",u")
                     .append(k % 5)
@@ -397,8 +397,8 @@ class EventTimeTest {
         csv.append("121,u1,0,").append(T0 + 80 * SECOND).append('\n');
         List<String> released = configured(dir.resolve("freed"), csv.toString(), Duration.ZERO, Q10, 122, 1);
         assertThat(released).hasSize(1);
-        assertThat(released.get(0).split("\\|")[2]).isEqualTo("121");
-        assertThat(released.get(0).split("\\|")[3]).isEqualTo("7260"); // 0 + 1 + ... + 120
+        assertThat(released.get(0).split("\\|", -1)[2]).isEqualTo("121");
+        assertThat(released.get(0).split("\\|", -1)[3]).isEqualTo("7260"); // 0 + 1 + ... + 120
     }
 
     // ================================================== retention
@@ -718,15 +718,15 @@ class EventTimeTest {
 
     private static List<Long> windowTotals(List<String> rows) {
         return rows.stream()
-                .sorted(java.util.Comparator.comparingLong(r -> Long.parseLong(r.split("\\|")[0])))
-                .map(r -> Long.parseLong(r.split("\\|")[3]))
+                .sorted(java.util.Comparator.comparingLong(r -> Long.parseLong(r.split("\\|", -1)[0])))
+                .map(r -> Long.parseLong(r.split("\\|", -1)[3]))
                 .toList();
     }
 
     private static long sumOf(List<String> rows, int ordinal) {
         long total = 0;
         for (String row : rows) {
-            total += Long.parseLong(row.split("\\|")[ordinal]);
+            total += Long.parseLong(row.split("\\|", -1)[ordinal]);
         }
         return total;
     }

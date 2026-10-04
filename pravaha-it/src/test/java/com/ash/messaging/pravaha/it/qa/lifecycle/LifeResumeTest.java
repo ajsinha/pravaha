@@ -64,7 +64,6 @@ class LifeResumeTest extends LifecycleTestSupport {
                 List.of(0),
                 Principal.ANONYMOUS);
 
-        long tenSeconds = 10_000_000_000L;
         // Window 1: [0,10)
         for (String q : List.of("v_win", "ctrl_win")) {
             push(q, 1, "ann", 10, 1, 1_000_000_000L);

@@ -80,7 +80,7 @@ class WindowClosingAnswerTest extends WindowTestSupport {
         // closes because the watermark stops at the highest event time in the file.
         assertThat(sumOf(rows, 3)).isEqualTo(99_999);
         assertThat(rows.stream()
-                        .map(r -> Long.parseLong(r.split("\\|")[0]))
+                        .map(r -> Long.parseLong(r.split("\\|", -1)[0]))
                         .distinct()
                         .count())
                 .isEqualTo(10);
@@ -113,7 +113,7 @@ class WindowClosingAnswerTest extends WindowTestSupport {
         assertThat(rows).hasSize(10); // one window x 10 users
         // 9,999 of 20,000 rows emitted: 10,001 are in windows that never close.
         assertThat(sumOf(rows, 3)).isEqualTo(9_999);
-        assertThat(rows.stream().map(r -> Long.parseLong(r.split("\\|")[0])).distinct())
+        assertThat(rows.stream().map(r -> Long.parseLong(r.split("\\|", -1)[0])).distinct())
                 .containsExactly(0L);
     }
 

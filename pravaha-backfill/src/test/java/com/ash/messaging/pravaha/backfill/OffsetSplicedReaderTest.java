@@ -33,6 +33,7 @@ import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -72,10 +73,6 @@ class OffsetSplicedReaderTest {
             records.add(value);
         }
 
-        int size() {
-            return records.size();
-        }
-
         /** The token naming the record at {@code index}, zero-based. */
         SourceOffset at(int index) {
             return index < 0 ? SourceOffset.BEGINNING : new SourceOffset("n=" + index);
@@ -89,7 +86,6 @@ class OffsetSplicedReaderTest {
 
         final class Reader implements PartitionReader {
             private int delivered;
-            private boolean closed;
 
             Reader(int after) {
                 this.delivered = after;
@@ -104,7 +100,7 @@ class OffsetSplicedReaderTest {
                     long value = records.get(++delivered);
                     consumed++;
                     if (poison.contains(delivered)) {
-                        if (!sink.reject(Long.toString(value).getBytes(), "n=" + delivered, "poison")) {
+                        if (!sink.reject(Long.toString(value).getBytes(UTF_8), "n=" + delivered, "poison")) {
                             throw new IllegalStateException("no dead-letter queue for record " + delivered);
                         }
                         continue;
@@ -132,13 +128,7 @@ class OffsetSplicedReaderTest {
             public void resume() {}
 
             @Override
-            public void close() {
-                closed = true;
-            }
-
-            boolean isClosed() {
-                return closed;
-            }
+            public void close() {}
         }
     }
 

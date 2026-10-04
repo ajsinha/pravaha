@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -89,7 +90,7 @@ class AdvWindowDifferentialTest {
         }
 
         /** {@code start|end|k|sum|count|countv|avg|distinct} for every visible group, as the view renders it. */
-        TreeSet<String> visible(boolean minMax) {
+        NavigableSet<String> visible(boolean minMax) {
             TreeSet<String> rows = new TreeSet<>();
             windows.forEach((start, groups) -> {
                 long end = start + size;
@@ -216,7 +217,7 @@ class AdvWindowDifferentialTest {
 
     static void compare(PravahaEngine engine, Oracle oracle, boolean minMax, String where, List<String> mismatches) {
         TreeSet<String> actual = new TreeSet<>(AdvSupport.rows(engine, "SELECT * FROM agg"));
-        TreeSet<String> expected = oracle.visible(minMax);
+        NavigableSet<String> expected = oracle.visible(minMax);
         if (!actual.equals(expected)) {
             TreeSet<String> missing = new TreeSet<>(expected);
             missing.removeAll(actual);

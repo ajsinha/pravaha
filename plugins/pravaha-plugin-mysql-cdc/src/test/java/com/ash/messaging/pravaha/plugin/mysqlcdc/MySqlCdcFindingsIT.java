@@ -89,7 +89,7 @@ class MySqlCdcFindingsIT {
     }
 
     private static String newTable(String columns) throws SQLException {
-        String table = "findings_" + (++tables);
+        String table = "findings_" + ++tables;
         root("CREATE TABLE shop." + table + " (" + columns + ")");
         return table;
     }

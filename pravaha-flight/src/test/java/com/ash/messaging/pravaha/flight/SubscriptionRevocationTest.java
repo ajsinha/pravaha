@@ -118,6 +118,7 @@ class SubscriptionRevocationTest {
      * <p>The assertion is that it ends at all. Before this, it did not: it went on delivering, and
      * the only thing that stopped it was the client choosing to disconnect.
      */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private AtomicReference<String> subscribeUntilItEnds(String token) {
         AtomicReference<String> ended = new AtomicReference<>();
         Thread.ofVirtual().start(() -> {

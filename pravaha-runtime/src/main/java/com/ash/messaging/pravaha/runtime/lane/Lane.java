@@ -120,15 +120,6 @@ public final class Lane implements AutoCloseable {
     private final LaneBackpressure backpressure = new LaneBackpressure();
 
     /**
-     * Work to run on the lane thread, between batches.
-     *
-     * <p>The single-writer principle makes a lane's state unreachable from anywhere else, which is
-     * exactly what makes it fast and exactly what makes a checkpoint awkward: snapshotting from the
-     * coordinator's thread would be a second reader of state the lane is actively mutating. So the
-     * coordinator submits the work and the lane runs it, between batches, where nothing is
-     * half-updated.
-     */
-    /**
      * A queued control task and the point in the inbox it must not run ahead of.
      *
      * <p>{@code barrier[i]} is input {@code i}'s claimed-cell count at the moment the task was
@@ -137,6 +128,7 @@ public final class Lane implements AutoCloseable {
      * mean "advance it over the rows I had already been handed"; and not after, which is what makes
      * a checkpoint's snapshot cover exactly the rows its recorded source offset excludes.
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record ControlTask(Runnable task, long[] barrier, long id, boolean cut) {}
 
     /**
@@ -151,6 +143,15 @@ public final class Lane implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicInteger pendingCuts =
             new java.util.concurrent.atomic.AtomicInteger();
 
+    /**
+     * Work to run on the lane thread, between batches.
+     *
+     * <p>The single-writer principle makes a lane's state unreachable from anywhere else, which is
+     * exactly what makes it fast and exactly what makes a checkpoint awkward: snapshotting from the
+     * coordinator's thread would be a second reader of state the lane is actively mutating. So the
+     * coordinator submits the work and the lane runs it, between batches, where nothing is
+     * half-updated.
+     */
     private final java.util.concurrent.ConcurrentLinkedQueue<ControlTask> control =
             new java.util.concurrent.ConcurrentLinkedQueue<>();
 

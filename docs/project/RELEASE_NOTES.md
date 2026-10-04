@@ -12,6 +12,24 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+- **Error Prone and javac warnings cleared, and gated (ERRORPRONE-2).** Every module but `pravaha-api`
+  and the two Java SDKs now compiles under `-Pep` with no Error Prone warning and no `-Xlint` warning:
+  about 800 fixed or, where the code is right, suppressed at the member with its reason. In those
+  modules every check Error Prone enables at WARNING is raised to ERROR, so a new one fails `-Pep`, and
+  the `fast` workflow's new `errorprone` job runs it on every push. NullAway's 2,826 stay warnings.
+  On the way, 57 javadoc comments stranded by later insertions were put back on their members.
+- **Parsers no longer accept a trailing separator they refuse anywhere else (SPLITTRAIL-1..4).**
+  `String.split` drops trailing empty fields, so `h:3000:`, `id:INT64:` and a trailing comma passed
+  in the Aerospike and Cassandra host and schema options, the feedfile and postgres-cdc schemas; the
+  Delta and JDBC offset tokens took a trailing `;`; an `X-Forwarded-For` ending in a bare `,` named
+  the hop before it as the sign-in source; and pgwire's `SET search_path = public,` was accepted.
+  Each is refused (or, for the header, falls back to the peer) like the same slip mid-list.
+- **The CLI no longer colours redirected output (ANSICONSOLE-1).** It took a non-null
+  `System.console()` to mean a terminal, which on JDK 22 and later it always is, so `pravaha ... >
+  file` wrote escape codes into the file. It now asks `Console.isTerminal()`.
+- **A feed file gone mid-read names its directory (FEEDGONE-1).** `PRV-5064` said the file was "no
+  longer in FeedDirectory@4488aabb"; it now gives the directory's path.
+
 - **Adversarial QA of 2.0.0** (2026-10-01): 322 cases over the engine, data and security
   ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
   packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
@@ -424,7 +442,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   failure the server gave no description reads "the server sent no description" rather than
   "null". See TESTING.md, *Static analysis*.
 
-Register: **546 findings — 525 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **552 findings — 533 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 

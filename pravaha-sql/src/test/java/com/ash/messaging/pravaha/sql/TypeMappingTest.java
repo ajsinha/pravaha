@@ -117,7 +117,7 @@ class TypeMappingTest {
     @Test
     void theWidenedTypeSystemAllowsWhatPravahaTypesActuallySupport() {
         // Both of these were found by the round-trip property, not by reading documentation.
-        assertThat(PravahaTypeSystem.INSTANCE.getMaxNumericPrecision())
+        assertThat(PravahaTypeSystem.INSTANCE.getMaxPrecision(org.apache.calcite.sql.type.SqlTypeName.DECIMAL))
                 .as("128-bit unscaled decimals are 38 digits; Calcite defaults to 19 and truncates")
                 .isEqualTo(38);
         assertThat(PravahaTypeSystem.INSTANCE.getMaxPrecision(SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE))

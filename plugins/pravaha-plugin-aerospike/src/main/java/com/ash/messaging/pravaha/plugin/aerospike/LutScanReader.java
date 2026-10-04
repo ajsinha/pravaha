@@ -336,6 +336,9 @@ final class LutScanReader implements PartitionReader {
      * move until the pass is finished; the client's {@link PartitionFilter} carries where each
      * partition stopped.
      */
+    @SuppressWarnings(
+            "deprecation") // Aerospike deprecates scans for query(); moving is a reader rewrite, proven only against a
+    // server
     private void readPage(int maxRecords) {
         ScanPolicy policy = new ScanPolicy();
         policy.filterExp = filter();

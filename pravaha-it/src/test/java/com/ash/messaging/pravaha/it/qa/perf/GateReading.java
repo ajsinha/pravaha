@@ -33,6 +33,7 @@ import java.util.Arrays;
  * median and the spread are printed as well, because the best sample alone hides how repeatable
  * the figure is, and on a shared machine that is most of what a reader needs to know.
  */
+@SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
 record GateReading(String what, String unit, double target, String targetSource, double[] samples) {
 
     /** Spread wider than this fraction of the median means the figure should not be stated alone. */

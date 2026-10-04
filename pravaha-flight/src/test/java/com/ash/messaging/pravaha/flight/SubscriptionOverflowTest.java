@@ -164,6 +164,7 @@ class SubscriptionOverflowTest {
     }
 
     /** Subscribes on its own thread, counting batches and recording how the stream ended. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private Ended subscribe(byte[] ticket) {
         Ended ended = new Ended();
         open.add(ended);

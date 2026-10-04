@@ -104,6 +104,7 @@ final class DetectingScanReader implements PartitionReader {
         };
     }
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Change(long weight, Digest key, byte[] row, long eventTimeNanos) {}
 
     private final IAerospikeClient client;
@@ -257,6 +258,9 @@ final class DetectingScanReader implements PartitionReader {
     }
 
     /** One full scan, compared against the held rows. Emits nothing itself; fills {@link #pending}. */
+    @SuppressWarnings(
+            "deprecation") // Aerospike deprecates scans for query(); moving is a reader rewrite, proven only against a
+    // server
     private void scan() {
         int thisPass = ++pass;
         scanStartedNanos = System.currentTimeMillis() * 1_000_000L;

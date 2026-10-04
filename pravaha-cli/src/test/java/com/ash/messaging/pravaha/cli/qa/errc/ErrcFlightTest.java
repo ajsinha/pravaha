@@ -17,14 +17,12 @@ package com.ash.messaging.pravaha.cli.qa.errc;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 
 import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.Location;
-import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.sql.FlightSqlClient;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.AfterEach;
@@ -37,9 +35,6 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
-import com.ash.messaging.pravaha.common.row.BinaryRowView;
-import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
-import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
@@ -48,6 +43,7 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -131,6 +127,7 @@ class ErrcFlightTest extends ErrcServerSupport {
 
     // ------------------------------------------------------------ ERRC-090 -- PRV-6101
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void flightSqlMetadataCallsNowAnswerRatherThanFallingThroughToArrowsUnimplemented() throws Exception {
         // INVERTED (P-6). This case recorded the gap rather than asserting it was right: the Flight
@@ -177,6 +174,7 @@ class ErrcFlightTest extends ErrcServerSupport {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void anUnrecognisedActionAndARegistrylessServerAreTheRealPrv6101Sites() throws Exception {
         try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
@@ -223,6 +221,7 @@ class ErrcFlightTest extends ErrcServerSupport {
 
     // ------------------------------------------------------------ ERRC-091 -- PRV-6102
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aHandBuiltActionThatIsNotAPravahaRequestIsRefusedAsAFlightBadHandle() throws Exception {
         try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
@@ -230,11 +229,11 @@ class ErrcFlightTest extends ErrcServerSupport {
                                 allocator, Location.forGrpcInsecure("localhost", server.port()))
                         .build()) {
             // A payload that is not ControlWire-framed at all (no magic number).
-            var results = transport.doAction(new Action("pravaha.register", "not a control wire payload".getBytes()));
-            List<Result> collected = new java.util.ArrayList<>();
+            var results =
+                    transport.doAction(new Action("pravaha.register", "not a control wire payload".getBytes(UTF_8)));
             assertThatThrownBy(() -> {
                         while (results.hasNext()) {
-                            collected.add(results.next());
+                            results.next();
                         }
                     })
                     .isInstanceOfSatisfying(FlightRuntimeException.class, e -> {
@@ -316,23 +315,5 @@ class ErrcFlightTest extends ErrcServerSupport {
         assertThatThrownBy(() -> new PravahaFlightServer(v).encryptedWith(realCert.toFile(), absentKey.toFile()))
                 .hasMessageContaining("PRV-6104")
                 .hasMessageContaining(absentKey.toAbsolutePath().toString());
-    }
-
-    private void feed(long id, String usr, long amount, long weight) {
-        var query = registry.require("v1");
-        RowLayout layout = RowLayout.of(TXN);
-        BinaryRowWriter writer = new BinaryRowWriter(layout);
-        BinaryRowView view = new BinaryRowView(layout);
-        long handle = arena.allocate(layout.rowSize(64));
-        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-        writer.setLong(0, id);
-        writer.setString(1, usr);
-        writer.setLong(2, amount);
-        writer.setLong(3, id);
-        writer.weight(weight).eventTimestampNanos(id).sequence(id).commit();
-        arena.trimTo(handle, writer.sizeSoFar());
-        query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
-        query.awaitApplied(Duration.ofSeconds(10));
-        query.commit();
     }
 }

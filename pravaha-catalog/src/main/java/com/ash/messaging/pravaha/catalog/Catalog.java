@@ -637,6 +637,7 @@ public final class Catalog {
         }
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     private void changed() {
         generation++;
     }

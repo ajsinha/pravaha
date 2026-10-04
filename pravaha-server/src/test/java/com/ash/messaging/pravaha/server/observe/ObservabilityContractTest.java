@@ -122,6 +122,7 @@ class ObservabilityContractTest {
 
     private String scrape;
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @BeforeAll
     void exerciseEverySurfaceAndScrape() throws Exception {
         QueryRegistry registry = node.registry().orElseThrow();
@@ -154,7 +155,7 @@ class ObservabilityContractTest {
     /** The metric names on the scrape, without their labels. */
     private Set<String> published() {
         Set<String> names = new TreeSet<>();
-        for (String line : scrape.split("\n")) {
+        for (String line : scrape.lines().toList()) {
             if (line.isBlank() || line.startsWith("#")) {
                 continue;
             }

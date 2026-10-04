@@ -150,7 +150,7 @@ class FindingsRegisterTest {
             if (finding.status() == null) {
                 continue;
             }
-            String word = finding.status().split("—|--|\\.")[0].trim().toUpperCase(java.util.Locale.ROOT);
+            String word = finding.status().split("—|--|\\.", -1)[0].trim().toUpperCase(java.util.Locale.ROOT);
             if (!STATUSES.contains(word)) {
                 wrong.add(finding.id() + ": '" + word + "'");
             }
@@ -216,7 +216,7 @@ class FindingsRegisterTest {
         for (String word : words) {
             long actual = findings.stream()
                     .filter(f -> f.status() != null)
-                    .filter(f -> f.status().split("\u2014|--|\\.")[0].trim().equalsIgnoreCase(word))
+                    .filter(f -> f.status().split("\u2014|--|\\.", -1)[0].trim().equalsIgnoreCase(word))
                     .count();
             assertThat((long) Integer.parseInt(header.group(words.indexOf(word) + 2)))
                     .as("the header's %s count against the register", word)

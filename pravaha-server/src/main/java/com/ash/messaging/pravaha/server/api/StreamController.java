@@ -148,6 +148,8 @@ public class StreamController {
     }
 
     /**
+     * A stream to declare.
+     *
      * @param schema a specification such as {@code id:INT64,user:STRING,amount:INT64}
      * @param eventTime the column event time is read from, optional; without one no window over the
      *     stream can ever close

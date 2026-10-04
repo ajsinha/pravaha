@@ -69,7 +69,7 @@ class ProtobufValueDecoderTest {
                 .containsExactly(
                         42L,
                         "ashutosh",
-                        Boolean.TRUE,
+                        true,
                         1.5f,
                         2.25,
                         new byte[] {1, 2, 3},
@@ -99,7 +99,7 @@ class ProtobufValueDecoderTest {
         assertThat(row.values())
                 .as("a proto3 scalar with no presence cannot be absent: it is 0, \"\" and false. Only the "
                         + "message field and the proto3 `optional` one are NULL")
-                .containsExactly(0L, "", Boolean.FALSE, null, null);
+                .containsExactly(0L, "", false, null, null);
     }
 
     @Test

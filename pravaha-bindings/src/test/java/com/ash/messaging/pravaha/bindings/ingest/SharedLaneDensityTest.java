@@ -91,7 +91,7 @@ class SharedLaneDensityTest {
 
     /** Waits for every query to count what the store says, and fails on any that does not. */
     private static void awaitEveryAnswer(Engine engine) {
-        long deadline = System.nanoTime() + Duration.ofSeconds(120).toNanos();
+        long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
         for (int i = 0; i < QUERIES; i++) {
             RegisteredQuery query = engine.queries().get(i);
             int threshold = i;
@@ -130,7 +130,7 @@ class SharedLaneDensityTest {
             // Every late joiner's catch-up read finished first: one still open when rows arrive reads
             // them as well as the shared reader does, which is SRC-3's handover duplicate on a lane
             // of its own as much as on a shared one, and not what this measures.
-            long deadline = System.nanoTime() + Duration.ofSeconds(120).toNanos();
+            long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
             while (shared.feeds().catchUpsInFlight() + own.feeds().catchUpsInFlight() > 0) {
                 assertThat(System.nanoTime()).isLessThan(deadline);
                 LaneEquivalence.sleep(10);

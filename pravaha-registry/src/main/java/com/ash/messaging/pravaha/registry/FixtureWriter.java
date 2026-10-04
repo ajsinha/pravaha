@@ -69,7 +69,7 @@ final class FixtureWriter {
         licence(out);
         out.append("package ").append(FixtureExport.PACKAGE).append(";\n\n");
         imports(out);
-        header(out, className, sessionId, queryName, checkpointId);
+        header(out, sessionId, queryName, checkpointId);
         out.append("class ").append(className).append(" {\n\n");
 
         out.append("    private static final String NAME = ")
@@ -145,7 +145,7 @@ final class FixtureWriter {
                 """);
     }
 
-    private static void header(StringBuilder out, String className, String sessionId, String query, long checkpoint) {
+    private static void header(StringBuilder out, String sessionId, String query, long checkpoint) {
         out.append("/**\n")
                 .append(" * Generated from debug session ")
                 .append(sessionId)

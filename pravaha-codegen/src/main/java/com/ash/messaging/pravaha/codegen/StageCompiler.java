@@ -106,7 +106,7 @@ public final class StageCompiler {
 
     /** Line numbers, because a compiler error citing line 47 is useless without them. */
     private static String numbered(String source) {
-        String[] lines = source.split("\n");
+        String[] lines = source.lines().toArray(String[]::new);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < lines.length; i++) {
             sb.append(String.format("%4d  %s%n", i + 1, lines[i]));

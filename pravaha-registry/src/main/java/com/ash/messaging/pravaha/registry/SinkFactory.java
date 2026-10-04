@@ -44,7 +44,8 @@ public interface SinkFactory {
         public StreamSinkPlugin open(String sinkName) {
             // Unreachable in practice: capabilitiesOf refuses first, and a registration is refused
             // before anything tries to open what it named.
-            return capabilitiesOf(sinkName) == null ? null : null;
+            var _ = capabilitiesOf(sinkName);
+            return null;
         }
     };
 

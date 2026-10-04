@@ -96,7 +96,8 @@ public record FixtureExport(String className, String path, Map<String, String> f
     /** A Java string literal for {@code text}, including the quotes. */
     static String quote(String text) {
         StringBuilder out = new StringBuilder("\"");
-        for (char c : text.toCharArray()) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
             switch (c) {
                 case '"' -> out.append("\\\"");
                 case '\\' -> out.append("\\\\");
@@ -183,7 +184,8 @@ public record FixtureExport(String className, String path, Map<String, String> f
     /** A Java identifier for a stream, used as the generated schema constant's name. */
     static String constantFor(String stream) {
         StringBuilder out = new StringBuilder();
-        for (char c : stream.toCharArray()) {
+        for (int i = 0; i < stream.length(); i++) {
+            char c = stream.charAt(i);
             out.append(Character.isLetterOrDigit(c) ? Character.toUpperCase(c) : '_');
         }
         if (out.isEmpty() || Character.isDigit(out.charAt(0))) {

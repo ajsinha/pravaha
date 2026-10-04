@@ -263,30 +263,6 @@ public final class SqlPlanner {
     }
 
     /**
-     * The one table a query names, taken from the parse tree and nothing else.
-     *
-     * <p>SX-5, and the channel its first fix left open. {@link #plan} resolves a name against the
-     * catalogue while validating, so a query naming a view that does not exist fails there --
-     * {@code PRV-2002}, raised before any caller has been authorized for anything. A view that
-     * exists but is forbidden gets as far as the policy and is refused with {@code PRV-7002}. Two
-     * codes, and the difference between them is an existence oracle: a caller entitled to nothing
-     * can confirm a name by reading which refusal comes back.
-     *
-     * <p>Closing it means authorizing the name <em>before</em> the catalogue is consulted, which
-     * means obtaining the name without consulting it. Parsing alone does that. The parser builds a
-     * tree out of the text and never asks what exists, so it answers identically for a real name
-     * and an invented one -- which is the whole point.
-     *
-     * <p>Only the single-table shape is recognised, and that is the shape a request/response query
-     * is allowed to have: {@code ViewQuery} refuses anything reading more than one view. A join, a
-     * subquery or a {@code VALUES} returns empty and its caller keeps the behaviour it had, which is
-     * correct rather than merely convenient -- those queries are refused on other grounds and never
-     * reach a view.
-     *
-     * @throws PravahaException {@code PRV-2001} when the text will not parse. A syntax error says
-     *     nothing about what exists, so reporting it before authorizing discloses nothing.
-     */
-    /**
      * {@code PRV-2001} with Calcite's message, or -- when it has none -- one that says what happened.
      *
      * <p>UNCODEDAPI-1: 3,000 nested parentheses and a 1.2 MiB {@code OR} chain were refused as {@code
@@ -312,6 +288,30 @@ public final class SqlPlanner {
                 e);
     }
 
+    /**
+     * The one table a query names, taken from the parse tree and nothing else.
+     *
+     * <p>SX-5, and the channel its first fix left open. {@link #plan} resolves a name against the
+     * catalogue while validating, so a query naming a view that does not exist fails there --
+     * {@code PRV-2002}, raised before any caller has been authorized for anything. A view that
+     * exists but is forbidden gets as far as the policy and is refused with {@code PRV-7002}. Two
+     * codes, and the difference between them is an existence oracle: a caller entitled to nothing
+     * can confirm a name by reading which refusal comes back.
+     *
+     * <p>Closing it means authorizing the name <em>before</em> the catalogue is consulted, which
+     * means obtaining the name without consulting it. Parsing alone does that. The parser builds a
+     * tree out of the text and never asks what exists, so it answers identically for a real name
+     * and an invented one -- which is the whole point.
+     *
+     * <p>Only the single-table shape is recognised, and that is the shape a request/response query
+     * is allowed to have: {@code ViewQuery} refuses anything reading more than one view. A join, a
+     * subquery or a {@code VALUES} returns empty and its caller keeps the behaviour it had, which is
+     * correct rather than merely convenient -- those queries are refused on other grounds and never
+     * reach a view.
+     *
+     * @throws PravahaException {@code PRV-2001} when the text will not parse. A syntax error says
+     *     nothing about what exists, so reporting it before authorizing discloses nothing.
+     */
     public java.util.Optional<String> referencedTable(String sql) {
         try (Planner planner = Frameworks.getPlanner(frameworkConfig())) {
             SqlNode parsed;
@@ -495,6 +495,7 @@ public final class SqlPlanner {
     }
 
     /** The innermost message, which is nearly always the one that says what is actually wrong. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private static String rootMessage(Throwable t) {
         Throwable cause = t;
         while (cause.getCause() != null && cause.getCause() != cause) {

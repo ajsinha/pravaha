@@ -163,6 +163,7 @@ final class FakeTopic implements KafkaClients {
             this.config = Map.copyOf(config);
         }
 
+        @SuppressWarnings("WaitNotInLoop") // a bounded poll: a spurious wakeup returns early and the caller polls again
         @Override
         public synchronized ConsumerRecords<byte[], byte[]> poll(Duration timeout) {
             if (unreachable != null) {

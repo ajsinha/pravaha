@@ -49,6 +49,7 @@ final class CdcSchema {
     record Column(String name, int typeOid, char typtype, boolean notNull, int typmod, String typeName) {}
 
     /** The stream, and for each of its fields the table column and type OID it is read from. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Mapping(StreamSchema schema, List<String> columnNames, int[] typeOids) {}
 
     private CdcSchema() {}
@@ -143,8 +144,8 @@ final class CdcSchema {
                 oids.add(column.typeOid());
             }
         } else {
-            for (String entry : options.declaredSchema().split(",")) {
-                String[] parts = entry.strip().split(":");
+            for (String entry : options.declaredSchema().split(",", -1)) {
+                String[] parts = entry.strip().split(":", -1);
                 if (parts.length != 2 || parts[0].isBlank()) {
                     throw CdcOptions.bad(
                             options.instanceName(),

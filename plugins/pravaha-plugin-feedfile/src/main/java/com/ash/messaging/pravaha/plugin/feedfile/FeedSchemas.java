@@ -38,8 +38,8 @@ final class FeedSchemas {
     /** Parses {@code name:TYPE,name:TYPE}. A {@code ?} suffix marks a column nullable. */
     static StreamSchema parse(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
-        for (String column : spec.split(",")) {
-            String[] parts = column.strip().split(":");
+        for (String column : spec.split(",", -1)) {
+            String[] parts = column.strip().split(":", -1);
             if (parts.length != 2) {
                 throw new ConfigurationException(
                         FeedFileErrors.BAD_SCHEMA,

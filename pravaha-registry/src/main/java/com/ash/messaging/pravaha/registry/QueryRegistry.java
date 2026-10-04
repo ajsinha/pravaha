@@ -66,8 +66,6 @@ import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
  */
 public final class QueryRegistry implements AutoCloseable {
 
-    private static final System.Logger LOG = System.getLogger(QueryRegistry.class.getName());
-
     /** The default ceiling on keys in a view a registration creates. */
     public static final int DEFAULT_MAX_KEYS = 1_000_000;
 
@@ -103,19 +101,6 @@ public final class QueryRegistry implements AutoCloseable {
     // renders the list and for a test that asserts on it.
     private final Map<String, RegisteredQuery> byName = new LinkedHashMap<>();
     private RegistryJournal journal;
-    /**
-     * Lanes for a registry, which is a different machine from lanes for one query.
-     *
-     * <p>{@code LaneConfig.defaults()} spins, and spinning is right for the case it was written for:
-     * one query, a source that never stops, latency that matters more than a core. A registry is the
-     * opposite case. It holds many queries, most of them idle most of the time, and each one owns a
-     * lane thread -- so the default spent a core per eleven idle queries doing nothing. Measured:
-     * three idle queries at 26% of a core, nine at 92%, with the source dry and no rows arriving. A
-     * two-core container saturates at about twenty idle registrations.
-     *
-     * <p>{@code BACKOFF_PARK} is what {@code WaitStrategy} documents for exactly this, and nothing
-     * ever selected it.
-     */
     /**
      * The threads every query's lane runs on, created on first use and shared by all of them.
      *
@@ -334,6 +319,19 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Lanes for a registry, which is a different machine from lanes for one query.
+     *
+     * <p>{@code LaneConfig.defaults()} spins, and spinning is right for the case it was written for:
+     * one query, a source that never stops, latency that matters more than a core. A registry is the
+     * opposite case. It holds many queries, most of them idle most of the time, and each one owns a
+     * lane thread -- so the default spent a core per eleven idle queries doing nothing. Measured:
+     * three idle queries at 26% of a core, nine at 92%, with the source dry and no rows arriving. A
+     * two-core container saturates at about twenty idle registrations.
+     *
+     * <p>{@code BACKOFF_PARK} is what {@code WaitStrategy} documents for exactly this, and nothing
+     * ever selected it.
+     */
     LaneConfig laneConfig = LaneConfig.defaults()
             .withWaitStrategy(com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.BACKOFF_PARK)
             .withThreads("pravaha-query", true);
@@ -407,21 +405,6 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
-     * Derives watermarks for every query registered after this call.
-     *
-     * <p>Without it a registered query's windows close only when its input ends, which on a
-     * continuous query is never -- so joins never evict and views never forget. See ADR-034 and
-     * CONCEPTS section 3.
-     */
-    /**
-     * Attaches a source of rows to registered queries.
-     *
-     * <p>Without this a registration builds an execution with lanes, arenas and watermarks and then
-     * waits forever, because nothing hands it a row. That is correct for an engine embedded in a
-     * process that pushes its own rows through {@link RegisteredQuery#accept}, and it is why a
-     * server needs to say so explicitly rather than inherit a default that reads files.
-     */
-    /**
      * Binds a dimension table that registered queries may join against.
      *
      * <p>Lookup joins were implemented, optimised, tested and documented, and unreachable: {@code
@@ -441,6 +424,14 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Attaches a source of rows to registered queries.
+     *
+     * <p>Without this a registration builds an execution with lanes, arenas and watermarks and then
+     * waits forever, because nothing hands it a row. That is correct for an engine embedded in a
+     * process that pushes its own rows through {@link RegisteredQuery#accept}, and it is why a
+     * server needs to say so explicitly rather than inherit a default that reads files.
+     */
     public QueryRegistry feedingFrom(SourceFeedFactory factory) {
         this.feeds = factory == null ? SourceFeedFactory.NONE : factory;
         return this;
@@ -486,11 +477,14 @@ public final class QueryRegistry implements AutoCloseable {
     /** Debug sessions, created with the first fork (ADR-048, design section 16.4). */
     private volatile DebugSessions debugSessions;
 
+    /** Guards the lazily made debug sessions and replacements, for this registry alone. */
+    private final Object lazily = new Object();
+
     /** The time-travel debugger's sessions on this registry (ADR-048, design section 16.4). */
     public DebugSessions debugSessions() {
         DebugSessions open = debugSessions;
         if (open == null) {
-            synchronized (DebugSessions.class) {
+            synchronized (lazily) {
                 open = debugSessions;
                 if (open == null) {
                     open = new DebugSessions(this, policy, audit, configuration);
@@ -501,6 +495,13 @@ public final class QueryRegistry implements AutoCloseable {
         return open;
     }
 
+    /**
+     * Derives watermarks for every query registered after this call.
+     *
+     * <p>Without it a registered query's windows close only when its input ends, which on a
+     * continuous query is never -- so joins never evict and views never forget. See ADR-034 and
+     * CONCEPTS section 3.
+     */
     public QueryRegistry generatingWatermarks(Duration idleAfter, Duration tick) {
         this.watermarkIdleAfter = idleAfter;
         this.watermarkTick = tick;
@@ -1132,7 +1133,7 @@ public final class QueryRegistry implements AutoCloseable {
     public QueryReplacements replacements() {
         QueryReplacements running = replacements;
         if (running == null) {
-            synchronized (QueryReplacements.class) {
+            synchronized (lazily) {
                 running = replacements;
                 if (running == null) {
                     running = new QueryReplacements(this, policy, audit);
@@ -1198,21 +1199,6 @@ public final class QueryRegistry implements AutoCloseable {
         query.checkpointDirectory().ifPresent(checkpoints::delete);
     }
 
-    /**
-     * Writes registrations to {@code journal} so they survive a restart.
-     *
-     * <p>Without this a registry is entirely in memory: restart the server and every continuous
-     * query a client registered is gone, with no error and nothing to look at. The client finds out
-     * at its next subscribe, as "no such view", and the only fix is for every client to know to
-     * register again.
-     *
-     * <p>What is journalled is the <em>registration</em> -- name, SQL, key columns, owner, retention,
-     * bound values -- and not the state. The registration is small, rarely changes, and cannot be
-     * recomputed because it came from a client that may never speak again. State is large, changes
-     * constantly, and can be rebuilt by reading the stream. So a restart costs a warm-up rather than
-     * an outage: the views are there immediately and fill as data arrives, and a windowed query's
-     * first window or two are partial.
-     */
     /** The tenants' quotas (ADR-050), in force for every registration from now on, replays included. */
     public synchronized QueryRegistry limitingTenants(TenantQuotas quotas) {
         this.tenants = Objects.requireNonNull(quotas, "quotas");
@@ -1235,6 +1221,21 @@ public final class QueryRegistry implements AutoCloseable {
 
     private TenantQuotas tenants = TenantQuotas.unbounded();
 
+    /**
+     * Writes registrations to {@code journal} so they survive a restart.
+     *
+     * <p>Without this a registry is entirely in memory: restart the server and every continuous
+     * query a client registered is gone, with no error and nothing to look at. The client finds out
+     * at its next subscribe, as "no such view", and the only fix is for every client to know to
+     * register again.
+     *
+     * <p>What is journalled is the <em>registration</em> -- name, SQL, key columns, owner, retention,
+     * bound values -- and not the state. The registration is small, rarely changes, and cannot be
+     * recomputed because it came from a client that may never speak again. State is large, changes
+     * constantly, and can be rebuilt by reading the stream. So a restart costs a warm-up rather than
+     * an outage: the views are there immediately and fill as data arrives, and a windowed query's
+     * first window or two are partial.
+     */
     public synchronized QueryRegistry journalTo(RegistryJournal journal) {
         this.journal = journal;
         return this;

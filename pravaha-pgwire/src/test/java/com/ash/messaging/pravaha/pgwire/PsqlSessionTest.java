@@ -250,10 +250,10 @@ class PsqlSessionTest {
     }
 
     /**
-     * Runs one query through {@code psql} and returns everything it printed.
+     * Runs one query through the psql client and returns everything it printed.
      *
      * <p>No {@code sslmode} on the command line, deliberately: the default is {@code prefer}, so
-     * {@code psql} opens with an SSLRequest and this server has to decline it correctly for the
+     * the client opens with an SSLRequest and this server has to decline it correctly for the
      * connection to happen at all. Passing {@code sslmode=disable} would skip the one handshake
      * step most likely to be wrong.
      */

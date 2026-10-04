@@ -64,6 +64,7 @@ public enum ConfigSource {
     }
 
     /** Whether this source outranks {@code other}. Ordinal order is the precedence order. */
+    @SuppressWarnings("EnumOrdinal") // declaration order is the meaning: a range, a precedence or a random pick
     public boolean outranks(ConfigSource other) {
         return ordinal() > other.ordinal();
     }

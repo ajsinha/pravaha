@@ -44,6 +44,7 @@ import java.util.Map;
 final class PgTestClient implements AutoCloseable {
 
     /** One backend message, framed and no further interpreted. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Message(char type, byte[] payload) {
 
         /** The payload as a sequence of null-terminated strings. */
@@ -79,7 +80,7 @@ final class PgTestClient implements AutoCloseable {
 
     PgTestClient(int port) throws IOException {
         this.socket = new Socket();
-        this.socket.connect(new InetSocketAddress("127.0.0.1", port), 5_000);
+        this.socket.connect(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), port), 5_000);
         this.socket.setSoTimeout(readBoundMillis(
                 java.lang.management.ManagementFactory.getOperatingSystemMXBean()
                         .getSystemLoadAverage(),

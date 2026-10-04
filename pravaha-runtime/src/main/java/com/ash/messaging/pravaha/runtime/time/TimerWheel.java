@@ -70,7 +70,7 @@ public final class TimerWheel {
     private long cancelledCount;
     private long ticksWalked;
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "rawtypes"}) // the bucket array: Java makes no generic array
     public TimerWheel(long tickNanos, int bucketCount) {
         if (tickNanos <= 0) {
             throw new IllegalArgumentException("tick must be positive, got " + tickNanos);
@@ -111,7 +111,7 @@ public final class TimerWheel {
             return overflow;
         }
         long tick = Math.floorDiv(deadlineNanos, tickNanos);
-        return buckets[(int) Math.floorMod(tick, bucketCount)];
+        return buckets[Math.floorMod(tick, bucketCount)];
     }
 
     /** Cancels a key's timer, removing it rather than marking it. */
@@ -153,7 +153,7 @@ public final class TimerWheel {
         long ticks = Math.min(Math.floorDiv(timeNanos - currentTimeNanos, tickNanos) + 1, bucketCount);
         ticksWalked += ticks;
         for (long i = 0; i < ticks; i++) {
-            collectDue(buckets[(int) Math.floorMod(fromTick + i, bucketCount)], timeNanos, fired);
+            collectDue(buckets[Math.floorMod(fromTick + i, bucketCount)], timeNanos, fired);
         }
         collectDue(overflow, timeNanos, fired);
 
@@ -192,7 +192,7 @@ public final class TimerWheel {
         for (Timer timer : arrived) {
             overflow.remove(timer.key());
             long tick = Math.floorDiv(timer.deadlineNanos(), tickNanos);
-            buckets[(int) Math.floorMod(tick, bucketCount)].put(timer.key(), timer);
+            buckets[Math.floorMod(tick, bucketCount)].put(timer.key(), timer);
         }
     }
 

@@ -69,10 +69,6 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
 
     private final TokenVerifier verifier;
 
-    private PrincipalMiddleware(Principal principal) {
-        this(principal, null, null);
-    }
-
     private PrincipalMiddleware(Principal principal, String credential, TokenVerifier verifier) {
         this.principal = principal;
         this.credential = credential;

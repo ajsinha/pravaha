@@ -87,15 +87,35 @@ the test classes, which the Python SDK's live-server fixture needs (`pravaha-fli
 
 Runs [Error Prone](https://errorprone.info) 2.50 as a javac plugin over every module, main and test
 code, with NullAway (`AnnotatedPackages=com.ash.messaging.pravaha`); generated sources are left
-out. An Error Prone check at ERROR level fails the build; everything else is printed as a
-warning. NullAway runs at WARNING: the code is not `@Nullable`-annotated throughout, so its findings
-are a list to work down rather than a gate. javac is forked with `jdk.compiler`'s internals opened,
-so the default build is unchanged. Not part of the default build or of `-Pall` (`-Pall,ep` for
-both); no workflow runs it yet. On 2026-10-02 (ERRORPRONE-1) the reactor had **no ERROR-level
-finding** — nine were fixed, one suppressed with its reason — and 3,570 warnings: 2,822 from
-NullAway, about 600 from Error Prone's WARNING checks (`StringSplitter` 100, `ArrayRecordComponent`
-61, `NotJavadoc` 52, `MissingOverride` 42, `UnusedVariable` 39, …), and 148 from javac's own
-`-Xlint` (`try`, `deprecation`), which the default build prints too.
+out. javac is forked with `jdk.compiler`'s internals opened, so the default build is unchanged. Not
+part of the default build or of `-Pall` (`-Pall,ep` for both).
+
+**What fails the build.** Every check Error Prone enables at WARNING is raised to ERROR by the
+`errorprone.ratchet` property in the root POM (one `-Xep:<Check>:ERROR` per check, generated from
+Error Prone's `BuiltInCheckerSuppliers.ENABLED_WARNINGS` — regenerate it when `errorprone.version`
+moves), so in every module that is clean a new Error Prone warning is a compile error. `pravaha-api`,
+`sdk/pravaha-sdk-java` and `sdk/pravaha-sdk-java-flight` are not clean yet and set the property empty;
+removing that override is how one joins. NullAway is not on the list and stays a warning: the code is
+not `@Nullable`-annotated throughout, so its findings are a list to work down rather than a gate. The
+`fast` workflow's `errorprone` job runs `./mvnw -Pep -DskipTests clean test-compile` (main and test
+code) on every push. A finding the code is right about is suppressed at the narrowest member that
+holds it, with a `// reason` on the same line; never module-wide.
+
+**Counts** (`-Pep clean test-compile`, unique warnings, whole reactor):
+
+| | NullAway | Error Prone WARNING checks | javac `-Xlint` | total |
+|---|---|---|---|---|
+| 2026-10-02, ERRORPRONE-1 | 2,833 | 600 (`StringSplitter` 100, `ArrayRecordComponent` 61, `NotJavadoc` 54, `MissingOverride` 42, `UnusedVariable` 39, …) | 207 (`try` 109, `dangling-doc-comments` 57, `deprecation` 31, …) | 3,642 |
+| 2026-10-03, ERRORPRONE-2 | 2,826, counted before `pravaha-api` and the SDKs were cleared (those three are 0 and held there by `failOnWarning`) | 0 | 0 | 2,826 at most |
+
+The ERRORPRONE-1 run counted 3,570 because it compiled main and test code in separate passes. Of the
+roughly 800 cleared, most were fixed in place; the suppressions are mainly `ArrayRecordComponent` on
+records whose arrays are compared by content already or never compared at all (48),
+`try` on test methods holding an Arrow resource whose `close()` declares `InterruptedException`, and
+`ReferenceEquality` and `NonAtomicVolatileUpdate` where identity or a single writer is the design.
+The `StringSplitter` sweep found four parsers that accepted a trailing separator (SPLITTRAIL-1..4),
+`SystemConsoleNull` a CLI that coloured redirected output (ANSICONSOLE-1), and `ObjectToString` an
+error naming an object's identity (FEEDGONE-1).
 
 **The client modules are gated (2.1).** `pravaha-api`, `pravaha-sdk-java` and
 `pravaha-sdk-java-flight` were brought to zero — NullAway, Error Prone's WARNING checks and javac's

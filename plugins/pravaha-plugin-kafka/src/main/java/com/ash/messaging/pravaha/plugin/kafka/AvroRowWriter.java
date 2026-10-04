@@ -295,13 +295,13 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
         }
         // A fixed of n bytes holds a two's-complement integer of up to 8n-1 bits.
         return node.kind != AvroSchema.Kind.FIXED
-                || node.size > 0
+                || (node.size > 0
                         && BigInteger.ONE
                                         .shiftLeft(8 * node.size - 1)
                                         .subtract(BigInteger.ONE)
                                         .toString()
                                         .length()
-                                > node.precision;
+                                > node.precision);
     }
 
     @Override

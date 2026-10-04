@@ -105,7 +105,7 @@ final class GlobalAggregate implements RowProcessor {
         this.sums = new long[n];
         this.counts = new long[n];
         this.excess = new long[n];
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings({"unchecked", "rawtypes"}) // Java makes no generic array: a raw one, cast
         java.util.Set<Object>[] sets = new java.util.Set[n];
         this.distincts = sets;
         this.seen = new boolean[n];

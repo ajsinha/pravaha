@@ -95,6 +95,7 @@ class CatalogPoliciesEndToEndTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void twoUsersSeeTheirOwnRowsAndMaskedValuesFromTheSameView() throws Exception {
         start();
@@ -282,6 +283,7 @@ class CatalogPoliciesEndToEndTest {
         return new HeaderCallOption(headers);
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<List<String>> run(String who, String statement) throws Exception {
         CallOption auth = bearer(who);
         FlightInfo info = sql.execute(statement, auth);

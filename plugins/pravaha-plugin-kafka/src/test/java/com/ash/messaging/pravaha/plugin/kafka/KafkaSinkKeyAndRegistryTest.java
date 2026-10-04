@@ -69,7 +69,7 @@ class KafkaSinkKeyAndRegistryTest {
 
     @BeforeEach
     void start() throws IOException {
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server = HttpServer.create(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", this::answer);
         server.start();
     }

@@ -567,7 +567,7 @@ class SharedSourceReaderTest {
     }
 
     /** Long enough that one scheduling hiccup is a small part of what is counted. */
-    private static final Duration WINDOW = Duration.ofMillis(1000);
+    private static final Duration WINDOW = Duration.ofSeconds(1);
 
     private static long scansOver(Duration window) throws InterruptedException {
         long before = CountingScanPlugin.SCANS.get();

@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.runtime.lane.LaneProcessor;
  * package-private, still built only by {@code QueryExecution}, and still runs on the lane thread
  * and nowhere else.
  */
+@SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
 record LanePipeline(
         InterpretedPipeline pipeline,
         BinaryRowView[] views,

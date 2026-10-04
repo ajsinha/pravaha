@@ -418,6 +418,7 @@ final class LookupJoin implements RowProcessor {
     }
 
     /** A key, by value, so it can be a map key. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record KeyValues(Object[] values) {
         @Override
         public boolean equals(Object other) {

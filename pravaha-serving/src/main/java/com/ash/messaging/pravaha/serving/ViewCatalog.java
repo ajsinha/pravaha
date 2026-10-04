@@ -53,12 +53,12 @@ public final class ViewCatalog {
      */
     private final java.util.concurrent.atomic.AtomicLong generation = new java.util.concurrent.atomic.AtomicLong();
 
-    /** Publishes a view under its own name. */
     /** The catalogue's version. A cached plan is valid only while this is unchanged. */
     public long generation() {
         return generation.get();
     }
 
+    /** Publishes a view under its own name. */
     public ViewCatalog register(ServedView view) {
         return registerAs(view.name(), view);
     }

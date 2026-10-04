@@ -540,6 +540,18 @@ class JdbcSourcePluginTest {
     }
 
     @Test
+    void anOffsetWithATrailingSeparatorIsRefused() {
+        // SPLITTRAIL-2: String.split dropped trailing empty strings, so "w=..;k=..;n=..;" -- a token
+        // this plugin never writes -- parsed as the three fields it expects.
+        SourceOffset written = new JdbcOffset(100L, 7L, 1L).toSourceOffset();
+        assertThat(JdbcOffset.parse(written)).isEqualTo(new JdbcOffset(100L, 7L, 1L));
+        assertThatThrownBy(() -> JdbcOffset.parse(new SourceOffset(written.token() + ";")))
+                .isInstanceOf(PravahaException.class)
+                .extracting(e -> ((PravahaException) e).errorCode())
+                .isEqualTo(JdbcErrors.MALFORMED_OFFSET);
+    }
+
+    @Test
     void healthReportsTheConnection() throws SQLException {
         insert(1, "ann", 10.5, 100);
         JdbcSourcePlugin plugin = open(Map.of());

@@ -96,7 +96,7 @@ final class PgCatalogShim {
         this.policy = Objects.requireNonNull(policy, "policy");
         this.oids = Objects.requireNonNull(oids, "oids");
         this.serverVersion = Objects.requireNonNull(serverVersion, "serverVersion");
-        this.informationSchema = new PgInformationSchema(catalog);
+        this.informationSchema = new PgInformationSchema();
     }
 
     /** The PostgreSQL version this gateway announces; {@link PgShow} answers {@code SHOW server_version} with it. */

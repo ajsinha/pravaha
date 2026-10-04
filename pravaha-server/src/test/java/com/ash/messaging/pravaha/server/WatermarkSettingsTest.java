@@ -55,9 +55,6 @@ class WatermarkSettingsTest {
 
     private static final String SCHEMA = "user_id:STRING,amount:INT64,event_time:TIMESTAMP";
 
-    private static final String WINDOWED =
-            "SELECT user_id, COUNT(*) AS n FROM txn " + "GROUP BY user_id, TUMBLE(event_time, INTERVAL '10' SECOND)";
-
     private static StreamDeclarationProperties declared(Map<String, String> properties) {
         return new Binder(new MapConfigurationPropertySource(properties))
                 .bind("pravaha", StreamDeclarationProperties.class)

@@ -83,4 +83,15 @@ class CassandraSchemasTest {
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("name:TYPE");
     }
+
+    @Test
+    void aTrailingSeparatorIsRefusedLikeAnyOtherMalformedEntry() {
+        // SPLITTRAIL-1: "id:INT64," and "id:INT64:" used to parse as "id:INT64".
+        assertThatThrownBy(() -> CassandraSchemas.parse("t", "id:INT64,"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+        assertThatThrownBy(() -> CassandraSchemas.parse("t", "id:INT64:"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+    }
 }

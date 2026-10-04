@@ -75,7 +75,7 @@ class StateCheckpointScheduleTest extends StateTestSupport {
                     .as("no checkpoint yet at 100ms into a 200ms interval")
                     .isZero();
 
-            long deadlineFor1000 = t0 + Duration.ofMillis(1000).toNanos();
+            long deadlineFor1000 = t0 + Duration.ofSeconds(1).toNanos();
             while (System.nanoTime() < deadlineFor1000) {
                 Thread.sleep(5);
             }
@@ -426,7 +426,7 @@ class StateCheckpointScheduleTest extends StateTestSupport {
         }
 
         @Override
-        public void close() throws Exception {
+        public void close() throws java.io.IOException {
             try (Stream<Path> walk = Files.walk(path)) {
                 walk.sorted(java.util.Comparator.reverseOrder())
                         .forEach(p -> p.toFile().delete());

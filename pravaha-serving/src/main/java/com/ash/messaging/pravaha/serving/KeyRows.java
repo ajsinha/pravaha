@@ -40,6 +40,7 @@ import java.util.Map;
 final class KeyRows {
 
     /** Row values compared as values, as the view's keys are. */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record Row(Object[] values) {
         @Override
         public boolean equals(Object other) {

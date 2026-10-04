@@ -168,14 +168,6 @@ public class PravahaServerApplication {
     }
 
     /**
-     * Starts the engine after the web layer can serve health, and stops it before the web layer
-     * goes away.
-     *
-     * <p>Ordered explicitly through {@link SmartLifecycle} rather than left to Spring's bean
-     * destruction order: lanes must drain before the HTTP surface stops accepting, and bean order
-     * does not express that.
-     */
-    /**
      * The policy the HTTP surface authorizes against, and the sink that records its decisions.
      *
      * <p>Built from the same configuration key the engine reads, so the two halves of the node
@@ -287,23 +279,39 @@ public class PravahaServerApplication {
                     .values()
                     .forEach(path -> path.readOperations().forEach(operation -> {
                         if (operation.getResponses() == null
-                                || operation.getResponses().getDefault() != null) {
+                                || operation.getResponses().get(io.swagger.v3.oas.models.responses.ApiResponses.DEFAULT)
+                                        != null) {
                             return;
                         }
                         operation
                                 .getResponses()
-                                .setDefault(new io.swagger.v3.oas.models.responses.ApiResponse()
-                                        .description("An ApiError. Every non-2xx response on this API is one.")
-                                        .content(new io.swagger.v3.oas.models.media.Content()
-                                                .addMediaType(
-                                                        "application/json",
-                                                        new io.swagger.v3.oas.models.media.MediaType()
-                                                                .schema(new io.swagger.v3.oas.models.media.Schema<>()
-                                                                        .$ref("#/components/schemas/ApiError")))));
+                                .addApiResponse(
+                                        io.swagger.v3.oas.models.responses.ApiResponses.DEFAULT,
+                                        new io.swagger.v3.oas.models.responses.ApiResponse()
+                                                .description("An ApiError. Every non-2xx response on this API is one.")
+                                                .content(
+                                                        new io.swagger.v3.oas.models.media.Content()
+                                                                .addMediaType(
+                                                                        "application/json",
+                                                                        new io.swagger.v3.oas.models.media.MediaType()
+                                                                                .schema(
+                                                                                        new io.swagger.v3.oas.models
+                                                                                                        .media
+                                                                                                        .Schema<>()
+                                                                                                .$ref(
+                                                                                                        "#/components/schemas/ApiError")))));
                     }));
         };
     }
 
+    /**
+     * Starts the engine after the web layer can serve health, and stops it before the web layer
+     * goes away.
+     *
+     * <p>Ordered explicitly through {@link SmartLifecycle} rather than left to Spring's bean
+     * destruction order: lanes must drain before the HTTP surface stops accepting, and bean order
+     * does not express that.
+     */
     @Bean
     public SmartLifecycle pravahaLifecycle(PravahaEngine engine) {
         return new SmartLifecycle() {

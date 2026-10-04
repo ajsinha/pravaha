@@ -85,7 +85,6 @@ final class DelimitedCodec {
         return fields;
     }
 
-    /** Decodes one line into {@code writer}. Throws with the line's content on a malformed field. */
     /**
      * The event time of the row decoded by the last {@link #decode}, or {@code Long.MIN_VALUE}.
      *
@@ -111,6 +110,7 @@ final class DelimitedCodec {
         return lastOpValue;
     }
 
+    /** Decodes one line into {@code writer}. Throws with the line's content on a malformed field. */
     void decode(String line, long lineNumber, RowWriter writer) {
         lastEventTimeNanos = Long.MIN_VALUE;
         lastOpValue = null;

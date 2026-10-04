@@ -57,7 +57,7 @@ final class KafkaTopics {
 
     static void prepare(KafkaSinkOptions options) {
         try (Admin admin = Admin.create(options.admin())) {
-            if (!exists(admin, options.topic, options)) {
+            if (!exists(admin, options.topic)) {
                 throw new PravahaException(
                         KafkaErrors.CONNECT_FAILED,
                         "sink '" + options.instanceName + "': topic '" + options.topic + "' does not exist. This sink "
@@ -99,7 +99,7 @@ final class KafkaTopics {
 
     private static void prepareStaging(Admin admin, KafkaSinkOptions options)
             throws ExecutionException, InterruptedException, TimeoutException {
-        if (exists(admin, options.stagingTopic, options)) {
+        if (exists(admin, options.stagingTopic)) {
             Optional<String> policy = cleanupPolicy(admin, options.stagingTopic);
             if (policy.isPresent() && policy.get().contains(TopicConfig.CLEANUP_POLICY_COMPACT)) {
                 throw new PravahaException(
@@ -138,7 +138,7 @@ final class KafkaTopics {
         }
     }
 
-    private static boolean exists(Admin admin, String topic, KafkaSinkOptions options)
+    private static boolean exists(Admin admin, String topic)
             throws ExecutionException, InterruptedException, TimeoutException {
         try {
             Map<String, TopicDescription> described =

@@ -116,7 +116,7 @@ final class KafkaSinkOptions {
         int[] precisions = KafkaSchema.precisions(context.require("schema"));
 
         List<String> names = new ArrayList<>();
-        for (String part : context.get("key.columns", "").split(",")) {
+        for (String part : context.get("key.columns", "").split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }

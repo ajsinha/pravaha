@@ -157,14 +157,6 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     }
 
     /**
-     * Reads back what has been dead-lettered, or {@link
-     * com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} when no directory is configured.
-     *
-     * <p>A store rather than a path, so that every surface that lists, shows and replays reads the
-     * files through one implementation. Built per call, because it holds no state: a directory and
-     * a bound.
-     */
-    /**
      * What one query's dead-letter queue looks like right now, from the writer's own counters.
      *
      * <p>{@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth#none()} for a query with no
@@ -222,6 +214,14 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         }
     }
 
+    /**
+     * Reads back what has been dead-lettered, or {@link
+     * com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} when no directory is configured.
+     *
+     * <p>A store rather than a path, so that every surface that lists, shows and replays reads the
+     * files through one implementation. Built per call, because it holds no state: a directory and
+     * a bound.
+     */
     public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
         java.nio.file.Path directory = deadLetterDirectory;
         return directory == null
@@ -1083,11 +1083,6 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     }
 
     /**
-     * What a request asks its source for, in words: "; pushed 2 filters, 3 columns", or nothing
-     * when nothing was pushed. What the source actually honoured is its own business -- a filter it
-     * could not express is simply not applied there -- so this reports the offer.
-     */
-    /**
      * "; pushed to Cassandra: partition key id = 7": what the source says it asks its store for,
      * beside the offer, or nothing when it says nothing. A source that fails to say is not a reason to
      * fail a registration, so its failure is reported in the text instead.
@@ -1102,6 +1097,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         return said == null || said.isBlank() ? "" : "; " + said;
     }
 
+    /**
+     * What a request asks its source for, in words: "; pushed 2 filters, 3 columns", or nothing
+     * when nothing was pushed. What the source actually honoured is its own business -- a filter it
+     * could not express is simply not applied there -- so this reports the offer.
+     */
     static String summarise(ReadRequest request) {
         List<String> parts = new ArrayList<>(3);
         if (!request.filters().isEmpty()) {

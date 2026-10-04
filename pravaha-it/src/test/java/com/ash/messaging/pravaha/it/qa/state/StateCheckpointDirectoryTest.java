@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -129,7 +130,8 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
     void state026_qAndQUpperAreTwoDirectoriesOnACaseSensitiveFilesystem(@TempDir Path root) throws Exception {
         ViewCatalog views = new ViewCatalog();
         boolean caseSensitive =
-                !Files.exists(root.resolve(root.getFileName().toString().toUpperCase())) || probeCaseSensitivity(root);
+                !Files.exists(root.resolve(root.getFileName().toString().toUpperCase(Locale.ROOT)))
+                        || probeCaseSensitivity(root);
         try (QueryRegistry registry = new QueryRegistry(views, TXN_T).checkpointingTo(root, slowCfg())) {
             registry.register("Q", WIN_SQL, List.of(0), DANA);
             registry.register(

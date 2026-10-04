@@ -319,6 +319,8 @@ public final class PravahaPgWireServer implements AutoCloseable {
      * {@code ErrorResponse} that arrives in place of the answer to {@code SSLRequest} or to the
      * startup packet and report its message, as they do PostgreSQL's own "too many clients".
      */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     private void refuseAtOnce(Socket client, PravahaException full) {
         try {
             PgBackend backend = new PgBackend(new java.io.BufferedOutputStream(client.getOutputStream()));

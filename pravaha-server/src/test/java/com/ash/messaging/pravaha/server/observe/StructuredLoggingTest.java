@@ -77,7 +77,7 @@ class StructuredLoggingTest {
 
     @Test
     void jsonIsOneObjectPerLineCarryingTheLoggingContext(CapturedOutput output) throws Exception {
-        try (ConfigurableApplicationContext ignored = start("json")) {
+        try (ConfigurableApplicationContext _ = start("json")) {
             Logger log = LoggerFactory.getLogger("com.ash.messaging.pravaha.server.Probe");
             MDC.put(NodeFlightObservation.MDC_CORRELATION, "req-42");
             MDC.put(NodeFlightObservation.MDC_QUERY, "hourly_spend");
@@ -91,7 +91,7 @@ class StructuredLoggingTest {
         }
         ObjectMapper json = new ObjectMapper();
         List<JsonNode> lines = new ArrayList<>();
-        for (String line : output.getOut().split("\n")) {
+        for (String line : output.getOut().lines().toList()) {
             // Every line the logging system wrote is one JSON object, which a pipeline parses as it comes.
             // Other lines on stdout -- spring-jcl's notice before logging exists, the last words of an
             // earlier test's node still stopping on its own thread -- are not this context's log.
@@ -118,7 +118,7 @@ class StructuredLoggingTest {
 
     @Test
     void textStaysAPatternAPersonReads(CapturedOutput output) {
-        try (ConfigurableApplicationContext ignored = start("text")) {
+        try (ConfigurableApplicationContext _ = start("text")) {
             LoggerFactory.getLogger("com.ash.messaging.pravaha.server.Probe").info("plain words");
         }
         assertThat(output.getOut()).contains("plain words").doesNotContain("\"message\":\"plain words\"");

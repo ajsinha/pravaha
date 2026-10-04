@@ -329,7 +329,7 @@ class SpillTierMeasurementIT {
                 : new SlicedAggregateState(windows, KINDS, maxSlices, overflow, Integer.MAX_VALUE / 2)) {
             long start = System.nanoTime();
             for (int slice = 0; slice < SLICES; slice++) {
-                long time = slice * 10 * SECOND + SECOND;
+                long time = slice * 10L * SECOND + SECOND;
                 for (long group = 0; group < groups; group++) {
                     values[1] = group;
                     distinct[2] = group % 5;
@@ -360,7 +360,7 @@ class SpillTierMeasurementIT {
                         group,
                         group * 0x9E3779B97F4A7C15L,
                         new Object[] {group},
-                        slice * 10 * SECOND + SECOND,
+                        slice * 10L * SECOND + SECOND,
                         values,
                         present,
                         distinct,
@@ -371,7 +371,7 @@ class SpillTierMeasurementIT {
             start = System.nanoTime();
             long fired = 0;
             for (int slice = 0; slice < SLICES; slice++) {
-                fired += state.fire((slice + 1) * 10 * SECOND, result -> {});
+                fired += state.fire((slice + 1) * 10L * SECOND, result -> {});
             }
             double firedPerSecond = fired / seconds(start);
             assertThat(fired).isEqualTo(groups * SLICES);
@@ -534,7 +534,7 @@ class SpillTierMeasurementIT {
                     .start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             process.waitFor();
-            return Long.parseLong(out.split("\\s+")[0]) * 1024;
+            return Long.parseLong(out.split("\\s+", -1)[0]) * 1024;
         } catch (IOException | InterruptedException | NumberFormatException e) {
             return -1;
         }

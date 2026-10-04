@@ -193,6 +193,7 @@ class FlightTenantNamesTest {
         return rows(sql.execute(query, bearing(token)), token);
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<String> subscribeSnapshot(String token, String view) {
         List<String> ids = new ArrayList<>();
         try (FlightStream stream = client.getStream(
@@ -211,6 +212,7 @@ class FlightTenantNamesTest {
         return ids;
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<List<String>> rows(FlightInfo info, String token) {
         List<List<String>> out = new ArrayList<>();
         try (FlightStream stream = sql.getStream(info.getEndpoints().get(0).getTicket(), bearing(token))) {

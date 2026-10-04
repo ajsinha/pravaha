@@ -66,7 +66,6 @@ class IngestPumpTest {
     private static final class ScriptedReader implements PartitionReader {
         private final int total;
         private int produced;
-        private volatile boolean paused;
         final List<String> events = new ArrayList<>();
 
         ScriptedReader(int total) {
@@ -97,13 +96,11 @@ class IngestPumpTest {
 
         @Override
         public void pause() {
-            paused = true;
             events.add("pause");
         }
 
         @Override
         public void resume() {
-            paused = false;
             events.add("resume");
         }
 

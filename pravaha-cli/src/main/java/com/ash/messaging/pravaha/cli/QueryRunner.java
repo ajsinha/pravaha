@@ -293,13 +293,6 @@ public final class QueryRunner {
     }
 
     /**
-     * Opens the dead-letter file, or returns {@code null} when none was asked for.
-     *
-     * <p>Failing to open it fails the run, and deliberately: an operator who typed {@code --dlq}
-     * asked for the rejected records to be kept, and continuing without keeping them would discard
-     * exactly the records they said they wanted.
-     */
-    /**
      * A row whose evaluation failed, as a dead letter in the run's queue: coded {@code PRV-3027}, its
      * columns as a JSON object, under the same name the pump files decode failures by.
      */
@@ -319,6 +312,13 @@ public final class QueryRunner {
                         System.currentTimeMillis()));
     }
 
+    /**
+     * Opens the dead-letter file, or returns {@code null} when none was asked for.
+     *
+     * <p>Failing to open it fails the run, and deliberately: an operator who typed {@code --dlq}
+     * asked for the rejected records to be kept, and continuing without keeping them would discard
+     * exactly the records they said they wanted.
+     */
     private static DeadLetterQueue openDeadLetters(Path file) {
         if (file == null) {
             return null;
@@ -335,7 +335,6 @@ public final class QueryRunner {
     // straight into the lane's inbox cell, so the intermediate copy and the arena holding it are
     // both unnecessary. One fewer copy of every row, on the path the product actually runs.
 
-    /** Holds pipeline output until the sink is written. */
     /**
      * How much a single output row may carry beyond its fixed part.
      *
@@ -369,6 +368,7 @@ public final class QueryRunner {
         }
     }
 
+    /** Holds pipeline output until the sink is written. */
     private static final class Collector implements RowOutput, AutoCloseable {
         private final RowLayout layout;
         private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 64);

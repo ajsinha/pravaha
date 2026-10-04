@@ -61,7 +61,7 @@ import com.ash.messaging.pravaha.registry.RegisteredQuery;
  * actually asks -- is it running, is it keeping up, and is it growing.
  */
 @Component
-public class PravahaMetrics implements AutoCloseable {
+public final class PravahaMetrics implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PravahaMetrics.class);
 
@@ -76,6 +76,8 @@ public class PravahaMetrics implements AutoCloseable {
     private final com.ash.messaging.pravaha.server.tenancy.TenancyMeters tenancy;
     private final com.ash.messaging.pravaha.server.observe.FeatureMeters features;
 
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     public PravahaMetrics(MeterRegistry meters, PravahaNode node) {
         this.meters = meters;
         this.node = node;

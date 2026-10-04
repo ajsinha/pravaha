@@ -107,6 +107,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
     private long openLabel = -1;
     private int nextSeq;
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Change(Object[] values, long weight) {}
 
     @Override
@@ -146,14 +147,14 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
                 root.getFileName() == null ? "iceberg" : root.getFileName().toString(), spec);
 
         String mode = context.get("mode", "upsert").strip().toLowerCase(Locale.ROOT);
-        switch (mode) {
-            case "upsert" -> this.changelog = false;
-            case "changelog" -> this.changelog = true;
+        this.changelog = switch (mode) {
+            case "upsert" -> false;
+            case "changelog" -> true;
             default ->
                 throw new ConfigurationException(
                         IcebergErrors.SINK_BAD_CONFIGURATION,
                         "plugin '" + instanceName + "' mode '" + mode + "' is not upsert or changelog");
-        }
+        };
         readKeyColumns(context.get("key.columns", "").strip());
         this.transactional =
                 Boolean.parseBoolean(context.get("transactional", "true").strip());
@@ -211,7 +212,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
                             + "record it removes by key. It must be the query's --keys.");
         }
         List<String> names = new ArrayList<>();
-        for (String part : keys.split(",")) {
+        for (String part : keys.split(",", -1)) {
             if (!part.isBlank()) {
                 names.add(part.strip());
             }

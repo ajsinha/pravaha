@@ -61,7 +61,7 @@ public final class ServedView {
     private final int[] keyOrdinals;
     private final int maxKeys;
 
-    /** Committed rows: what a CONSISTENT read sees. */
+    // Committed rows: what a CONSISTENT read sees.
     // Access-ordered so eviction can take the least recently updated key without scanning, and
     // insertion-ordered enough that "oldest first" means what a reader expects.
     /**
@@ -933,6 +933,7 @@ public final class ServedView {
     }
 
     /** One row of a snapshot, read back. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record SnapshotRow(Object[] values, long weight, long writtenAt) {}
 
     /** A snapshot, read back whole before anything is done with it. */
@@ -1435,6 +1436,7 @@ public final class ServedView {
      * equals} is identity: two rows with the same bytes were two keys, so an update beside the row it
      * replaced and a retraction that found nothing to withdraw.
      */
+    @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
     private record Key(Object[] values) {
 
         /**

@@ -190,38 +190,38 @@ class SdkIndependenceTest {
         String python = pythonWithStdlibNames();
         assumeTrue(python != null, "no python3 (3.10 or later) on the PATH");
 
-        String script = String.join(
-                "\n",
-                "import importlib, importlib.abc, pkgutil, sys, traceback",
-                "sys.path.insert(0, sys.argv[1])",
-                "allowed = set(sys.stdlib_module_names) | {'pravaha'}",
-                "asked = set()",
-                "class Outside(importlib.abc.MetaPathFinder):",
-                "    def find_spec(self, name, path=None, target=None):",
-                "        top = name.split('.')[0]",
-                "        if top not in allowed:",
-                "            asked.add(top)",
-                "            raise ModuleNotFoundError('outside the standard library: ' + name, name=name)",
-                "        return None",
-                "sys.meta_path.insert(0, Outside())",
-                "failed = []",
-                "import pravaha",
-                "for info in pkgutil.walk_packages(pravaha.__path__, 'pravaha.'):",
-                "    try:",
-                "        importlib.import_module(info.name)",
-                "    except ImportError as e:",
-                "        # The extra's own module (pravaha.client is the Flight transport) may refuse",
-                "        # to import without it, as long as it names the extra to install.",
-                "        if 'pravaha[' in str(e):",
-                "            print('EXTRA ' + info.name)",
-                "        else:",
-                "            failed.append(info.name + ': ' + repr(e))",
-                "    except BaseException:",
-                "        failed.append(info.name + ': ' + traceback.format_exc(limit=2).strip().splitlines()[-1])",
-                "for f in failed:",
-                "    print('FAILED ' + f)",
-                "print('ASKED ' + ','.join(sorted(asked)))",
-                "sys.exit(1 if failed else 0)");
+        String script = """
+                        import importlib, importlib.abc, pkgutil, sys, traceback
+                        sys.path.insert(0, sys.argv[1])
+                        allowed = set(sys.stdlib_module_names) | {'pravaha'}
+                        asked = set()
+                        class Outside(importlib.abc.MetaPathFinder):
+                            def find_spec(self, name, path=None, target=None):
+                                top = name.split('.')[0]
+                                if top not in allowed:
+                                    asked.add(top)
+                                    raise ModuleNotFoundError('outside the standard library: ' + name, name=name)
+                                return None
+                        sys.meta_path.insert(0, Outside())
+                        failed = []
+                        import pravaha
+                        for info in pkgutil.walk_packages(pravaha.__path__, 'pravaha.'):
+                            try:
+                                importlib.import_module(info.name)
+                            except ImportError as e:
+                                # The extra's own module (pravaha.client is the Flight transport) may refuse
+                                # to import without it, as long as it names the extra to install.
+                                if 'pravaha[' in str(e):
+                                    print('EXTRA ' + info.name)
+                                else:
+                                    failed.append(info.name + ': ' + repr(e))
+                            except BaseException:
+                                failed.append(info.name + ': ' + traceback.format_exc(limit=2).strip().splitlines()[-1])
+                        for f in failed:
+                            print('FAILED ' + f)
+                        print('ASKED ' + ','.join(sorted(asked)))
+                        sys.exit(1 if failed else 0)\
+                        """;
 
         Process process = new ProcessBuilder(
                         python,

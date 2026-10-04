@@ -243,19 +243,17 @@ class QueryReplacementTest {
 
         // Subscribing again to the name gets the new version, from its own snapshot.
         List<ViewChange> after = new CopyOnWriteArrayList<>();
-        try (Subscription resubscribed = registry.find("orders")
-                .orElseThrow()
-                .subscribeFromSnapshot(new SubscriptionListener() {
-                    @Override
-                    public void onSnapshot(List<ViewChange> rows, long frontier) {
-                        after.addAll(rows);
-                    }
+        try (Subscription _ = registry.find("orders").orElseThrow().subscribeFromSnapshot(new SubscriptionListener() {
+            @Override
+            public void onSnapshot(List<ViewChange> rows, long frontier) {
+                after.addAll(rows);
+            }
 
-                    @Override
-                    public void onCommit(List<ViewChange> changes, long frontier) {
-                        after.addAll(changes);
-                    }
-                })) {
+            @Override
+            public void onCommit(List<ViewChange> changes, long frontier) {
+                after.addAll(changes);
+            }
+        })) {
             await(() -> !after.isEmpty());
             assertThat(after).allSatisfy(change -> assertThat(change.values()).hasSize(3));
         }

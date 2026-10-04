@@ -131,7 +131,7 @@ class TenantViewNamesHttpTest {
 
     private static String refusal(java.util.function.Supplier<Object> call) {
         try {
-            Object unused = call.get();
+            var _ = call.get();
             return "answered";
         } catch (PravahaException e) {
             return e.getMessage();

@@ -260,9 +260,8 @@ public final class DebugSession implements AutoCloseable {
                 ViewPredicate predicate =
                         ViewPredicate.of(request.column(), request.comparison(), request.value(), outputSchema);
                 long taken = 0;
-                boolean held = false;
                 settle();
-                held = predicate.firstMatch(view.scan()).isPresent();
+                boolean held = predicate.firstMatch(view.scan()).isPresent();
                 while (!held && taken < searchCeiling) {
                     if (!consume(1, rowsIn)) {
                         exhausted = true;

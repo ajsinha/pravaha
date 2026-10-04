@@ -105,7 +105,7 @@ public record RegistrationOptions(
                         options.dedicatedLane());
             case "sink" -> {
                 if (value.isBlank()) {
-                    throw unknown("sink", "a sink option names a binding under pravaha.sinks; it cannot be empty");
+                    throw unknown("a sink option names a binding under pravaha.sinks; it cannot be empty");
                 }
                 yield new RegistrationOptions(
                         options.retention(),
@@ -116,16 +116,14 @@ public record RegistrationOptions(
             }
             case "key", "keys" -> {
                 List<String> columns = new ArrayList<>();
-                for (String column : value.split(",")) {
+                for (String column : value.split(",", -1)) {
                     if (!column.isBlank()) {
                         columns.add(column.strip());
                     }
                 }
                 if (columns.isEmpty()) {
-                    throw unknown(
-                            key,
-                            "a keys option names the view's key columns, comma-separated, as the SELECT list "
-                                    + "spells them; an empty one says nothing");
+                    throw unknown("a keys option names the view's key columns, comma-separated, as the SELECT list "
+                            + "spells them; an empty one says nothing");
                 }
                 yield new RegistrationOptions(
                         options.retention(), options.sink(), columns, options.indexColumn(), options.dedicatedLane());
@@ -133,11 +131,9 @@ public record RegistrationOptions(
             case "index" -> {
                 String column = value.strip();
                 if (column.isEmpty() || column.contains(",")) {
-                    throw unknown(
-                            "index",
-                            "index = '" + value + "' does not name one column. An equality index is kept over "
-                                    + "exactly one column outside the key, named as the SELECT list names it; a "
-                                    + "list would read as a composite index, which this is not");
+                    throw unknown("index = '" + value + "' does not name one column. An equality index is kept over "
+                            + "exactly one column outside the key, named as the SELECT list names it; a "
+                            + "list would read as a composite index, which this is not");
                 }
                 yield new RegistrationOptions(
                         options.retention(),
@@ -150,7 +146,6 @@ public record RegistrationOptions(
                 String lane = value.strip().toLowerCase(Locale.ROOT);
                 if (!lane.equals("dedicated") && !lane.equals("shared")) {
                     throw unknown(
-                            "lane",
                             "lane = '" + value + "' is not a lane choice. A registration takes lane = 'dedicated' "
                                     + "(a lane of its own, whatever the node's lane-sharing mode) or lane = "
                                     + "'shared' (the default: the node's pravaha.lane.multiplex mode decides).");
@@ -163,19 +158,17 @@ public record RegistrationOptions(
                         lane.equals("dedicated"));
             }
             default ->
-                throw unknown(
-                        key,
-                        "'" + key + "' is not an option a registration takes, and it is refused rather than "
-                                + "ignored -- an ignored option is a setting somebody believes is in force. A "
-                                + "registration takes retention (a duration, or 'forever'), sink (a binding "
-                                + "under pravaha.sinks), keys (the view's key columns, comma-separated) and "
-                                + "index (one column to keep an equality index over) and lane ('dedicated' "
-                                + "for a lane of its own, or 'shared'). "
-                                + "backfill, backfill.rate.limit, cutover and rollback.retention belong to "
-                                + "CREATE OR REPLACE, which is the statement that runs one. The design's "
-                                + "consistency.default, parallelism and allowed.lateness are not built: "
-                                + "consistency is chosen by the reader and per read, and a query's "
-                                + "parallelism and lateness are the engine's to decide.");
+                throw unknown("'" + key + "' is not an option a registration takes, and it is refused rather than "
+                        + "ignored -- an ignored option is a setting somebody believes is in force. A "
+                        + "registration takes retention (a duration, or 'forever'), sink (a binding "
+                        + "under pravaha.sinks), keys (the view's key columns, comma-separated) and "
+                        + "index (one column to keep an equality index over) and lane ('dedicated' "
+                        + "for a lane of its own, or 'shared'). "
+                        + "backfill, backfill.rate.limit, cutover and rollback.retention belong to "
+                        + "CREATE OR REPLACE, which is the statement that runs one. The design's "
+                        + "consistency.default, parallelism and allowed.lateness are not built: "
+                        + "consistency is chosen by the reader and per read, and a query's "
+                        + "parallelism and lateness are the engine's to decide.");
         };
     }
 
@@ -198,14 +191,12 @@ public record RegistrationOptions(
             try {
                 age = Duration.parse(text.toUpperCase(Locale.ROOT));
             } catch (java.time.format.DateTimeParseException e) {
-                throw unknown(
-                        "retention",
-                        "retention = '" + value + "' is not a length of event time. Write it as ISO-8601 "
-                                + "(PT24H, P7D, PT30M), in the short form (24h, 7d, 30m, 90s), or as 'forever'.");
+                throw unknown("retention = '" + value + "' is not a length of event time. Write it as ISO-8601 "
+                        + "(PT24H, P7D, PT30M), in the short form (24h, 7d, 30m, 90s), or as 'forever'.");
             }
         }
         if (age.isZero() || age.isNegative()) {
-            throw unknown("retention", "a retention must be a positive age of event time, not " + age);
+            throw unknown("a retention must be a positive age of event time, not " + age);
         }
         return Retention.ofAge(age);
     }
@@ -225,7 +216,7 @@ public record RegistrationOptions(
         };
     }
 
-    private static PravahaException unknown(String key, String problem) {
+    private static PravahaException unknown(String problem) {
         return new PravahaException(
                 RegistryErrors.OPTION_UNKNOWN,
                 problem + " The options a CREATE CONTINUOUS QUERY takes are " + KNOWN + ".");

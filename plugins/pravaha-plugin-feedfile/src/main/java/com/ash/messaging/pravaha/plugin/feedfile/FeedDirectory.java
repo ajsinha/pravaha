@@ -91,12 +91,12 @@ final class FeedDirectory {
         this.quietPeriod = quietPeriod;
     }
 
-    /** Every file that is ready to read, in the declared order. */
     /** Whether {@code name} is still in this directory at all, ready or not. */
     boolean holds(String name) {
         return Files.exists(directory.resolve(name));
     }
 
+    /** Every file that is ready to read, in the declared order. */
     List<Path> ready() {
         List<Path> files = new ArrayList<>();
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(directory)) {
@@ -121,7 +121,7 @@ final class FeedDirectory {
         // Modification time first, then name: identical timestamps are common -- a batch of files
         // written in the same second -- and without the tie-break the order would be whatever the
         // filesystem returned, which is not stable across runs and would make offsets meaningless.
-        return Comparator.comparing(FeedDirectory::modifiedAt).thenComparing(byName);
+        return Comparator.comparingLong(FeedDirectory::modifiedAt).thenComparing(byName);
     }
 
     private static long modifiedAt(Path file) {

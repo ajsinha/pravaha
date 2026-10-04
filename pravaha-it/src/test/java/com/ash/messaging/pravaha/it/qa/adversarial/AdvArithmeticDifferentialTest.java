@@ -45,7 +45,11 @@ class AdvArithmeticDifferentialTest {
     sealed interface E permits Col, Lit, Bin, Neg, Abs, Case {
         String sql();
 
-        /** @throws ArithmeticException where SQL raises an error */
+        /**
+         * The expression's exact value, or null for SQL NULL.
+         *
+         * @throws ArithmeticException where SQL raises an error
+         */
         BigInteger eval(Long x, Long y);
     }
 
@@ -57,10 +61,12 @@ class AdvArithmeticDifferentialTest {
     }
 
     record Col(String name) implements E {
+        @Override
         public String sql() {
             return name;
         }
 
+        @Override
         public BigInteger eval(Long x, Long y) {
             Long v = "x".equals(name) ? x : y;
             return v == null ? null : BigInteger.valueOf(v);
@@ -68,20 +74,24 @@ class AdvArithmeticDifferentialTest {
     }
 
     record Lit(long value) implements E {
+        @Override
         public String sql() {
             return value < 0 ? "(" + value + ")" : Long.toString(value);
         }
 
+        @Override
         public BigInteger eval(Long x, Long y) {
             return BigInteger.valueOf(value);
         }
     }
 
     record Bin(E l, String op, E r) implements E {
+        @Override
         public String sql() {
             return "(" + l.sql() + " " + op + " " + r.sql() + ")";
         }
 
+        @Override
         public BigInteger eval(Long x, Long y) {
             // NULL wins over an error in the other operand: the engine checks nullness before it
             // evaluates, and SQL leaves the order of evaluation to the implementation.
@@ -152,10 +162,12 @@ class AdvArithmeticDifferentialTest {
     }
 
     record Neg(E inner) implements E {
+        @Override
         public String sql() {
             return "(-" + inner.sql() + ")";
         }
 
+        @Override
         public BigInteger eval(Long x, Long y) {
             BigInteger v = inner.eval(x, y);
             return v == null ? null : fit(v.negate());
@@ -163,10 +175,12 @@ class AdvArithmeticDifferentialTest {
     }
 
     record Abs(E inner) implements E {
+        @Override
         public String sql() {
             return "ABS(" + inner.sql() + ")";
         }
 
+        @Override
         public BigInteger eval(Long x, Long y) {
             BigInteger v = inner.eval(x, y);
             return v == null ? null : fit(v.abs());
@@ -174,11 +188,13 @@ class AdvArithmeticDifferentialTest {
     }
 
     record Case(E cl, E cr, E then, E otherwise) implements E {
+        @Override
         public String sql() {
             return "CASE WHEN " + cl.sql() + " > " + cr.sql() + " THEN " + then.sql() + " ELSE " + otherwise.sql()
                     + " END";
         }
 
+        @Override
         public BigInteger eval(Long x, Long y) {
             BigInteger a = cl.eval(x, y);
             BigInteger b = cr.eval(x, y);

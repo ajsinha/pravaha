@@ -398,7 +398,7 @@ class SecondaryIndexRegistryTest {
             field.setAccessible(true);
             return (PeriodicCheckpointer) field.get(query);
         } catch (ReflectiveOperationException e) {
-            throw new AssertionError(e);
+            throw new LinkageError(e.getMessage(), e);
         }
     }
 

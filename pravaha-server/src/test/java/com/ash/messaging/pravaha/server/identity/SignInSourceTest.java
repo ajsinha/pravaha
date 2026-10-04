@@ -52,6 +52,15 @@ class SignInSourceTest {
     }
 
     @Test
+    void anEmptyRightMostHopIsMalformedWhetherOrNotItHasASpace() {
+        // SPLITTRAIL-3: an empty last hop after ", " fell back to the peer, but after a bare "," it was
+        // dropped by String.split and the hop before it was taken as the source.
+        SignInSource proxies = new SignInSource(List.of("10.0.0.0/8"));
+        assertThat(proxies.of("10.0.0.2", "1.2.3.4, 198.51.100.1, ")).isEqualTo("10.0.0.2");
+        assertThat(proxies.of("10.0.0.2", "1.2.3.4, 198.51.100.1,")).isEqualTo("10.0.0.2");
+    }
+
+    @Test
     void aMalformedEntryIsRefusedAtConfiguration() {
         assertThatThrownBy(() -> new SignInSource(List.of("console.local")))
                 .isInstanceOf(PravahaException.class)

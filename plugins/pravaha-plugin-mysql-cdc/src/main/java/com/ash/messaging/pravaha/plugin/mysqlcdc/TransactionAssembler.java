@@ -131,7 +131,7 @@ final class TransactionAssembler {
         }
         if (type == EventType.GTID) {
             if (executed != null) {
-                currentGtid = ((GtidEventData) event.getData()).getGtid();
+                currentGtid = ((GtidEventData) event.getData()).getMySqlGtid().toString();
             }
             return null;
         }
@@ -214,7 +214,7 @@ final class TransactionAssembler {
         }
         String verb = matcher.group(1).toUpperCase(Locale.ROOT);
         boolean everyName = verb.equals("DROP") || verb.equals("RENAME");
-        for (String name : matcher.group(2).replace("`", "").split("[\\s,;()]+")) {
+        for (String name : matcher.group(2).replace("`", "").split("[\\s,;()]+", -1)) {
             if (name.isEmpty()) {
                 continue;
             }

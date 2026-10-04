@@ -118,11 +118,10 @@ final class SubscriptionIngestCostTest {
 
         List<Integer> plan = List.of(0, 1, 5, 20);
         List<String> table = new ArrayList<>();
-        Map<Integer, Long> flight = new java.util.LinkedHashMap<>();
         Map<Integer, Long> inProcess = new java.util.LinkedHashMap<>();
         table.add("over Flight, connected and never reading:");
         for (int n : plan) {
-            flight.put(n, run("f" + n, n, true, table));
+            run("f" + n, n, true, table);
         }
         table.add("in process, a consumer that returns at once:");
         for (int n : plan) {
@@ -176,6 +175,7 @@ final class SubscriptionIngestCostTest {
     }
 
     /** Opens {@code count} subscriptions to {@code name} that read nothing until {@code stop}. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private void attach(RegisteredQuery query, String name, int count, AtomicBoolean stop) throws Exception {
         if (count == 0) {
             return;

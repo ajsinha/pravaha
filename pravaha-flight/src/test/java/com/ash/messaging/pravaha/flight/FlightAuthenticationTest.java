@@ -165,6 +165,7 @@ class FlightAuthenticationTest {
                 .hasMessageContaining("PRV-7002");
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void anAuthorizedCallerSeesOnlyTheRowsThePolicyAllows() throws Exception {
         FlightInfo info = client.execute("SELECT user_id, tier FROM user_volume", bearing(ANALYST_TOKEN));
@@ -184,6 +185,7 @@ class FlightAuthenticationTest {
         assertThat(users).containsExactlyInAnyOrder("u1", "u4");
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void theServerRecordsWhoAskedWhat() throws Exception {
         FlightInfo info = client.execute("SELECT user_id FROM user_volume", bearing(ANALYST_TOKEN));

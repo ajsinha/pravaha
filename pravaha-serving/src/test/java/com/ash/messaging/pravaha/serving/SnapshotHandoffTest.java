@@ -72,7 +72,7 @@ class SnapshotHandoffTest {
         write(sink.begin(), "a", 10, 1, 1);
 
         List<ViewChange> heard = new ArrayList<>();
-        try (AutoCloseable ignored = sink.onCommit((changes, frontier) -> heard.addAll(changes))) {
+        try (AutoCloseable _ = sink.onCommit((changes, frontier) -> heard.addAll(changes))) {
             List<Object[]> read = view.scan();
             sink.commitApplied();
 
@@ -95,7 +95,7 @@ class SnapshotHandoffTest {
         write(sink.begin(), "b", 20, 1, 2);
 
         Recorder recorder = new Recorder();
-        try (AutoCloseable ignored = sink.onCommitFromSnapshot(recorder)) {
+        try (AutoCloseable _ = sink.onCommitFromSnapshot(recorder)) {
             assertThat(recorder.events)
                     .as("a commit is in flight, so the snapshot waits for its end")
                     .isEmpty();
@@ -125,7 +125,7 @@ class SnapshotHandoffTest {
         sink.commitApplied();
 
         Recorder recorder = new Recorder();
-        try (AutoCloseable ignored = sink.onCommitFromSnapshot(recorder)) {
+        try (AutoCloseable _ = sink.onCommitFromSnapshot(recorder)) {
             assertThat(recorder.events).hasSize(1);
             assertThat(recorder.events.get(0).snapshot()).isTrue();
             assertThat(recorder.events.get(0).frontier()).isEqualTo(1L);
@@ -147,7 +147,7 @@ class SnapshotHandoffTest {
         ServedView view = view();
         ViewSink sink = new ViewSink(view, SCHEMA);
         Recorder empty = new Recorder();
-        try (AutoCloseable ignored = sink.onCommitFromSnapshot(empty)) {
+        try (AutoCloseable _ = sink.onCommitFromSnapshot(empty)) {
             assertThat(empty.events).singleElement().satisfies(event -> {
                 assertThat(event.snapshot()).isTrue();
                 assertThat(event.changes()).isEmpty();
@@ -158,7 +158,7 @@ class SnapshotHandoffTest {
         write(sink.begin(), "a", 10, 1, 2);
         sink.commitApplied();
         Recorder twice = new Recorder();
-        try (AutoCloseable ignored = sink.onCommitFromSnapshot(twice)) {
+        try (AutoCloseable _ = sink.onCommitFromSnapshot(twice)) {
             write(sink.begin(), "a", 10, -1, 3);
             sink.commitApplied();
         }
@@ -194,7 +194,7 @@ class SnapshotHandoffTest {
         sink.commitApplied();
 
         List<List<ViewChange>> batches = new ArrayList<>();
-        try (AutoCloseable ignored = sink.onCommitFromSnapshot((changes, frontier) -> batches.add(changes))) {
+        try (AutoCloseable _ = sink.onCommitFromSnapshot((changes, frontier) -> batches.add(changes))) {
             write(sink.begin(), "b", 20, 1, 2);
             sink.commitApplied();
         }

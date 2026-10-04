@@ -115,6 +115,7 @@ class LaneMultiplexerTest {
                 .isZero();
     }
 
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     @Test
     void everySubscriberSeesTheSameRowsWithoutACopy() {
         // Zero-copy fan-out. Ten queries on one stream must see one region, not ten copies of it.

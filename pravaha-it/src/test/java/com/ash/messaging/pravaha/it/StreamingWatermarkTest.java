@@ -13,6 +13,8 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
+package com.ash.messaging.pravaha.it;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;

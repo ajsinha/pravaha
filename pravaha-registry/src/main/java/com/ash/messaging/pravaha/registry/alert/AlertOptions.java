@@ -96,7 +96,7 @@ public record AlertOptions(
                 new AlertOptions(severity, fireAfter, clearAfter, dedupe, resendEvery, include, duration(key, value));
             case "include" -> {
                 List<String> columns = new ArrayList<>();
-                for (String column : value.split(",")) {
+                for (String column : value.split(",", -1)) {
                     if (!column.isBlank()) {
                         columns.add(column.strip());
                     }

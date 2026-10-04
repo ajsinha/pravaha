@@ -203,6 +203,7 @@ class OperatorMetricsOverheadIT {
     }
 
     /** Counts commits and nothing else, so the sink is not what is being timed. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record CountingWriter(StreamSchema schema, long[] emitted) implements RowWriter {
 
         @Override

@@ -23,6 +23,7 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.AccessDecision;
@@ -32,6 +33,8 @@ import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link PgCatalogShim} and {@link PgSessionSet}, driven with raw protocol bytes the way {@code
@@ -300,6 +303,20 @@ class PgCatalogShimTest {
 
             assertThat(PgTestClient.columns(PgTestClient.ofType(reply, 'D').get(0)))
                     .containsExactly("public");
+        }
+    }
+
+    @Test
+    void aSearchPathWithAnEmptyLastEntryIsNotTakenForPublic() {
+        // SPLITTRAIL-4: String.split dropped the trailing empty entry, so "public," passed as "public"
+        // although PostgreSQL itself refuses it; an empty entry anywhere else was already refused.
+        assertThatCode(() -> PgSessionSet.handle("SET search_path = public")).doesNotThrowAnyException();
+        for (String value : List.of("public,", ", public")) {
+            assertThatThrownBy(() -> PgSessionSet.handle("SET search_path = " + value))
+                    .as(value)
+                    .isInstanceOf(PravahaException.class)
+                    .extracting(e -> ((PravahaException) e).errorCode())
+                    .isEqualTo(PgWireErrors.UNSUPPORTED_SET);
         }
     }
 }

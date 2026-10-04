@@ -47,6 +47,7 @@ public enum ObjectKind {
     ALERT(EnumSet.of(Privilege.SELECT, Privilege.MODIFY, Privilege.MANAGE, Privilege.OWN)),
     POLICY(EnumSet.of(Privilege.MANAGE, Privilege.OWN));
 
+    @SuppressWarnings("ImmutableEnumChecker") // the field is unmodifiable or stateless; it is never changed
     private final Set<Privilege> applicable;
 
     ObjectKind(Set<Privilege> applicable) {

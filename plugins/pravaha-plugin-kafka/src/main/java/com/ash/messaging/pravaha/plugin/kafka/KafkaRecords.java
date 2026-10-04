@@ -102,6 +102,7 @@ final class KafkaRecords {
     }
 
     /** A record's key and value; the value is null for a tombstone. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Encoded(byte[] key, byte[] value) {}
 
     Encoded encode(RowView row) {

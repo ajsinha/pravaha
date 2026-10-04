@@ -90,6 +90,7 @@ public final class EngineSpans {
     }
 
     /** Uninstalls {@code backend} if it is the one installed; another's installation is left alone. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public static void uninstall(Backend backend) {
         if (installed == backend) {
             installed = NONE;
@@ -97,6 +98,7 @@ public final class EngineSpans {
     }
 
     /** Whether anything but {@link #NONE} is installed. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public static boolean tracing() {
         return installed != NONE;
     }
@@ -105,6 +107,7 @@ public final class EngineSpans {
      * Starts a span; {@code keyValues} are alternating attribute names and values, and a null value is
      * left out. Use in a try-with-resources.
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public static Span start(String name, String... keyValues) {
         Backend backend = installed;
         if (backend == NONE) {

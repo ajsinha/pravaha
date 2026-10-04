@@ -58,6 +58,7 @@ import com.ash.messaging.pravaha.common.row.Decimals;
 final class JdbcSinkRows {
 
     /** One change: a row's values and its weight, negative for a retraction. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Change(Object[] values, long weight) {}
 
     private static final int FORMAT = 1;

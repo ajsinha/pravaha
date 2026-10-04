@@ -62,6 +62,7 @@ class SymmetricHashJoinBehaviorTest {
     }
 
     /** One emitted row, copied out immediately since the join's arena block is reused after it. */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Captured(long weight, long eventTimeNanos, long sequence, Object[] values) {}
 
     // ---- Standing fixture: JOIN.md's "orders" (5 cols) and "users" (4 cols). ----

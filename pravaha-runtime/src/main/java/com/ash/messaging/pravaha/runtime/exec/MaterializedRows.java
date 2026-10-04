@@ -147,7 +147,8 @@ final class MaterializedRows {
     }
 
     /** Compares two values of one column, nulls first, decimals as signed 128-bit integers. */
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings({"unchecked", "rawtypes", "ReferenceEquality"
+    }) // identity is the question here: a sentinel, a thread or the very object
     static int compareValues(Object left, Object right) {
         if (left == right) {
             return 0;

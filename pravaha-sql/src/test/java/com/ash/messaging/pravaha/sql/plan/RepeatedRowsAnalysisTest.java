@@ -67,11 +67,14 @@ class RepeatedRowsAnalysisTest {
             .build();
 
     /** The binding a node would have for {@code orders} with {@code deletes: ignore}. */
-    private static final Function<String, Optional<String>> ORDERS_REPEAT =
-            stream -> stream.equals("orders") ? Optional.of("cassandra") : Optional.empty();
+    private static Optional<String> ordersRepeat(String stream) {
+        return stream.equals("orders") ? Optional.of("cassandra") : Optional.empty();
+    }
 
     /** The same binding with {@code deletes: detect}: nothing repeats. */
-    private static final Function<String, Optional<String>> NOTHING_REPEATS = stream -> Optional.empty();
+    private static Optional<String> nothingRepeats(String stream) {
+        return Optional.empty();
+    }
 
     private static final SinkCapabilities UPSERT =
             new SinkCapabilities(EnumSet.of(EmitMode.UPSERT, EmitMode.RETRACT), false, true, 0);
@@ -110,7 +113,7 @@ class RepeatedRowsAnalysisTest {
     void anAggregateOverARepeatingSourceIsRefusedAndNamesTheFix(String sql) {
         PhysicalOperator plan = plan(sql);
 
-        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, null, null))
+        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::ordersRepeat, null, null))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("stream 'orders'")
@@ -118,7 +121,7 @@ class RepeatedRowsAnalysisTest {
                 .hasMessageContaining("aggregate")
                 .as("the fix is named, on the binding")
                 .hasMessageContaining("`deletes: detect`");
-        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, NOTHING_REPEATS, null, null))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::nothingRepeats, null, null))
                 .as("the same query over an exact changelog")
                 .doesNotThrowAnyException();
     }
@@ -127,10 +130,10 @@ class RepeatedRowsAnalysisTest {
     void aWindowedAggregateOverARepeatingSourceIsRefused() {
         PhysicalOperator plan = plan(TUMBLING);
 
-        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, null, null))
+        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::ordersRepeat, null, null))
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("windowed aggregate");
-        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, NOTHING_REPEATS, null, null))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::nothingRepeats, null, null))
                 .doesNotThrowAnyException();
     }
 
@@ -141,14 +144,14 @@ class RepeatedRowsAnalysisTest {
         Function<String, Optional<String>> paymentsRepeat =
                 stream -> stream.equals("payments") ? Optional.of("aerospike") : Optional.empty();
 
-        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, null, null))
+        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::ordersRepeat, null, null))
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("join");
         assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, paymentsRepeat, null, null))
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("stream 'payments'")
                 .hasMessageContaining("aerospike");
-        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, NOTHING_REPEATS, null, null))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::nothingRepeats, null, null))
                 .doesNotThrowAnyException();
     }
 
@@ -162,7 +165,7 @@ class RepeatedRowsAnalysisTest {
     void aProjectionOrFilterServedAsAKeyedViewIsAdmitted(String sql) {
         // A copy overwrites its own key with the same values, and a source that repeats never
         // retracts, so the view holds each row once, as the store does.
-        assertThatCode(() -> RepeatedRowsAnalysis.check(plan(sql), ORDERS_REPEAT, null, null))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(plan(sql), RepeatedRowsAnalysisTest::ordersRepeat, null, null))
                 .doesNotThrowAnyException();
     }
 
@@ -171,7 +174,7 @@ class RepeatedRowsAnalysisTest {
         PhysicalOperator plan = planWithLookup("SELECT o.customer_id, o.amount, c.segment FROM orders o "
                 + "LEFT JOIN customers FOR SYSTEM_TIME AS OF o.event_time AS c ON c.customer_id = o.customer_id");
 
-        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, null, null))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::ordersRepeat, null, null))
                 .doesNotThrowAnyException();
     }
 
@@ -179,20 +182,22 @@ class RepeatedRowsAnalysisTest {
     void aSinkThatCannotUpsertIsRefusedForEvenAProjection() {
         PhysicalOperator plan = plan("SELECT customer_id, status, amount FROM orders");
 
-        assertThatThrownBy(() ->
-                        RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, SinkCapabilities.appendOnly(), "audit_file"))
+        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(
+                        plan, RepeatedRowsAnalysisTest::ordersRepeat, SinkCapabilities.appendOnly(), "audit_file"))
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("sink 'audit_file'")
                 .hasMessageContaining("`deletes: detect`");
-        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, CHANGELOG, "changes_topic"))
+        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(
+                        plan, RepeatedRowsAnalysisTest::ordersRepeat, CHANGELOG, "changes_topic"))
                 .as("a changelog sink writes every copy as an event")
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("sink 'changes_topic'");
-        assertThatCode(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, UPSERT, "orders_table"))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(
+                        plan, RepeatedRowsAnalysisTest::ordersRepeat, UPSERT, "orders_table"))
                 .as("an upsert by key overwrites the row it repeats, as the view does")
                 .doesNotThrowAnyException();
-        assertThatCode(() ->
-                        RepeatedRowsAnalysis.check(plan, NOTHING_REPEATS, SinkCapabilities.appendOnly(), "audit_file"))
+        assertThatCode(() -> RepeatedRowsAnalysis.check(
+                        plan, RepeatedRowsAnalysisTest::nothingRepeats, SinkCapabilities.appendOnly(), "audit_file"))
                 .doesNotThrowAnyException();
     }
 
@@ -200,7 +205,8 @@ class RepeatedRowsAnalysisTest {
     void anAggregateIsRefusedEvenToAnUpsertSink() {
         PhysicalOperator plan = plan("SELECT COUNT(*) AS n FROM orders");
 
-        assertThatThrownBy(() -> RepeatedRowsAnalysis.check(plan, ORDERS_REPEAT, UPSERT, "totals"))
+        assertThatThrownBy(() ->
+                        RepeatedRowsAnalysis.check(plan, RepeatedRowsAnalysisTest::ordersRepeat, UPSERT, "totals"))
                 .hasMessageContaining("PRV-2042")
                 .hasMessageContaining("aggregate");
     }

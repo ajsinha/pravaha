@@ -102,6 +102,7 @@ final class KafkaCodecs {
     }
 
     /** lz4, snappy or zstd when a class of that codec's library is what failed, else null. */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     static String missingCodec(Throwable failure) {
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof LinkageError || cause instanceof ClassNotFoundException) {

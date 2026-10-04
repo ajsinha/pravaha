@@ -144,6 +144,7 @@ public class LaneScalingBenchmark {
      * <p>The reported ops/s <em>is</em> rows per second. Scaling efficiency at N lanes is that
      * figure over N times the one-lane figure.
      */
+    @SuppressWarnings("ThreadPriorityCheck") // yielding is the wait strategy being measured or offered
     @Benchmark
     public void oneRow(Producer producer, ThreadParams threads) {
         Lane lane = group.lane(threads.getThreadIndex() % lanes);

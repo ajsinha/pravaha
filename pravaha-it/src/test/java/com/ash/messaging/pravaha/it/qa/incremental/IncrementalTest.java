@@ -1084,8 +1084,9 @@ class IncrementalTest {
      *
      * <p>SQL has nowhere to say allowed lateness -- FINDINGS T-3 -- so the operator is rebuilt with
      * it, which is the only way the correction path is reachable at all. Superseded by
-     * {@link #feedTwoRounds} above for anything new: kept because {@link #incr026} already calls it.
+     * {@link #feedTwoRounds} above for anything new: kept because {@link #incr026_aWindowKeyThatNetsToZeroAfterPublishingIsWithdrawn} already calls it.
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private static ServedView windowedWithLateness(
             String sql,
             List<Integer> keys,

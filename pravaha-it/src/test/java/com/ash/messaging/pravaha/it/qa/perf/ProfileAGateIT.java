@@ -411,6 +411,7 @@ final class ProfileAGateIT {
         assertThat(best[0]).isGreaterThan(0);
     }
 
+    @SuppressWarnings("UnusedVariable") // a sink the JIT cannot prove dead, so the measured work is done
     private static volatile long computeSink;
 
     /** Rows the lane took per batch in the last one-lane pass: how far behind the producer it ran. */
@@ -421,7 +422,9 @@ final class ProfileAGateIT {
         CountDownLatch go = new CountDownLatch(1);
         List<Thread> workers = new ArrayList<>();
         for (int t = 0; t < threads; t++) {
-            long seed = t + 1;
+            long seed = t + 1L;
+            @SuppressWarnings(
+                    "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
             Thread worker = new Thread(() -> {
                 long[] local = new long[4096];
                 long h = seed;

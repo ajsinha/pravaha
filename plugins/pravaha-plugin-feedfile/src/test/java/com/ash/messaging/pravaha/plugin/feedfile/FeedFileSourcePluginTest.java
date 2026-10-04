@@ -65,7 +65,7 @@ class FeedFileSourcePluginTest {
         Files.writeString(dir.resolve(name), String.join("\n", lines) + "\n");
     }
 
-    private static List<RowView> drain(FeedFileSourcePlugin plugin, PartitionReader reader, FeedCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, FeedCollector collector) {
         while (reader.poll(collector, 64) > 0) {
             // each poll returns what is ready, not what will ever exist
         }
@@ -85,7 +85,7 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
 
             assertThat(rows).hasSize(5);
             assertThat(rows.stream().map(r -> r.getLong(0))).containsExactly(1L, 2L, 3L, 4L, 5L);
@@ -113,7 +113,7 @@ class FeedFileSourcePluginTest {
                     .isZero();
 
             Files.writeString(dir.resolve("orders-01.csv.done"), "");
-            assertThat(drain(plugin, reader, collector)).hasSize(1);
+            assertThat(drain(reader, collector)).hasSize(1);
         }
     }
 
@@ -159,7 +159,7 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader resumed =
                         plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
-            assertThat(drain(plugin, resumed, collector).stream().map(r -> r.getLong(0)))
+            assertThat(drain(resumed, collector).stream().map(r -> r.getLong(0)))
                     .as("resume picks up mid-file and continues into the next one")
                     .containsExactly(3L, 4L, 5L);
         }
@@ -173,11 +173,10 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
-            assertThat(drain(plugin, reader, collector)).hasSize(1);
+            assertThat(drain(reader, collector)).hasSize(1);
 
             writeCsv(dir, "orders-02.csv", "2,b,2.0");
-            assertThat(drain(plugin, reader, collector).stream().map(r -> r.getLong(0)))
-                    .containsExactly(1L, 2L);
+            assertThat(drain(reader, collector).stream().map(r -> r.getLong(0))).containsExactly(1L, 2L);
         }
     }
 
@@ -190,7 +189,7 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
             assertThat(rows.get(0).getString(1)).isEqualTo("Smith, Ann");
             assertThat(rows.get(1).getString(1)).isEqualTo("say \"hi\"");
         }
@@ -207,7 +206,7 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
 
             assertThat(rows.stream().map(r -> r.getLong(0)))
                     .as("one bad file from one partner must not stop a feed carrying nine others")
@@ -243,7 +242,7 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
-            assertThat(drain(plugin, reader, collector)).hasSize(1);
+            assertThat(drain(reader, collector)).hasSize(1);
             assertThat(archive.resolve("orders-01.csv")).exists();
             assertThat(dir.resolve("orders-01.csv")).doesNotExist();
         }
@@ -279,7 +278,7 @@ class FeedFileSourcePluginTest {
         try (FeedCollector collector = new FeedCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
-            List<RowView> rows = drain(plugin, reader, collector);
+            List<RowView> rows = drain(reader, collector);
 
             assertThat(rows.stream().map(RowView::eventTimestampNanos))
                     .as("the column's value, and zero where the row has none")
@@ -297,5 +296,17 @@ class FeedFileSourcePluginTest {
                 .as("a text column cannot be an event time")
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("name");
+    }
+
+    @Test
+    void aSchemaWithATrailingSeparatorIsRefused() {
+        // SPLITTRAIL-1: String.split dropped trailing empty strings, so "id:INT64," and "id:INT64:"
+        // were read as "id:INT64" while the same slip mid-list was refused.
+        assertThatThrownBy(() -> FeedSchemas.parse("orders", "id:INT64,"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
+        assertThatThrownBy(() -> FeedSchemas.parse("orders", "id:INT64:"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("name:TYPE");
     }
 }

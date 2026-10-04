@@ -105,7 +105,7 @@ class PgWireLimitsTest {
     /** A socket that has connected and said nothing. */
     private Socket silent() throws IOException {
         Socket socket = new Socket();
-        socket.connect(new InetSocketAddress("127.0.0.1", server.port()), 5_000);
+        socket.connect(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), server.port()), 5_000);
         socket.setSoTimeout(10_000);
         sockets.add(socket);
         return socket;

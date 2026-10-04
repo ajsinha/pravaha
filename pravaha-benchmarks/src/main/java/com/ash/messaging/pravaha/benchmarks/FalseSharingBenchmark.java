@@ -89,6 +89,7 @@ public class FalseSharingBenchmark {
         long p8, p9, p10, p11, p12, p13, p14;
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     @Benchmark
     @Group("shared")
     @GroupThreads(1)
@@ -96,6 +97,7 @@ public class FalseSharingBenchmark {
         state.producer++;
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     @Benchmark
     @Group("shared")
     @GroupThreads(1)
@@ -104,6 +106,7 @@ public class FalseSharingBenchmark {
         return state.consumer;
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     @Benchmark
     @Group("padded")
     @GroupThreads(1)
@@ -111,6 +114,7 @@ public class FalseSharingBenchmark {
         state.producer++;
     }
 
+    @SuppressWarnings("NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
     @Benchmark
     @Group("padded")
     @GroupThreads(1)

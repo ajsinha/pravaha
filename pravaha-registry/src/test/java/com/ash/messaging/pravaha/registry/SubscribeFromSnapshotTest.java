@@ -120,7 +120,7 @@ class SubscribeFromSnapshotTest {
         applied(query, "u1", 10);
 
         List<ViewChange> heard = new ArrayList<>();
-        try (Subscription ignored = query.subscribe(heard::addAll)) {
+        try (Subscription _ = query.subscribe(heard::addAll)) {
             List<Object[]> read = query.view().scan();
             query.commit();
 
@@ -283,6 +283,8 @@ class SubscribeFromSnapshotTest {
         volatile boolean outOfOrder;
         private final List<ViewChange> all = new CopyOnWriteArrayList<>();
 
+        @SuppressWarnings(
+                "NonAtomicVolatileUpdate") // one writer; volatile so that readers on other threads see the count
         @Override
         public void onSnapshot(List<ViewChange> rows, long frontier) {
             snapshots++;

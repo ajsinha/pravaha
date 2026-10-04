@@ -54,6 +54,7 @@ class RowConversionTest {
             .field("blob", Types.bytes())
             .build();
 
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Everything(
             boolean flag,
             byte tiny,

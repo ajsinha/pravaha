@@ -253,7 +253,7 @@ final class SharedSourceGroup {
         holders++;
     }
 
-    /** @return true when nobody is left and the caller should close this group */
+    /** Drops one holder; true when nobody is left and the caller should close this group. */
     boolean release() {
         return --holders <= 0;
     }

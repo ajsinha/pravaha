@@ -235,7 +235,7 @@ public final class ViewQuery {
                 plan = withRowFilter(plan, view, decision.rowFilter().get());
             }
             plan = authorizeProvenance(plan, view, principal, "query", sql);
-            narrowing = narrowed(rel, view, source, engine, principal, sql);
+            narrowing = narrowed(rel, view, source, engine, principal);
         } catch (PravahaException refused) {
             audit.record(AuditEvent.of(
                     principal,
@@ -249,7 +249,7 @@ public final class ViewQuery {
         // Taken *after* the policy check, so a refused read never occupies a permit somebody
         // authorized could have used, and before any planning work that would otherwise be done on
         // behalf of a read this node has no capacity for.
-        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
     }
@@ -260,8 +260,7 @@ public final class ViewQuery {
      * Applied to the view's rows before the query's own plan sees them, so every operator of the query --
      * its WHERE, its GROUP BY -- works on what the reader is shown, never on a value masked from them.
      */
-    private RowNarrowing narrowed(
-            RelNode rel, ServedView view, String source, String engine, Principal principal, String sql) {
+    private RowNarrowing narrowed(RelNode rel, ServedView view, String source, String engine, Principal principal) {
         com.ash.messaging.pravaha.security.Narrowing narrowing = policy.narrowing(principal, engine);
         if (narrowing.isNone()) {
             return RowNarrowing.NONE;
@@ -395,7 +394,7 @@ public final class ViewQuery {
         // metadata call that skipped admission would be an unmetered way in: a client asking only
         // for schemas, in a loop, would consume the same planner and the same CPU as the reads this
         // limit exists to bound, while the counter the operator watches stayed flat.
-        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
             return plan.outputSchema();
         }
     }
@@ -688,7 +687,7 @@ public final class ViewQuery {
         for (int i = 0; i < shapeOnly.length; i++) {
             shapeOnly[i] = switch (parameters.typeOf(i)) {
                 case STRING -> "";
-                case BOOLEAN -> Boolean.FALSE;
+                case BOOLEAN -> false;
                 case FLOAT32, FLOAT64 -> 0d;
                 default -> 0L;
             };
@@ -724,9 +723,8 @@ public final class ViewQuery {
             plan = withRowFilter(plan, view, decision.rowFilter().get());
         }
         plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
-        RowNarrowing narrowing =
-                narrowed(prepared.rel(), view, sourceViewOf(plan), prepared.view(), principal, prepared.sql());
-        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+        RowNarrowing narrowing = narrowed(prepared.rel(), view, sourceViewOf(plan), prepared.view(), principal);
+        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
     }

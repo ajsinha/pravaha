@@ -581,6 +581,7 @@ class GeneratedPipelineEquivalenceTest {
             Predicate isNull = new Predicate.IsNull(ordinal, name, random.nextBoolean());
             return random.nextBoolean() ? new Predicate.Not(isNull) : isNull;
         }
+        @SuppressWarnings("EnumOrdinal") // declaration order is the meaning: a range, a precedence or a random pick
         Predicate.Op op = Predicate.Op.values()[random.nextInt(Predicate.Op.values().length)];
         // The predicate the SQL compiler builds for the column's type (PredicateCompiler), so the
         // narrow types arrive as CompareInt and FLOAT32 as CompareDouble, as they do in production.

@@ -30,7 +30,6 @@ import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.serving.ServedView;
-import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
 /**
@@ -66,11 +65,7 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
  */
 final class PgInformationSchema {
 
-    private final ViewCatalog catalog;
-
-    PgInformationSchema(ViewCatalog catalog) {
-        this.catalog = catalog;
-    }
+    PgInformationSchema() {}
 
     /**
      * Answers {@code sql} if it is one of the {@code information_schema} templates this class knows.

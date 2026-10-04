@@ -713,6 +713,7 @@ public final class PhysicalPlanBuilder {
      * saves reconstructing it from the window spec in three places. {@link #buildAggregate} adds it
      * to the grouping, which is a no-op semantically for the same reason.
      */
+    @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     private PhysicalOperator buildGroupedWindow(Project project, PhysicalOperator input, RexCall window) {
         views.refuseOver(input, "a window");
         String function = window.getOperator().getName().replace("$", "").toUpperCase(java.util.Locale.ROOT);
@@ -1146,15 +1147,6 @@ public final class PhysicalPlanBuilder {
     private static final int DEFAULT_MAX_SLICES = 2_000_000;
 
     /**
-     * Allowed lateness until a query can declare its own.
-     *
-     * <p>Zero, and deliberately so. A default allowance decides on the operator's behalf how much
-     * correctness to trade for how much state, and does it silently; zero means every late record is
-     * counted and visible, so the number can be looked at before anybody picks a value. The
-     * {@code EMIT CHANGES WITH ('allowed.lateness' = ...)} clause of design 11.2 is where a real
-     * value will come from.
-     */
-    /**
      * The allowed lateness the input stream declared.
      *
      * <p>This was the constant zero, and nothing anywhere could change it -- so every windowed query
@@ -1187,7 +1179,6 @@ public final class PhysicalPlanBuilder {
         return java.util.Optional.empty();
     }
 
-    /** The window assignment feeding this aggregate, looking through projections. */
     /**
      * Finds the window assignment an aggregate sits on, through anything that preserves it.
      *

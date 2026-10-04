@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **546 findings carrying a
-status — 525 FIXED, 2 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 2 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 2 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **552 findings carrying a
+status — 533 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7662,11 +7662,35 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 ### FLIGHTDECIMAL-1 (LOW) — a view with a DECIMAL column cannot be read over Arrow Flight
 
-> **Status:** OPEN — `ArrowSchemas` refuses DECIMAL, and the SDKs, the CLI and the console all read over Flight, so a view whose answer carries a DECIMAL column can only be read through the PostgreSQL gateway, although the dialect documents exact DECIMAL arithmetic and SUM over DECIMAL. The docs now say so in one sentence; mapping DECIMAL to Arrow's decimal type would remove the gap.
-> **Disposition:** POST-GA — readable over pgwire, refused by name over Flight rather than answered wrong.
+> **Status:** FIXED — a DECIMAL(p,s) column is written over Arrow Flight as Decimal128 on every path (reads, subscriptions, snapshots, GetTables/GetSchema) and read exactly by the Java SDK, the Python SDK (decimal.Decimal), the CLI and the console; FlightDecimalTest, JavaSdkDecimalTest, the SDK and CLI suites.
 
 ### SSOMODE-1 (LOW) — `pravaha.identity.mode` accepts `sso` and `hybrid` though no identity provider can be configured
 
-> **Status:** OPEN — the values are accepted and the node signs in with passwords regardless, which the no-leniency rule says should be a refusal at start naming the setting; the docs now say no provider can be configured.
-> **Disposition:** POST-GA — no behaviour is wrong today, only a setting that promises more than it does.
+> **Status:** FIXED — pravaha.identity.mode refuses sso and hybrid at start, naming the one value it takes, since no identity provider can be configured.
+
+## Found clearing Error Prone and javac warnings (2026-10-03), 6 findings
+
+### SPLITTRAIL-1 (LOW) — configuration parsers accepted a trailing separator they refuse mid-list
+
+> **Status:** FIXED — `String.split` drops trailing empty fields, so `h:3000:`, `id:INT64:` and a trailing comma were silently accepted in the Aerospike hosts and schema, the Cassandra contact points and schema, the feedfile schema and the postgres-cdc declared schema, while the same slip mid-list was refused; now refused with the usual message. AerospikeTlsTest, AerospikeSchemasTest, CassandraContactPointsTest, CassandraSchemasTest, FeedFileSourcePluginTest, PgOutputTest.
+
+### SPLITTRAIL-2 (LOW) — the strict Delta and JDBC offset parsers took a trailing `;`
+
+> **Status:** FIXED — an offset token with a trailing `;`, which the plugins never write, parsed as valid; now MALFORMED_OFFSET. DeltaSourcePluginTest, JdbcSourcePluginTest.
+
+### SPLITTRAIL-3 (LOW) — an X-Forwarded-For ending in a bare `,` named the hop before it as the sign-in source
+
+> **Status:** FIXED — after a bare `,` the split dropped the empty last hop and the previous hop became the address the lockout counts against; an empty last hop now falls back to the peer either way. SignInSourceTest.
+
+### SPLITTRAIL-4 (LOW) — pgwire accepted `SET search_path = public,`
+
+> **Status:** FIXED — it passed as `public`, which PostgreSQL itself refuses; now UNSUPPORTED_SET. PgCatalogShimTest.
+
+### ANSICONSOLE-1 (LOW) — the CLI wrote colour codes into redirected output on JDK 22 and later
+
+> **Status:** FIXED — a console exists from JDK 22 even when output is redirected, so treating a non-null `System.console()` as a terminal coloured `pravaha … > file`; it now asks `Console.isTerminal()` and keeps the null check. AnsiTest.
+
+### FEEDGONE-1 (LOW) — PRV-5064 named an object identity instead of the feed directory
+
+> **Status:** FIXED — the refusal printed `FeedDirectory@…`; it now prints the directory's path. ParquetFeedTest.
 

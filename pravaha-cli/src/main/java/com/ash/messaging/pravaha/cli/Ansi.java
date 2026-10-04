@@ -29,16 +29,27 @@ public final class Ansi {
 
     private Ansi() {}
 
+    // Error Prone holds that System.console() is never null on JDK 22+; under surefire's forked JVM
+    // (no stdin) it still is, and isTerminal() is the question either way.
+    @SuppressWarnings("SystemConsoleNull") // still null in a JVM with no console at all
     private static boolean detect() {
         if (System.getenv("NO_COLOR") != null) {
             return false;
         }
-        String term = System.getenv("TERM");
+        java.io.Console console = System.console();
+        return detect(System.getenv("TERM"), console != null && console.isTerminal());
+    }
+
+    /**
+     * Colour for a terminal that is one and is not dumb. ANSICONSOLE-1: this asked only whether
+     * {@code System.console()} was null, which it was when output was redirected -- until JDK 22, after
+     * which it never is, so a redirected {@code pravaha} wrote escape codes into files and pipes.
+     */
+    static boolean detect(String term, boolean terminal) {
         if (term == null || "dumb".equals(term)) {
             return false;
         }
-        // Null when output is redirected, which is exactly when colour is unwanted.
-        return System.console() != null;
+        return terminal;
     }
 
     public static boolean enabled() {

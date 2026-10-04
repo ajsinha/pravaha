@@ -345,7 +345,6 @@ public final class LaneMultiplexer implements LaneProcessor {
                     entry.processor.close();
                 } catch (Exception e) {
                     // One query's teardown must not strand the others' resources.
-                    continue;
                 }
             }
             byQuery.clear();

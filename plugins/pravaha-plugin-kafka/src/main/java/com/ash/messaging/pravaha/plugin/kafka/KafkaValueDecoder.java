@@ -33,6 +33,8 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 interface KafkaValueDecoder {
 
     /**
+     * One record's value as a row.
+     *
      * @param value the record's value, never null (a tombstone is handled before this)
      * @param recordTimestampMillis the record's Kafka timestamp, or negative when it has none
      */
@@ -47,6 +49,7 @@ interface KafkaValueDecoder {
      *     nanoseconds), {@code Float}, {@code Double}, {@code BigDecimal} at the column's scale,
      *     {@code byte[]}, {@code String}, or null
      */
+    @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     record Row(Object[] values, long weight, long eventTimeNanos) {}
 
     /** Why a record could not be decoded, as a sentence. Carries no stack: it is data, not a bug. */

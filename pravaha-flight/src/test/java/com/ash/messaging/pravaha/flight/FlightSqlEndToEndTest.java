@@ -90,6 +90,7 @@ class FlightSqlEndToEndTest {
     }
 
     /** Runs a query and collects (user_id, total) pairs, iterating the stream as a client would. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<String> query(String sql) {
         FlightInfo info = client.execute(sql);
         List<String> rows = new ArrayList<>();
@@ -139,9 +140,11 @@ class FlightSqlEndToEndTest {
         // asks for column types to build its ResultSetMetaData before fetching anything.
         FlightInfo info = client.execute("SELECT user_id, tier, total FROM user_volume");
 
-        assertThat(info.getSchema().getFields().stream().map(f -> f.getName()).toList())
+        assertThat(info.getSchemaOptional().orElseThrow().getFields().stream()
+                        .map(f -> f.getName())
+                        .toList())
                 .containsExactly("user_id", "tier", "total");
-        assertThat(info.getSchema().findField("total").getType())
+        assertThat(info.getSchemaOptional().orElseThrow().findField("total").getType())
                 .isEqualTo(new org.apache.arrow.vector.types.pojo.ArrowType.Int(64, true));
     }
 

@@ -184,6 +184,8 @@ class KafkaSinkBrokerTest {
      * some records sent. Opening the next sink aborts that transaction (a read_committed consumer
      * never sees it), and the recorded handle is committed whole.
      */
+    @SuppressWarnings(
+            "FutureReturnValueIgnored") // the task reports its own outcome (a callback, or a catch-all in the task)
     @Test
     void aCrashInsideACommitIsAbortedByTheNextOpenAndTheHandleIsCommittedWhole() throws Exception {
         String topic = KafkaBroker.topic("midcommit", 1, true);

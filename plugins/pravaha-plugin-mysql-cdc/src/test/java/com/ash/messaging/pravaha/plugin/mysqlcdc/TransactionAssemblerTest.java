@@ -43,6 +43,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -254,7 +255,7 @@ class TransactionAssemblerTest {
                 .singleElement()
                 .satisfies(t -> assertThat(t.failure())
                         .hasMessageContaining("TRUNCATE of shop.customers")
-                        .extracting(e -> ((PravahaException) e).errorCode())
+                        .extracting(e -> e.errorCode())
                         .isEqualTo(MySqlCdcErrors.UNREPRESENTABLE_CHANGE));
     }
 
@@ -284,7 +285,7 @@ class TransactionAssemblerTest {
                     assertThat(t.changes()).isEmpty();
                     assertThat(t.failure())
                             .hasMessageContaining("column 'id' (bigint) arrives in the binlog as MySQL type 3 (INT)")
-                            .extracting(e -> ((PravahaException) e).errorCode())
+                            .extracting(e -> e.errorCode())
                             .isEqualTo(MySqlCdcErrors.UNREPRESENTABLE_CHANGE);
                 });
         assertThat(feed(
@@ -409,7 +410,7 @@ class TransactionAssemblerTest {
                 BinlogTransaction.Change.of(MAPPING, new Serializable[] {1L, null, new BigDecimal("1.234")}, 1);
         assertThat(change.rejected()).contains("'tier' is NULL");
         change = BinlogTransaction.Change.of(
-                MAPPING, new Serializable[] {1L, "a".getBytes(), new BigDecimal("1.234")}, 1);
+                MAPPING, new Serializable[] {1L, "a".getBytes(UTF_8), new BigDecimal("1.234")}, 1);
         assertThat(change.rejected()).contains("column 'credit'");
     }
 

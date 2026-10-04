@@ -67,11 +67,13 @@ final class OpenApiLock {
         String summarise() {
             Map<String, Object> surface = new TreeMap<>();
             for (Iterator<Map.Entry<String, JsonNode>> it =
-                            document.path("paths").fields();
+                            document.path("paths").properties().iterator();
                     it.hasNext(); ) {
                 Map.Entry<String, JsonNode> entry = it.next();
                 Map<String, Object> methods = new TreeMap<>();
-                for (Iterator<Map.Entry<String, JsonNode>> m = entry.getValue().fields(); m.hasNext(); ) {
+                for (Iterator<Map.Entry<String, JsonNode>> m =
+                                entry.getValue().properties().iterator();
+                        m.hasNext(); ) {
                     Map.Entry<String, JsonNode> method = m.next();
                     JsonNode op = method.getValue();
                     Map<String, Object> operation = new TreeMap<>();
@@ -92,7 +94,7 @@ final class OpenApiLock {
                     }
                     Map<String, String> responseBodies = new TreeMap<>();
                     for (Iterator<Map.Entry<String, JsonNode>> r =
-                                    op.path("responses").fields();
+                                    op.path("responses").properties().iterator();
                             r.hasNext(); ) {
                         Map.Entry<String, JsonNode> response = r.next();
                         String shape = bodyShape(response.getValue().path("content"), label + " " + response.getKey());
@@ -120,7 +122,7 @@ final class OpenApiLock {
         /** One shape for a body's content; media types that disagree are each named. */
         private String bodyShape(JsonNode content, String inlineName) {
             Map<String, String> byType = new TreeMap<>();
-            for (Iterator<Map.Entry<String, JsonNode>> it = content.fields(); it.hasNext(); ) {
+            for (Iterator<Map.Entry<String, JsonNode>> it = content.properties().iterator(); it.hasNext(); ) {
                 Map.Entry<String, JsonNode> media = it.next();
                 if (media.getValue().has("schema")) {
                     byType.put(media.getKey(), shape(media.getValue().path("schema"), inlineName));
@@ -138,7 +140,7 @@ final class OpenApiLock {
         }
 
         /**
-         * A body's top-level shape: a schema's name (its fields recorded under {@code schemas}),
+         * A body's top-level shape: a schema's name (its fields recorded under {@code "schemas"}),
          * {@code X[]}, {@code map<X>}, or a scalar type.
          */
         private String shape(JsonNode schema, String inlineName) {
@@ -177,7 +179,7 @@ final class OpenApiLock {
             Set<String> required = new HashSet<>();
             merged.path("required").forEach(r -> required.add(r.asText()));
             for (Iterator<Map.Entry<String, JsonNode>> it =
-                            merged.path("properties").fields();
+                            merged.path("properties").properties().iterator();
                     it.hasNext(); ) {
                 Map.Entry<String, JsonNode> property = it.next();
                 String path = prefix.isEmpty() ? property.getKey() : prefix + "." + property.getKey();
@@ -231,10 +233,16 @@ final class OpenApiLock {
             var required = merged.putArray("required");
             for (JsonNode part : schema.path("allOf")) {
                 JsonNode each = merge(resolve(part));
-                each.path("properties").fields().forEachRemaining(e -> properties.set(e.getKey(), e.getValue()));
+                each.path("properties")
+                        .properties()
+                        .iterator()
+                        .forEachRemaining(e -> properties.set(e.getKey(), e.getValue()));
                 each.path("required").forEach(required::add);
             }
-            schema.path("properties").fields().forEachRemaining(e -> properties.set(e.getKey(), e.getValue()));
+            schema.path("properties")
+                    .properties()
+                    .iterator()
+                    .forEachRemaining(e -> properties.set(e.getKey(), e.getValue()));
             schema.path("required").forEach(required::add);
             return merged;
         }
@@ -294,9 +302,13 @@ final class OpenApiLock {
      */
     static List<String> breakingChanges(JsonNode recorded, JsonNode live) {
         List<String> out = new ArrayList<>();
-        for (Iterator<Map.Entry<String, JsonNode>> it = recorded.path("paths").fields(); it.hasNext(); ) {
+        for (Iterator<Map.Entry<String, JsonNode>> it =
+                        recorded.path("paths").properties().iterator();
+                it.hasNext(); ) {
             Map.Entry<String, JsonNode> path = it.next();
-            for (Iterator<Map.Entry<String, JsonNode>> m = path.getValue().fields(); m.hasNext(); ) {
+            for (Iterator<Map.Entry<String, JsonNode>> m =
+                            path.getValue().properties().iterator();
+                    m.hasNext(); ) {
                 Map.Entry<String, JsonNode> method = m.next();
                 String label = method.getKey().toUpperCase(java.util.Locale.ROOT) + " " + path.getKey();
                 JsonNode was = method.getValue();
@@ -314,7 +326,7 @@ final class OpenApiLock {
                     }
                 });
                 for (Iterator<Map.Entry<String, JsonNode>> r =
-                                was.path("responseBodies").fields();
+                                was.path("responseBodies").properties().iterator();
                         r.hasNext(); ) {
                     Map.Entry<String, JsonNode> response = r.next();
                     compare(
@@ -351,7 +363,7 @@ final class OpenApiLock {
         }
         String shape = shapeNode.asText();
         if (shape.contains("=")) {
-            for (String each : shape.split("; ")) {
+            for (String each : shape.split("; ", -1)) {
                 int eq = each.indexOf('=');
                 expand(each.substring(eq + 1), each.substring(0, eq) + ":", lock.path("schemas"), out);
             }
@@ -378,7 +390,8 @@ final class OpenApiLock {
         } else if (schemas.has(shape)) {
             String dot = prefix.isEmpty() || prefix.endsWith(":") ? prefix : prefix + ".";
             schemas.path(shape)
-                    .fields()
+                    .properties()
+                    .iterator()
                     .forEachRemaining(
                             f -> out.put(dot + f.getKey(), f.getValue().asText()));
         }

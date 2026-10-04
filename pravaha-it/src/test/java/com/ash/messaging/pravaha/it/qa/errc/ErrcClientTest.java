@@ -224,7 +224,7 @@ class ErrcClientTest extends ErrcTestSupport {
 
     /** {@code PravahaFlightClient.connect(url)} and nothing else: does it return, or throw? */
     private static ErrcTestSupport.CliResult connectProbe(String host, int port) {
-        try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://" + host + ":" + port)) {
+        try (PravahaFlightClient _ = PravahaFlightClient.connect("grpc://" + host + ":" + port)) {
             return new ErrcTestSupport.CliResult(0, "connected-ok\n", "");
         } catch (RuntimeException e) {
             return new ErrcTestSupport.CliResult(1, "", e.getClass().getName() + ": " + e.getMessage());

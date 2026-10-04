@@ -105,6 +105,7 @@ class TracingTest {
         return finished().stream().filter(s -> s.getName().equals(name)).findFirst();
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aRestRequestARegistrationAndAFlightQueryAreSpansAndATraceparentIsContinued() throws Exception {
         assertThat(EngineSpans.tracing())

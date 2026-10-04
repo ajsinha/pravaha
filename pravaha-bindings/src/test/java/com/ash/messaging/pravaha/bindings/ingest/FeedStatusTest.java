@@ -158,6 +158,7 @@ class FeedStatusTest {
         }
     }
 
+    @SuppressWarnings("StaticAssignmentOfThrowable") // a test fixture's one-shot failure hook
     @Test
     void aSharedReaderThatStopsStopsEveryQueryItFeedsAndItsCredentialIsStruckOut() throws Exception {
         PluginSourceFeeds feeds =
@@ -206,6 +207,7 @@ class FeedStatusTest {
         }
     }
 
+    @SuppressWarnings("StaticAssignmentOfThrowable") // a test fixture's one-shot failure hook
     @Test
     void aReaderOfItsOwnThatThrowsSomethingUncodedStopsWithTheFeedsCode() throws Exception {
         // Exactly-once keeps a reader per query, so this is PumpingFeed's path, not the shared one.
