@@ -105,6 +105,18 @@ public final class ClientOptions {
         return Optional.ofNullable(token);
     }
 
+    /**
+     * The value given to {@link Builder#connectTimeout(Duration)}, 10 seconds unless set. Nothing
+     * reads it.
+     *
+     * @deprecated since 2.1.1: it never bounded anything. Arrow's Flight client builder offers no
+     *     setting it could feed, and the connection is made inside the first call, so it is {@link
+     *     #requestTimeout()} that bounds the connect: a server that cannot be reached fails that
+     *     call with {@link ClientErrors#DEADLINE_EXCEEDED} (or sooner, if the connection is
+     *     refused). Kept so 2.x code that sets it still compiles; set {@code requestTimeout}
+     *     instead.
+     */
+    @Deprecated(since = "2.1.1")
     public Duration connectTimeout() {
         return connectTimeout;
     }
@@ -208,6 +220,13 @@ public final class ClientOptions {
             return this;
         }
 
+        /**
+         * Accepted, validated (refused unless positive), and otherwise ignored.
+         *
+         * @deprecated since 2.1.1: see {@link ClientOptions#connectTimeout()} --
+         *     {@link #requestTimeout(Duration)} is what bounds connecting.
+         */
+        @Deprecated(since = "2.1.1")
         public Builder connectTimeout(Duration value) {
             this.connectTimeout = requirePositive("connectTimeout", value);
             return this;

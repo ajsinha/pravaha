@@ -39,6 +39,7 @@ class ClientOptionsTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // connectTimeout: still carried through, though nothing reads it
     void overridesApply() {
         ClientOptions o = ClientOptions.builder("grpc+tls://host:19090")
                 .token("secret-token")
@@ -94,6 +95,7 @@ class ClientOptionsTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // connectTimeout: still validated, so a 2.x caller's zero is still refused
     void rejectsNonsensicalSettings() {
         var b = ClientOptions.builder("grpc+tls://h:19090");
         assertThatThrownBy(() -> b.subscriberBufferRows(0)).isInstanceOf(PravahaClientException.class);
