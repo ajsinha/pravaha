@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **570 findings carrying a
-status — 547 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **572 findings carrying a
+status — 549 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 3 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7763,8 +7763,7 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 ### SKIPFAILSAFE-1 (LOW) — `-DskipTests` does not skip pravaha-it's integration tests under `-Pbench`
 
-> **Status:** OPEN — `tools/worktree-build.sh -o install -DskipTests -Pbench` still ran pravaha-it's `*IT` classes in failsafe's phase, including the Aerospike ITs that start their own Testcontainers; a build asked to skip tests started containers and spent minutes. Failsafe honours `skipITs`/`skipTests` unless a profile overrides it — find what binds it under `-Pbench` and make `-DskipTests` skip every test, as the docs say.
-> **Disposition:** POST-GA — build tooling; no product behaviour.
+> **Status:** FIXED — failsafe 3.6.0 stopped binding its skipTests parameter to the skipTests property (only skipITs is bound), so -DskipTests ran every *IT with or without -Pbench. The root pom now sets skipITs to follow skipTests; -DskipITs alone still skips only the ITs. Verified with -o install -DskipTests -Pbench -pl pravaha-it -am (no tests run) and a plain verify of pravaha-plugin-jdbc (its 13 ITs run).
 
 ## Found writing the architecture reference and developer guides (2026-10-04), 3 findings
 
@@ -7782,4 +7781,15 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 > **Status:** OPEN — each plugin's TCK test copies about 175 lines of row-collecting scaffolding, and sinks and lookups have no conformance kit at all; a new connector author (docs/development/guides/CONNECTOR_DEVELOPMENT.md) gets the source half of the contract tested and nothing for the rest.
 > **Disposition:** POST-GA — test tooling for connector authors.
+
+## Found clearing NullAway in the engine core (2026-10-04), 2 findings
+
+### NULLREFUSAL-1 (MEDIUM) — a recovery failure with no message stopped the recovery of every later entry
+
+> **Status:** FIXED — Recovery.Refusal requires its reason, and both recovery loops (RegistryRecovery for registrations, QueryReplacements for replacements) passed failure.getMessage(), which is null for a message-less exception such as IllegalStateException() or a bug's NullPointerException; the refusal then threw from inside the catch meant to keep one bad entry from stopping the rest, so every journal entry after it went unrecovered. Such a failure is now refused naming the exception (toString()). RecoveryRefusalsTest#aFailureWithNoMessageIsRefusedByNameAndDoesNotStopTheRecovery (NPE before the fix). Found by NullAway.
+
+### AUDITROTATE-1 (MEDIUM) — after a failed rotation the file audit sink drops every event silently
+
+> **Status:** OPEN — in FileAuditSink, a rotation that fails leaves the output stream null, and from then on writeLine discards every audit event without counting it as failed or dropped and without a log line; an audit trail that silently stops is the failure audit exists to prevent. Fix: count and log the failure, retry opening on the next event, and surface it in health (or refuse writes loudly), with a test that fails a rotation. Seen while clearing NullAway; not changed there.
+> **Disposition:** GA-REQUIRED — audit records lost without a word.
 
