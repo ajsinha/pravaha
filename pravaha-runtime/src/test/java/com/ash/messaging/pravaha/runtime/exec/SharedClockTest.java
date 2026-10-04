@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SharedClockTest {
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void time11APeriodThisTimerCannotCountIsRefusedRatherThanClampedToAMillisecond() {
         // TIME-11. The clamp travelled: it was Math.max(1, tick.toMillis()) in QueryExecution when
         // the finding was written and Math.max(1L, period.toMillis()) here after W9-3 shared the

@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
@@ -110,7 +112,7 @@ final class JoinSide implements AutoCloseable {
      * against, so the row being inserted turned into the row it was being compared with, and the
      * whole side restored as empty.
      */
-    private MemoryRegion scratch;
+    private @Nullable MemoryRegion scratch;
 
     private final BinaryRowView restoreView;
 
@@ -144,7 +146,7 @@ final class JoinSide implements AutoCloseable {
             StreamSchema schema,
             int[] keyOrdinals,
             int indexRamSlabs,
-            com.ash.messaging.pravaha.common.memory.MemoryAccess overflowAccess,
+            com.ash.messaging.pravaha.common.memory.@Nullable MemoryAccess overflowAccess,
             int maxOverflowSlabs) {
         this.store = store;
         this.access = access;
@@ -289,7 +291,7 @@ final class JoinSide implements AutoCloseable {
      * callback sees the row while it is still readable, because a moment later the block is
      * released and reused.
      */
-    long evictOlderThan(long horizon, java.util.function.Consumer<RowView> unmatched) {
+    long evictOlderThan(long horizon, java.util.function.@Nullable Consumer<RowView> unmatched) {
         if (horizon == Long.MIN_VALUE) {
             return 0;
         }
@@ -297,7 +299,7 @@ final class JoinSide implements AutoCloseable {
     }
 
     /** Evicts every row with an event time before {@code horizon}, or every row at all. */
-    private long evict(long horizon, java.util.function.Consumer<RowView> unmatched, boolean everything) {
+    private long evict(long horizon, java.util.function.@Nullable Consumer<RowView> unmatched, boolean everything) {
         if (buckets.size() == 0) {
             return 0;
         }
@@ -520,8 +522,9 @@ final class JoinSide implements AutoCloseable {
             }
             in.readFully(bytes, 0, length);
             ensureScratch(length);
-            scratch.putBytes(0, bytes, 0, length);
-            long entry = add(restoreView.wrap(scratch, 0), weight);
+            MemoryRegion region = java.util.Objects.requireNonNull(scratch, "ensureScratch allocated it");
+            region.putBytes(0, bytes, 0, length);
+            long entry = add(restoreView.wrap(region, 0), weight);
             if (matched && entry != ArenaHandle.NULL) {
                 // Carried through the checkpoint, or a left row that had already matched and been
                 // emitted would be emitted a second time, null-padded, when it aged out after the

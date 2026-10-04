@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.RowView;
@@ -101,7 +102,7 @@ class AllNullAggregateTest {
         return text.toString();
     }
 
-    private void feed(RowProcessor aggregate, String key, Long value, long weight) {
+    private void feed(RowProcessor aggregate, String key, @Nullable Long value, long weight) {
         RowLayout layout = RowLayout.of(IN);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
         long handle = arena.allocate(layout.rowSize(16));

@@ -35,6 +35,7 @@ class NarrowCastAndDivisionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void nanAndTheInfinitiesHaveNoIntegerValue() {
         for (double value : new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
             assertThatThrownBy(() -> cast(value, TypeName.INT64).evaluateLong(null))
@@ -48,6 +49,7 @@ class NarrowCastAndDivisionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aFiniteDoubleOutsideTheTargetOverflows() {
         assertThatThrownBy(() -> cast(1e300, TypeName.INT64).evaluateLong(null)).hasMessageContaining("BIGINT");
         assertThatThrownBy(() -> cast(0x1p63, TypeName.INT64).evaluateLong(null))
@@ -60,6 +62,7 @@ class NarrowCastAndDivisionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void anInRangeDoubleTruncatesTowardsZeroAsBefore() {
         assertThat(cast(2.7, TypeName.INT64).evaluateLong(null)).isEqualTo(2);
         assertThat(cast(-2.7, TypeName.INT32).evaluateLong(null)).isEqualTo(-2);
@@ -70,6 +73,7 @@ class NarrowCastAndDivisionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aFiniteDoubleBeyondRealIsRefusedNotMadeInfinite() {
         assertThatThrownBy(() -> cast(1e300, TypeName.FLOAT32).evaluateDouble(null))
                 .isInstanceOf(ArithmeticException.class)
@@ -80,12 +84,14 @@ class NarrowCastAndDivisionTest {
         assertThat(cast(1.5, TypeName.FLOAT32).evaluateDouble(null)).isEqualTo(1.5);
     }
 
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     private static Expression divide(long left, long right, Expression.Operator operator, TypeName type) {
         return new Expression.Arithmetic(
                 Expression.Literal.ofLong(left), operator, Expression.Literal.ofLong(right), type);
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void theSmallestBigintDividedByMinusOneOverflows() {
         assertThatThrownBy(() -> divide(Long.MIN_VALUE, -1, Expression.Operator.DIVIDE, TypeName.INT64)
                         .evaluateLong(null))
@@ -105,6 +111,7 @@ class NarrowCastAndDivisionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void theSmallestNarrowIntegerDividedByMinusOneOverflowsAtItsOwnWidth() {
         assertThatThrownBy(() -> divide(Integer.MIN_VALUE, -1, Expression.Operator.DIVIDE, TypeName.INT32)
                         .evaluateLong(null))

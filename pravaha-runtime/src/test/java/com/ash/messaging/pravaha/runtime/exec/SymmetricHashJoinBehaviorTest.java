@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.runtime.exec;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -134,7 +135,7 @@ class SymmetricHashJoinBehaviorTest {
     }
 
     /** Writes one row of {@code schema} with a string/long-typed value list, and feeds it to {@code into}. */
-    private void feed(RowProcessor into, StreamSchema schema, long weight, long at, Object... values) {
+    private void feed(RowProcessor into, StreamSchema schema, long weight, long at, @Nullable Object... values) {
         RowLayout layout = RowLayout.of(schema);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
         long handle = arena.allocate(layout.rowSize(256));

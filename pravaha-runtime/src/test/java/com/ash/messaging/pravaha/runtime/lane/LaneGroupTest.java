@@ -166,7 +166,8 @@ class LaneGroupTest {
                             long key = region.getLong((int) offsets[i]);
                             // The partition, recomputed on the lane that received the row: if it is
                             // not one this lane owns, the routing and the assignment disagree.
-                            if (!owned.contains(holder.get().virtualPartitionFor(key))) {
+                            if (!owned.contains(java.util.Objects.requireNonNull(holder.get())
+                                    .virtualPartitionFor(key))) {
                                 misrouted.add(key);
                             }
                             rowsPerLane.incrementAndGet(laneId);

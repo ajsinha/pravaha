@@ -21,6 +21,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
@@ -53,13 +55,13 @@ final class CheckpointRestore {
 
     private final List<InterpretedPipeline> pipelines;
     private final LaneGroup lanes;
-    private final Supplier<byte[]> viewSnapshot;
-    private final Consumer<byte[]> viewRestore;
+    private final @Nullable Supplier<byte[]> viewSnapshot;
+    private final @Nullable Consumer<byte[]> viewRestore;
 
     /** Each pipeline's state before the restore; null for one the checkpoint holds nothing for. */
-    private byte[][] before;
+    private byte @Nullable [][] before;
 
-    private byte[] viewBefore;
+    private byte @Nullable [] viewBefore;
 
     /** Whether a part may hold restored state that neither a success nor an undo accounts for. */
     private volatile boolean leftStateBehind;
@@ -67,8 +69,8 @@ final class CheckpointRestore {
     CheckpointRestore(
             List<InterpretedPipeline> pipelines,
             LaneGroup lanes,
-            Supplier<byte[]> viewSnapshot,
-            Consumer<byte[]> viewRestore) {
+            @Nullable Supplier<byte[]> viewSnapshot,
+            @Nullable Consumer<byte[]> viewRestore) {
         this.pipelines = pipelines;
         this.lanes = lanes;
         this.viewSnapshot = viewSnapshot;

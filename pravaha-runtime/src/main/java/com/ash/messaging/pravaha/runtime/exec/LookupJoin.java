@@ -21,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -277,7 +279,7 @@ final class LookupJoin implements RowProcessor {
         cache.put(key, new CacheEntry(rows, System.nanoTime()));
     }
 
-    private List<Object[]> fromCache(KeyValues key) {
+    private @Nullable List<Object[]> fromCache(KeyValues key) {
         if (cacheNanos <= 0) {
             return null;
         }
@@ -301,7 +303,7 @@ final class LookupJoin implements RowProcessor {
     }
 
     /** Writes the record's columns, then the dimension's -- or nulls where there was no match. */
-    private void emit(RowView row, Object[] match) {
+    private void emit(RowView row, Object @Nullable [] match) {
         long handle = arena.allocate(outputLayout.rowSize(1024));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(
@@ -356,7 +358,7 @@ final class LookupJoin implements RowProcessor {
         return new KeyValues(values);
     }
 
-    private Object valueOf(RowView row, int ordinal) {
+    private @Nullable Object valueOf(RowView row, int ordinal) {
         if (row.isNull(ordinal)) {
             return null;
         }
@@ -448,9 +450,9 @@ final class LookupJoin implements RowProcessor {
      */
     private record Pending(
             long handle,
-            KeyValues key,
-            java.util.concurrent.CompletableFuture<List<Object[]>> future,
-            List<Object[]> ready) {
+            @Nullable KeyValues key,
+            java.util.concurrent.@Nullable CompletableFuture<List<Object[]>> future,
+            @Nullable List<Object[]> ready) {
 
         boolean isDone() {
             return future == null || future.isDone();
@@ -465,7 +467,7 @@ final class LookupJoin implements RowProcessor {
         /** The rows, waiting for the lookup if it has not finished. */
         List<Object[]> result() {
             if (future == null) {
-                return ready;
+                return java.util.Objects.requireNonNull(ready, "a pending row holds either a lookup or its rows");
             }
             try {
                 return future.join();

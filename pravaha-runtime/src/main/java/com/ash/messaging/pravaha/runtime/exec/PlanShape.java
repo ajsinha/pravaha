@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
@@ -54,7 +56,7 @@ final class PlanShape {
         return operator.inputs().stream().anyMatch(PlanShape::containsJoin);
     }
 
-    static com.ash.messaging.pravaha.runtime.plan.JoinOperator findJoin(PhysicalOperator operator) {
+    static com.ash.messaging.pravaha.runtime.plan.@Nullable JoinOperator findJoin(PhysicalOperator operator) {
         if (operator instanceof com.ash.messaging.pravaha.runtime.plan.JoinOperator join) {
             return join;
         }

@@ -112,7 +112,8 @@ class LaneExchangeTest {
                     return (region, offsets, count) -> {
                         for (int i = 0; i < count; i++) {
                             long key = region.getLong((int) offsets[i]);
-                            int owner = holder.get().laneFor(key);
+                            int owner = java.util.Objects.requireNonNull(holder.get())
+                                    .laneFor(key);
                             if (owner == laneId) {
                                 if (holder.get().laneFor(key) != laneId) {
                                     misrouted.add(key);
@@ -204,7 +205,8 @@ class LaneExchangeTest {
                     return (region, offsets, count) -> {
                         for (int i = 0; i < count; i++) {
                             long key = region.getLong((int) offsets[i]);
-                            int owner = holder.get().laneFor(key);
+                            int owner = java.util.Objects.requireNonNull(holder.get())
+                                    .laneFor(key);
                             if (owner != laneId) {
                                 forwarding.putLong(0, key);
                                 send(sender, owner, forwarding, 8);

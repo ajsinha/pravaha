@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.plan;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.TypeName;
 
@@ -177,7 +179,8 @@ public sealed interface Expression {
     }
 
     /** A constant. */
-    record Literal(long longValue, double doubleValue, String textValue, TypeName type, boolean isNull)
+    record Literal(
+            long longValue, double doubleValue, @Nullable String textValue, TypeName type, boolean isNull)
             implements Expression {
 
         public static Literal ofLong(long value) {
@@ -207,6 +210,7 @@ public sealed interface Expression {
         }
 
         @Override
+        @SuppressWarnings("NullAway") // called only when isNull(row) is false, and then it is not null
         public String evaluateString(RowView row) {
             return textValue;
         }
@@ -475,7 +479,8 @@ public sealed interface Expression {
      * start to 1 instead -- the obvious-looking fix -- would return four characters and quietly
      * disagree with every other database.
      */
-    record Substring(Expression source, Expression start, Expression length) implements Expression {
+    record Substring(
+            Expression source, Expression start, @Nullable Expression length) implements Expression {
 
         public Substring {
             if (source.type() != TypeName.STRING) {
@@ -843,7 +848,7 @@ public sealed interface Expression {
             }
         }
 
-        private String extract(RowView row) {
+        private @Nullable String extract(RowView row) {
             if (source.isNull(row)) {
                 return null;
             }
@@ -857,6 +862,7 @@ public sealed interface Expression {
         }
 
         @Override
+        @SuppressWarnings("NullAway") // called only when isNull(row) is false, and then it is not null
         public String evaluateString(RowView row) {
             return extract(row);
         }
@@ -924,7 +930,7 @@ public sealed interface Expression {
             }
         }
 
-        private String field(RowView row) {
+        private @Nullable String field(RowView row) {
             if (source.isNull(row)) {
                 return null;
             }
@@ -951,6 +957,7 @@ public sealed interface Expression {
         }
 
         @Override
+        @SuppressWarnings("NullAway") // called only when isNull(row) is false, and then it is not null
         public String evaluateString(RowView row) {
             return field(row);
         }

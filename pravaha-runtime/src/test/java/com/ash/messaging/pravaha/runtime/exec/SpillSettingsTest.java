@@ -30,6 +30,7 @@ class SpillSettingsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void enabledWithNoDirectoryIsRefused() {
         assertThatThrownBy(() -> new SpillSettings(true, "", 512))
                 .isInstanceOf(IllegalArgumentException.class)

@@ -19,6 +19,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 
 /**
@@ -48,7 +50,7 @@ public final class LaneGroup implements AutoCloseable {
     private final List<Lane> lanes;
     private final int[] assignment;
     private final int partitionMask;
-    private final LaneExchange exchange;
+    private final @Nullable LaneExchange exchange;
 
     /**
      * @param laneCount lanes to build. Design section 13.2 sizes this

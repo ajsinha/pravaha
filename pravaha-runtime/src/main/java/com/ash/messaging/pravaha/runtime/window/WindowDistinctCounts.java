@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.window;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
@@ -45,7 +47,11 @@ final class WindowDistinctCounts implements AutoCloseable {
     private MemoryRegion scratch;
 
     WindowDistinctCounts(
-            int columns, MemoryAccess access, int ramMaxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
+            int columns,
+            MemoryAccess access,
+            int ramMaxSlabs,
+            @Nullable MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         this.columns = columns;
         this.access = access;
         this.counts = new VariableKeyStateMap(

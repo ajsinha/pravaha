@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.state;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 
@@ -73,7 +75,7 @@ final class SlotTable implements AutoCloseable {
      *     overflow}. Ignored when {@code overflow} is {@code null}: every segment is then RAM
      */
     static SlotTable allocate(
-            int capacity, int segmentSlots, MemoryAccess ram, long ramBudgetBytes, MemoryAccess overflow) {
+            int capacity, int segmentSlots, MemoryAccess ram, long ramBudgetBytes, @Nullable MemoryAccess overflow) {
         int perSegment = Math.min(capacity, segmentSlots);
         int count = capacity / perSegment;
         int segmentBytes = perSegment * SLOT_BYTES;
@@ -87,7 +89,8 @@ final class SlotTable implements AutoCloseable {
                     segments[i].setMemory(0, segmentBytes, (byte) 0);
                 } else {
                     // A new sparse file: zero, i.e. every slot empty, without a byte written.
-                    segments[i] = overflow.allocate(segmentBytes, MemoryAccess.CACHE_LINE_BYTES);
+                    segments[i] = java.util.Objects.requireNonNull(overflow)
+                            .allocate(segmentBytes, MemoryAccess.CACHE_LINE_BYTES);
                     mapped += segmentBytes;
                 }
             }

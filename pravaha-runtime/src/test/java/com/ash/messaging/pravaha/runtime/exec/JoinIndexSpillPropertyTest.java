@@ -214,7 +214,7 @@ class JoinIndexSpillPropertyTest {
         long now = ids.merge(id, weight, Long::sum);
         if (now == 0) {
             ids.remove(id);
-            int at = heldAt.remove(id);
+            int at = java.util.Objects.requireNonNull(heldAt.remove(id));
             long[] last = held.remove(held.size() - 1);
             if (at < held.size()) {
                 held.set(at, last);

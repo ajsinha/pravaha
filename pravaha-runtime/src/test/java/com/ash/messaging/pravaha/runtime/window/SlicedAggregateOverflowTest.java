@@ -200,6 +200,9 @@ class SlicedAggregateOverflowTest {
         List<SlicedAggregateState.WindowResult> results = state.fire(10 * SECOND);
         // Same digest, different key columns: two groups, because the columns are the identity.
         assertThat(results).hasSize(2);
-        assertThat(results.stream().map(r -> r.keyValues()[0]).toList()).containsExactlyInAnyOrder(a, b);
+        assertThat(results.stream()
+                        .map(r -> java.util.Objects.requireNonNull(r.keyValues())[0])
+                        .toList())
+                .containsExactlyInAnyOrder(a, b);
     }
 }

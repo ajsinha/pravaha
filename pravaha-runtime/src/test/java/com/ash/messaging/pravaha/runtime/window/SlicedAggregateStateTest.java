@@ -52,7 +52,7 @@ class SlicedAggregateStateTest {
         List<SlicedAggregateState.WindowResult> results = state.fire(10 * SECOND);
 
         assertThat(results).hasSize(2);
-        assertThat(results.get(0).keyValues()[0])
+        assertThat(java.util.Objects.requireNonNull(results.get(0).keyValues())[0])
                 .as("results carry the group's own value; the digest is an implementation detail")
                 .isEqualTo(1L);
         assertThat(results.get(0).values()).containsExactly(2, 300);
@@ -110,7 +110,7 @@ class SlicedAggregateStateTest {
                         // Identified by the key value the accumulator carries, not by a digest of
                         // it: the digest is an implementation detail and a test that reaches for it
                         // is testing the hash rather than the aggregate.
-                        .filter(result -> ((Long) result.keyValues()[0]) == finalKey)
+                        .filter(result -> ((Long) java.util.Objects.requireNonNull(result.keyValues())[0]) == finalKey)
                         .findFirst();
 
                 long finalExpectedCount = expectedCount;
@@ -349,7 +349,9 @@ class SlicedAggregateStateTest {
                 .isEqualTo(2);
         java.util.Map<Object, List<Long>> byGroup = new java.util.TreeMap<>();
         for (SlicedAggregateState.WindowResult result : state.fire(10 * SECOND)) {
-            byGroup.put(result.keyValues()[0], List.of(result.values()[0], result.values()[1]));
+            byGroup.put(
+                    java.util.Objects.requireNonNull(result.keyValues())[0],
+                    List.of(result.values()[0], result.values()[1]));
         }
         assertThat(byGroup)
                 .containsExactly(

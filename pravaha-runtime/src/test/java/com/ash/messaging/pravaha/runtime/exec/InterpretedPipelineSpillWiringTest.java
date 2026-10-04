@@ -123,7 +123,7 @@ class InterpretedPipelineSpillWiringTest {
     }
 
     private static void feed(RowArena arena, InterpretedPipeline pipeline, StreamSchema schema, List<Object> values) {
-        RowLayout layout = RowLayout.of(schema);
+        RowLayout layout = RowLayout.of(java.util.Objects.requireNonNull(schema));
         BinaryRowWriter writer = new BinaryRowWriter(layout);
         long handle = arena.allocate(layout.rowSize(128));
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
@@ -137,7 +137,9 @@ class InterpretedPipelineSpillWiringTest {
         }
         writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
-        pipeline.accept(schema.name(), new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        pipeline.accept(
+                java.util.Objects.requireNonNull(schema).name(),
+                new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle)));
     }
 
     /** A minimal {@link RowWriter} that reports the joined row's first column (the left id) and

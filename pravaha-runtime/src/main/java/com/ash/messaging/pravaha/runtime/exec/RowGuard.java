@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
@@ -40,7 +42,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  */
 final class RowGuard {
 
-    private volatile RowFailureSink sink;
+    private volatile @Nullable RowFailureSink sink;
 
     /** Whether the row in hand has reached an operator that holds state. */
     private boolean crossed;

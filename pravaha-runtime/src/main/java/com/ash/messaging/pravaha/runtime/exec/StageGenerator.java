@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.exec;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 
 /**
@@ -37,7 +39,7 @@ public interface StageGenerator {
     Outcome generate(PhysicalOperator root);
 
     /** A compiled stage with what the generator said about it, or no stage and the reason. */
-    record Outcome(GeneratedRowStage stage, String reason) {
+    record Outcome(@Nullable GeneratedRowStage stage, String reason) {
 
         public static Outcome refused(String reason) {
             return new Outcome(null, reason);

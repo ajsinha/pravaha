@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.ingest;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -284,7 +286,7 @@ public final class PartitionedIngestPump implements AutoCloseable {
      * Names the query this pump feeds, so a lane several of them share can say whose writer waited.
      * Set once, at wiring time.
      */
-    public PartitionedIngestPump attributedTo(String name) {
+    public PartitionedIngestPump attributedTo(@Nullable String name) {
         this.queryId = name == null ? "" : name;
         return this;
     }

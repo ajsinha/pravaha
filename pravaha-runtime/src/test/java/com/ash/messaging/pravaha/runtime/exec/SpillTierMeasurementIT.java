@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -175,7 +176,7 @@ class SpillTierMeasurementIT {
             double compactionMillis,
             int slabsReleased) {}
 
-    private JoinRun runJoin(long rows, int ramSlabs, MappedFileMemoryAccess overflow, Path spillDir)
+    private JoinRun runJoin(long rows, int ramSlabs, @Nullable MappedFileMemoryAccess overflow, @Nullable Path spillDir)
             throws IOException {
         long[] pairs = {0};
         RowProcessor sink = row -> pairs[0]++;
@@ -215,12 +216,12 @@ class SpillTierMeasurementIT {
             assertThat(join.rowsHeldLeft()).isEqualTo(rows - retracted);
 
             SpillStatistics before = join.spillStatistics();
-            long diskBefore = overflow == null ? 0 : du(spillDir);
+            long diskBefore = overflow == null ? 0 : du(java.util.Objects.requireNonNull(spillDir));
             start = System.nanoTime();
             int released = overflow == null ? 0 : join.compactIfFragmented(0.5);
             double compactionMillis = (System.nanoTime() - start) / 1e6;
             SpillStatistics after = join.spillStatistics();
-            long diskAfter = overflow == null ? 0 : du(spillDir);
+            long diskAfter = overflow == null ? 0 : du(java.util.Objects.requireNonNull(spillDir));
 
             // Every row still held still matches, after the compaction moved it.
             pairs[0] = 0;
@@ -317,7 +318,8 @@ class SpillTierMeasurementIT {
             int slabsReleased,
             boolean spilled) {}
 
-    private AggregateRun runAggregate(long accumulators, int maxSlices, MappedFileMemoryAccess overflow, Path dir)
+    private AggregateRun runAggregate(
+            long accumulators, int maxSlices, @Nullable MappedFileMemoryAccess overflow, @Nullable Path dir)
             throws IOException {
         SlicedWindows windows = new SlicedWindows(WindowSpec.tumbling(10 * SECOND));
         long groups = accumulators / SLICES;
@@ -379,12 +381,12 @@ class SpillTierMeasurementIT {
             // The churn a windowed aggregate always has: the watermark passes three of four slices.
             state.discardSlicesEndingBefore(30 * SECOND, 0);
             SpillStatistics before = state.spillStatistics();
-            long diskBefore = overflow == null ? 0 : du(dir);
+            long diskBefore = overflow == null ? 0 : du(java.util.Objects.requireNonNull(dir));
             start = System.nanoTime();
             int released = overflow == null ? 0 : state.compactIfFragmented(0.5);
             double compactionMillis = (System.nanoTime() - start) / 1e6;
             SpillStatistics after = state.spillStatistics();
-            long diskAfter = overflow == null ? 0 : du(dir);
+            long diskAfter = overflow == null ? 0 : du(java.util.Objects.requireNonNull(dir));
             assertThat(state.fire(40 * SECOND)).hasSize((int) groups);
             return new AggregateRun(
                     accumulators,

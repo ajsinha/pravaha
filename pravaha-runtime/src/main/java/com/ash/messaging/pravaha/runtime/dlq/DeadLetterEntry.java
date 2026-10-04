@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.dlq;
 import java.time.Instant;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A dead letter as a reader sees it: the record, where it sits in the file, and what has been done
  * with it.
@@ -34,7 +36,11 @@ import java.util.Optional;
  * @param replay what has happened to it since
  * @param replayedAt when that was, or null for an entry nobody has touched
  */
-public record DeadLetterEntry(long sequence, DeadLetter letter, Replay replay, Instant replayedAt) {
+public record DeadLetterEntry(
+        long sequence,
+        DeadLetter letter,
+        Replay replay,
+        @Nullable Instant replayedAt) {
 
     /** What has been done with an entry. */
     public enum Replay {

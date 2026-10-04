@@ -19,6 +19,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What an operator is holding, read back as text for somebody looking at it (ADR-048).
  *
@@ -59,7 +61,13 @@ public final class OperatorState {
 
     /** A page of one operator's state: bounded, and honest about how much it did not show. */
     public record Page(
-            String id, String kind, String keyFilter, int offset, int limit, long total, List<Entry> entries) {
+            String id,
+            String kind,
+            @Nullable String keyFilter,
+            int offset,
+            int limit,
+            long total,
+            List<Entry> entries) {
 
         public Page {
             entries = List.copyOf(entries);

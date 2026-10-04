@@ -20,6 +20,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -107,7 +109,7 @@ public final class Lane implements AutoCloseable {
     }
 
     private final LaneContext context;
-    private final LaneExchange exchange;
+    private final @Nullable LaneExchange exchange;
     private final Thread thread;
     private final LongAdder rejectedOffers = new LongAdder();
 
@@ -188,7 +190,7 @@ public final class Lane implements AutoCloseable {
 
     private volatile boolean running;
     private volatile State state = State.NEW;
-    private volatile Throwable failure;
+    private volatile @Nullable Throwable failure;
     private volatile boolean inBatch;
 
     /** Whether a thread of this lane's own runs the loop, or a shared runner steps it. */
@@ -210,8 +212,12 @@ public final class Lane implements AutoCloseable {
     // lane can be stepped by a thread it does not own. Touched only by the thread currently pumping
     // this lane, which is the confinement the whole class rests on; the volatile counters above are
     // the copies other threads are allowed to read.
+    @SuppressWarnings("NullAway.Init") // allocated when the lane starts, before its loop reads it
     private long[] batch;
+
+    @SuppressWarnings("NullAway.Init") // allocated when the lane starts, before its loop reads it
     private long[] room;
+
     private long mark;
     private int idle;
     private long localRowsIn;
@@ -252,7 +258,7 @@ public final class Lane implements AutoCloseable {
             MemoryAccess access,
             int[] virtualPartitions,
             LaneProcessorFactory factory,
-            LaneExchange exchange) {
+            @Nullable LaneExchange exchange) {
         this(laneId, config, access, virtualPartitions, factory, exchange, 1);
     }
 
@@ -268,7 +274,7 @@ public final class Lane implements AutoCloseable {
             MemoryAccess access,
             int[] virtualPartitions,
             LaneProcessorFactory factory,
-            LaneExchange exchange,
+            @Nullable LaneExchange exchange,
             int inputs) {
         this.laneId = laneId;
         this.exchange = exchange;

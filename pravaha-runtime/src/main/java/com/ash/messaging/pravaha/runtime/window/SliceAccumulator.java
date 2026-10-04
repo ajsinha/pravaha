@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.window;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A temporary, on-heap copy of one accumulator -- what a window's slices are combined into when it
  * fires, and what a checkpoint entry is read through. The live state is never one of these: it is
@@ -33,7 +35,8 @@ final class SliceAccumulator {
      */
     final long[] nonNull;
 
-    Object[] keyValues;
+    Object @Nullable [] keyValues;
+
     long count;
 
     SliceAccumulator(int columns) {

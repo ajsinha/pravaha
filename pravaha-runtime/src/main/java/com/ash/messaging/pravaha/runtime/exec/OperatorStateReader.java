@@ -82,6 +82,7 @@ public final class OperatorStateReader {
         if (failure != null) {
             throw failure;
         }
-        return answer.get();
+        // The task ran (awaited above) and did not fail, so it set the answer.
+        return java.util.Objects.requireNonNull(answer.get());
     }
 }

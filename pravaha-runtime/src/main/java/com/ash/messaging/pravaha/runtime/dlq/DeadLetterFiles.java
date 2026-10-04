@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.dlq;
 
 import java.nio.file.Path;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What a query's dead-letter files are called, in the one place both ends agree on it.
  *
@@ -53,7 +55,7 @@ public final class DeadLetterFiles {
     }
 
     /** The query a {@code .dlq} file belongs to, or null when the file is not one. */
-    public static String queryOf(Path file) {
+    public static @Nullable String queryOf(Path file) {
         String name = file.getFileName().toString();
         return name.endsWith(EXTENSION) ? name.substring(0, name.length() - EXTENSION.length()) : null;
     }

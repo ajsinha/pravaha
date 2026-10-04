@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
@@ -322,7 +324,7 @@ final class GlobalAggregate implements RowProcessor {
             return;
         }
         if (emittedBefore) {
-            writeResult(previous, -1L);
+            writeResult(java.util.Objects.requireNonNull(previous, "set when it was emitted"), -1L);
         }
         AggregateSlots.Answer current = currentValues();
         writeResult(current, 1L);
@@ -330,7 +332,7 @@ final class GlobalAggregate implements RowProcessor {
         emittedBefore = true;
     }
 
-    private AggregateSlots.Answer previous;
+    private AggregateSlots.@Nullable Answer previous;
     private boolean emittedBefore;
 
     /**
@@ -494,7 +496,8 @@ final class GlobalAggregate implements RowProcessor {
         // A published answer with a NULL in it (ALLNULLAGG-1) is marked by the count written
         // bitwise inverted, and its null flags follow its values. Without one the bytes are what they
         // were, and a checkpoint from before the flags reads as an answer with no NULL.
-        boolean withNulls = emittedBefore && previous.anyNull();
+        boolean withNulls =
+                emittedBefore && java.util.Objects.requireNonNull(previous).anyNull();
         out.writeInt(withNulls ? ~n : n);
         out.writeLong(rowCount);
         out.writeLong(lastTimestamp);
@@ -507,7 +510,8 @@ final class GlobalAggregate implements RowProcessor {
         }
         out.writeBoolean(emittedBefore);
         if (emittedBefore) {
-            previous.writeValues(out);
+            java.util.Objects.requireNonNull(previous, "set when it was emitted")
+                    .writeValues(out);
             if (withNulls) {
                 previous.writeNulls(out);
             }
@@ -607,7 +611,7 @@ final class GlobalAggregate implements RowProcessor {
         }
     }
 
-    static java.util.Set<Object> readDistinct(java.io.DataInput in) throws java.io.IOException {
+    static java.util.@Nullable Set<Object> readDistinct(java.io.DataInput in) throws java.io.IOException {
         int size = in.readInt();
         if (size == NO_SET) {
             return null;

@@ -210,6 +210,7 @@ final class ControlTaskBarrierTest {
 
     @Test
     @Timeout(180)
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void everyInputOfAJoinIsCutAtItsOwnMarker() throws Exception {
         AtomicBoolean stop = new AtomicBoolean();
         Thread[] load = startContention(stop);

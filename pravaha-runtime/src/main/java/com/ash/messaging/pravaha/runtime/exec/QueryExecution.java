@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -83,14 +85,14 @@ public final class QueryExecution implements AutoCloseable {
      * this execution contributed one pipeline to each. Closing removes those pipelines and leaves
      * every lane running.
      */
-    private final String hostedQueryId;
+    private final @Nullable String hostedQueryId;
 
     /**
      * The route each input's rows carry on a shared lane, or null when the lanes are this query's
      * own (LANE-2). What this execution is fed on its own is stamped with these, so a shared lane
      * hands it to this query alone. See {@link com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer}.
      */
-    private final int[] hostedRoutes;
+    private final int @Nullable [] hostedRoutes;
 
     private final List<InterpretedPipeline> pipelines;
     private final List<String> streams;
@@ -109,9 +111,9 @@ public final class QueryExecution implements AutoCloseable {
      * itself, or that is reading a bounded source and relying on {@code finish()}, keeps the old
      * behaviour and pays nothing.
      */
-    private WatermarkTracker watermarks;
+    private @Nullable WatermarkTracker watermarks;
 
-    private Supplier<WatermarkGenerator> generator;
+    private @Nullable Supplier<WatermarkGenerator> generator;
 
     /** Concurrent, because a partition added while the query runs joins while the tick walks it. */
     private final Map<String, AtomicLong> partitionHighWater = new java.util.concurrent.ConcurrentHashMap<>();
@@ -127,7 +129,7 @@ public final class QueryExecution implements AutoCloseable {
      */
     private final Map<String, Long> lastReportedHighWater = new LinkedHashMap<>();
 
-    private java.util.concurrent.ScheduledFuture<?> watermarkClock;
+    private java.util.concurrent.@Nullable ScheduledFuture<?> watermarkClock;
     private final PhysicalOperator plan;
     private final MemoryAccess access;
 
@@ -146,8 +148,8 @@ public final class QueryExecution implements AutoCloseable {
             List<String> streams,
             PhysicalOperator plan,
             MemoryAccess access,
-            String hostedQueryId,
-            int[] hostedRoutes) {
+            @Nullable String hostedQueryId,
+            int @Nullable [] hostedRoutes) {
         this.hostedQueryId = hostedQueryId;
         this.hostedRoutes = hostedRoutes;
         this.streams = List.copyOf(streams);
@@ -206,7 +208,7 @@ public final class QueryExecution implements AutoCloseable {
             MemoryAccess access,
             Supplier<RowOutput> sinkPerLane,
             Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
-            com.ash.messaging.pravaha.runtime.lane.LaneRunner runner) {
+            com.ash.messaging.pravaha.runtime.lane.@Nullable LaneRunner runner) {
         return start(plan, laneCount, config, access, sinkPerLane, lookups, runner, false);
     }
 
@@ -226,7 +228,7 @@ public final class QueryExecution implements AutoCloseable {
             MemoryAccess access,
             Supplier<RowOutput> sinkPerLane,
             Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
-            com.ash.messaging.pravaha.runtime.lane.LaneRunner runner,
+            com.ash.messaging.pravaha.runtime.lane.@Nullable LaneRunner runner,
             boolean measureOperators) {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
@@ -329,7 +331,7 @@ public final class QueryExecution implements AutoCloseable {
      * null when the lanes are this query's own and a shared reader writes into them as it always did
      * (LANE-2). See {@link SharedLaneInput}.
      */
-    public SharedLaneInput sharedLaneInput(String streamName) {
+    public @Nullable SharedLaneInput sharedLaneInput(String streamName) {
         int input = streams.indexOf(streamName);
         if (hostedRoutes == null || input < 0 || lanes.laneCount() != 1) {
             return null;
@@ -338,7 +340,7 @@ public final class QueryExecution implements AutoCloseable {
         return new SharedLaneInput(
                 lane,
                 (com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer) lane.processor(),
-                hostedQueryId,
+                java.util.Objects.requireNonNull(hostedQueryId, "a hosted execution is named"),
                 input,
                 pipelines.get(0).inputSchema(streamName));
     }
@@ -586,7 +588,7 @@ public final class QueryExecution implements AutoCloseable {
      *     over the lanes; the default in {@link #generatingWatermarks(Supplier)} is a second
      */
     public QueryExecution generatingWatermarks(
-            Supplier<WatermarkGenerator> generator, Duration idleAfter, Duration tick) {
+            @Nullable Supplier<WatermarkGenerator> generator, Duration idleAfter, Duration tick) {
         if (watermarks != null) {
             throw new IllegalStateException("this execution already derives watermarks");
         }
@@ -673,7 +675,9 @@ public final class QueryExecution implements AutoCloseable {
         try {
             long now = System.nanoTime();
             long watermark;
-            synchronized (watermarks) {
+            WatermarkTracker tracker =
+                    java.util.Objects.requireNonNull(watermarks, "ticking only once generatingWatermarks set it");
+            synchronized (tracker) {
                 // Feed the tracker what each partition has seen since the last tick, on this thread.
                 // A partition that produced nothing contributes nothing and, after the idle timeout,
                 // stops holding the watermark back.
@@ -686,10 +690,10 @@ public final class QueryExecution implements AutoCloseable {
                     // and the tracker reads every report as a sign of life.
                     Long previous = lastReportedHighWater.put(partition, seen);
                     if (previous == null || previous != seen) {
-                        watermarks.observe(partition, seen, now);
+                        tracker.observe(partition, seen, now);
                     }
                 });
-                watermark = watermarks.advance(now);
+                watermark = tracker.advance(now);
             }
             if (watermark != Long.MIN_VALUE) {
                 advanceWatermark(watermark);
@@ -1103,9 +1107,9 @@ public final class QueryExecution implements AutoCloseable {
      */
     public static final String SOURCE_OF_PARTITION_PREFIX = IngestSources.SOURCE_OF_PREFIX;
 
-    private java.util.function.Supplier<byte[]> viewSnapshot;
+    private java.util.function.@Nullable Supplier<byte[]> viewSnapshot;
 
-    private java.util.function.Consumer<byte[]> viewRestore;
+    private java.util.function.@Nullable Consumer<byte[]> viewRestore;
 
     /**
      * Includes a served view's committed contents in this execution's checkpoints.
@@ -1126,7 +1130,7 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
-    private java.util.function.Consumer<byte[]> viewCheck;
+    private java.util.function.@Nullable Consumer<byte[]> viewCheck;
 
     /**
      * Refuses a checkpoint whose view this query cannot restore, before any lane is restored.
@@ -1164,7 +1168,7 @@ public final class QueryExecution implements AutoCloseable {
         Map<String, byte[]> cut(long checkpointId);
     }
 
-    private OutputCut outputCut;
+    private @Nullable OutputCut outputCut;
 
     /**
      * Cuts this query's output at the checkpoint's marker rather than wherever the view's commits
@@ -1406,7 +1410,7 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /** The last restore attempted, which is what {@link #forgetRestoredState} undoes; null for none. */
-    private CheckpointRestore restoring;
+    private @Nullable CheckpointRestore restoring;
 
     /**
      * Puts every lane's state, and the view, back to what they held before the last {@link #restore}

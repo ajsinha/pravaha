@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.function.LongSupplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowView;
 
 /**
@@ -79,7 +81,7 @@ public final class OperatorMetrics {
      * QueryExecution.stateUsage} already is: every supplier here reads a counter the operator
      * maintains, never a walk of the state itself.
      */
-    private volatile LongSupplier stateBytes;
+    private volatile @Nullable LongSupplier stateBytes;
 
     OperatorMetrics(String nodeId, String operator, String detail) {
         this.nodeId = nodeId;
@@ -203,8 +205,8 @@ public final class OperatorMetrics {
             String detail,
             long rowsIn,
             long rowsOut,
-            Long stateBytes,
-            Long watermarkNanos,
+            @Nullable Long stateBytes,
+            @Nullable Long watermarkNanos,
             long selfNanos,
             long sampledRows) {
 
@@ -229,7 +231,7 @@ public final class OperatorMetrics {
                     sampledRows + other.sampledRows);
         }
 
-        private static long orZero(Long value) {
+        private static long orZero(@Nullable Long value) {
             return value == null ? 0 : value;
         }
 

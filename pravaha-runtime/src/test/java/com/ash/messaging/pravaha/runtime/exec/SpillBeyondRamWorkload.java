@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.common.arena.RowArena;
@@ -496,7 +498,7 @@ public final class SpillBeyondRamWorkload {
         }
     }
 
-    static Path cgroupPath() {
+    static @Nullable Path cgroupPath() {
         for (String line : read(Path.of("/proc/self/cgroup")).lines().toList()) {
             if (line.startsWith("0::")) {
                 return Path.of("/sys/fs/cgroup" + line.substring(3).trim());
