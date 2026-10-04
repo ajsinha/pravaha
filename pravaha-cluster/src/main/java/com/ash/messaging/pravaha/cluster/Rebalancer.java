@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -63,7 +65,7 @@ public final class Rebalancer {
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile long lastFinishedNanos = Long.MIN_VALUE;
 
-    public Rebalancer(Function<Member, PartitionOwner> owners, Consumer<String> log) {
+    public Rebalancer(Function<Member, PartitionOwner> owners, @Nullable Consumer<String> log) {
         this(owners, DEFAULT_PAUSE_BUDGET, DEFAULT_COOLDOWN, log);
     }
 
@@ -75,7 +77,10 @@ public final class Rebalancer {
      * @param cooldown how long to refuse a new rebalance after one finishes
      */
     public Rebalancer(
-            Function<Member, PartitionOwner> owners, Duration pauseBudget, Duration cooldown, Consumer<String> log) {
+            Function<Member, PartitionOwner> owners,
+            Duration pauseBudget,
+            @Nullable Duration cooldown,
+            @Nullable Consumer<String> log) {
         this.owners = owners;
         this.pauseBudget = pauseBudget;
         this.cooldown = cooldown == null ? Duration.ZERO : cooldown;

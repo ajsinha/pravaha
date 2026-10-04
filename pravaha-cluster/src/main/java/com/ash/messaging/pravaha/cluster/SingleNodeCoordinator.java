@@ -20,6 +20,8 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A cluster of one, which is always its own leader.
  *
@@ -41,7 +43,7 @@ public final class SingleNodeCoordinator implements ClusterCoordinator, LeaseGra
     private final List<Consumer<List<Member>>> membershipListeners = new CopyOnWriteArrayList<>();
     private final PartitionLeaseCoordinator leases = new InMemoryPartitionLeaseCoordinator();
 
-    private volatile Member self;
+    private volatile @Nullable Member self;
 
     @Override
     public String mechanism() {

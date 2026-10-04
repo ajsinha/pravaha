@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -45,9 +46,9 @@ class PartitionHandoffTest {
     private static final class RecordingOwner implements PartitionOwner {
         private final String node;
         private final List<String> calls;
-        private RuntimeException failOn;
-        private String failingMethod;
-        private PartitionSnapshot snapshotToReturn;
+        private @Nullable RuntimeException failOn;
+        private @Nullable String failingMethod;
+        private @Nullable PartitionSnapshot snapshotToReturn;
 
         RecordingOwner(String node, List<String> calls) {
             this.node = node;

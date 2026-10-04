@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.connect;
 
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -34,6 +35,8 @@ class PluginRegistryTest {
     static final class FakePlugin implements PravahaPlugin {
         final String name;
         boolean closed;
+
+        @Nullable
         RuntimeException closeFailure;
 
         FakePlugin(String name) {

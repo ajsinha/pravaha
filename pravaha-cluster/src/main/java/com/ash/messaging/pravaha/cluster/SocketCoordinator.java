@@ -39,6 +39,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -74,12 +76,12 @@ public final class SocketCoordinator implements ClusterCoordinator {
     private final List<Consumer<List<Member>>> membershipListeners = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean();
 
-    private volatile Member self;
+    private volatile @Nullable Member self;
     private volatile Optional<Member> leader = Optional.empty();
     private volatile List<Member> reachable = List.of();
-    private ServerSocket listener;
-    private ScheduledExecutorService beats;
-    private Thread accepting;
+    private @Nullable ServerSocket listener;
+    private @Nullable ScheduledExecutorService beats;
+    private @Nullable Thread accepting;
 
     /**
      * @param peers every node in the cluster, including this one. Static: there is no discovery,
@@ -150,14 +152,15 @@ public final class SocketCoordinator implements ClusterCoordinator {
 
     private void acceptLoop() {
         while (running.get()) {
-            try (Socket socket = listener.accept();
+            try (Socket socket = java.util.Objects.requireNonNull(listener).accept();
                     BufferedReader in =
                             new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
                     PrintWriter out = new PrintWriter(
                             new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true)) {
                 String line = in.readLine();
                 if (line != null && line.startsWith(PING)) {
-                    out.println(PONG + " " + self.id());
+                    out.println(
+                            PONG + " " + java.util.Objects.requireNonNull(self).id());
                 }
             } catch (IOException e) {
                 if (running.get()) {
@@ -218,7 +221,7 @@ public final class SocketCoordinator implements ClusterCoordinator {
                             new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
                     BufferedReader in = new BufferedReader(
                             new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
-                out.println(PING + " " + self.id());
+                out.println(PING + " " + java.util.Objects.requireNonNull(self).id());
                 String reply = in.readLine();
                 return reply != null && reply.startsWith(PONG);
             }
