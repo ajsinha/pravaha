@@ -421,4 +421,49 @@ class JdbcClientTest {
         }
         return DriverManager.getConnection(url, props);
     }
+
+    /**
+     * DECPARAM-1: {@code price > ?} over a DECIMAL column was refused PRV-2021 for a decimal and for an
+     * integer alike. Both compare exactly now -- a value with more places than the column too -- and a
+     * double is refused rather than read as the decimal nearest to it.
+     */
+    @Test
+    void aDecimalParameterComparesExactlyOverTheExtendedProtocol() throws Exception {
+        StreamSchema prices = StreamSchema.builder("prices")
+                .field("sku", Types.string())
+                .field("price", Types.decimal(10, 2))
+                .build();
+        ServedView view = new ServedView("prices", prices, List.of(0), 1_000);
+        view.applyValues(new Object[] {"a", new java.math.BigDecimal("9.99")}, 1, 10);
+        view.applyValues(new Object[] {"b", new java.math.BigDecimal("19.98")}, 1, 10);
+        view.applyValues(new Object[] {"c", new java.math.BigDecimal("29.97")}, 1, 10);
+        view.commit(10);
+        server = new PravahaPgWireServer(new ViewCatalog().register(view)).start("127.0.0.1", 0);
+
+        try (Connection conn = connectExtended(server.port(), null);
+                PreparedStatement ps = conn.prepareStatement("SELECT sku FROM prices WHERE price > ?")) {
+            ps.setBigDecimal(1, new java.math.BigDecimal("19.98"));
+            assertThat(skus(ps)).containsExactly("c");
+            ps.setInt(1, 19);
+            assertThat(skus(ps)).containsExactlyInAnyOrder("b", "c");
+            ps.setBigDecimal(1, new java.math.BigDecimal("19.979"));
+            assertThat(skus(ps))
+                    .as("more places than the column, compared exactly")
+                    .containsExactlyInAnyOrder("b", "c");
+            ps.setNull(1, java.sql.Types.NUMERIC);
+            assertThat(skus(ps)).as("x > NULL is unknown for every row").isEmpty();
+            ps.setDouble(1, 19.98);
+            assertThatThrownBy(() -> skus(ps)).hasMessageContaining("PRV-2062");
+        }
+    }
+
+    private static List<String> skus(PreparedStatement ps) throws java.sql.SQLException {
+        List<String> skus = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                skus.add(rs.getString(1));
+            }
+        }
+        return skus;
+    }
 }

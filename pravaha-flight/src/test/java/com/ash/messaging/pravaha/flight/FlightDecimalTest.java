@@ -182,4 +182,50 @@ class FlightDecimalTest {
             assertThat(((DecimalVector) root.getVector("amount")).getObject(0)).isEqualTo(new BigDecimal("7.00"));
         }
     }
+
+    /**
+     * DECPARAM-1: a placeholder compared with a DECIMAL column was refused PRV-2021 ("'?0' is a
+     * RexDynamicParam") on every transport. It is declared at the column's own precision and scale,
+     * and compared exactly.
+     */
+    @Test
+    void aDecimalParameterIsDeclaredAtTheColumnsTypeAndComparedExactly() throws Exception {
+        try (FlightSqlClient.PreparedStatement statement =
+                client.prepare("SELECT entry_id FROM ledger WHERE amount > ?")) {
+            assertThat(statement.getParameterSchema().getFields().get(0).getType())
+                    .isEqualTo(new ArrowType.Decimal(18, 2, 128));
+            assertThat(bindAndRead(statement, new BigDecimal("0.00"))).containsExactlyInAnyOrder("e1", "e4");
+            assertThat(bindAndRead(statement, new BigDecimal("-0.01"))).containsExactlyInAnyOrder("e1", "e3", "e4");
+        }
+        try (FlightSqlClient.PreparedStatement statement =
+                client.prepare("SELECT entry_id FROM ledger WHERE ? = amount")) {
+            assertThat(bindAndRead(statement, new BigDecimal("2.50"))).containsExactly("e4");
+        }
+    }
+
+    private List<String> bindAndRead(FlightSqlClient.PreparedStatement statement, BigDecimal value) throws Exception {
+        try (VectorSchemaRoot parameters = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
+            DecimalVector bound = (DecimalVector) parameters.getVector(0);
+            bound.allocateNew();
+            bound.setSafe(0, value);
+            bound.setValueCount(1);
+            parameters.setRowCount(1);
+            statement.setParameters(parameters);
+            List<String> ids = new ArrayList<>();
+            FlightInfo info = statement.execute();
+            try (FlightStream stream =
+                    client.getStream(info.getEndpoints().get(0).getTicket())) {
+                while (stream.next()) {
+                    for (int i = 0; i < stream.getRoot().getRowCount(); i++) {
+                        ids.add(stream.getRoot()
+                                .getVector("entry_id")
+                                .getObject(i)
+                                .toString());
+                    }
+                }
+            }
+            statement.clearParameters();
+            return ids;
+        }
+    }
 }

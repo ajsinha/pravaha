@@ -455,7 +455,7 @@ final class PgTypes {
             // meaning.
             case INT8, INT16, INT32, INT64 -> Long.parseLong(trimmed);
             case FLOAT32, FLOAT64 -> Double.parseDouble(trimmed);
-            case DECIMAL -> new BigDecimal(trimmed);
+            case DECIMAL -> decimalText(trimmed);
             case STRING -> text;
             case DATE -> LocalDate.parse(trimmed).toEpochDay();
             case TIMESTAMP_LTZ -> parseTimestamp(trimmed);
@@ -463,6 +463,18 @@ final class PgTypes {
                 throw new PravahaException(
                         PgWireErrors.UNSUPPORTED_TYPE, typeName + " has no PostgreSQL text decoding in this gateway.");
         };
+    }
+
+    /** A text {@code numeric} as the exact decimal it spells; {@code NaN} and infinities have none. */
+    private static BigDecimal decimalText(String text) {
+        try {
+            return new BigDecimal(text);
+        } catch (NumberFormatException notANumber) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.PARAMETER_TYPE,
+                    "'" + text + "' is bound where the query needs a DECIMAL, and is not a decimal number",
+                    notANumber);
+        }
     }
 
     private static boolean decodeBooleanText(String text) {
@@ -526,12 +538,14 @@ final class PgTypes {
             case STRING -> new String(bytes, StandardCharsets.UTF_8);
             case DATE -> readInt(bytes, 4) + POSTGRES_EPOCH_DAYS;
             case TIMESTAMP_LTZ -> Math.multiplyExact(readInt(bytes, 8) + POSTGRES_EPOCH_DAYS * MICROS_PER_DAY, 1_000L);
+            // DECPARAM-1: psycopg's binary Decimal, Npgsql's decimal, pgjdbc's setBigDecimal in binary.
+            case DECIMAL -> numericFromBinary(bytes);
             default ->
                 throw new PravahaException(
                         PgWireErrors.UNSUPPORTED_WIRE_FORMAT,
                         "a binary-format " + typeName + " parameter was sent, and this gateway only decodes "
                                 + "binary for the fixed-width primitive types (booleans, integers, floats, "
-                                + "text, date, timestamptz). Bind it as text instead -- every client this "
+                                + "numeric, text, date, timestamptz). Bind it as text instead -- every client this "
                                 + "server has been driven by defaults to text unless told otherwise.");
         };
     }
@@ -568,6 +582,8 @@ final class PgTypes {
                     yield value;
                 }
                 case FLOAT64 -> declaredWidth <= 4 ? (Object) (double) readInt(bytes, declaredWidth) : null;
+                // An integer is a decimal exactly, at scale 0.
+                case DECIMAL -> BigDecimal.valueOf(readInt(bytes, declaredWidth));
                 case FLOAT32 -> declaredWidth <= 2 ? (Object) (double) readInt(bytes, declaredWidth) : null;
                 default -> null;
             };
@@ -575,7 +591,70 @@ final class PgTypes {
         if (declaredOid == OID_FLOAT4 && typeName == TypeName.FLOAT64) {
             return (double) Float.intBitsToFloat((int) readInt(bytes, 4));
         }
+        if ((declaredOid == OID_FLOAT4 || declaredOid == OID_FLOAT8) && typeName == TypeName.DECIMAL) {
+            // A float compared with a DECIMAL would be compared as the decimal nearest to it: a
+            // rounding the caller did not ask for. Refused, as a float literal against a decimal is.
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.PARAMETER_TYPE,
+                    "a binary " + (declaredOid == OID_FLOAT4 ? "float4" : "float8") + " parameter is compared "
+                            + "with a DECIMAL, which is exact; bind it as numeric (or text) instead");
+        }
         return null;
+    }
+
+    private static final int NUMERIC_NAN = 0xC000;
+
+    /**
+     * PostgreSQL's binary {@code numeric} -- the inverse of {@link #numericBinary} -- as the exact
+     * decimal it holds, at its {@code dscale}. {@code NaN} and the infinities are refused: a DECIMAL
+     * has none of them.
+     */
+    static BigDecimal numericFromBinary(byte[] bytes) {
+        if (bytes.length < 8) {
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "a binary numeric parameter declared " + bytes.length + " bytes; its header alone is 8");
+        }
+        int ndigits = readShortAt(bytes, 0) & 0xffff;
+        int weight = (short) readShortAt(bytes, 2);
+        int sign = readShortAt(bytes, 4) & 0xffff;
+        int dscale = readShortAt(bytes, 6) & 0xffff;
+        if (sign != NUMERIC_POSITIVE && sign != NUMERIC_NEGATIVE) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.PARAMETER_TYPE,
+                    (sign == NUMERIC_NAN ? "NaN" : "an infinite numeric")
+                            + " is bound where the query needs a DECIMAL, which has no such value");
+        }
+        if (bytes.length != 8 + 2 * ndigits) {
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "a binary numeric parameter declared " + ndigits + " digits in " + bytes.length + " bytes");
+        }
+        java.math.BigInteger digits = java.math.BigInteger.ZERO;
+        java.math.BigInteger base = java.math.BigInteger.valueOf(10_000);
+        for (int i = 0; i < ndigits; i++) {
+            int digit = readShortAt(bytes, 8 + 2 * i) & 0xffff;
+            if (digit > 9_999) {
+                throw new PravahaException(
+                        PgWireErrors.PROTOCOL_VIOLATION,
+                        "a binary numeric parameter has a base-10000 digit of " + digit);
+            }
+            digits = digits.multiply(base).add(java.math.BigInteger.valueOf(digit));
+        }
+        BigDecimal value = new BigDecimal(digits).scaleByPowerOfTen(4 * (weight - ndigits + 1));
+        try {
+            value = value.setScale(dscale, java.math.RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException moreDigitsThanItsScale) {
+            throw new PravahaException(
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "a binary numeric parameter carries digits past its own scale of " + dscale,
+                    moreDigitsThanItsScale);
+        }
+        return sign == NUMERIC_NEGATIVE ? value.negate() : value;
+    }
+
+    private static int readShortAt(byte[] bytes, int at) {
+        return ((bytes[at] & 0xff) << 8) | (bytes[at + 1] & 0xff);
     }
 
     private static String typeNameOf(int oid) {

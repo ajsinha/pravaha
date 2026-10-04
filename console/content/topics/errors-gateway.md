@@ -218,7 +218,7 @@ completion. SQLSTATE `34000`.
 ### PRV-6209 — pgwire unsupported wire format
 
 A `Bind` parameter in **binary** format for a type the gateway does not decode in binary (anything but
-the booleans, integers, floats, text, `date` and `timestamptz`), or a result format code other than
+the booleans, integers, floats, `numeric`, text, `date` and `timestamptz`), or a result format code other than
 `0` (text) or `1` (binary). Binary **results** are served for every type the gateway sends — Npgsql,
 and so Power BI, asks for them on every query. A value the gateway cannot decode is refused by name
 rather than read as though it were something else, which is how a number becomes garbage instead of an

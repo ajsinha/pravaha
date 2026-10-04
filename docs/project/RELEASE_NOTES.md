@@ -45,6 +45,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   PostgreSQL's `hostssl`. `pravaha.pgwire.tls.allow-plaintext: true` (off by default) accepts both,
   for a migration window. **Changes behaviour:** a client at `sslmode=disable` against a TLS gateway
   that used to connect is refused; connect with `sslmode=verify-full`.
+- **A parameter compared with a DECIMAL column works, exactly** (DECPARAM-1). `WHERE price > ?` over
+  a `DECIMAL` was refused `PRV-2021 '?0' is a RexDynamicParam` on every transport. The placeholder is
+  now typed by its column and compared exactly: a decimal or an integer binds (Flight declares the
+  parameter as `decimal128` at the column's precision and scale; pgwire decodes text, binary
+  `numeric` and binary integers), and a float is refused (`PRV-2062` on pgwire, before sending in the
+  SDKs) rather than read as the nearest decimal. The Java SDK binds `BigDecimal` and integers to a
+  decimal placeholder and refuses a value with more places than the column.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

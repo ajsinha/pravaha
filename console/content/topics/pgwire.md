@@ -310,8 +310,10 @@ Results go out in **text** unless a client's `Bind` asks for **binary**, which N
 does for every query; the gateway then sends PostgreSQL's own binary format for each type above. One
 difference follows from that format: a binary `timestamptz` is a count of **microseconds**, so a
 value's sub-microsecond digits are truncated (toward the past) where the text form keeps all nine.
-A binary **parameter** is decoded for the fixed-width types and text; any other binary parameter is
-refused with PRV-6209. A binary number is read as the type the client declared for it in `Parse` and
+A binary **parameter** is decoded for the fixed-width types, `numeric` and text; any other binary
+parameter is refused with PRV-6209. A parameter compared with a `DECIMAL` column takes a `numeric`, text
+or integer value and is compared exactly; a `float4`/`float8` there is refused with PRV-2062 rather
+than rounded (DECPARAM-1). A binary number is read as the type the client declared for it in `Parse` and
 widened to the column it is compared with, as PostgreSQL does: pgjdbc's `setInt`/`setShort`,
 psycopg's `%b` with a small `int` and Npgsql's `int` parameters send `int4`/`int2`, and against a
 `BIGINT` they are read as such; a `float4` widens to `DOUBLE`. A wider integer than the column is

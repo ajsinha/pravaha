@@ -190,6 +190,36 @@ class PgTypesTest {
     // ------------------------------------------------------------------ decodeParameter: Bind's own direction
 
     @Test
+    void aBinaryNumericParameterIsTheExactDecimalItEncodes() {
+        // DECPARAM-1: the inverse of numericBinary, at the value's own scale.
+        for (String text : java.util.List.of("19.98", "-0.01", "0", "0.00", "1234567890123456.78", "10000", "0.0001")) {
+            java.math.BigDecimal value = new java.math.BigDecimal(text);
+            assertThat(PgTypes.decodeParameter(TypeName.DECIMAL, PgBackend.FORMAT_BINARY, PgTypes.numericBinary(value)))
+                    .as(text)
+                    .isEqualTo(value);
+        }
+        assertThat(PgTypes.decodeParameter(
+                        TypeName.DECIMAL, PgTypes.OID_INT4, PgBackend.FORMAT_BINARY, new byte[] {0, 0, 0, 19}))
+                .isEqualTo(java.math.BigDecimal.valueOf(19));
+        assertThat(PgTypes.decodeParameter(TypeName.DECIMAL, PgBackend.FORMAT_TEXT, bytes("19.98")))
+                .isEqualTo(new java.math.BigDecimal("19.98"));
+    }
+
+    @Test
+    void aNumericThatIsNotADecimalIsRefusedByName() {
+        byte[] nan = {0, 0, 0, 0, (byte) 0xC0, 0, 0, 0};
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.DECIMAL, PgBackend.FORMAT_BINARY, nan))
+                .hasMessageContaining("PRV-2062")
+                .hasMessageContaining("NaN");
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.DECIMAL, PgBackend.FORMAT_TEXT, bytes("NaN")))
+                .hasMessageContaining("PRV-2062");
+        assertThatThrownBy(() -> PgTypes.decodeParameter(
+                        TypeName.DECIMAL, PgTypes.OID_FLOAT8, PgBackend.FORMAT_BINARY, new byte[8]))
+                .hasMessageContaining("PRV-2062")
+                .hasMessageContaining("float8");
+    }
+
+    @Test
     void aNullParameterIsNullRegardlessOfType() {
         assertThat(PgTypes.decodeParameter(TypeName.STRING, PgBackend.FORMAT_TEXT, null))
                 .isNull();
@@ -300,7 +330,7 @@ class PgTypesTest {
 
     @Test
     void binaryFormatForAnUnsupportedTypeIsRefusedByNameRatherThanMisread() {
-        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.DECIMAL, (short) 1, new byte[] {1, 2, 3}))
+        assertThatThrownBy(() -> PgTypes.decodeParameter(TypeName.ARRAY, (short) 1, new byte[] {1, 2, 3}))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-6209");
     }
