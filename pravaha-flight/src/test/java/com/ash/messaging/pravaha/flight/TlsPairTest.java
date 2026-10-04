@@ -48,6 +48,7 @@ class TlsPairTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aCertificateWithNoKeyIsRefusedByNameRatherThanThrowingNull(@TempDir Path dir) throws Exception {
         assertThatThrownBy(() -> new PravahaFlightServer(new com.ash.messaging.pravaha.serving.ViewCatalog())
                         .encryptedWith(readable(dir, "cert.pem"), null))
@@ -60,6 +61,7 @@ class TlsPairTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aKeyWithNoCertificateIsRefusedRatherThanQuietlyServingPlaintext(@TempDir Path dir) throws Exception {
         assertThatThrownBy(() -> new PravahaFlightServer(new com.ash.messaging.pravaha.serving.ViewCatalog())
                         .encryptedWith(null, readable(dir, "key.pem")))
@@ -72,6 +74,7 @@ class TlsPairTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void theRefusalSaysWhatToDoAboutIt(@TempDir Path dir) throws Exception {
         assertThatThrownBy(() -> new PravahaFlightServer(new com.ash.messaging.pravaha.serving.ViewCatalog())
                         .encryptedWith(readable(dir, "cert.pem"), null))

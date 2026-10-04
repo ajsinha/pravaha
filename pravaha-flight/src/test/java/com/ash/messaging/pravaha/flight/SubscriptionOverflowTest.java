@@ -28,6 +28,7 @@ import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -74,11 +75,22 @@ class SubscriptionOverflowTest {
 
     private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private FlightClient client;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private QueryRegistry registry;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private RegisteredQuery query;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private RowArena arena;
 
     @AfterEach
@@ -186,7 +198,7 @@ class SubscriptionOverflowTest {
         return ended;
     }
 
-    private static ControlWire.BatchMark markOf(org.apache.arrow.memory.ArrowBuf metadata) {
+    private static ControlWire.@Nullable BatchMark markOf(org.apache.arrow.memory.ArrowBuf metadata) {
         if (metadata == null || metadata.readableBytes() == 0) {
             return null;
         }
@@ -284,7 +296,7 @@ class SubscriptionOverflowTest {
         assertThat(mark)
                 .as("a plain batch now carries a mark, which it never did")
                 .isNotNull();
-        assertThat(mark.kind()).isEqualTo(ControlWire.BatchMark.COMMIT);
+        assertThat(java.util.Objects.requireNonNull(mark).kind()).isEqualTo(ControlWire.BatchMark.COMMIT);
         assertThat(mark.dropped()).as("this subscriber kept up").isZero();
         assertThat(mark.frontier())
                 .as("and the frontier a plain subscription has never carried is still not carried")

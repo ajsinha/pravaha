@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.flight;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.registry.SubscriptionOptions;
@@ -89,7 +91,7 @@ final class SubscriptionHandover {
      * <p>An overflow this server does not know is a refusal, not a default. A client that asked
      * for {@code FAIL} and was quietly given {@code CONFLATE} is exactly the corruption above.
      */
-    static SubscriptionOptions optionsOf(ControlWire.SubscriberPreference preference) {
+    static SubscriptionOptions optionsOf(ControlWire.@Nullable SubscriberPreference preference) {
         if (preference == null) {
             return SubscriptionOptions.DEFAULT;
         }

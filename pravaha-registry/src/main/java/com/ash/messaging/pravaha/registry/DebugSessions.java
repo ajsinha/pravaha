@@ -106,7 +106,7 @@ public final class DebugSessions implements AutoCloseable {
      * @param typed the query's name as the caller wrote it, resolved in the caller's tenant (ADR-060)
      * @param checkpointId the checkpoint to fork from, or null for the newest retained one
      */
-    public DebugSession.Status fork(String typed, Long checkpointId, Principal principal) {
+    public DebugSession.Status fork(String typed, @Nullable Long checkpointId, Principal principal) {
         String name = QueryRegistry.engineName(principal, typed);
         expireStale();
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "debug");
@@ -253,7 +253,7 @@ public final class DebugSessions implements AutoCloseable {
 
     /** One page of one operator's state, read without changing it. */
     public OperatorState.Page inspect(
-            String id, String operatorId, String key, int offset, int limit, Principal principal) {
+            String id, String operatorId, @Nullable String key, int offset, int limit, Principal principal) {
         return require(id, principal, "debug-inspect").inspect(operatorId, key, offset, limit);
     }
 

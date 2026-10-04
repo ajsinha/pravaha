@@ -22,6 +22,7 @@ import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
@@ -57,11 +58,11 @@ public final class PravahaFlightServer implements AutoCloseable {
 
     private final ViewCatalog catalog;
     private final BufferAllocator allocator;
-    private TokenVerifier verifier;
+    private @Nullable TokenVerifier verifier;
     private SecurityPolicy policy = SecurityPolicy.PERMISSIVE;
     private AuditSink audit = AuditSink.NONE;
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
-    private com.ash.messaging.pravaha.registry.QueryRegistry registry;
+    private com.ash.messaging.pravaha.registry.@Nullable QueryRegistry registry;
 
     /**
      * What has been dead-lettered, when a node has a {@code pravaha.dlq.directory} (B5).
@@ -74,8 +75,8 @@ public final class PravahaFlightServer implements AutoCloseable {
     private com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters =
             com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE;
 
-    private java.io.File certificateChain;
-    private java.io.File privateKey;
+    private java.io.@Nullable File certificateChain;
+    private java.io.@Nullable File privateKey;
     private java.time.Duration readDeadline = java.time.Duration.ZERO;
     /**
      * The threads that serve calls, one virtual thread per call.
@@ -101,7 +102,7 @@ public final class PravahaFlightServer implements AutoCloseable {
 
     private final AtomicReference<FlightServer> server = new AtomicReference<>();
     private final boolean ownsAllocator;
-    private Location location;
+    private @Nullable Location location;
 
     /** A server on its own allocator, which is what a standalone process wants. */
     public PravahaFlightServer(ViewCatalog catalog) {
@@ -303,7 +304,8 @@ public final class PravahaFlightServer implements AutoCloseable {
             // `transport=TLS`: a certificate and a key that are each valid and are not a pair used
             // to start a healthy-looking node that every client then failed to reach. See
             // FlightTlsPair.
-            FlightTlsPair.requireMatching(certificateChain, privateKey);
+            FlightTlsPair.requireMatching(
+                    certificateChain, java.util.Objects.requireNonNull(privateKey, "set with the chain"));
         }
         Location requested =
                 certificateChain == null ? Location.forGrpcInsecure(host, port) : Location.forGrpcTls(host, port);
@@ -366,7 +368,8 @@ public final class PravahaFlightServer implements AutoCloseable {
                             + (certificateChain == null
                                     ? ""
                                     : " with the certificate " + certificateChain.getAbsolutePath() + " and the key "
-                                            + privateKey.getAbsolutePath())
+                                            + java.util.Objects.requireNonNull(privateKey, "set with the chain")
+                                                    .getAbsolutePath())
                             + ": " + uncoded.getMessage(),
                     uncoded);
         }
@@ -390,7 +393,9 @@ public final class PravahaFlightServer implements AutoCloseable {
 
     /** The URI a client connects to. */
     public String uri() {
-        return location.getUri().toString();
+        return java.util.Objects.requireNonNull(location, "set when the server starts")
+                .getUri()
+                .toString();
     }
 
     public ViewCatalog catalog() {

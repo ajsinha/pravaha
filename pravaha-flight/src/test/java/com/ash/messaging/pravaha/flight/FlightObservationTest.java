@@ -34,6 +34,7 @@ import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -70,7 +71,7 @@ class FlightObservationTest {
 
     private final FlightObservation recording = new FlightObservation() {
         @Override
-        public Call begin(String operation, String query, UnaryOperator<String> header) {
+        public Call begin(String operation, @Nullable String query, UnaryOperator<String> header) {
             seen.add("begin " + operation + " " + query + " " + header.apply("traceparent"));
             return new Call() {
                 @Override
@@ -91,9 +92,16 @@ class FlightObservationTest {
         }
     };
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private FlightClient client;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private QueryRegistry registry;
 
     @AfterEach

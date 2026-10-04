@@ -34,6 +34,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.ipc.message.IpcOption;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -140,7 +141,8 @@ class SnapshotSubscriberBehindTest {
             assertThat(listener.error.get())
                     .as("the stream ended with an error")
                     .isNotNull();
-            assertThat(listener.error.get().getMessage()).contains("PRV-6105");
+            assertThat(java.util.Objects.requireNonNull(listener.error.get()).getMessage())
+                    .contains("PRV-6105");
             assertThat(listener.marks).as("only the snapshot was written").containsExactly("snapshot-end");
             assertThat(listener.completed).isZero();
         }
@@ -224,7 +226,7 @@ class SnapshotSubscriberBehindTest {
         }
 
         @Override
-        public <T extends FlightServerMiddleware> T getMiddleware(FlightServerMiddleware.Key<T> key) {
+        public <T extends FlightServerMiddleware> @Nullable T getMiddleware(FlightServerMiddleware.Key<T> key) {
             return null;
         }
 

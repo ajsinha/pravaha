@@ -68,9 +68,16 @@ final class SubscriptionThreadCostTest {
 
     private static final int SUBSCRIBERS = 40;
 
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private com.ash.messaging.pravaha.registry.QueryRegistry registry;
+
+    @SuppressWarnings("NullAway.Init") /* a test sets it before reading it */
     private FlightClient client;
 
     @AfterEach

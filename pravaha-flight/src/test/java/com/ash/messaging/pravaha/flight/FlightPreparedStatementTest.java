@@ -177,6 +177,7 @@ class FlightPreparedStatementTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void bindingNullMatchesNothingRatherThanEverything() throws Exception {
         try (FlightSqlClient.PreparedStatement statement =
                 client.prepare("SELECT user_id FROM user_volume WHERE tier = ?")) {

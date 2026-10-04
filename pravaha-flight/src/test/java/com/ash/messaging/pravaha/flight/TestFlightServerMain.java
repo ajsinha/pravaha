@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
@@ -89,6 +91,7 @@ public final class TestFlightServerMain {
             }
 
             @Override
+            @SuppressWarnings("NullAway") // a test feed: the status it reports always has a description
             public String describe() {
                 return status.description();
             }
@@ -323,7 +326,7 @@ public final class TestFlightServerMain {
         private static final String PASSWORD = "fixture-secret-password";
 
         @Override
-        public com.ash.messaging.pravaha.api.plugin.SinkCapabilities capabilitiesOf(String sinkName) {
+        public com.ash.messaging.pravaha.api.plugin.SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
             if (!"broken_sink".equals(sinkName)) {
                 throw new IllegalArgumentException("no sink is bound to '" + sinkName + "'");
             }
@@ -331,12 +334,13 @@ public final class TestFlightServerMain {
         }
 
         @Override
-        public com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin open(String sinkName) {
+        public com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin open(@Nullable String sinkName) {
             capabilitiesOf(sinkName);
             return new BrokenSink();
         }
 
         @Override
+        @SuppressWarnings("NullAway") // null only for a null text, as the engine's own redact
         public String redact(String text) {
             return text == null ? null : text.replace(PASSWORD, "[redacted password]");
         }
