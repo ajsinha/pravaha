@@ -15,6 +15,10 @@
     every transitive dependency it adds is one their build has to reconcile -- its own enforcer rule
     bans Netty and friends outright. Arrow Flight brings gRPC and Netty with it, so an application
     that wants the wire takes this artifact and an application that only wants the types does not.</description>
+  <properties>
+    <!-- Not yet clean under -Pep: its Error Prone warnings stay warnings until it is (ERRORPRONE-2). -->
+    <errorprone.ratchet />
+  </properties>
   <dependencies>
     <dependency>
       <groupId>com.ash.messaging</groupId>

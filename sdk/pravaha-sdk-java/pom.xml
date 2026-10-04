@@ -13,6 +13,8 @@
     pulls in no engine, no Netty, no Calcite and no storage clients.</description>
 
   <properties>
+    <!-- Not yet clean under -Pep: its Error Prone warnings stay warnings until it is (ERRORPRONE-2). -->
+    <errorprone.ratchet />
     <!-- Java 25 class files, as every module, from 2.0 (ADR-061): a client application needs
          JDK 25. It used to target 17, as pravaha-api did. -->
     <jacoco.line.coverage>0.80</jacoco.line.coverage>

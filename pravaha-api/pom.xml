@@ -12,6 +12,8 @@
     every module, from 2.0 (ADR-061).</description>
 
   <properties>
+    <!-- Not yet clean under -Pep: its Error Prone warnings stay warnings until it is (ERRORPRONE-2). -->
+    <errorprone.ratchet />
     <jacoco.line.coverage>0.85</jacoco.line.coverage>
   </properties>
 
