@@ -174,6 +174,7 @@ class IcebergSinkPluginTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void everyTypeRoundTripsThroughIcebergsReader() throws IOException {
         Map<String, String> options = new HashMap<>();
         options.put("path", dir.resolve("typed").toString());

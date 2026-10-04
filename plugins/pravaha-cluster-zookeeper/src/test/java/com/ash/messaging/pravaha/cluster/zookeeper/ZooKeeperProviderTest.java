@@ -46,7 +46,7 @@ class ZooKeeperProviderTest {
     void itDeclaresConsensusAndSaysWhatItCosts() {
         CoordinatorProvider provider = CoordinatorFactory.available().get("zookeeper");
 
-        assertThat(provider.guarantees().excludesSplitBrain())
+        assertThat(java.util.Objects.requireNonNull(provider).guarantees().excludesSplitBrain())
                 .as("leadership is a LeaderLatch, which is ZooKeeper's consensus rather than ours")
                 .isTrue();
         assertThat(provider.guarantees().requiresExternalService())
@@ -60,14 +60,17 @@ class ZooKeeperProviderTest {
         // The socket coordinator is refused for this mode; this one is not, and the difference is
         // exactly the guarantee above rather than anything about how much code each contains.
         assertThat(ClusterMode.PARTITIONED.needsConsensus()).isTrue();
-        assertThat(CoordinatorFactory.available().get("zookeeper").guarantees().excludesSplitBrain())
+        assertThat(java.util.Objects.requireNonNull(
+                                CoordinatorFactory.available().get("zookeeper"))
+                        .guarantees()
+                        .excludesSplitBrain())
                 .isTrue();
     }
 
     @Test
     void itNeedsAConnectString() {
-        assertThatThrownBy(() -> CoordinatorFactory.available()
-                        .get("zookeeper")
+        assertThatThrownBy(() -> java.util.Objects.requireNonNull(
+                                CoordinatorFactory.available().get("zookeeper"))
                         .create(Configuration.builder()
                                 .set("pravaha.cluster.mechanism", "zookeeper")
                                 .build()))

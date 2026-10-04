@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.apache.curator.framework.CuratorFramework;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -41,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class StateZookeeperConfigTest {
 
-    private static Path repoRoot() {
+    private static @Nullable Path repoRoot() {
         Path dir = Path.of("").toAbsolutePath();
         while (dir != null && !Files.exists(dir.resolve("pravaha-server/src/main/resources/application.yaml"))) {
             dir = dir.getParent();
@@ -54,7 +55,7 @@ class StateZookeeperConfigTest {
         CoordinatorProvider provider =
                 com.ash.messaging.pravaha.cluster.CoordinatorFactory.available().get("zookeeper");
         assertThat(provider).as("the plugin is on this module's own classpath").isNotNull();
-        return provider;
+        return java.util.Objects.requireNonNull(provider);
     }
 
     @Test
@@ -119,7 +120,8 @@ class StateZookeeperConfigTest {
 
     @Test
     void state108_applicationYamlDocumentsNoneOfTheFourZookeeperKeys() throws Exception {
-        String yaml = Files.readString(repoRoot().resolve("pravaha-server/src/main/resources/application.yaml"));
+        String yaml = Files.readString(java.util.Objects.requireNonNull(repoRoot())
+                .resolve("pravaha-server/src/main/resources/application.yaml"));
         assertThat(yaml)
                 .doesNotContain("zookeeper.connect")
                 .doesNotContain("zookeeper.root")
