@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.plugin.mysqlcdc;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
@@ -45,7 +47,12 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * @param gtidSet the executed GTID set, or null for a file-and-offset position
  * @param partialGtid the GTID of the transaction {@code partial} counts into, or null
  */
-record BinlogOffset(String file, long position, long partial, String gtidSet, String partialGtid) {
+record BinlogOffset(
+        String file,
+        long position,
+        long partial,
+        @Nullable String gtidSet,
+        @Nullable String partialGtid) {
 
     private static final Pattern TOKEN = Pattern.compile("(?:gtid=([A-Za-z0-9_:,-]*);)?binlog=([^:;]+):(\\d+)"
             + "(?:;partial=(\\d+)(?:@([A-Za-z0-9_-]+:[A-Za-z0-9_:]+))?)?");
@@ -59,7 +66,7 @@ record BinlogOffset(String file, long position, long partial, String gtidSet, St
     }
 
     /** A transaction boundary in GTID mode, or in file mode when {@code gtidSet} is null. */
-    static BinlogOffset at(String file, long position, String gtidSet) {
+    static BinlogOffset at(String file, long position, @Nullable String gtidSet) {
         return new BinlogOffset(file, position, 0L, gtidSet, null);
     }
 
@@ -77,7 +84,7 @@ record BinlogOffset(String file, long position, long partial, String gtidSet, St
     }
 
     /** The stored offset, or null for the beginning. */
-    static BinlogOffset parse(SourceOffset offset) {
+    static @Nullable BinlogOffset parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return null;
         }

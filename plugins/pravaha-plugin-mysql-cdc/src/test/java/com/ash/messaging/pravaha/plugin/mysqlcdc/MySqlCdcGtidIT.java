@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -157,7 +158,7 @@ class MySqlCdcGtidIT {
         return plugin;
     }
 
-    private static PartitionReader reader(MySqlCdcSourcePlugin plugin, SourceOffset from) {
+    private static PartitionReader reader(MySqlCdcSourcePlugin plugin, @Nullable SourceOffset from) {
         return plugin.createReader(new SourcePartition("s", 0, Map.of()), from);
     }
 

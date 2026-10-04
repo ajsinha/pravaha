@@ -40,6 +40,7 @@ class MySqlSchemaTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // no character set: none of these kinds is text
     void unsignedColumnsAreReinterpretedAndWidened() {
         assertThat(MySqlSchema.convert(Kind.TINY_UNSIGNED, null, Types.int16(), -1))
                 .isEqualTo((short) 255);
@@ -55,6 +56,7 @@ class MySqlSchemaTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // no character set where the kind is not text
     void temporalValuesAreMicrosecondsAndTextIsDecodedInTheColumnsCharacterSet() {
         long micros = 1_700_000_000_123_456L;
         assertThat(MySqlSchema.convert(Kind.TIMESTAMP, null, Types.timestamp(), micros))

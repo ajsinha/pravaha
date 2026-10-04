@@ -89,8 +89,11 @@ final class MySqlCdcReader implements PartitionReader {
             }
             break;
         }
-        if (taken == 0 && stream.peek() == null && stream.failure() != null) {
-            throw stream.failure();
+        if (taken == 0 && stream.peek() == null) {
+            PravahaException stopped = stream.failure();
+            if (stopped != null) {
+                throw stopped;
+            }
         }
         return taken;
     }

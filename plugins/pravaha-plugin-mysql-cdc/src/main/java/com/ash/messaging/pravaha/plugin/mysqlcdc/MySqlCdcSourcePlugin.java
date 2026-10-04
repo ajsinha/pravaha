@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -65,9 +67,15 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private MySqlCdcOptions options;
-    private MySqlSchema.Mapping mapping;
+
+    /** Null until open() and after close(). */
+    private MySqlSchema.@Nullable Mapping mapping;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before any reader
     private BinlogOffset openedAt;
+
     private boolean gtidMode;
     private final List<MySqlCdcReader> readers = new CopyOnWriteArrayList<>();
 
@@ -145,8 +153,7 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
 
     @Override
     public List<StreamSchema> discoverSchemas() {
-        requireOpen();
-        return List.of(mapping.schema());
+        return List.of(requireOpen().schema());
     }
 
     @Override
@@ -156,8 +163,8 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
-        requireOpen();
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
+        MySqlSchema.Mapping mapping = requireOpen();
         BinlogOffset requested = BinlogOffset.parse(resumeFrom);
         BinlogOffset start = requested == null ? openedAt : requested;
         if (requested != null) {
@@ -195,9 +202,9 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
             if (reader.isClosed()) {
                 continue;
             }
-            if (reader.stream().failure() != null) {
-                return HealthStatus.unhealthy(
-                        "the reader has stopped: " + reader.stream().failure().getMessage());
+            PravahaException stopped = reader.stream().failure();
+            if (stopped != null) {
+                return HealthStatus.unhealthy("the reader has stopped: " + stopped.getMessage());
             }
             if (!reader.stream().lastProblem().isEmpty()) {
                 return HealthStatus.degraded("the reader is " + reader.stream().lastProblem() + " ("
@@ -219,8 +226,7 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
 
     /** The stream this plugin exposes, once open. */
     public StreamSchema schema() {
-        requireOpen();
-        return mapping.schema();
+        return requireOpen().schema();
     }
 
     private void requireConfigured() {
@@ -229,10 +235,12 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
         }
     }
 
-    private void requireOpen() {
+    private MySqlSchema.Mapping requireOpen() {
         requireConfigured();
-        if (mapping == null) {
+        MySqlSchema.Mapping open = mapping;
+        if (open == null) {
             throw new IllegalStateException("mysql-cdc plugin '" + options.instanceName() + "' is not open");
         }
+        return open;
     }
 }

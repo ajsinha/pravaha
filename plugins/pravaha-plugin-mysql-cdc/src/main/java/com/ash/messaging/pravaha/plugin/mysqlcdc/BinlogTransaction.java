@@ -19,6 +19,8 @@ import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -42,9 +44,9 @@ record BinlogTransaction(
         int alreadyDelivered,
         List<Change> changes,
         long commitNanos,
-        PravahaException failure,
-        String gtid,
-        String executedGtids) {
+        @Nullable PravahaException failure,
+        @Nullable String gtid,
+        @Nullable String executedGtids) {
 
     BinlogTransaction(
             String file,
@@ -52,7 +54,7 @@ record BinlogTransaction(
             int alreadyDelivered,
             List<Change> changes,
             long commitNanos,
-            PravahaException failure) {
+            @Nullable PravahaException failure) {
         this(file, endPosition, alreadyDelivered, changes, commitNanos, failure, null, null);
     }
 
@@ -64,7 +66,11 @@ record BinlogTransaction(
      * @param raw the row as text, for the dead-letter queue
      */
     @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
-    record Change(Object[] values, long weight, String rejected, byte[] raw) {
+    record Change(
+            @Nullable Object[] values,
+            long weight,
+            @Nullable String rejected,
+            byte[] raw) {
 
         /** A row from its binlog image, every column in table order. */
         static Change of(MySqlSchema.Mapping mapping, Serializable[] image, long weight) {
@@ -104,7 +110,7 @@ record BinlogTransaction(
     }
 
     /** A bare position marker in GTID mode ({@code executedGtids} non-null) or file mode. */
-    static BinlogTransaction marker(String file, long position, String executedGtids) {
+    static BinlogTransaction marker(String file, long position, @Nullable String executedGtids) {
         return new BinlogTransaction(file, position, 0, List.of(), 0L, null, null, executedGtids);
     }
 
