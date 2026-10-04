@@ -118,7 +118,7 @@ def test_a_subscription_that_opened_runs_past_the_deadline(server, client):
 
 def test_the_default_deadline_is_thirty_seconds_and_connect_sets_it():
     endpoint = Endpoint.parse("grpc://127.0.0.1:1")
-    assert ClientOptions(endpoint=endpoint).request_timeout_seconds == 30.0
+    assert ClientOptions(endpoint=endpoint).request_timeout_seconds == 60.0
     with connect("grpc://127.0.0.1:1", timeout=2.5) as c:
         assert c._options.request_timeout_seconds == 2.5
     with pytest.raises(ValueError, match="not both"):

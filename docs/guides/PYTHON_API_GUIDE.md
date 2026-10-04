@@ -408,7 +408,7 @@ client = connect("grpc://localhost:19090", http_url="http://localhost:18080")   
 | `allow_insecure_token` | `False` | Permit a token over plaintext (`PRV-1031` otherwise) |
 | `tls` | `TlsOptions()` | Certificates, for a `grpc+tls://` endpoint and an `https://` `http_url` |
 | `connect_timeout_seconds` | `10.0` | Read by nothing (validated only); the connection is made inside the first request, so `request_timeout_seconds` bounds it |
-| `request_timeout_seconds` | `30.0` | The deadline of one request: every HTTP call, every Flight action, and a query up to its first batch; a subscription only while it opens. `connect(…, timeout=)` sets it. Past it: `DeadlineExceededError`, PRV-1045, retryable |
+| `request_timeout_seconds` | `60.0` | The deadline of one request: every HTTP call, every Flight action, and a query up to its first batch; a subscription only while it opens. `connect(…, timeout=)` sets it. Past it: `DeadlineExceededError`, PRV-1045, retryable |
 | `subscriber_buffer_rows` | `10000` | Reserved; a subscription's buffer is set per call with `buffer_rows` |
 | `conflate_on_overflow` | `True` | Reserved; set per call with `overflow` |
 | `application_name` | `"pravaha-python-sdk"` | Carried in the options; 0.1.1 does not send it |

@@ -583,7 +583,7 @@ with connect(options=options) as client:
 | `.token(String)` | `token` | none | Bearer token; never printed by `toString` |
 | `.allowInsecureToken(boolean)` | `allow_insecure_token` | `false` | Permit a token over plaintext — loopback tests, a TLS-terminating sidecar |
 | `.connectTimeout(Duration)` | `connect_timeout_seconds` | 10 s | Deprecated since 2.1.1 and read by nothing: the connection is made inside the first request, so `requestTimeout` bounds it |
-| `.requestTimeout(Duration)` | `request_timeout_seconds` (or `connect(…, timeout=)`) | 30 s | The deadline of one request: a query up to its first batch, every action (register, list, pause, drop, replace, dead letters, debug), and in Python every HTTP call. A subscription gets no total deadline; only its opening is bounded. Past it: PRV-1045 |
+| `.requestTimeout(Duration)` | `request_timeout_seconds` (or `connect(…, timeout=)`) | 60 s | The deadline of one request: a query up to its first batch, every action (register, list, pause, drop, replace, dead letters, debug), and in Python every HTTP call. A subscription gets no total deadline; only its opening is bounded. Past it: PRV-1045 |
 | `.tls(TlsOptions)` | `tls` | defaults | How to verify the server, and mTLS; refused on a `grpc://` endpoint |
 | `.applicationName(String)` | `application_name` | `pravaha-java-sdk` / `pravaha-python-sdk` | |
 | `.defaultConsistency(Consistency)` | `default_consistency` | `CONSISTENT` | Declared; the server answers every read at the committed frontier today |

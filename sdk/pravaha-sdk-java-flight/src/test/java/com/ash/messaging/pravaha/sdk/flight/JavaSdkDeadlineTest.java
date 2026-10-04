@@ -184,9 +184,9 @@ class JavaSdkDeadlineTest {
     }
 
     @Test
-    void theDefaultDeadlineIsThirtySeconds() {
+    void theDefaultDeadlineIsSixtySeconds() {
         assertThat(ClientOptions.builder("grpc://localhost:1").build().requestTimeout())
-                .isEqualTo(Duration.ofSeconds(30));
+                .isEqualTo(Duration.ofSeconds(60));
     }
 
     private final class Stalling extends NoOpFlightProducer {

@@ -33,7 +33,7 @@ class ClientOptions:
     #: ``request_timeout_seconds`` that bounds connecting (CONNECTTIMEOUT-1). Kept so code
     #: that sets it keeps working.
     connect_timeout_seconds: float = 10.0
-    request_timeout_seconds: float = 30.0
+    request_timeout_seconds: float = 60.0
     default_consistency: Consistency = Consistency.CONSISTENT
     subscriber_buffer_rows: int = 10_000
     conflate_on_overflow: bool = True

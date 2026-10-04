@@ -37,7 +37,7 @@ A connection string without a scheme is TLS; `grpc://host:port` is plaintext. A 
 `ClientOptions.builder(endpoint).token(...)`, and is refused over plaintext unless
 `allowInsecureToken(true)` on the builder says otherwise.
 
-**Every request has a deadline**: `ClientOptions.builder(endpoint).requestTimeout(Duration)`, 30
+**Every request has a deadline**: `ClientOptions.builder(endpoint).requestTimeout(Duration)`, 60
 seconds unless set. It bounds `query(...)` up to its first batch — planning, preparing, binding and
 opening the result — and every action: `register`, `queries`, `pause`, `resume`, `drop`, the
 replacement and dead-letter calls, and the debugger's. A call past it throws

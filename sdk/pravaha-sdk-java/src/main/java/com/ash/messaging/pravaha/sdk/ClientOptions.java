@@ -178,7 +178,7 @@ public final class ClientOptions {
         private @Nullable String token;
         private boolean allowInsecureToken;
         private Duration connectTimeout = Duration.ofSeconds(10);
-        private Duration requestTimeout = Duration.ofSeconds(30);
+        private Duration requestTimeout = Duration.ofSeconds(60);
         private Consistency defaultConsistency = Consistency.CONSISTENT;
         private int subscriberBufferRows = 10_000;
         private boolean conflateOnOverflow = true;

@@ -53,7 +53,7 @@ invocation, so the refusal above was switched off for every CLI user without a w
 script that sends a token to a `grpc://` URL, it will now be refused until you add the flag, and the
 right fix is usually `grpc+tls://` rather than the flag.
 
-**Every request has a deadline**, 30 seconds unless set — `requestTimeout(Duration)` in Java,
+**Every request has a deadline**, 60 seconds unless set — `requestTimeout(Duration)` in Java,
 `request_timeout_seconds` or `connect(…, timeout=)` in Python, `--timeout` on the CLI. It bounds a
 query up to its first batch (planning, preparing, binding, opening the result) and every action —
 register, list, pause, drop, replace, dead letters, debug. A call past it fails with `PRV-1045

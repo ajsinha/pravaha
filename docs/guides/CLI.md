@@ -70,7 +70,7 @@ flag beats an environment variable, which beats the default.
 | `--http` | `PRAVAHA_HTTP`, then `PRAVAHA_ENGINE_HTTP` (the Java CLI's name) | `http://localhost:18080` |
 | `--token` | `PRAVAHA_TOKEN` | the token `login --save` wrote |
 | `--insecure-token` | `PRAVAHA_INSECURE_TOKEN=true` | off |
-| `--timeout` | `PRAVAHA_TIMEOUT` | `30` seconds |
+| `--timeout` | `PRAVAHA_TIMEOUT` | `60` seconds |
 | `--json` | | off |
 | `--no-color` | `NO_COLOR` | colour only on a terminal |
 | `--tls-ca`, `--tls-cert`, `--tls-key` | `PRAVAHA_TLS_CA`, `PRAVAHA_TLS_CERT`, `PRAVAHA_TLS_KEY` | none |

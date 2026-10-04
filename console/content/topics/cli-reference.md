@@ -75,7 +75,7 @@ the default.
 | `--http` | `PRAVAHA_HTTP`, then `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | The node's HTTP API |
 | `--token` | `PRAVAHA_TOKEN` | the saved token, if any | A bearer token: a session token from `login`, an API key, or a static token |
 | `--insecure-token` | `PRAVAHA_INSECURE_TOKEN=true` | off | Allow the token over plaintext `grpc://` or `http://` — for loopback, or TLS ended by a local sidecar |
-| `--timeout` | `PRAVAHA_TIMEOUT` | `30` | Seconds per request |
+| `--timeout` | `PRAVAHA_TIMEOUT` | `60` | Seconds per request |
 | `--json` | | off | Machine output (below) |
 | `--no-color` | `NO_COLOR` | colour on a terminal | Colour is also off whenever stdout is not a terminal |
 

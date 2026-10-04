@@ -1335,7 +1335,7 @@ def connect(
     ``http_url`` is the engine's HTTP port (``http://host:18080``), needed only for the
     catalogue, validation, plans, sinks and status calls; pass it here or in ``options``.
 
-    ``timeout`` is ``ClientOptions.request_timeout_seconds`` (30 by default): how long one
+    ``timeout`` is ``ClientOptions.request_timeout_seconds`` (60 by default): how long one
     request may wait for its answer -- every query up to its first batch, every action, every
     HTTP call, and the *opening* of a subscription, which then runs for as long as it runs. A
     call past it raises :class:`DeadlineExceededError` (PRV-1045).

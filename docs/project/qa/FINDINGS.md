@@ -7698,7 +7698,7 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 
 ### SDKDEADLINE-1 (MEDIUM) — the Java SDK's blocking calls have no deadline, so a slow server holds a caller forever
 
-> **Status:** FIXED — every SDK request has a deadline: `ClientOptions.requestTimeout` / `request_timeout_seconds` / `connect(…, timeout=)` / `--timeout`, 30 s by default, bounding each unary Flight call and the opening of every stream (an open stream then runs unbounded); past it a call fails PRV-1045 CLIENT_DEADLINE_EXCEEDED, retryable, naming the call and the deadline. The gate stall was not a hang: a cold first query (the Calcite planner starting in a fresh fork) under full-build CPU load, reproduced under oversubscription with thread dumps showing the server making progress. JavaSdkDeadlineTest, test_deadline.py.
+> **Status:** FIXED — every SDK request has a deadline: `ClientOptions.requestTimeout` / `request_timeout_seconds` / `connect(…, timeout=)` / `--timeout`, 60 s by default (30 s at first; a cold first call on a loaded build outran it), bounding each unary Flight call and the opening of every stream (an open stream then runs unbounded); past it a call fails PRV-1045 CLIENT_DEADLINE_EXCEEDED, retryable, naming the call and the deadline. The gate stall was not a hang: a cold first query (the Calcite planner starting in a fresh fork) under full-build CPU load, reproduced under oversubscription with thread dumps showing the server making progress. JavaSdkDeadlineTest, test_deadline.py.
 
 ## Found fixing SDKDEADLINE-1 (2026-10-04), 1 finding
 

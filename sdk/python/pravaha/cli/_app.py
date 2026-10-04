@@ -110,7 +110,7 @@ def _global_options(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
                        help="allow the token over plaintext grpc:// or http:// "
                             "(env PRAVAHA_INSECURE_TOKEN=true); for loopback or a local sidecar")
     group.add_argument("--timeout", type=float, metavar="SECONDS", **kwargs,
-                       help="per-request timeout (env PRAVAHA_TIMEOUT; 30)")
+                       help="per-request timeout (env PRAVAHA_TIMEOUT; 60)")
     group.add_argument("--json", action="store_true", **kwargs,
                        help="machine output: JSON on stdout, and a JSON error on stderr")
     group.add_argument("--no-color", action="store_true", **kwargs,

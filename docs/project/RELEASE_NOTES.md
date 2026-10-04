@@ -13,7 +13,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 ## Unreleased
 
 - **Every SDK request has a deadline** (SDKDEADLINE-1). `ClientOptions.requestTimeout` (Java) and
-  `request_timeout_seconds` (Python; also `connect(…, timeout=)` and the CLI's `--timeout`), 30 s by
+  `request_timeout_seconds` (Python; also `connect(…, timeout=)` and the CLI's `--timeout`), 60 s by
   default, now bound every unary Flight call — a query up to its first batch, and every action — and
   the opening of a subscription, which then runs unbounded. Before, the Java setting had no reader
   and the Python one reached only HTTP, so a node that accepted a call and never answered held the
@@ -99,6 +99,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   is refused — `PRV-6104` (Flight), `PRV-6206` (PostgreSQL gateway) — naming the date and the setting,
   and one that expires within 30 days starts with a `WARN` naming the date. **Changes behaviour:** a
   node that used to start on an expired certificate does not.
+- **The SDK deadline's default is 60 s, not 30 s.** On a loaded machine a cold first registration or
+  query (the planner starting) outran 30 s in the build; 60 s keeps the bound without failing a slow
+  first call. `requestTimeout` / `request_timeout_seconds` / `--timeout` still set it.
 
 Register: **566 findings — 547 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
