@@ -211,8 +211,11 @@ public final class ContinuousQueryStatements {
         if (replacing) {
             refusedBy(refusals, () -> requireReplaceable(statement, engine, parsed.index()));
             refusedBy(refusals, () -> {
-                synchronized (registry) {
+                registry.lock.lock();
+                try {
                     registry.chains.refuseReplacement(engine, statement.select(), principal);
+                } finally {
+                    registry.lock.unlock();
                 }
             });
         } else {

@@ -42,6 +42,14 @@ import com.ash.messaging.pravaha.security.Principal;
  */
 public final class LaneRebalance {
 
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because it calls into the registry under it, and a registration holds the registry's lock
+     * across network I/O, and on JDK 21 a virtual thread blocked inside a monitor pins its carrier
+     * (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
     /** How long one move may take before the rebalance gives up on it and goes on. */
     private static final Duration MOVE_LIMIT = Duration.ofMinutes(30);
 
@@ -64,26 +72,41 @@ public final class LaneRebalance {
     private @Nullable Thread worker;
 
     /** What a rebalance would do now; changes nothing. */
-    public synchronized Plan plan(QueryRegistry registry) {
-        return planned(registry, null, null);
+    public Plan plan(QueryRegistry registry) {
+        lock.lock();
+        try {
+            return planned(registry, null, null);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** The plan of the rebalance running or last run, or a fresh plan when there has been none. */
-    public synchronized Plan status(QueryRegistry registry) {
-        return last != null ? last : plan(registry);
+    public Plan status(QueryRegistry registry) {
+        lock.lock();
+        try {
+            return last != null ? last : plan(registry);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Starts the moves on a thread of their own and answers the plan it is working through. */
-    public synchronized Plan start(QueryRegistry registry, Principal principal) {
-        if (worker != null && worker.isAlive()) {
-            throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION,
-                    "a lane rebalance is already running; follow it with GET /api/v1/lanes/rebalance");
+    public Plan start(QueryRegistry registry, Principal principal) {
+        lock.lock();
+        try {
+            if (worker != null && worker.isAlive()) {
+                throw new PravahaException(
+                        RegistryErrors.ILLEGAL_TRANSITION,
+                        "a lane rebalance is already running; follow it with GET /api/v1/lanes/rebalance");
+            }
+            last = planned(registry, Instant.now(), principal.id());
+            List<Move> moves = last.moves();
+            worker = Thread.ofVirtual().name("pravaha-lane-rebalance").start(() -> run(registry, principal, moves));
+            return last;
+        } finally {
+            lock.unlock();
         }
-        last = planned(registry, Instant.now(), principal.id());
-        List<Move> moves = last.moves();
-        worker = Thread.ofVirtual().name("pravaha-lane-rebalance").start(() -> run(registry, principal, moves));
-        return last;
     }
 
     private Plan planned(QueryRegistry registry, @Nullable Instant startedAt, @Nullable String startedBy) {
@@ -147,7 +170,8 @@ public final class LaneRebalance {
                 record(index, move, "failed", e.getMessage());
             }
         }
-        synchronized (this) {
+        lock.lock();
+        try {
             Plan was = java.util.Objects.requireNonNull(last, "recorded once planned");
             last = new Plan(
                     was.mode(),
@@ -159,6 +183,8 @@ public final class LaneRebalance {
                     Instant.now(),
                     last.startedBy(),
                     last.moves());
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -195,27 +221,35 @@ public final class LaneRebalance {
         return "failed";
     }
 
-    private synchronized void record(int index, Move move, String status, @Nullable String detail) {
-        List<Move> moves = new ArrayList<>(
-                java.util.Objects.requireNonNull(last, "recorded once planned").moves());
-        moves.set(index, new Move(move.name(), move.fromSharedLane(), status, detail == null ? "" : detail));
-        last = new Plan(
-                last.mode(),
-                last.autoFrom(),
-                last.ownLaneQueries(),
-                last.room(),
-                last.running(),
-                last.startedAt(),
-                last.finishedAt(),
-                last.startedBy(),
-                List.copyOf(moves));
+    private void record(int index, Move move, String status, @Nullable String detail) {
+        lock.lock();
+        try {
+            List<Move> moves = new ArrayList<>(java.util.Objects.requireNonNull(last, "recorded once planned")
+                    .moves());
+            moves.set(index, new Move(move.name(), move.fromSharedLane(), status, detail == null ? "" : detail));
+            last = new Plan(
+                    last.mode(),
+                    last.autoFrom(),
+                    last.ownLaneQueries(),
+                    last.room(),
+                    last.running(),
+                    last.startedAt(),
+                    last.finishedAt(),
+                    last.startedBy(),
+                    List.copyOf(moves));
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Waits for a running rebalance; for tests. */
     public void awaitIdle(Duration limit) throws InterruptedException {
         Thread running;
-        synchronized (this) {
+        lock.lock();
+        try {
             running = worker;
+        } finally {
+            lock.unlock();
         }
         if (running != null) {
             running.join(limit);

@@ -66,11 +66,19 @@ import com.ash.messaging.pravaha.sql.AlertStatement;
  * (by the plugin with backoff, then by this service every {@code redeliver-after}) until it does, and a
  * restart between a send and its record sends it again. Every attempt carries the same idempotency key.
  *
- * <p><strong>Locks.</strong> This service's monitor guards the set of alerts; each alert's monitor its
+ * <p><strong>Locks.</strong> This service's lock guards the set of alerts; each alert's monitor its
  * state; a third lock the journal. They are taken in that order and never the other way, which is why
  * the alerts call back only into the unsynchronised parts of this class.
  */
 public final class AlertService implements Alerting, AutoCloseable {
+
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because it calls into the registry under it, and a registration holds the registry's lock
+     * across network I/O, and on JDK 21 a virtual thread blocked inside a monitor pins its carrier
+     * (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
 
     private static final System.Logger LOG = System.getLogger(AlertService.class.getName());
 
@@ -121,7 +129,7 @@ public final class AlertService implements Alerting, AutoCloseable {
     /** What the alerts have done, for the node's meters. */
     private final AlertStatistics statistics = new AlertStatistics();
 
-    /** By name; read without the monitor by the evaluating and delivering threads. */
+    /** By name; read without the lock by the evaluating and delivering threads. */
     private final Map<String, Alert> alerts = new ConcurrentHashMap<>();
 
     private @Nullable ScheduledExecutorService evaluator;
@@ -437,22 +445,27 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     /**
      * Rewrites the journal with only what is live -- the checkpoint of every alert's state. Holds this
-     * service's monitor (so no alert is created or dropped meanwhile) and every alert's (so none decides
+     * service's lock (so no alert is created or dropped meanwhile) and every alert's (so none decides
      * anything), then the journal's: the one order every other path takes them in.
      */
-    private synchronized void compact() {
-        List<Alert> all = new ArrayList<>(alerts.values());
-        holding(all, 0, () -> {
-            List<List<String>> live = new ArrayList<>();
-            for (Alert alert : all) {
-                live.add(alert.definition().encode());
-                live.addAll(alert.live());
-            }
-            synchronized (journalLock) {
-                journal.rewrite(live);
-            }
-            compactedAt = live.size();
-        });
+    private void compact() {
+        lock.lock();
+        try {
+            List<Alert> all = new ArrayList<>(alerts.values());
+            holding(all, 0, () -> {
+                List<List<String>> live = new ArrayList<>();
+                for (Alert alert : all) {
+                    live.add(alert.definition().encode());
+                    live.addAll(alert.live());
+                }
+                synchronized (journalLock) {
+                    journal.rewrite(live);
+                }
+                compactedAt = live.size();
+            });
+        } finally {
+            lock.unlock();
+        }
     }
 
     private static void holding(List<Alert> all, int from, Runnable body) {
@@ -500,160 +513,192 @@ public final class AlertService implements Alerting, AutoCloseable {
     private static final java.util.Set<String> RESERVED_NAMES = java.util.Set.of("channels");
 
     /** {@code CREATE ALERT}. */
-    public synchronized AlertStatus.Summary create(Principal principal, AlertStatement.Create statement) {
-        String name = CatalogNames.part(statement.name(), "an alert's name");
-        if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
-            // ALERTPATH-1: GET /api/v1/alerts/channels is the channel list, so an alert of that name
-            // could never be reached by its own detail path, nor paused, snoozed or acknowledged there.
-            throw AlertOptions.invalid("'" + name + "' cannot name an alert: /api/v1/alerts/" + name + " is the "
-                    + "node's list of notifier channels, so the alert could not be reached by its own path. "
-                    + "Choose another name");
-        }
-        // ADR-060: an alert name is unique within its tenant, so only the caller's own tenant can hold it.
-        String key = ViewNames.engineName(principal.tenant(), name);
-        Alert existing = alerts.get(key);
-        if (existing != null) {
-            if (statement.ifNotExists() && access.maySee(principal, existing.definition())) {
-                return existing.summary(clock.instant());
+    public AlertStatus.Summary create(Principal principal, AlertStatement.Create statement) {
+        lock.lock();
+        try {
+            String name = CatalogNames.part(statement.name(), "an alert's name");
+            if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                // ALERTPATH-1: GET /api/v1/alerts/channels is the channel list, so an alert of that name
+                // could never be reached by its own detail path, nor paused, snoozed or acknowledged there.
+                throw AlertOptions.invalid("'" + name + "' cannot name an alert: /api/v1/alerts/" + name + " is the "
+                        + "node's list of notifier channels, so the alert could not be reached by its own path. "
+                        + "Choose another name");
             }
-            throw new PravahaException(
-                    AlertErrors.ALERT_EXISTS,
-                    "an alert called '" + name + "' exists already"
-                            + (statement.ifNotExists() ? "" : "; add IF NOT EXISTS if that is fine"));
-        }
-        if (registry.find(key).isPresent()) {
-            throw new PravahaException(
-                    AlertErrors.ALERT_EXISTS,
-                    "'" + name + "' is a continuous query's name, and "
-                            + "an alert and a query cannot share one: every surface names both the same way");
-        }
-        String view = resolveView(principal, statement.view());
-        for (String channel : statement.channels()) {
-            requireChannel(channel);
-        }
-        AlertOptions options = AlertOptions.of(AlertOptions.defaults(), statement.options());
-        access.requireCreate(principal, name, view, statement.channels());
-        StreamSchema schema = registry.find(view).orElseThrow().view().schema();
-        AlertCondition.compile(statement.where(), schema);
-        requireColumns(options.include(), schema);
-        if (registry.policy() instanceof CatalogPolicy catalog) {
-            String fullName = CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + name;
-            Optional<CatalogObject> taken = catalog.service().catalog().object(fullName);
-            if (taken.isPresent()) {
+            // ADR-060: an alert name is unique within its tenant, so only the caller's own tenant can hold it.
+            String key = ViewNames.engineName(principal.tenant(), name);
+            Alert existing = alerts.get(key);
+            if (existing != null) {
+                if (statement.ifNotExists() && access.maySee(principal, existing.definition())) {
+                    return existing.summary(clock.instant());
+                }
                 throw new PravahaException(
                         AlertErrors.ALERT_EXISTS,
-                        "'" + fullName + "' is already the catalogue's " + "name for a "
-                                + taken.get().kind().name().toLowerCase(java.util.Locale.ROOT));
+                        "an alert called '" + name + "' exists already"
+                                + (statement.ifNotExists() ? "" : "; add IF NOT EXISTS if that is fine"));
             }
-        }
-        Instant now = clock.instant();
-        AlertDefinition definition = new AlertDefinition(
-                UUID.randomUUID().toString(),
-                name,
-                view,
-                principal.tenant(),
-                principal.id(),
-                now,
-                statement.where(),
-                statement.channels(),
-                options,
-                false,
-                options.snooze().isZero() ? null : now.plus(options.snooze()),
-                now,
-                principal.id());
-        // MASKALERT-1: a condition or a key on a column masked for the owner is refused here, to the
-        // person creating it (PRV-7006), as SECURITY.md promises -- not accepted ACTIVE and then marked
-        // broken when the alert starts following. The same check runs again whenever it follows.
-        access.narrowingFor(definition, registry.find(view).orElseThrow().view());
-        journal(List.of(definition.encode()));
-        if (registry.policy() instanceof CatalogPolicy catalog) {
-            try {
-                catalog.alertCreated(principal, key);
-            } catch (PravahaException e) {
-                LOG.log(
-                        System.Logger.Level.ERROR,
-                        "the catalogue could not record the alert '" + name + "': " + e.getMessage()
-                                + "; it is recorded at the next start");
+            if (registry.find(key).isPresent()) {
+                throw new PravahaException(
+                        AlertErrors.ALERT_EXISTS,
+                        "'" + name + "' is a continuous query's name, and "
+                                + "an alert and a query cannot share one: every surface names both the same way");
             }
-        }
-        Alert alert = new Alert(this, definition, false);
-        alerts.put(key, alert);
-        attach(alert);
-        return alert.summary(now);
-    }
-
-    /** {@code ALTER ALERT ... NOTIFY} or {@code SET (...)}: {@code MANAGE}. */
-    public synchronized AlertStatus.Summary alter(Principal principal, AlertStatement.Alter statement) {
-        Alert alert = require(principal, statement.name());
-        access.require(principal, alert.definition(), Privilege.MANAGE, "alter");
-        Instant now = clock.instant();
-        AlertDefinition next = alert.definition();
-        if (!statement.channels().isEmpty()) {
+            String view = resolveView(principal, statement.view());
             for (String channel : statement.channels()) {
                 requireChannel(channel);
             }
-            access.requireChannels(principal, next.name(), statement.channels());
-            next = next.withChannels(statement.channels(), now, principal.id());
-        }
-        if (!statement.options().isEmpty()) {
-            if (statement.options().containsKey("snooze")) {
-                throw AlertOptions.invalid("snooze is a CREATE option; an existing alert is snoozed with SNOOZE ALERT "
-                        + next.name() + " FOR <duration>");
+            AlertOptions options = AlertOptions.of(AlertOptions.defaults(), statement.options());
+            access.requireCreate(principal, name, view, statement.channels());
+            StreamSchema schema = registry.find(view).orElseThrow().view().schema();
+            AlertCondition.compile(statement.where(), schema);
+            requireColumns(options.include(), schema);
+            if (registry.policy() instanceof CatalogPolicy catalog) {
+                String fullName = CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + name;
+                Optional<CatalogObject> taken = catalog.service().catalog().object(fullName);
+                if (taken.isPresent()) {
+                    throw new PravahaException(
+                            AlertErrors.ALERT_EXISTS,
+                            "'" + fullName + "' is already the catalogue's " + "name for a "
+                                    + taken.get().kind().name().toLowerCase(java.util.Locale.ROOT));
+                }
             }
-            AlertOptions options = AlertOptions.of(next.options(), statement.options());
-            registry.find(next.view())
-                    .ifPresent(q -> requireColumns(options.include(), q.view().schema()));
-            next = next.withOptions(options, now, principal.id());
+            Instant now = clock.instant();
+            AlertDefinition definition = new AlertDefinition(
+                    UUID.randomUUID().toString(),
+                    name,
+                    view,
+                    principal.tenant(),
+                    principal.id(),
+                    now,
+                    statement.where(),
+                    statement.channels(),
+                    options,
+                    false,
+                    options.snooze().isZero() ? null : now.plus(options.snooze()),
+                    now,
+                    principal.id());
+            // MASKALERT-1: a condition or a key on a column masked for the owner is refused here, to the
+            // person creating it (PRV-7006), as SECURITY.md promises -- not accepted ACTIVE and then marked
+            // broken when the alert starts following. The same check runs again whenever it follows.
+            access.narrowingFor(definition, registry.find(view).orElseThrow().view());
+            journal(List.of(definition.encode()));
+            if (registry.policy() instanceof CatalogPolicy catalog) {
+                try {
+                    catalog.alertCreated(principal, key);
+                } catch (PravahaException e) {
+                    LOG.log(
+                            System.Logger.Level.ERROR,
+                            "the catalogue could not record the alert '" + name + "': " + e.getMessage()
+                                    + "; it is recorded at the next start");
+                }
+            }
+            Alert alert = new Alert(this, definition, false);
+            alerts.put(key, alert);
+            attach(alert);
+            return alert.summary(now);
+        } finally {
+            lock.unlock();
         }
-        return redefine(alert, next, now);
+    }
+
+    /** {@code ALTER ALERT ... NOTIFY} or {@code SET (...)}: {@code MANAGE}. */
+    public AlertStatus.Summary alter(Principal principal, AlertStatement.Alter statement) {
+        lock.lock();
+        try {
+            Alert alert = require(principal, statement.name());
+            access.require(principal, alert.definition(), Privilege.MANAGE, "alter");
+            Instant now = clock.instant();
+            AlertDefinition next = alert.definition();
+            if (!statement.channels().isEmpty()) {
+                for (String channel : statement.channels()) {
+                    requireChannel(channel);
+                }
+                access.requireChannels(principal, next.name(), statement.channels());
+                next = next.withChannels(statement.channels(), now, principal.id());
+            }
+            if (!statement.options().isEmpty()) {
+                if (statement.options().containsKey("snooze")) {
+                    throw AlertOptions.invalid(
+                            "snooze is a CREATE option; an existing alert is snoozed with SNOOZE ALERT " + next.name()
+                                    + " FOR <duration>");
+                }
+                AlertOptions options = AlertOptions.of(next.options(), statement.options());
+                registry.find(next.view())
+                        .ifPresent(
+                                q -> requireColumns(options.include(), q.view().schema()));
+                next = next.withOptions(options, now, principal.id());
+            }
+            return redefine(alert, next, now);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** {@code DROP ALERT}: {@code MANAGE}. False when {@code ifExists} and there was none. */
-    public synchronized boolean drop(Principal principal, String name, boolean ifExists) {
-        String key = key(principal, name);
-        Alert alert = alerts.get(key);
-        if (alert == null || !access.maySee(principal, alert.definition())) {
-            if (ifExists) {
-                return false;
+    public boolean drop(Principal principal, String name, boolean ifExists) {
+        lock.lock();
+        try {
+            String key = key(principal, name);
+            Alert alert = alerts.get(key);
+            if (alert == null || !access.maySee(principal, alert.definition())) {
+                if (ifExists) {
+                    return false;
+                }
+                throw noSuch(name);
             }
-            throw noSuch(name);
+            access.require(principal, alert.definition(), Privilege.MANAGE, "drop");
+            journal(List.of(List.of("D", alert.definition().id())));
+            alerts.remove(key);
+            statistics.forget(key);
+            alert.unfollow();
+            if (registry.policy() instanceof CatalogPolicy catalog) {
+                catalog.alertDropped(key);
+            }
+            return true;
+        } finally {
+            lock.unlock();
         }
-        access.require(principal, alert.definition(), Privilege.MANAGE, "drop");
-        journal(List.of(List.of("D", alert.definition().id())));
-        alerts.remove(key);
-        statistics.forget(key);
-        alert.unfollow();
-        if (registry.policy() instanceof CatalogPolicy catalog) {
-            catalog.alertDropped(key);
-        }
-        return true;
     }
 
     /** {@code PAUSE ALERT}: {@code MODIFY}. It keeps following, and says nothing until resumed. */
-    public synchronized AlertStatus.Summary pause(Principal principal, String name) {
-        Alert alert = require(principal, name);
-        access.require(principal, alert.definition(), Privilege.MODIFY, "pause");
-        Instant now = clock.instant();
-        return redefine(alert, alert.definition().withPaused(true, now, principal.id()), now);
+    public AlertStatus.Summary pause(Principal principal, String name) {
+        lock.lock();
+        try {
+            Alert alert = require(principal, name);
+            access.require(principal, alert.definition(), Privilege.MODIFY, "pause");
+            Instant now = clock.instant();
+            return redefine(alert, alert.definition().withPaused(true, now, principal.id()), now);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** {@code RESUME ALERT}: {@code MODIFY}. Ends a pause and a snooze; what changed meanwhile is sent. */
-    public synchronized AlertStatus.Summary resume(Principal principal, String name) {
-        Alert alert = require(principal, name);
-        access.require(principal, alert.definition(), Privilege.MODIFY, "resume");
-        Instant now = clock.instant();
-        return redefine(alert, alert.definition().withPaused(false, now, principal.id()), now);
+    public AlertStatus.Summary resume(Principal principal, String name) {
+        lock.lock();
+        try {
+            Alert alert = require(principal, name);
+            access.require(principal, alert.definition(), Privilege.MODIFY, "resume");
+            Instant now = clock.instant();
+            return redefine(alert, alert.definition().withPaused(false, now, principal.id()), now);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** {@code SNOOZE ALERT ... FOR}: {@code MODIFY}. Quiet until then; what changed meanwhile is sent after. */
-    public synchronized AlertStatus.Summary snooze(Principal principal, String name, Duration duration) {
-        Alert alert = require(principal, name);
-        access.require(principal, alert.definition(), Privilege.MODIFY, "snooze");
-        if (duration.isZero() || duration.isNegative()) {
-            throw AlertOptions.invalid("a snooze is for a positive time; RESUME ALERT " + name + " ends one");
+    public AlertStatus.Summary snooze(Principal principal, String name, Duration duration) {
+        lock.lock();
+        try {
+            Alert alert = require(principal, name);
+            access.require(principal, alert.definition(), Privilege.MODIFY, "snooze");
+            if (duration.isZero() || duration.isNegative()) {
+                throw AlertOptions.invalid("a snooze is for a positive time; RESUME ALERT " + name + " ends one");
+            }
+            Instant now = clock.instant();
+            return redefine(alert, alert.definition().withSnooze(now.plus(duration), now, principal.id()), now);
+        } finally {
+            lock.unlock();
         }
-        Instant now = clock.instant();
-        return redefine(alert, alert.definition().withSnooze(now.plus(duration), now, principal.id()), now);
     }
 
     /**
@@ -664,9 +709,12 @@ public final class AlertService implements Alerting, AutoCloseable {
      */
     public int acknowledge(Principal principal, String name, @Nullable String key) {
         Alert alert;
-        synchronized (this) {
+        lock.lock();
+        try {
             alert = require(principal, name);
             access.require(principal, alert.definition(), Privilege.MODIFY, "ack");
+        } finally {
+            lock.unlock();
         }
         return alert.acknowledge(key == null || key.isBlank() ? null : key.strip(), principal.id(), clock.instant());
     }

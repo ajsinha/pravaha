@@ -68,6 +68,9 @@ import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
  */
 public final class QueryRegistry implements AutoCloseable {
 
+    /** Held where this registry used to synchronize on itself (ADR-062; see {@link RegistryLock}). */
+    final RegistryLock lock = new RegistryLock();
+
     /** The default ceiling on keys in a view a registration creates. */
     public static final int DEFAULT_MAX_KEYS = 1_000_000;
 
@@ -103,66 +106,15 @@ public final class QueryRegistry implements AutoCloseable {
     // renders the list and for a test that asserts on it.
     private final Map<String, RegisteredQuery> byName = new LinkedHashMap<>();
     private @Nullable RegistryJournal journal;
-    /**
-     * The threads every query's lane runs on, created on first use and shared by all of them.
-     *
-     * <p>ADR-027. A lane used to own a thread, so a thousand registrations were a thousand platform
-     * threads -- which is what "fine at tens" meant and why it was true. A runner drives many lanes
-     * from a fixed set of threads, sized by cores, so the count stops following the registrations.
-     *
-     * <p>Confinement is unchanged and is the reason this is a runner rather than a pool: a lane
-     * belongs to one runner thread from the moment it is hosted until it is dropped, and a runner
-     * steps its lanes one at a time. Nothing about the lock-free hot path changes.
-     *
-     * <p>Lazily created so a registry that never registers anything starts no threads, which is what
-     * a great many of this project's tests are.
-     */
-    private volatile com.ash.messaging.pravaha.runtime.lane.@Nullable LaneRunner laneRunner;
+    /** The runner and the shared lanes (ADR-027, W9-8); see {@link RegistryLanes}. Under {@link #lock}. */
+    private final RegistryLanes registryLanes = new RegistryLanes();
 
-    synchronized com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner() {
-        if (laneRunner == null) {
-            laneRunner = new com.ash.messaging.pravaha.runtime.lane.LaneRunner(
-                    com.ash.messaging.pravaha.runtime.lane.LaneRunner.defaultThreads(),
-                    "pravaha-lane-runner",
-                    laneConfig.waitStrategy());
-        }
-        return laneRunner;
+    com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner() {
+        return lock.call(() -> registryLanes.runner(laneConfig));
     }
 
-    /**
-     * Whether registrations share multiplexed lanes rather than each taking one of their own, and
-     * if so, on how many lanes and at what ceiling. Null when every query gets a lane of its own.
-     *
-     * <p>W9-8. ADR-027 already removed the thread per query — {@link
-     * com.ash.messaging.pravaha.runtime.lane.LaneRunner} drives many lanes from a pool sized to the
-     * cores — so what is left on the table is the <em>inbox and arena</em> a lane owns, about 1,024
-     * KiB idle per query. Multiplexing shares one of each between every pipeline on the lane.
-     *
-     * <p>A row carries the identity of its stream (W9-9), and a watermark advance no longer clamps
-     * the lane's batch (W9-10). Which lane a registration lands on is {@link SharedLanes}'s
-     * decision, and its javadoc gives the rules and why they are what they are.
-     *
-     * <p>Off unless asked for. A node reaches it through {@code pravaha.lane.multiplex.*}; an
-     * embedder through {@link #multiplexingLanes(int, int)}. It stays off by default because
-     * sharing a lane shares its fate: a pipeline that throws kills the lane, and with it every
-     * query on it, where a lane per query loses one.
-     */
-    private @Nullable SharedLanes sharedLanes;
-
-    /** How many lanes and what ceiling {@link #sharedLanes} is built with, once multiplexing is on. */
-    private int sharedLaneCount;
-
-    private int maxQueriesPerSharedLane;
-
-    /** Computations placed on lanes of their own before registrations start sharing: zero shares at once. */
-    private int shareFrom;
-
-    private synchronized SharedLanes sharedLanes() {
-        if (sharedLanes == null) {
-            sharedLanes =
-                    new SharedLanes(sharedLaneCount, maxQueriesPerSharedLane, laneConfig, access, this::laneRunner);
-        }
-        return sharedLanes;
+    private SharedLanes sharedLanes() {
+        return lock.call(() -> registryLanes.shared(laneConfig, access, this::laneRunner));
     }
 
     /**
@@ -175,19 +127,20 @@ public final class QueryRegistry implements AutoCloseable {
      * because those attribute the <em>shared</em> lane to every query on it — two queries on one
      * lane each report that lane's inbox, so summing them overstates the node.
      */
-    public synchronized java.util.List<Integer> pipelinesPerSharedLane() {
-        if (sharedLaneCount == 0) {
-            return java.util.List.of();
-        }
-        return sharedLanes().pipelinesPerLane();
+    public java.util.List<Integer> pipelinesPerSharedLane() {
+        return lock.call(() -> {
+            return registryLanes.count() == 0
+                    ? java.util.List.<Integer>of()
+                    : sharedLanes().pipelinesPerLane();
+        });
     }
 
     /**
      * The shared lane a registered name's computation runs on, or empty when it has a lane of its
      * own -- because multiplexing is off, or because admission control found no lane for it.
      */
-    public synchronized java.util.Optional<Integer> sharedLaneOf(String name) {
-        return require(name).sharedLane();
+    public java.util.Optional<Integer> sharedLaneOf(String name) {
+        return lock.call(() -> require(name).sharedLane());
     }
 
     /**
@@ -198,21 +151,21 @@ public final class QueryRegistry implements AutoCloseable {
      * to save, so a number that keeps rising on a multiplexing node is the signal to add shared
      * lanes or raise the ceiling.
      */
-    public synchronized int queriesOnOwnLanes() {
-        return byFingerprint.size()
+    public int queriesOnOwnLanes() {
+        return lock.call(() -> byFingerprint.size()
                 - (int) byFingerprint.values().stream()
                         .filter(query -> query.sharedLane().isPresent())
-                        .count();
+                        .count());
     }
 
     /** Off-heap bytes the built shared lanes hold, inbox and arena, or zero when not multiplexing. */
-    public synchronized long sharedLaneBytes() {
-        return sharedLaneCount == 0 ? 0 : sharedLanes().offHeapBytes();
+    public long sharedLaneBytes() {
+        return lock.call(() -> registryLanes.count() == 0 ? 0 : sharedLanes().offHeapBytes());
     }
 
     /** The per-lane ceiling in force, or zero when not multiplexing. */
-    public synchronized int maxQueriesPerSharedLane() {
-        return sharedLaneCount == 0 ? 0 : maxQueriesPerSharedLane;
+    public int maxQueriesPerSharedLane() {
+        return lock.call(registryLanes::maxPerLane);
     }
 
     /** Where a registration's named sink is resolved. {@link SinkFactory#NONE} until one is given. */
@@ -237,8 +190,9 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** The sink a registered query writes to, or empty when it writes only to its view. */
-    public synchronized java.util.Optional<String> sinkOf(String queryName) {
-        return java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::sinkName);
+    public java.util.Optional<String> sinkOf(String queryName) {
+        return lock.call(
+                () -> java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::sinkName));
     }
 
     /**
@@ -248,15 +202,19 @@ public final class QueryRegistry implements AutoCloseable {
      * is where an operator finds out, since the query itself keeps running and its view keeps
      * answering.
      */
-    public synchronized java.util.Optional<PravahaException> sinkFailure(String queryName) {
-        SinkDelivery delivery = deliveries.get(queryName);
-        return delivery == null ? java.util.Optional.empty() : delivery.failure();
+    public java.util.Optional<PravahaException> sinkFailure(String queryName) {
+        return lock.call(() -> {
+            SinkDelivery delivery = deliveries.get(queryName);
+            return delivery == null ? java.util.Optional.empty() : delivery.failure();
+        });
     }
 
     /** Rows a registration's sink has accepted, or zero when it has none. */
-    public synchronized long rowsWrittenToSink(String queryName) {
-        SinkDelivery delivery = deliveries.get(queryName);
-        return delivery == null ? 0 : delivery.rowsWritten();
+    public long rowsWrittenToSink(String queryName) {
+        return lock.call(() -> {
+            SinkDelivery delivery = deliveries.get(queryName);
+            return delivery == null ? 0 : delivery.rowsWritten();
+        });
     }
 
     /**
@@ -277,8 +235,8 @@ public final class QueryRegistry implements AutoCloseable {
      * <p>{@code lanes} of zero turns multiplexing off. Settled before the first registration and not
      * after: a lane already carrying queries cannot be resized under them.
      */
-    public synchronized QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane) {
-        return multiplexingLanes(lanes, maxQueriesPerLane, 0);
+    public QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane) {
+        return lock.call(() -> multiplexingLanes(lanes, maxQueriesPerLane, 0));
     }
 
     /**
@@ -286,39 +244,16 @@ public final class QueryRegistry implements AutoCloseable {
      * the node's {@code auto} mode. The first {@code shareFrom} each own a lane, as with multiplexing off,
      * and every registration after them is placed on a shared lane. Nothing already running is moved.
      */
-    public synchronized QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane, int shareFrom) {
-        if (shareFrom < 0) {
-            throw new IllegalArgumentException("sharing cannot start before the first query, got " + shareFrom);
-        }
-        this.shareFrom = shareFrom;
-        return multiplexingLanesNow(lanes, maxQueriesPerLane);
+    public QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane, int shareFrom) {
+        return lock.call(() -> {
+            registryLanes.configure(lanes, maxQueriesPerLane, shareFrom, !byFingerprint.isEmpty());
+            return this;
+        });
     }
 
     /** How many computations own a lane before sharing starts; zero when sharing starts at once. */
-    public synchronized int sharingFrom() {
-        return shareFrom;
-    }
-
-    private QueryRegistry multiplexingLanesNow(int lanes, int maxQueriesPerLane) {
-        if (lanes < 0) {
-            throw new IllegalArgumentException("shared lane count cannot be negative, got " + lanes);
-        }
-        if (lanes > 0 && maxQueriesPerLane < 1) {
-            throw new IllegalArgumentException(
-                    "a shared lane must be allowed at least one query, got " + maxQueriesPerLane);
-        }
-        if (!byFingerprint.isEmpty()) {
-            throw new IllegalStateException("queries are already registered on the lanes they were placed on; "
-                    + "configure multiplexing before the first registration");
-        }
-        if (sharedLanes != null) {
-            // Built by an earlier configuration and carrying nothing, since nothing is registered.
-            sharedLanes.close();
-            sharedLanes = null;
-        }
-        this.sharedLaneCount = lanes;
-        this.maxQueriesPerSharedLane = lanes == 0 ? 0 : maxQueriesPerLane;
-        return this;
+    public int sharingFrom() {
+        return lock.call(registryLanes::shareFrom);
     }
 
     /**
@@ -372,8 +307,10 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** Plans every later registration over {@code stream} too: one declared after start (DECLSTREAM-1). */
-    public synchronized void declare(StreamSchema stream) {
-        streams = StreamIdentities.declare(streams, stream);
+    public void declare(StreamSchema stream) {
+        lock.run(() -> {
+            streams = StreamIdentities.declare(streams, stream);
+        });
     }
 
     /** Dimension tables registered queries may join against, by the name the SQL refers to. */
@@ -545,9 +482,8 @@ public final class QueryRegistry implements AutoCloseable {
      * @param keyColumns the output columns the view is keyed by, as ordinals. A view with no key is
      *     a log rather than a view, so at least one is required
      */
-    public synchronized RegisteredQuery register(
-            String name, String sql, List<Integer> keyColumns, Principal principal) {
-        return register(name, sql, keyColumns, principal, defaultRetention);
+    public RegisteredQuery register(String name, String sql, List<Integer> keyColumns, Principal principal) {
+        return lock.call(() -> register(name, sql, keyColumns, principal, defaultRetention));
     }
 
     /**
@@ -559,8 +495,8 @@ public final class QueryRegistry implements AutoCloseable {
      * computation, and every subscriber filters at its own tap. A parameter the query aggregates
      * away needs a computation per distinct value.
      */
-    public synchronized List<ParameterPlacement> classify(String sql) {
-        return PreparedContinuousQuery.classify(sql, streams);
+    public List<ParameterPlacement> classify(String sql) {
+        return lock.call(() -> PreparedContinuousQuery.classify(sql, streams));
     }
 
     /**
@@ -568,34 +504,36 @@ public final class QueryRegistry implements AutoCloseable {
      * lookup tables {@code register} plans it over -- which is how a key named by column is turned
      * into the ordinal {@code register} takes, against the view that would actually exist.
      */
-    public synchronized StreamSchema outputSchemaOf(String sql) {
-        return PreparedContinuousQuery.of(
+    public StreamSchema outputSchemaOf(String sql) {
+        return lock.call(() -> PreparedContinuousQuery.of(
                         sql, BoundParameters.none(), List.of(streams), List.copyOf(lookupSchemas.values()))
                 .plan()
-                .outputSchema();
+                .outputSchema());
     }
 
     /** As {@link #outputSchemaOf(String)}, over the views {@code principal} could read too (ADR-056). */
-    public synchronized StreamSchema outputSchemaOf(String sql, Principal principal) {
-        return planAs(sql, BoundParameters.none(), principal).plan().outputSchema();
+    public StreamSchema outputSchemaOf(String sql, Principal principal) {
+        return lock.call(
+                () -> planAs(sql, BoundParameters.none(), principal).plan().outputSchema());
     }
 
     /** Plans {@code sql} as {@code principal}'s registration would: streams, lookups, and views. */
-    synchronized PreparedContinuousQuery planAs(String sql, BoundParameters parameters, Principal principal) {
-        return chains.plan(sql, parameters, principal, List.of(streams), List.copyOf(lookupSchemas.values()));
+    PreparedContinuousQuery planAs(String sql, BoundParameters parameters, Principal principal) {
+        return lock.call(
+                () -> chains.plan(sql, parameters, principal, List.of(streams), List.copyOf(lookupSchemas.values())));
     }
 
     /** Queries over queries (ADR-056); derived from the plans, so nothing here has to be kept in step. */
     final QueryChains chains = new QueryChains(this);
 
     /** The registered queries whose answers {@code name} reads, or empty for a query over streams. */
-    public synchronized List<String> readsFrom(String name) {
-        return chains.readsFrom(name);
+    public List<String> readsFrom(String name) {
+        return lock.call(() -> chains.readsFrom(name));
     }
 
     /** The queries, then the alerts ({@code ALERT <name>}), that follow {@code name}'s answer (ALERTDEPS-1). */
-    public synchronized List<String> dependantsOf(String name) {
-        return chains.dependantsWithAlerts(name);
+    public List<String> dependantsOf(String name) {
+        return lock.call(() -> chains.dependantsWithAlerts(name));
     }
 
     /** ADR-057's alerts: they follow views -- a drop is refused while they do -- and run their statements. */
@@ -622,15 +560,15 @@ public final class QueryRegistry implements AutoCloseable {
      * @return the registration, whose {@link RegisteredQuery#parameterPlacements()} says what was
      *     decided and why
      */
-    public synchronized RegisteredQuery register(
+    public RegisteredQuery register(
             String name, String sql, List<Integer> keyColumns, Principal principal, BoundParameters parameters) {
-        return register(name, sql, keyColumns, principal, defaultRetention, parameters);
+        return lock.call(() -> register(name, sql, keyColumns, principal, defaultRetention, parameters));
     }
 
     /** Registers with an explicit retention, overriding this registry's default. */
-    public synchronized RegisteredQuery register(
+    public RegisteredQuery register(
             String name, String sql, List<Integer> keyColumns, Principal principal, Retention retention) {
-        return register(name, sql, keyColumns, principal, retention, BoundParameters.none());
+        return lock.call(() -> register(name, sql, keyColumns, principal, retention, BoundParameters.none()));
     }
 
     /**
@@ -646,48 +584,52 @@ public final class QueryRegistry implements AutoCloseable {
      * wrong for ever. So the sink is asked what it can take -- without being opened -- and the pair
      * is refused before a row exists.
      */
-    public synchronized RegisteredQuery registerWritingTo(
+    public RegisteredQuery registerWritingTo(
             String name, String sql, List<Integer> keyColumns, Principal principal, String sinkName) {
-        if (sinkName == null || sinkName.isBlank()) {
-            throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
-        }
-        return register(name, sql, keyColumns, principal, Retention.forever(), sinkName);
+        return lock.call(() -> {
+            if (sinkName == null || sinkName.isBlank()) {
+                throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
+            }
+            return register(name, sql, keyColumns, principal, Retention.forever(), sinkName);
+        });
     }
 
     /** {@link #registerWritingTo(String, String, List, Principal, String)}, with the view's retention chosen. */
-    public synchronized RegisteredQuery registerWritingTo(
+    public RegisteredQuery registerWritingTo(
             String name,
             String sql,
             List<Integer> keyColumns,
             Principal principal,
             String sinkName,
             Retention retention) {
-        if (sinkName == null || sinkName.isBlank()) {
-            throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
-        }
-        return register(
-                name, sql, keyColumns, principal, retention == null ? Retention.forever() : retention, sinkName);
+        return lock.call(() -> {
+            if (sinkName == null || sinkName.isBlank()) {
+                throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
+            }
+            return register(
+                    name, sql, keyColumns, principal, retention == null ? Retention.forever() : retention, sinkName);
+        });
     }
 
     /** Registers with both an explicit retention and bound parameters. */
-    public synchronized RegisteredQuery register(
+    public RegisteredQuery register(
             String name,
             String sql,
             List<Integer> keyColumns,
             Principal principal,
             Retention retention,
             BoundParameters parameters) {
-        return register(name, sql, keyColumns, principal, retention, parameters, null);
+        return lock.call(() -> register(name, sql, keyColumns, principal, retention, parameters, null));
     }
 
-    private synchronized RegisteredQuery register(
+    private RegisteredQuery register(
             String name,
             String sql,
             List<Integer> keyColumns,
             Principal principal,
             Retention retention,
             String sinkName) {
-        return register(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName);
+        return lock.call(() -> register(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName));
     }
 
     /** What planning and authorizing a registration produced, before anything is started. */
@@ -705,7 +647,7 @@ public final class QueryRegistry implements AutoCloseable {
         return List.copyOf(lookupSchemas.values());
     }
 
-    private synchronized RegisteredQuery register(
+    private RegisteredQuery register(
             String local,
             String sql,
             List<Integer> keyColumns,
@@ -713,53 +655,55 @@ public final class QueryRegistry implements AutoCloseable {
             Retention retention,
             BoundParameters parameters,
             @Nullable String sinkName) {
-        // ADR-060: a name is registered in its registrant's tenant and keyed there by its engine name.
-        QueryNames.require(local, byName.keySet(), ViewNames.engineName(principal.tenant(), local));
-        String name = ViewNames.engineName(principal.tenant(), local);
-        return EngineSpans.traced("pravaha.query.register", "pravaha.query", name, () -> {
-            Preparation prepared = RegistrationPlanning.prepare(
-                    this, name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
-            RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
-            tenants.admit(
-                    audit,
-                    principal,
-                    "register",
-                    name,
-                    sql,
-                    byFingerprint.values(),
-                    true,
-                    running == null || running.state().isTerminal());
-
-            // Opened after every refusal above and before anything runs, so a registration refused for
-            // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
-            // computation can attach the sink before its feed delivers a row.
-            SinkDelivery delivery = sinkName == null
-                    ? null
-                    : openDelivery(name, sinkName, prepared.plan().outputSchema());
-            try {
-                RegisteredQuery registered = register(
+        return lock.call(() -> {
+            // ADR-060: a name is registered in its registrant's tenant and keyed there by its engine name.
+            QueryNames.require(local, byName.keySet(), ViewNames.engineName(principal.tenant(), local));
+            String name = ViewNames.engineName(principal.tenant(), local);
+            return EngineSpans.traced("pravaha.query.register", "pravaha.query", name, () -> {
+                Preparation prepared = RegistrationPlanning.prepare(
+                        this, name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
+                RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
+                tenants.admit(
+                        audit,
+                        principal,
+                        "register",
                         name,
                         sql,
-                        keyColumns,
-                        principal,
-                        retention,
-                        parameters,
-                        sinkName,
-                        prepared.plan(),
-                        prepared.placements(),
-                        prepared.fingerprint(),
-                        delivery,
-                        recoveringInto == null
-                                ? checkpoints.freeDirectoryFor(name, byFingerprint.values())
-                                : recoveringInto);
-                tenants.assign(name, principal.tenant());
-                return registered;
-            } catch (RuntimeException e) {
-                if (delivery != null) {
-                    delivery.close();
+                        byFingerprint.values(),
+                        true,
+                        running == null || running.state().isTerminal());
+
+                // Opened after every refusal above and before anything runs, so a registration refused for
+                // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
+                // computation can attach the sink before its feed delivers a row.
+                SinkDelivery delivery = sinkName == null
+                        ? null
+                        : openDelivery(name, sinkName, prepared.plan().outputSchema());
+                try {
+                    RegisteredQuery registered = register(
+                            name,
+                            sql,
+                            keyColumns,
+                            principal,
+                            retention,
+                            parameters,
+                            sinkName,
+                            prepared.plan(),
+                            prepared.placements(),
+                            prepared.fingerprint(),
+                            delivery,
+                            recoveringInto == null
+                                    ? checkpoints.freeDirectoryFor(name, byFingerprint.values())
+                                    : recoveringInto);
+                    tenants.assign(name, principal.tenant());
+                    return registered;
+                } catch (RuntimeException e) {
+                    if (delivery != null) {
+                        delivery.close();
+                    }
+                    throw e;
                 }
-                throw e;
-            }
+            });
         });
     }
 
@@ -772,7 +716,7 @@ public final class QueryRegistry implements AutoCloseable {
      * planned and authorized exactly as a registration is, because it is one in every way except
      * that it has no readers yet.
      */
-    synchronized RegisteredQuery startShadow(
+    RegisteredQuery startShadow(
             String name,
             String sql,
             List<Integer> keyColumns,
@@ -781,33 +725,38 @@ public final class QueryRegistry implements AutoCloseable {
             @Nullable String sinkName,
             String checkpointDirectory,
             com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
-        return EngineSpans.traced("pravaha.query.replace", "pravaha.query", name, () -> {
-            Preparation prepared = RegistrationPlanning.prepare(
-                    this, name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
-            tenants.requireSameTenant(audit, principal, name, sql);
-            tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
-            RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
-            // The same computation is a replacement only when it moves the name between lanes.
-            if (existing != null && !existing.state().isTerminal() && !declaring.moves(existing, byName.get(name))) {
-                throw new PravahaException(
-                        com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
-                        "the new version of '" + name + "' is the same computation as '" + existing.name()
-                                + "', which is already running: replacing a query with one that normalises to the "
-                                + "same plan would cut over to itself. Registrations that ask the same question "
-                                + "share one computation, so point readers at '" + existing.name() + "' instead, or "
-                                + "say lane = 'dedicated' or 'shared' to move it between lanes.");
-            }
-            return start(
-                    name,
-                    sql,
-                    prepared.plan(),
-                    keyColumns,
-                    prepared.fingerprint(),
-                    retention,
-                    prepared.placements(),
-                    null,
-                    checkpointDirectory,
-                    backfill);
+        return lock.call(() -> {
+            return EngineSpans.traced("pravaha.query.replace", "pravaha.query", name, () -> {
+                Preparation prepared = RegistrationPlanning.prepare(
+                        this, name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
+                tenants.requireSameTenant(audit, principal, name, sql);
+                tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
+                RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
+                // The same computation is a replacement only when it moves the name between lanes.
+                if (existing != null
+                        && !existing.state().isTerminal()
+                        && !declaring.moves(existing, byName.get(name))) {
+                    throw new PravahaException(
+                            com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
+                            "the new version of '" + name + "' is the same computation as '" + existing.name()
+                                    + "', which is already running: replacing a query with one that normalises to the "
+                                    + "same plan would cut over to itself. Registrations that ask the same question "
+                                    + "share one computation, so point readers at '" + existing.name()
+                                    + "' instead, or "
+                                    + "say lane = 'dedicated' or 'shared' to move it between lanes.");
+                }
+                return start(
+                        name,
+                        sql,
+                        prepared.plan(),
+                        keyColumns,
+                        prepared.fingerprint(),
+                        retention,
+                        prepared.placements(),
+                        null,
+                        checkpointDirectory,
+                        backfill);
+            });
         });
     }
 
@@ -815,8 +764,9 @@ public final class QueryRegistry implements AutoCloseable {
      * What a registration's sink is promised -- exactly-once, effectively-once or at-least-once, and
      * why -- or empty when it writes only to its view. The same words {@link SinkDelivery#announce} logs.
      */
-    public synchronized java.util.Optional<String> sinkGuarantee(String queryName) {
-        return java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::guarantee);
+    public java.util.Optional<String> sinkGuarantee(String queryName) {
+        return lock.call(
+                () -> java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::guarantee));
     }
 
     /**
@@ -977,14 +927,16 @@ public final class QueryRegistry implements AutoCloseable {
      * both journalled with it so a restart never brings the query back without them. Held for the
      * length of one call, as {@link #recoveringInto} is.
      */
-    synchronized <T> T declaring(Declaring declared, java.util.function.Supplier<T> registration) {
-        Declaring previous = declaring;
-        declaring = declared;
-        try {
-            return registration.get();
-        } finally {
-            declaring = previous;
-        }
+    <T> T declaring(Declaring declared, java.util.function.Supplier<T> registration) {
+        return lock.call(() -> {
+            Declaring previous = declaring;
+            declaring = declared;
+            try {
+                return registration.get();
+            } finally {
+                declaring = previous;
+            }
+        });
     }
 
     /** What the registration in progress declares; see {@link #declaring}. */
@@ -1034,10 +986,9 @@ public final class QueryRegistry implements AutoCloseable {
         // the lane has finished it. The view is committed from other threads -- the feed's timer, a
         // caller -- and taking rows one at a time let a commit land between an update's retraction
         // and its insert and publish the answer as gone (VIEW-1).
-        Optional<SharedLanes.Placement> placement =
-                declaring.ownsALane() || sharedLaneCount == 0 || byFingerprint.size() < shareFrom
-                        ? Optional.empty()
-                        : sharedLanes().place();
+        Optional<SharedLanes.Placement> placement = declaring.ownsALane() || !registryLanes.shares(byFingerprint.size())
+                ? Optional.empty()
+                : sharedLanes().place();
         QueryExecution execution = (placement.isPresent()
                         ? QueryExecution.startOn(placement.get().group(), name, plan, sink::laneOutput, lookups, access)
                         : QueryExecution.start(plan, 1, laneConfig, access, sink::laneOutput, lookups, laneRunner()))
@@ -1101,7 +1052,7 @@ public final class QueryRegistry implements AutoCloseable {
     /**
      * Blue/green replacements in flight on this registry (ADR-046). Created with the first one.
      *
-     * <p>Not synchronized on this registry: a replacement takes its own monitor and then the
+     * <p>Not synchronized on this registry: a replacement takes its own lock and then the
      * registry's for the moments that change a name, and a registry method that took them the
      * other way round would eventually meet a cutover coming the other way.
      */
@@ -1145,10 +1096,10 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** The streams {@code sql} would read if it were registered here, planned as registration plans it. */
-    synchronized List<String> sourceStreamsOf(String sql) {
-        return PlanSources.of(PreparedContinuousQuery.of(
+    List<String> sourceStreamsOf(String sql) {
+        return lock.call(() -> PlanSources.of(PreparedContinuousQuery.of(
                         sql, BoundParameters.none(), java.util.List.of(streams), List.copyOf(lookupSchemas.values()))
-                .plan());
+                .plan()));
     }
 
     /**
@@ -1158,22 +1109,27 @@ public final class QueryRegistry implements AutoCloseable {
      * catalogue at the moment of its read, so it reads one version's view or the other's and never
      * a mixture; the two are at the same position in their input, so neither is behind.
      */
-    synchronized void moveName(String name, RegisteredQuery from, RegisteredQuery to) {
-        from.removeName(name);
-        byFingerprint.remove(from.fingerprint());
-        to.addName(name);
-        byName.put(name, to);
-        byFingerprint.put(to.fingerprint(), to);
-        views.registerAs(name, to.view());
+    void moveName(String name, RegisteredQuery from, RegisteredQuery to) {
+        lock.run(() -> {
+            from.removeName(name);
+            byFingerprint.remove(from.fingerprint());
+            to.addName(name);
+            byName.put(name, to);
+            byFingerprint.put(to.fingerprint(), to);
+            views.registerAs(name, to.view());
+        });
     }
 
     /** Takes the name's sink delivery away from whoever has it, for a cutover to hand over. */
-    synchronized @Nullable SinkDelivery takeDelivery(String name) {
-        return deliveries.remove(name);
+    @Nullable
+    SinkDelivery takeDelivery(String name) {
+        return lock.call(() -> deliveries.remove(name));
     }
 
-    synchronized void putDelivery(String name, SinkDelivery delivery) {
-        deliveries.put(name, delivery);
+    void putDelivery(String name, SinkDelivery delivery) {
+        lock.run(() -> {
+            deliveries.put(name, delivery);
+        });
     }
 
     /** Opens a second delivery to the same sink, for the version taking the name over. */
@@ -1182,29 +1138,33 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** Releases a shadow or a retained version: nothing answers to it, so nothing is unbound. */
-    synchronized void releaseShadow(RegisteredQuery query) {
-        query.close();
-        query.checkpointDirectory().ifPresent(checkpoints::delete);
+    void releaseShadow(RegisteredQuery query) {
+        lock.run(() -> {
+            query.close();
+            query.checkpointDirectory().ifPresent(checkpoints::delete);
+        });
     }
 
     /** The tenants' quotas (ADR-050), in force for every registration from now on, replays included. */
-    public synchronized QueryRegistry limitingTenants(TenantQuotas quotas) {
-        this.tenants = Objects.requireNonNull(quotas, "quotas");
-        return this;
+    public QueryRegistry limitingTenants(TenantQuotas quotas) {
+        return lock.call(() -> {
+            this.tenants = Objects.requireNonNull(quotas, "quotas");
+            return this;
+        });
     }
 
-    public synchronized TenantQuotas tenantQuotas() {
-        return tenants;
+    public TenantQuotas tenantQuotas() {
+        return lock.call(() -> tenants);
     }
 
     /** Each tenant's use against its quotas and the refusals fired for it: what an operator reads. */
-    public synchronized List<TenantQuotas.Usage> tenantUsage() {
-        return tenants.usage(queries());
+    public List<TenantQuotas.Usage> tenantUsage() {
+        return lock.call(() -> tenants.usage(queries()));
     }
 
     /** The tenant that registered {@code name}, or empty when no such name is registered. */
-    public synchronized Optional<String> tenantOf(String name) {
-        return tenants.tenantOf(name);
+    public Optional<String> tenantOf(String name) {
+        return lock.call(() -> tenants.tenantOf(name));
     }
 
     private TenantQuotas tenants = TenantQuotas.unbounded();
@@ -1224,9 +1184,11 @@ public final class QueryRegistry implements AutoCloseable {
      * an outage: the views are there immediately and fill as data arrives, and a windowed query's
      * first window or two are partial.
      */
-    public synchronized QueryRegistry journalTo(RegistryJournal journal) {
-        this.journal = journal;
-        return this;
+    public QueryRegistry journalTo(RegistryJournal journal) {
+        return lock.call(() -> {
+            this.journal = journal;
+            return this;
+        });
     }
 
     /**
@@ -1242,10 +1204,10 @@ public final class QueryRegistry implements AutoCloseable {
      * @return what was recovered, and what was refused and why. Both matter: a query that did not
      *     come back is a view some client is about to ask for
      */
-    public synchronized Recovery recover(java.util.function.Function<String, Optional<Principal>> principals) {
-        return journal == null
+    public Recovery recover(java.util.function.Function<String, Optional<Principal>> principals) {
+        return lock.call(() -> journal == null
                 ? new Recovery(List.of(), List.of())
-                : RegistryRecovery.replay(this, journal, principals);
+                : RegistryRecovery.replay(this, journal, principals));
     }
 
     /**
@@ -1321,8 +1283,8 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** The query answering to the engine name {@code name}; a surface resolves a caller's name first. */
-    public synchronized Optional<RegisteredQuery> find(String name) {
-        return Optional.ofNullable(byName.get(name));
+    public Optional<RegisteredQuery> find(String name) {
+        return lock.call(() -> Optional.ofNullable(byName.get(name)));
     }
 
     /**
@@ -1338,8 +1300,8 @@ public final class QueryRegistry implements AutoCloseable {
      * which are the right place for that question because both can be authorized. The sentence
      * itself lives in {@link QueryNames#noSuchQuery}, with PF-11's reasoning beside it.
      */
-    public synchronized RegisteredQuery require(String name) {
-        return find(name).orElseThrow(() -> QueryNames.noSuchQuery(name));
+    public RegisteredQuery require(String name) {
+        return lock.call(() -> find(name).orElseThrow(() -> QueryNames.noSuchQuery(name)));
     }
 
     /**
@@ -1354,96 +1316,104 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** The query {@code name} means to {@code principal}: resolved in the caller's tenant (ADR-060). */
-    public synchronized Optional<RegisteredQuery> find(Principal principal, String name) {
-        return find(engineName(principal, name));
+    public Optional<RegisteredQuery> find(Principal principal, String name) {
+        return lock.call(() -> find(engineName(principal, name)));
     }
 
     /** As {@link #require(String)}, resolved in the caller's tenant; the refusal names what was asked for. */
-    public synchronized RegisteredQuery require(Principal principal, String name) {
-        return find(principal, name).orElseThrow(() -> QueryNames.noSuchQuery(name));
+    public RegisteredQuery require(Principal principal, String name) {
+        return lock.call(() -> find(principal, name).orElseThrow(() -> QueryNames.noSuchQuery(name)));
     }
 
     /** The engine names {@code principal} addresses: its own tenant's, or every one for an admin. */
-    public synchronized Set<String> names(Principal principal) {
-        Set<String> visible = new java.util.LinkedHashSet<>();
-        byName.keySet().stream()
-                .filter(name -> ViewNames.visibleTo(principal, name))
-                .forEach(visible::add);
-        return java.util.Collections.unmodifiableSet(visible);
+    public Set<String> names(Principal principal) {
+        return lock.call(() -> {
+            Set<String> visible = new java.util.LinkedHashSet<>();
+            byName.keySet().stream()
+                    .filter(name -> ViewNames.visibleTo(principal, name))
+                    .forEach(visible::add);
+            return java.util.Collections.unmodifiableSet(visible);
+        });
     }
 
     /** Every engine name registered, in registration order: every tenant's (ADR-060). */
-    public synchronized Set<String> names() {
-        return java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(byName.keySet()));
+    public Set<String> names() {
+        return lock.call(() -> java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(byName.keySet())));
     }
 
     /** Every distinct computation, which is fewer than {@link #names()} when queries are shared. */
-    public synchronized List<RegisteredQuery> queries() {
-        return List.copyOf(new java.util.LinkedHashSet<>(byFingerprint.values()));
+    public List<RegisteredQuery> queries() {
+        return lock.call(() -> List.copyOf(new java.util.LinkedHashSet<>(byFingerprint.values())));
     }
 
-    public synchronized int size() {
-        return byFingerprint.size();
+    public int size() {
+        return lock.call(() -> byFingerprint.size());
     }
 
     /** Stops a query without releasing it; its view keeps answering at the frontier it reached. */
-    public synchronized void pause(String name) {
-        require(name).pause();
+    public void pause(String name) {
+        lock.run(() -> {
+            require(name).pause();
+        });
     }
 
-    public synchronized void resume(String name) {
-        require(name).resume();
+    public void resume(String name) {
+        lock.run(() -> {
+            require(name).resume();
+        });
     }
 
     /**
      * Removes a name, releasing the computation when it was the last one: the refcount is why sharing
      * is safe to do implicitly. Dropping on the first name would take the answer from everybody else.
      */
-    public synchronized void drop(String name) {
-        if (find(name).isEmpty() && refusedAtRecovery.drop(name, journal, checkpoints, queries())) {
-            return; // RECOVERYHEALTH-1: a registration recovery refused, listed FAILED until dropped
-        }
-        RegisteredQuery query = require(name);
-        QueryReplacements running = replacements;
-        if (running != null && running.isReplacing(name)) {
-            throw new PravahaException(
-                    com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
-                    "'" + name + "' is being replaced, and dropping it now would leave the candidate running "
-                            + "with nothing to take over. Abandon the replacement first, or roll it back.");
-        }
-        chains.refuseDrop(name);
-        // Journal first: see the note below on why this order is the only honest one.
-        if (journal != null) {
-            checkpoints.journalDrop(journal, name, query); // SHAREDLOSS-1: survivors keep the state
-        }
-        policy.dropped(name);
-        owners.dropped(name);
-        byName.remove(name);
-        tenants.release(name);
-        // This name's sink alone. Another name on the same computation may write to a sink of its
-        // own, and keeps doing so. Finished rather than closed: nothing will restore this name, so a
-        // transactional sink's open transaction is committed now or never.
-        SinkDelivery delivery = deliveries.remove(name);
-        if (delivery != null) {
-            delivery.commitAndRelease();
-        }
-        // The view goes with the name. A dropped view that keeps answering serves whatever the
-        // closed computation last committed, for ever, to a caller with no way to know that nothing
-        // maintains it.
-        views.remove(name);
-        if (query.dropName(name)) {
-            byFingerprint.remove(query.fingerprint());
-            query.close();
-            // The checkpoints go with the computation (52 directories for 2 live queries otherwise),
-            // under the name the checkpointer was STARTED with, which a shared computation's drop differs from.
-            query.checkpointDirectory().ifPresent(checkpoints::delete);
-        }
-        // Journalled before anything was released: a failed drop destroys nothing; a drop survives a restart.
+    public void drop(String name) {
+        lock.run(() -> {
+            if (find(name).isEmpty() && refusedAtRecovery.drop(name, journal, checkpoints, queries())) {
+                return; // RECOVERYHEALTH-1: a registration recovery refused, listed FAILED until dropped
+            }
+            RegisteredQuery query = require(name);
+            QueryReplacements running = replacements;
+            if (running != null && running.isReplacing(name)) {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
+                        "'" + name + "' is being replaced, and dropping it now would leave the candidate running "
+                                + "with nothing to take over. Abandon the replacement first, or roll it back.");
+            }
+            chains.refuseDrop(name);
+            // Journal first: see the note below on why this order is the only honest one.
+            if (journal != null) {
+                checkpoints.journalDrop(journal, name, query); // SHAREDLOSS-1: survivors keep the state
+            }
+            policy.dropped(name);
+            owners.dropped(name);
+            byName.remove(name);
+            tenants.release(name);
+            // This name's sink alone. Another name on the same computation may write to a sink of its
+            // own, and keeps doing so. Finished rather than closed: nothing will restore this name, so a
+            // transactional sink's open transaction is committed now or never.
+            SinkDelivery delivery = deliveries.remove(name);
+            if (delivery != null) {
+                delivery.commitAndRelease();
+            }
+            // The view goes with the name. A dropped view that keeps answering serves whatever the
+            // closed computation last committed, for ever, to a caller with no way to know that nothing
+            // maintains it.
+            views.remove(name);
+            if (query.dropName(name)) {
+                byFingerprint.remove(query.fingerprint());
+                query.close();
+                // The checkpoints go with the computation (52 directories for 2 live queries otherwise),
+                // under the name the checkpointer was STARTED with, which a shared computation's drop differs from.
+                query.checkpointDirectory().ifPresent(checkpoints::delete);
+            }
+            // Journalled before anything was released: a failed drop destroys nothing; a drop survives a restart.
+        });
     }
 
     @Override
     public void close() {
-        // Before the registry's own monitor is taken: a replacement holds its own and then asks
+        // Before the registry's own lock is taken: a replacement holds its own and then asks
         // for this one, so closing it from inside this lock is how the two would meet head on.
         QueryReplacements running = replacements;
         replacements = null;
@@ -1460,29 +1430,15 @@ public final class QueryRegistry implements AutoCloseable {
         closeQueries();
     }
 
-    private synchronized void closeQueries() {
-        List<RegisteredQuery> all = new ArrayList<>(byFingerprint.values());
-        deliveries.values().forEach(SinkDelivery::close);
-        deliveries.clear();
-        byName.clear();
-        byFingerprint.clear();
-        all.forEach(RegisteredQuery::closeForShutdown);
-        // After the queries, not before: a hosted lane's final step is what releases its arena and
-        // inbox, and only its runner may take that step. Closing the runner first would leave every
-        // lane unable to finish, and each close would time out blaming a stall that never happened.
-        // The shared lanes go before the runner and after the queries, for the same reason in both
-        // directions: a hosted query's close only removes its pipelines and deliberately leaves the
-        // lane running for the queries still on it, so somebody has to close the lane itself -- and
-        // it can only finish while its runner is still stepping it.
-        SharedLanes shared = sharedLanes;
-        sharedLanes = null;
-        if (shared != null) {
-            shared.close();
-        }
-        com.ash.messaging.pravaha.runtime.lane.LaneRunner runner = laneRunner;
-        laneRunner = null;
-        if (runner != null) {
-            runner.close();
-        }
+    private void closeQueries() {
+        lock.run(() -> {
+            List<RegisteredQuery> all = new ArrayList<>(byFingerprint.values());
+            deliveries.values().forEach(SinkDelivery::close);
+            deliveries.clear();
+            byName.clear();
+            byFingerprint.clear();
+            all.forEach(RegisteredQuery::closeForShutdown);
+            registryLanes.close(); // after the queries, never before: see RegistryLanes.close
+        });
     }
 }
