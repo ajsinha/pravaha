@@ -601,9 +601,9 @@ that is not `http(s)://` (and, with a token, `http://` without `allow_insecure_t
 | Java builder | Python field | |
 |---|---|---|
 | `.caCertificate(Path)` | `ca_certificate` | A PEM CA bundle to trust |
-| `.clientCertificate(Path)`, `.clientKey(Path)` | `client_certificate`, `client_key` | mTLS, PEM; one without the other is refused, naming which is missing |
+| `.clientCertificate(Path)`, `.clientKey(Path)` | `client_certificate`, `client_key` | A client certificate, PEM; one without the other is refused, naming which is missing. Only for a TLS terminator in front of the node: the node does not request or verify one (MTLSDOC-1) |
 | `.trustStore(path, password, type)` | `trust_store`, `trust_store_password`, `trust_store_type` | JKS or PKCS12 instead of PEM |
-| `.keyStore(path, password, type)` | `key_store`, `key_store_password`, `key_store_type` | mTLS from a keystore |
+| `.keyStore(path, password, type)` | `key_store`, `key_store_password`, `key_store_type` | The same client certificate from a keystore |
 | `.overrideHostname(String)` | `override_hostname` | Check the certificate against this name instead (e.g. `localhost` while dialling `127.0.0.1`) |
 | `.disableHostnameVerificationInsecure(true)` | `disable_hostname_verification=True` | Named so nobody enables it by accident |
 

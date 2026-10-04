@@ -132,7 +132,7 @@ with connect(options=options) as client:
 | `TlsOptions.create(...)` | Meaning |
 |---|---|
 | `ca_certificate` | PEM CA bundle to trust |
-| `client_certificate`, `client_key` | PEM pair for mutual TLS — both or neither |
+| `client_certificate`, `client_key` | PEM pair for mutual TLS — both or neither. For a terminator in front of the node: the node itself does not request or verify client certificates (MTLSDOC-1) |
 | `trust_store`, `trust_store_password`, `trust_store_type` | JKS/PKCS12 alternative to `ca_certificate` |
 | `key_store`, `key_store_password`, `key_store_type` | JKS/PKCS12 alternative to the PEM pair |
 | `override_hostname` | check the certificate against this name instead — it must still be properly signed |
@@ -215,6 +215,13 @@ connection now fails. A connector that still connects was not verifying anything
 
 !!! warning "Pitfall: `sslmode=require`"
     It encrypts and verifies nothing. `verify-full` checks the CA and the host name.
+
+!!! note "Client certificates"
+    The SDKs and the CLI can present a client certificate, and the node does not ask for one: its
+    Flight and PostgreSQL listeners neither request nor verify client certificates, so a certificate
+    from any CA — or none — is accepted alike, and the token is what authenticates (MTLSDOC-1). A
+    client certificate matters only to a TLS terminator in front of the node that requires one;
+    terminate mutual TLS there if your policy asks for it.
 
 !!! note "Between nodes"
     Mutual TLS between nodes is not built: a standby talks to a directory, not to its primary, so

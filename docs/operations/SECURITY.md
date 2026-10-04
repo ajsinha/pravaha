@@ -531,6 +531,16 @@ section and stops there has not secured the HTTP transport carrying the same cre
 
 mTLS between nodes is in the design (§25) and not implemented, because there are no nodes yet.
 
+**Client certificates are not requested or verified by the node** (MTLSDOC-1). The SDKs and the CLI
+can present one (`TlsOptions.clientCertificate`/`client_certificate`, `--tls-cert`), and the Flight
+and PostgreSQL listeners never ask for it: a certificate from any CA, or none, is accepted alike, and
+the bearer token is what authenticates. Mutual TLS, where a deployment requires it, is terminated in
+front of the node.
+
+**A TLS-configured PostgreSQL gateway refuses plaintext** (PGTLSONLY-1): a client that does not send
+`SSLRequest` is refused `FATAL 28000`, `PRV-6221`, before the token is asked for, unless
+`pravaha.pgwire.tls.allow-plaintext` is `true`.
+
 **An ephemeral-port node's reported address is unusable.** The `Location` handed to
 `PravahaFlightSqlProducer` (`PravahaFlightServer.java:229-234`) is built from the *requested* host
 and port, so a node started with `--pravaha.flight.port=0` advertises port `0` to `getFlightInfo`

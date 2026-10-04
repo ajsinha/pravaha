@@ -75,6 +75,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   uncoded `IllegalStateException: Memory was leaked by query` from the Arrow allocator, replacing
   whatever the try block had returned or thrown. The client now tracks open results and closes them
   (after its subscriptions) before its allocator; closing a result twice is harmless.
+- **The documentation no longer promises mutual TLS the node does not do** (MTLSDOC-1). The SDKs'
+  `client_certificate`/`client_key` (and the CLI's `--tls-cert`) were offered "for mutual TLS", and
+  the node's Flight and PostgreSQL listeners never request or verify a client certificate. The `tls`,
+  `clients` and `cli-reference` topics, the Python guide and SECURITY.md now say so: a client
+  certificate is for a TLS terminator in front of the node, and the token is what authenticates.
+  Documentation only; server-side mTLS remains unbuilt.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 
