@@ -24,7 +24,10 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -81,14 +84,31 @@ import com.ash.messaging.pravaha.api.plugin.Version;
 public final class JdbcSourcePlugin implements StreamSourcePlugin {
 
     private String instanceName = "jdbc";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String url;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String user;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String password;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String streamName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String watermarkColumn;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String keyColumn;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String source;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String pageClause;
+
     private int fetchSize;
     private boolean partialAggregates;
     private boolean binaryCollation;
@@ -140,7 +160,10 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
         };
     }
 
-    private Connection connection;
+    /** Null until open() and after close(). */
+    private @Nullable Connection connection;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before anything else
     private StreamSchema schema;
 
     @Override
@@ -263,7 +286,8 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
         // without naming the watermark column -- so a misspelled column produces this plugin's
         // message about configuration rather than the driver's message about SQL.
         String probe = "SELECT * FROM " + source + " " + pageClause.replace("?", "0");
-        try (PreparedStatement statement = connection.prepareStatement(probe)) {
+        try (PreparedStatement statement =
+                Objects.requireNonNull(connection, "open() first").prepareStatement(probe)) {
             try (ResultSet results = statement.executeQuery()) {
                 StreamSchema discovered = JdbcTypes.toStreamSchema(streamName, results.getMetaData());
                 requireColumn(discovered, watermarkColumn, "watermark.column");
@@ -378,15 +402,16 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return createReader(partition, resumeFrom, com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING);
     }
 
     @Override
     public PartitionReader createReader(
             SourcePartition partition,
-            SourceOffset resumeFrom,
+            @Nullable SourceOffset resumeFrom,
             com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
+        Connection connection = Objects.requireNonNull(this.connection, "open() first");
         JdbcPushdown pushed = JdbcPushdown.of(request, schema);
         if (request != null && !request.aggregates().isEmpty()) {
             ReadRequest.PartialAggregate partial = request.aggregates().get(0);
@@ -427,7 +452,7 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * whether or not the engine reads them. A requested name this schema does not have means the
      * request is about something else, and reading everything is the safe answer to that.
      */
-    private List<String> selectedColumns(ReadRequest request) {
+    private @Nullable List<String> selectedColumns(@Nullable ReadRequest request) {
         if (request == null || request.columns().isEmpty()) {
             return null;
         }
@@ -458,6 +483,7 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * {@code 'DONE'} with {@code 'done'}), a floating-point group key ({@code -0.0} and {@code 0.0}
      * are one group in SQL and two in the engine), or a sum over anything but BIGINT.
      */
+    @Nullable
     String whyNoPartial(ReadRequest.PartialAggregate partial, JdbcPushdown pushed, ReadRequest request) {
         if (keyColumn.isBlank() || !partialAggregates) {
             return "partial aggregates need key.column and pushdown.partial.aggregate";
@@ -489,14 +515,15 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
             if (call.column() != null && typeOf(call.column()) == null) {
                 return "no column " + call.column();
             }
-            if (call.kind() == ReadRequest.PartialAggregate.Kind.SUM && typeOf(call.column()) != TypeName.INT64) {
+            if (call.kind() == ReadRequest.PartialAggregate.Kind.SUM
+                    && (call.column() == null || typeOf(call.column()) != TypeName.INT64)) {
                 return "the engine sums BIGINT only";
             }
         }
         return null;
     }
 
-    private TypeName typeOf(String column) {
+    private @Nullable TypeName typeOf(String column) {
         return schema.hasField(column)
                 ? schema.field(schema.indexOf(column)).type().typeName()
                 : null;

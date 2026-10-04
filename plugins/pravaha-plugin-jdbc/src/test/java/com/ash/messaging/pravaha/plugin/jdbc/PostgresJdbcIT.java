@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,7 +96,7 @@ class PostgresJdbcIT {
         }
     }
 
-    private static void insert(long id, String name, Double amount, long updatedAt) throws SQLException {
+    private static void insert(long id, @Nullable String name, Double amount, long updatedAt) throws SQLException {
         execute("INSERT INTO orders VALUES (" + id + ", " + (name == null ? "NULL" : "'" + name + "'") + ", "
                 + (amount == null ? "NULL" : amount) + ", " + updatedAt + ")");
     }

@@ -18,8 +18,10 @@ package com.ash.messaging.pravaha.plugin.cassandra;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Objects;
 
 import com.datastax.oss.driver.api.core.cql.Row;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -116,7 +118,7 @@ public final class CassandraSchemas {
      * columns: one not selected is written with {@link RowWriter#setUnread}, because the engine
      * said nothing reads it. {@code read} null means every column was selected.
      */
-    static void copyInto(Row row, StreamSchema schema, RowWriter writer, boolean[] read) {
+    static void copyInto(Row row, StreamSchema schema, RowWriter writer, boolean @Nullable [] read) {
         for (int ordinal = 0; ordinal < schema.fields().size(); ordinal++) {
             if (read != null && !read[ordinal]) {
                 writer.setUnread(ordinal);
@@ -139,7 +141,9 @@ public final class CassandraSchemas {
                     case FLOAT32 -> writer.setFloat(ordinal, row.getFloat(column));
                     case FLOAT64 -> writer.setDouble(ordinal, row.getDouble(column));
                     case BYTES -> writer.setBytes(ordinal, bytesOf(row.getByteBuffer(column)));
-                    default -> writer.setString(ordinal, stringOf(row, column));
+                    default ->
+                        writer.setString(
+                                ordinal, Objects.requireNonNull(stringOf(row, column), "isNull() was checked above"));
                 }
             } catch (RuntimeException e) {
                 throw new PravahaException(
@@ -178,7 +182,7 @@ public final class CassandraSchemas {
     }
 
     /** {@code UUID}, {@code TIMEUUID} and {@code INET} all render through the object's own {@code toString}. */
-    private static String stringOf(Row row, String column) {
+    private static @Nullable String stringOf(Row row, String column) {
         Object value = row.getObject(column);
         return value == null ? null : value.toString();
     }

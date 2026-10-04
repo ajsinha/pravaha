@@ -279,6 +279,7 @@ class HelpExamplesSqlTest {
         PravahaSchema schema = new PravahaSchema();
         for (Map.Entry<String, Map<String, String>> stream : streams.entrySet()) {
             Map<String, String> spec = stream.getValue();
+            @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
             StreamSchema parsed = FilesystemSourcePlugin.parseSchema(stream.getKey(), spec.get("fields"));
             StreamSchema.Builder builder = StreamSchema.builder(stream.getKey());
             parsed.fields().forEach(field -> builder.field(field.name(), field.type()));

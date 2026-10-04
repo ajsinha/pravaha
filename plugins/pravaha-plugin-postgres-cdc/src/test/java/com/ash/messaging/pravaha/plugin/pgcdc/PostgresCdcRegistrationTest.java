@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
@@ -123,7 +124,7 @@ class PostgresCdcRegistrationTest {
 
         Checkpoint checkpoint = checkpointerOf(query).checkpointNow();
         long checkpointed = CdcOffset.parse(new com.ash.messaging.pravaha.api.plugin.SourceOffset(
-                        checkpoint.offsets().get("partition-0")))
+                        Objects.requireNonNull(checkpoint.offsets().get("partition-0"))))
                 .lsn();
         awaitConfirmed(checkpointed);
 

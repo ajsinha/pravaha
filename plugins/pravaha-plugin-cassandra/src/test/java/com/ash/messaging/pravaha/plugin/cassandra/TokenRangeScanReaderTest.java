@@ -26,6 +26,7 @@ import java.util.TreeMap;
 
 import com.datastax.oss.driver.api.core.DriverTimeoutException;
 import com.datastax.oss.driver.api.core.cql.Row;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -107,7 +108,7 @@ class TokenRangeScanReaderTest {
         assertThat(opened).containsExactly(">=" + Long.MIN_VALUE);
     }
 
-    private TokenRangeScanReader reader(SourceOffset from) {
+    private TokenRangeScanReader reader(@Nullable SourceOffset from) {
         return new TokenRangeScanReader(
                 this::pass, new boolean[] {true, true}, SCHEMA, "", Long.MIN_VALUE, Long.MAX_VALUE, true, 0, from);
     }

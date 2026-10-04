@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
@@ -38,7 +39,8 @@ import com.ash.messaging.pravaha.api.plugin.PluginContext;
 final class PgServer {
 
     private static final AtomicInteger NAMES = new AtomicInteger();
-    private static PostgreSQLContainer<?> logical;
+
+    private static @Nullable PostgreSQLContainer<?> logical;
 
     private PgServer() {}
 
@@ -104,7 +106,7 @@ final class PgServer {
         }
     }
 
-    static String scalar(String sql) {
+    static @Nullable String scalar(String sql) {
         try (Connection connection = connect();
                 Statement statement = connection.createStatement();
                 ResultSet rows = statement.executeQuery(sql)) {

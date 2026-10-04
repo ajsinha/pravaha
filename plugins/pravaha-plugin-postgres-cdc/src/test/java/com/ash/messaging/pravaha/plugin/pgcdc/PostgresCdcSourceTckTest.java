@@ -38,6 +38,7 @@ class PostgresCdcSourceTckTest extends SourcePluginTck {
 
     private static final int RECORDS = 5;
 
+    @SuppressWarnings("NullAway.Init") // set by createPlugin(), which the TCK calls first
     private String table;
 
     @Override

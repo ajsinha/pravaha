@@ -20,6 +20,7 @@ import java.util.List;
 
 import com.aerospike.client.command.ParticleType;
 import com.aerospike.client.exp.Exp;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
@@ -55,7 +56,7 @@ final class AerospikeExpressions {
      * expression is returned at all -- dropping the alternative instead would narrow the OR and lose
      * exactly the rows that one query wanted.
      */
-    static Exp anyOf(List<List<ReadRequest.Filter>> alternatives, StreamSchema schema) {
+    static @Nullable Exp anyOf(List<List<ReadRequest.Filter>> alternatives, StreamSchema schema) {
         if (alternatives.isEmpty()) {
             return null;
         }
@@ -77,7 +78,7 @@ final class AerospikeExpressions {
     }
 
     /** One filter, or null if Aerospike cannot express it exactly. */
-    static Exp translate(ReadRequest.Filter filter, StreamSchema schema) {
+    static @Nullable Exp translate(ReadRequest.Filter filter, StreamSchema schema) {
         int ordinal = ordinalOf(schema, filter.column());
         if (ordinal < 0) {
             // A filter naming a bin this stream does not declare. Not an error -- the engine may be
@@ -173,7 +174,7 @@ final class AerospikeExpressions {
      * and hope stays in step. Leaving it with the engine costs bandwidth, which is the side to err
      * on.
      */
-    private static Exp stringEquals(String bin, String text) {
+    private static @Nullable Exp stringEquals(String bin, String text) {
         List<Exp> arms = new ArrayList<>(4);
         arms.add(Exp.and(
                 Exp.eq(Exp.binType(bin), Exp.val(ParticleType.STRING)), Exp.eq(Exp.stringBin(bin), Exp.val(text))));
@@ -225,7 +226,7 @@ final class AerospikeExpressions {
         return first == '[' || first == '{' || text.startsWith("null");
     }
 
-    private static Exp compare(ReadRequest.Comparison comparison, Exp bin, Exp value) {
+    private static @Nullable Exp compare(ReadRequest.Comparison comparison, Exp bin, Exp value) {
         return switch (comparison) {
             case EQ -> Exp.eq(bin, value);
             case NE -> Exp.ne(bin, value);
@@ -246,11 +247,11 @@ final class AerospikeExpressions {
         return -1;
     }
 
-    private static Long asLong(Object value) {
+    private static @Nullable Long asLong(@Nullable Object value) {
         return value instanceof Number number ? number.longValue() : null;
     }
 
-    private static Double asDouble(Object value) {
+    private static @Nullable Double asDouble(@Nullable Object value) {
         return value instanceof Number number ? number.doubleValue() : null;
     }
 }

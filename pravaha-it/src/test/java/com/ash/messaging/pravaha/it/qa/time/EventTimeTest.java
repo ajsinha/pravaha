@@ -200,6 +200,7 @@ class EventTimeTest {
         // is what StreamSchema.DEFAULT_OUT_OF_ORDERNESS says -- and if the default ever moves,
         // every query in every deployment changes its answer silently.
         assertThat(StreamSchema.DEFAULT_OUT_OF_ORDERNESS).isEqualTo(Duration.ofSeconds(10));
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         List<String> rows = configured(dir, evB(), null, Q10, 121, 11);
         assertThat(windowTotals(rows)).isEqualTo(expected(11));
     }
@@ -731,6 +732,7 @@ class EventTimeTest {
         return total;
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static List<String> configured(
             Path dir, String csv, Duration outOfOrderness, String sql, long expectRowsIn, int expectViewRows)
             throws Exception {

@@ -20,12 +20,14 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.types.StructType;
 import org.apache.hadoop.conf.Configuration;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -112,21 +114,39 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
     private static final String HANDLE_PREFIX = "delta-sink:v1:";
 
     private String instanceName = "delta-sink";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String path;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StructType deltaSchema;
+
     private List<String> keyNames = List.of();
     private int[] keyOrdinals = new int[0];
     private int[] partitionOrdinals = new int[0];
     private boolean changelog;
     private boolean transactional;
     private boolean create;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String transactionId;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String stagingDirectory;
 
-    private Engine engine;
+    /** Null until open() and after close(). */
+    private @Nullable Engine engine;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before any write
     private DeltaSinkRows rows;
-    private DeltaSinkCommit commit;
+
+    /** Null until open() and after close(). */
+    private @Nullable DeltaSinkCommit commit;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which the engine calls before any write
     private DeltaSinkStaging staging;
 
     /** The open transaction's label, or -1 when none is open. */
@@ -286,7 +306,7 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
     /** Stages the batch in the open transaction, or -- not transactional -- commits it on its own. */
     @Override
     public int write(List<RowView> batch) {
-        requireOpen();
+        DeltaSinkCommit commit = requireOpen();
         List<Change> changes = new ArrayList<>(batch.size());
         for (RowView row : batch) {
             changes.add(rows.read(row));
@@ -354,7 +374,7 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
         if (!transactional || handle == null || handle.isEmpty()) {
             return;
         }
-        requireOpen();
+        DeltaSinkCommit commit = requireOpen();
         long label = labelOf(handle);
         if (commit.committedLabel(transactionId).orElse(Long.MIN_VALUE) >= label) {
             staging.discard(label);
@@ -420,32 +440,36 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
         throw new PravahaException(DeltaErrors.SINK_WRITE_FAILED, "'" + handle + "' is not a handle this sink wrote");
     }
 
-    private void requireOpen() {
-        if (commit == null) {
+    private DeltaSinkCommit requireOpen() {
+        DeltaSinkCommit open = commit;
+        if (open == null) {
             throw new PravahaException(
                     DeltaErrors.SINK_WRITE_FAILED,
                     "sink '" + instanceName + "' is not open; call open() before writing");
         }
+        return open;
     }
 
     /** Rows this instance has applied to the table. */
     public long rowsApplied() {
-        return commit == null ? 0L : commit.rowsApplied();
+        DeltaSinkCommit open = commit;
+        return open == null ? 0L : open.rowsApplied();
     }
 
     /** Data files this instance has rewritten to remove rows from them, in upsert mode. */
     public long filesRewritten() {
-        return commit == null ? 0L : commit.filesRewritten();
+        DeltaSinkCommit open = commit;
+        return open == null ? 0L : open.filesRewritten();
     }
 
     /** The table's version, once open. */
     long tableVersion() {
-        return commit.version();
+        return Objects.requireNonNull(commit, "open() first").version();
     }
 
     /** The commit machinery, for the test that has to hold its conflict window open. */
     DeltaSinkCommit commits() {
-        return commit;
+        return Objects.requireNonNull(commit, "open() first");
     }
 
     @Override

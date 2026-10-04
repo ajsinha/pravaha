@@ -24,7 +24,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
@@ -162,7 +164,7 @@ class PgOutputTest {
         return new Message('C').byteValue(0).int64(end - 8).int64(end).int64(0).decode();
     }
 
-    private static PgOutput.Message insert(String... values) {
+    private static PgOutput.Message insert(@Nullable String... values) {
         return new Message('I').int32(OID).byteValue('N').tuple(values).decode();
     }
 
@@ -333,7 +335,8 @@ class PgOutputTest {
         CdcOffset mid = new CdcOffset(0x10, 0x20, 4, awkward);
         CdcOffset parsed = CdcOffset.parse(mid.toSourceOffset());
         assertThat(parsed).isEqualTo(mid);
-        assertThat(parsed.snapshot().after()).containsExactly("a,b;c@d=e%f+g h", "", "\u00e9\u00df");
+        assertThat(Objects.requireNonNull(parsed.snapshot()).after())
+                .containsExactly("a,b;c@d=e%f+g h", "", "\u00e9\u00df");
         assertThat(CdcOffset.parse(new SourceOffset("lsn=0/10;snapshot=20000@20417"))
                         .snapshot())
                 .isEqualTo(new CdcOffset.Snapshot(20_000, List.of("20417")));

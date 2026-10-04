@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -77,7 +78,7 @@ class TemporalJoinTest {
                 .build(SqlPlanner.withStreams(ORDERS, PAYMENTS).plan(sql));
     }
 
-    private static JoinOperator joinIn(PhysicalOperator root) {
+    private static @Nullable JoinOperator joinIn(PhysicalOperator root) {
         if (root instanceof JoinOperator join) {
             return join;
         }
@@ -90,6 +91,7 @@ class TemporalJoinTest {
         return null;
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void aStatedWindowReplacesTheDefault() {
         JoinOperator join = joinIn(plan("SELECT o.order_id, p.channel FROM orders o JOIN payments p "
@@ -104,6 +106,7 @@ class TemporalJoinTest {
         assertThat(join.matchWithinNanos()).isEqualTo(5 * MINUTE);
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void directionIsKeptRatherThanCollapsedToAWidth() {
         JoinOperator after = joinIn(plan("SELECT o.order_id, p.channel FROM orders o JOIN payments p "
@@ -116,6 +119,7 @@ class TemporalJoinTest {
         assertThat(after.matchUpperNanos()).isZero();
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void aQueryWithNoTimePredicateStillGetsABound() {
         JoinOperator join =
@@ -149,6 +153,7 @@ class TemporalJoinTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void aBoundThatCannotBeSatisfiedIsRefusedRatherThanReturningNothing() {
         // Lower above upper: no pair of rows can satisfy it, so the query can only ever return

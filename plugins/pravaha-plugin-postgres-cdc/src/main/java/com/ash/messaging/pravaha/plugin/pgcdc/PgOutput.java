@@ -20,6 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -72,7 +74,7 @@ final class PgOutput {
      * @param oldKind {@code O} for a whole old row, {@code K} for the key only, or {@code 0} when
      *     the update carried no before-image at all
      */
-    record Update(int relid, char oldKind, Tuple before, Tuple after) implements Message {}
+    record Update(int relid, char oldKind, @Nullable Tuple before, Tuple after) implements Message {}
 
     record Delete(int relid, char oldKind, Tuple before) implements Message {}
 

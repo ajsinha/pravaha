@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -48,6 +49,8 @@ class KafkaSourcePluginTest {
     private static final String SCHEMA = "user_id:STRING,amount:INT64";
 
     private final FakeTopic topic = new FakeTopic("txn", 3);
+
+    @SuppressWarnings("NullAway.Init") // set by the test that uses it; @AfterEach closes what was set
     private KafkaSourcePlugin plugin;
 
     @AfterEach
@@ -454,7 +457,8 @@ class KafkaSourcePluginTest {
 
             reader.checkpointed(offset(0, 1));
             sleep(300);
-            assertThat(consumer.committed(Set.of(p0)).get(p0).offset())
+            assertThat(Objects.requireNonNull(consumer.committed(Set.of(p0)).get(p0))
+                            .offset())
                     .as("never backwards")
                     .isEqualTo(2);
         }

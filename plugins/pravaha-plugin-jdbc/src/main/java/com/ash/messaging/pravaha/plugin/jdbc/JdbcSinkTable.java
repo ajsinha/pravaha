@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.Field;
@@ -169,7 +171,11 @@ final class JdbcSinkTable {
 
     /** {catalog, schema, table} as the catalogue spells them. */
     private static String[] findTable(
-            Connection connection, DatabaseMetaData metadata, String schemaPart, String tablePart, String configured)
+            Connection connection,
+            DatabaseMetaData metadata,
+            @Nullable String schemaPart,
+            String tablePart,
+            String configured)
             throws SQLException {
         String schemaPattern = schemaPart;
         if (schemaPattern == null) {
@@ -212,7 +218,8 @@ final class JdbcSinkTable {
         return matches.get(0);
     }
 
-    private static List<String[]> tables(DatabaseMetaData metadata, String schema, String table) throws SQLException {
+    private static List<String[]> tables(DatabaseMetaData metadata, @Nullable String schema, String table)
+            throws SQLException {
         List<String[]> found = new ArrayList<>();
         try (ResultSet rs = metadata.getTables(null, escape(metadata, schema), escape(metadata, table), null)) {
             while (rs.next()) {
@@ -241,7 +248,7 @@ final class JdbcSinkTable {
         return out;
     }
 
-    private static String escape(DatabaseMetaData metadata, String name) throws SQLException {
+    private static @Nullable String escape(DatabaseMetaData metadata, @Nullable String name) throws SQLException {
         if (name == null) {
             return null;
         }
@@ -252,7 +259,7 @@ final class JdbcSinkTable {
         return name.replace(escape, escape + escape).replace("_", escape + "_").replace("%", escape + "%");
     }
 
-    private static String optional(ResultSet rs, String column) {
+    private static @Nullable String optional(ResultSet rs, String column) {
         try {
             return rs.getString(column);
         } catch (SQLException absent) {

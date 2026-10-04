@@ -32,6 +32,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -84,11 +85,11 @@ final class KafkaSinkOptions {
     /** {@code json}, {@code avro} or {@code protobuf}. */
     final String format;
     /** The Avro or protobuf value writer, or null for JSON. */
-    final KafkaRecords.ValueEncoder valueEncoder;
+    final KafkaRecords.@Nullable ValueEncoder valueEncoder;
     /** {@code json}, {@code string}, {@code avro} or {@code protobuf}. */
     final String keyFormat;
     /** The key writer over the key columns, or null for a JSON key. */
-    final KafkaRecords.ValueEncoder keyEncoder;
+    final KafkaRecords.@Nullable ValueEncoder keyEncoder;
 
     final boolean transactional;
     final String transactionalId;
@@ -175,7 +176,7 @@ final class KafkaSinkOptions {
      * another format, a changelog mode with nowhere to put its weight, or a column the schema cannot
      * hold exactly is refused at configure rather than at the first batch.
      */
-    private KafkaRecords.ValueEncoder valueEncoder(
+    private KafkaRecords.@Nullable ValueEncoder valueEncoder(
             PluginContext context, KafkaSinkEncoders encoders, int[] precisions) {
         String schemaFile = context.get("schema.file", "").strip();
         String schemaId = context.get("schema.id", "").strip();
@@ -214,7 +215,8 @@ final class KafkaSinkOptions {
      * The key writer {@code key.format} names, over the key columns in {@code key.columns} order --
      * or every column, in a changelog with no key columns -- with its options checked here (KSF-1).
      */
-    private KafkaRecords.ValueEncoder keyEncoder(PluginContext context, KafkaSinkEncoders encoders, int[] precisions) {
+    private KafkaRecords.@Nullable ValueEncoder keyEncoder(
+            PluginContext context, KafkaSinkEncoders encoders, int[] precisions) {
         String file = context.get("key.schema.file", "").strip();
         String id = context.get("key.schema.id", "").strip();
         String message = context.get("key.schema.message", "").strip();
@@ -271,7 +273,7 @@ final class KafkaSinkOptions {
      * The registry {@code schema.registry.url} names, to check the binding's schema ids against at
      * configuration (KSF-3), or null when there is none. The caller closes it.
      */
-    private SchemaRegistry registry(PluginContext context) {
+    private @Nullable SchemaRegistry registry(PluginContext context) {
         String url = context.get("schema.registry.url", "").strip();
         String user = context.get("schema.registry.user", "").strip();
         String password = context.get("schema.registry.password", "");

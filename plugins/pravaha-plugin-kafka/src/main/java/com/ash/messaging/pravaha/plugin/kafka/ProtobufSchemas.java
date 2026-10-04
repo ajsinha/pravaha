@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.google.protobuf.AnyProto;
@@ -110,7 +111,7 @@ final class ProtobufSchemas {
             selected = level.get(index);
             level = selected.getNestedTypes();
         }
-        return selected;
+        return Objects.requireNonNull(selected, "the index array is not empty");
     }
 
     /**

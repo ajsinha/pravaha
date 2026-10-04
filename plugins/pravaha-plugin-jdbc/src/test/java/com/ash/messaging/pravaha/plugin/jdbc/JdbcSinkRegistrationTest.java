@@ -26,9 +26,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -421,8 +423,8 @@ class JdbcSinkRegistrationTest {
         }
 
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
-            return configured(sinkName).capabilities();
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
+            return configured(Objects.requireNonNull(sinkName, "a sink name")).capabilities();
         }
 
         @Override
@@ -432,8 +434,8 @@ class JdbcSinkRegistrationTest {
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
-            JdbcSinkPlugin plugin = configured(sinkName);
+        public StreamSinkPlugin open(@Nullable String sinkName) {
+            JdbcSinkPlugin plugin = configured(Objects.requireNonNull(sinkName, "a sink name"));
             plugin.open();
             Dying sink = new Dying(plugin);
             opened.add(sink);

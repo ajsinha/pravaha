@@ -32,6 +32,7 @@ import java.util.Map;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.PravahaType;
@@ -352,7 +353,7 @@ final class KafkaRecordDecoder implements KafkaValueDecoder {
         };
     }
 
-    private static String firstLine(String message) {
+    private static String firstLine(@Nullable String message) {
         if (message == null) {
             return "unreadable";
         }

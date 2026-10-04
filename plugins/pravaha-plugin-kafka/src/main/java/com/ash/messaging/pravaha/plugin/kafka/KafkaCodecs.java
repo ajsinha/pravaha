@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Locale;
 
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -46,7 +47,7 @@ final class KafkaCodecs {
      *
      * @return the reason, or null when the codec writes here
      */
-    static String whySinkCannotWrite(String codec) {
+    static @Nullable String whySinkCannotWrite(String codec) {
         String name = codec.strip().toLowerCase(Locale.ROOT);
         return switch (name) {
             case LZ4 -> lz4Refusal("'kafka.compression.type: " + codec + "' is refused");
@@ -65,7 +66,7 @@ final class KafkaCodecs {
      * The named refusal for a fetch that failed because a batch's codec cannot be decompressed here,
      * or null when {@code failure} is something else.
      */
-    static PravahaException readRefusal(TopicPartition partition, Throwable failure) {
+    static @Nullable PravahaException readRefusal(TopicPartition partition, Throwable failure) {
         String codec = missingCodec(failure);
         if (codec == null) {
             return null;
@@ -82,7 +83,7 @@ final class KafkaCodecs {
     }
 
     /** snappy or zstd's reason for not loading here, or null when it round-trips bytes. */
-    static String loadFailure(String codec) {
+    static @Nullable String loadFailure(String codec) {
         byte[] input = "pravaha kafka codec check".getBytes(StandardCharsets.UTF_8);
         try {
             byte[] back;
@@ -103,7 +104,7 @@ final class KafkaCodecs {
 
     /** lz4, snappy or zstd when a class of that codec's library is what failed, else null. */
     @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
-    static String missingCodec(Throwable failure) {
+    static @Nullable String missingCodec(Throwable failure) {
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof LinkageError || cause instanceof ClassNotFoundException) {
                 String text = String.valueOf(cause.getMessage());

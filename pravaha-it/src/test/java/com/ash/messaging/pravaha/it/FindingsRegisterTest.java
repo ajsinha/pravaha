@@ -102,6 +102,7 @@ class FindingsRegisterTest {
 
     private record Finding(String id, String status, String disposition, String severity) {}
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static List<Finding> findings() throws IOException {
         String text = Files.readString(repoRoot().resolve("docs/project/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         String[] lines = text.split("\n", -1);

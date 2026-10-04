@@ -140,6 +140,7 @@ class AdvWindowDifferentialTest {
 
     record Run(int comparisons, List<String> mismatches, String state) {}
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     static Run run(long seed, int rows, long size, long slide, long lateness, boolean retractions, boolean minMax) {
         Random random = new Random(seed);
         StreamSchema schema = StreamSchema.builder("w")

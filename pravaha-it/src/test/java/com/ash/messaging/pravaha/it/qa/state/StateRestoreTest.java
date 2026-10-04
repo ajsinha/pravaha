@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
@@ -58,7 +59,7 @@ class StateRestoreTest extends StateTestSupport {
             dir = dir.getParent();
         }
         assertThat(dir).as("must be able to find the repository root").isNotNull();
-        return dir;
+        return Objects.requireNonNull(dir, "run inside the repository");
     }
 
     private static List<String> grep(String pattern, Path root) throws Exception {
@@ -196,6 +197,7 @@ class StateRestoreTest extends StateTestSupport {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void state052_aKeyedNonWindowedAggregateIsAlsoNotStateful() {
         // FAIL as authored, in a new and more interesting way: a keyed, non-windowed GROUP BY is not
@@ -238,6 +240,7 @@ class StateRestoreTest extends StateTestSupport {
         assertThat(c.sizeBytes()).isZero();
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void state053_aWindowedAggregateWritesRealBytesAsAVersionedSnapshot() {
         try (RawExecution win = rawWindowed()) {
@@ -267,6 +270,7 @@ class StateRestoreTest extends StateTestSupport {
                 | (b[offset + 3] & 0xFF);
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void state054_aJoinWritesBytesThroughTheOtherBranchOfIsStateful() {
         try (RawJoinExecution join = rawJoin()) {
@@ -604,6 +608,7 @@ class StateRestoreTest extends StateTestSupport {
         RawExecution real = rawWindowed();
         real.feedAt("u1", 1, 0L);
         assertThat(real.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         byte[] bytes = real.execution
                 .checkpoint(1, Duration.ofSeconds(5))
                 .operatorState()
@@ -624,6 +629,7 @@ class StateRestoreTest extends StateTestSupport {
         RawExecution a = rawWindowed();
         a.feedAt("u1", 1, 0L);
         assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         byte[] bytes = a.execution
                 .checkpoint(1, Duration.ofSeconds(5))
                 .operatorState()
@@ -665,6 +671,7 @@ class StateRestoreTest extends StateTestSupport {
                 a.execution.checkpoint(1, Duration.ofSeconds(5)).operatorState().get("lane-0");
         a.abort();
         for (int old : new int[] {4, 3}) {
+            @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
             byte[] bytes = current.clone();
             bytes[7] = (byte) old;
             Checkpoint patched = new Checkpoint(1, 0, java.util.Map.of(), java.util.Map.of("lane-0", bytes));
@@ -680,12 +687,14 @@ class StateRestoreTest extends StateTestSupport {
      * ...but a version 4 snapshot of a plan with no windowed aggregate is the same bytes version 5
      * writes, and still restores: an upgrade does not throw away an unwindowed aggregate's count.
      */
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void state061d_aVersion4SnapshotStillRestoresIntoAPlanWithNoWindowedAggregate() {
         RawExecution a = raw(TXN, "SELECT COUNT(*) AS n FROM txn");
         a.feed("u1", 100);
         a.feed("u2", 5);
         assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         byte[] bytes = a.execution
                 .checkpoint(1, Duration.ofSeconds(5))
                 .operatorState()
@@ -718,6 +727,7 @@ class StateRestoreTest extends StateTestSupport {
         RawExecution a = raw(TXN, "SELECT COUNT(*) AS n FROM txn");
         a.feed("u1", 100);
         assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         byte[] bytes = a.execution
                 .checkpoint(1, Duration.ofSeconds(5))
                 .operatorState()

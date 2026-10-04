@@ -70,6 +70,7 @@ class AdvExpressionTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     static Outcome run(String sql, Object[]... rows) {
         try (PravahaEngine engine = AdvSupport.engine(e -> e.declareStream("s", SCHEMA, "ts"))) {
             String registered = AdvSupport.attempt(() -> engine.register("q", sql, "id"));

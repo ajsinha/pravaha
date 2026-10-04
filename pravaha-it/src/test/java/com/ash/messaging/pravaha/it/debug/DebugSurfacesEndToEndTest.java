@@ -126,6 +126,7 @@ class DebugSurfacesEndToEndTest {
             assertThat(client.debugState(session.id()))
                     .extracting(PravahaFlightClient.DebugStateSlot::id)
                     .containsExactly("global#0");
+            @SuppressWarnings("NullAway") // nulls passed on purpose
             DebugStatePage page = client.debugInspect(session.id(), "global#0", null, 0, 10);
             assertThat(page.entries())
                     .singleElement()
@@ -224,6 +225,7 @@ class DebugSurfacesEndToEndTest {
         assertThat(until.getAsBoolean()).as("waited 30s for %s", what).isTrue();
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static PravahaNode node(Path dir, Path input) {
         return node(dir, input, null);
     }

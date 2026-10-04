@@ -154,6 +154,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `pravaha.serving.read.{max-concurrent, max-queued, queue-timeout, tenant-share, deadline}` to its
   embedded engine, which it did not before, so an application on the starter can limit reads as a node
   does. The IDE and build-and-test guides moved to `docs/development/setup/`.
+- **NullAway is at zero everywhere, and an error.** The last nine plugins (feed file, filesystem,
+  Delta, MySQL and PostgreSQL CDC, Aerospike, Cassandra, JDBC, Kafka) and `pravaha-it` are at zero
+  NullAway findings and gated, so the reactor's count fell from 1,051 to 0 and `-Pep` now runs NullAway
+  at ERROR for every module, a new one included. A plugin's optional settings, its clients between
+  `open()` and `close()` and its `createReader` resume offset say `@Nullable`; no behaviour changed and
+  no bug was found.
 
 Register: **573 findings — 554 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

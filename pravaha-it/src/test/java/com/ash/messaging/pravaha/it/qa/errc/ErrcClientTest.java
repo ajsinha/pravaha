@@ -84,7 +84,9 @@ class ErrcClientTest extends ErrcTestSupport {
     // ------------------------------------------------------------ ERRC-013 -- PRV-1031
 
     @Test
-    @SuppressWarnings("deprecation") // connectTimeout is deprecated (CONNECTTIMEOUT-1) but still validated
+    // NullAway: nulls passed on purpose
+    @SuppressWarnings({"deprecation", "NullAway"
+    }) // connectTimeout is deprecated (CONNECTTIMEOUT-1) but still validated
     void fourClientOptionsValidationSitesAllRefuseWithARetryableFalseException() {
         Endpoint anyEndpoint = Endpoint.parse("grpc://localhost:19090");
 

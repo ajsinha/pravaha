@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -106,7 +107,7 @@ class MySqlCdcIT {
         return plugin;
     }
 
-    private static PartitionReader reader(MySqlCdcSourcePlugin plugin, SourceOffset from) {
+    private static PartitionReader reader(MySqlCdcSourcePlugin plugin, @Nullable SourceOffset from) {
         return plugin.createReader(new SourcePartition("s", 0, Map.of()), from);
     }
 
@@ -264,7 +265,7 @@ class MySqlCdcIT {
             Object[] row = new Object[schema.fieldCount()];
             long[] weight = new long[1];
             return new RowWriter() {
-                private RowWriter set(int ordinal, Object value) {
+                private RowWriter set(int ordinal, @Nullable Object value) {
                     row[ordinal] = value;
                     return this;
                 }

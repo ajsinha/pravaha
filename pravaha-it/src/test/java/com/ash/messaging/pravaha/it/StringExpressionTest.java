@@ -105,6 +105,7 @@ class StringExpressionTest {
         // SQL's rule, and the reason `first || ' ' || last` on a row with no surname gives null
         // rather than a name with a trailing space. Treating null as an empty string here would
         // produce output that looks right and quietly loses the distinction.
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         List<CapturingRowWriter.Captured> out = run("SELECT first || ' ' || last FROM person", "ann", null);
         assertThat(out.get(0).isNull(0)).isTrue();
     }
@@ -244,6 +245,7 @@ class StringExpressionTest {
                 .isEqualTo("ok");
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void aNullIsDroppedByLikeAndByNotLikeAlike() {
         // LIKE over a null is UNKNOWN, and UNKNOWN drops the row under both forms. Implementing NOT

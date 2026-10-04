@@ -35,6 +35,7 @@ import com.github.shyiko.mysql.binlog.event.RotateEventData;
 import com.github.shyiko.mysql.binlog.event.TableMapEventData;
 import com.github.shyiko.mysql.binlog.event.UpdateRowsEventData;
 import com.github.shyiko.mysql.binlog.event.WriteRowsEventData;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -79,13 +80,13 @@ final class TransactionAssembler {
     private int skip;
     private boolean inTransaction;
     private List<BinlogTransaction.Change> changes = new ArrayList<>();
-    private PravahaException failure;
+    private @Nullable PravahaException failure;
     /** GTID mode: what has executed so far, and the GTID of the transaction under way. */
-    private final GtidSet executed;
+    private final @Nullable GtidSet executed;
 
-    private String currentGtid;
+    private @Nullable String currentGtid;
     /** GTID mode: the transaction {@code skip} counts into; null means the first one. */
-    private final String skipGtid;
+    private final @Nullable String skipGtid;
 
     /**
      * @param file the binlog file reading starts in
@@ -104,8 +105,8 @@ final class TransactionAssembler {
             MySqlSchema.Mapping mapping,
             String file,
             int skip,
-            String gtidSet,
-            String skipGtid) {
+            @Nullable String gtidSet,
+            @Nullable String skipGtid) {
         this.options = options;
         this.mapping = mapping;
         this.file = file;
@@ -115,6 +116,7 @@ final class TransactionAssembler {
     }
 
     /** Takes one event; returns a transaction when this event completes one, otherwise null. */
+    @Nullable
     BinlogTransaction accept(Event event) {
         EventHeaderV4 header = event.getHeader();
         EventType type = header.getEventType();
@@ -163,19 +165,19 @@ final class TransactionAssembler {
      * A marker at {@code position} of the current file when no transaction is open and no restored
      * partial transaction is still to come; otherwise nothing.
      */
-    private BinlogTransaction between(long position) {
+    private @Nullable BinlogTransaction between(long position) {
         if (inTransaction || skip > 0 || position < 4) {
             return null;
         }
         return BinlogTransaction.marker(file, position, executedText());
     }
 
-    private String executedText() {
+    private @Nullable String executedText() {
         return executed == null ? null : executed.toString();
     }
 
     /** GTID mode: the transaction under way is done, delivered or not. */
-    private String commitGtid() {
+    private @Nullable String commitGtid() {
         String gtid = currentGtid;
         if (executed != null && gtid != null) {
             executed.add(gtid);
@@ -184,7 +186,7 @@ final class TransactionAssembler {
         return gtid;
     }
 
-    private BinlogTransaction query(EventHeaderV4 header, QueryEventData data) {
+    private @Nullable BinlogTransaction query(EventHeaderV4 header, QueryEventData data) {
         String sql = LEADING_COMMENTS.matcher(data.getSql()).replaceFirst("").strip();
         if (sql.equalsIgnoreCase("BEGIN")) {
             begin();
@@ -207,7 +209,7 @@ final class TransactionAssembler {
     }
 
     /** A refusal when {@code sql} truncates, alters, drops or renames the captured table. */
-    private PravahaException refuse(String sql, String defaultDatabase, EventHeaderV4 header) {
+    private @Nullable PravahaException refuse(String sql, String defaultDatabase, EventHeaderV4 header) {
         Matcher matcher = DDL.matcher(sql);
         if (!matcher.matches()) {
             return null;
@@ -309,7 +311,7 @@ final class TransactionAssembler {
         failure = null;
     }
 
-    private void fail(PravahaException refusal) {
+    private void fail(@Nullable PravahaException refusal) {
         if (refusal == null) {
             return;
         }

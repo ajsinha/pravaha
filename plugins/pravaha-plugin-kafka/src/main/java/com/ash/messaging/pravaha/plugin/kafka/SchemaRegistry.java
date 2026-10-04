@@ -28,6 +28,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -35,6 +36,7 @@ import javax.net.ssl.SSLContext;
 
 import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
 import com.google.protobuf.InvalidProtocolBufferException;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -103,7 +105,7 @@ final class SchemaRegistry implements AutoCloseable {
 
     private final AtomicInteger requests = new AtomicInteger();
 
-    SchemaRegistry(String instanceName, String base, SSLContext tls, String authorization, Duration timeout) {
+    SchemaRegistry(String instanceName, String base, @Nullable SSLContext tls, String authorization, Duration timeout) {
         this(
                 instanceName,
                 "source",
@@ -121,7 +123,7 @@ final class SchemaRegistry implements AutoCloseable {
             String role,
             String consequence,
             String base,
-            SSLContext tls,
+            @Nullable SSLContext tls,
             String authorization,
             Duration timeout) {
         this.instanceName = instanceName;
@@ -234,11 +236,15 @@ final class SchemaRegistry implements AutoCloseable {
         }
         for (Map<?, ?> ref : pending) {
             String subject = (String) ref.get("subject");
-            long version = ((Number) ref.get("version")).longValue();
+            long version = ((Number) Objects.requireNonNull(ref.get("version"), "checked above")).longValue();
             URI next = URI.create(base + "/subjects/"
                     + URLEncoder.encode(subject, StandardCharsets.UTF_8).replace("+", "%20") + "/versions/" + version
                     + "?format=serialized");
-            collect(next, "no version " + version + " of subject '" + subject + "'", (String) ref.get("name"), files);
+            collect(
+                    next,
+                    "no version " + version + " of subject '" + subject + "'",
+                    (String) Objects.requireNonNull(ref.get("name"), "checked above"),
+                    files);
         }
     }
 
@@ -323,7 +329,7 @@ final class SchemaRegistry implements AutoCloseable {
                 role + " '" + instanceName + "': the schema registry at " + uri + " " + detail);
     }
 
-    private PravahaException unreachable(URI uri, String detail, Throwable cause) {
+    private PravahaException unreachable(URI uri, String detail, @Nullable Throwable cause) {
         return new PravahaException(
                 KafkaErrors.REGISTRY_UNAVAILABLE,
                 role + " '" + instanceName + "': the schema registry at " + uri + " could not be read after " + ATTEMPTS

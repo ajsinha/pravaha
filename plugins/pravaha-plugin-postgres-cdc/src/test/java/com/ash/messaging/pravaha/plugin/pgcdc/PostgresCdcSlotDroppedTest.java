@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -195,7 +196,8 @@ class PostgresCdcSlotDroppedTest {
         while (System.nanoTime() < deadline) {
             Optional<FeedStatus.Source> stopped = query.feedStatus().firstStopped();
             if (stopped.isPresent()) {
-                return stopped.get().stop().code();
+                return Objects.requireNonNull(stopped.get().stop(), "a stopped source says why")
+                        .code();
             }
             if (query.failure().isPresent()) {
                 return query.failure().get().errorCode().code();

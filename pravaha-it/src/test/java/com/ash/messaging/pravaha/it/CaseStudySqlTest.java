@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.stream.Stream;
 
@@ -89,7 +90,7 @@ class CaseStudySqlTest {
                 || (path != null && !Files.exists(path.resolve("examples")))) {
             path = path.getParent();
         }
-        return path;
+        return Objects.requireNonNull(path, "run inside the repository");
     }
 
     /**
@@ -419,6 +420,7 @@ class CaseStudySqlTest {
         List<StreamSchema> sources = new ArrayList<>();
         List<StreamSchema> lookups = new ArrayList<>();
         for (Map.Entry<String, String> entry : fields.entrySet()) {
+            @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
             StreamSchema schema = schemaOf(study, entry.getKey(), entry.getValue(), eventTimes.get(entry.getKey()));
             if ("source".equals(roles.get(entry.getKey()))) {
                 sources.add(schema);

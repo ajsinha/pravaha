@@ -20,10 +20,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An Avro schema, as the specification's JSON declares it, read into a tree this plugin's own
@@ -81,7 +83,12 @@ final class AvroSchema {
      * @param hasDefault whether the field declares a default; the default itself may be JSON null
      * @param defaultValue the default as parsed JSON (maps, lists, strings, numbers, booleans, null)
      */
-    record Field(String name, Node type, List<String> aliases, boolean hasDefault, Object defaultValue) {
+    record Field(
+            String name,
+            Node type,
+            List<String> aliases,
+            boolean hasDefault,
+            @Nullable Object defaultValue) {
 
         Field(String name, Node type) {
             this(name, type, List.of(), false, null);
@@ -96,8 +103,8 @@ final class AvroSchema {
         /** A named type's full name, or the primitive's own name. */
         final String name;
 
-        final Node element;
-        final Node values;
+        final @Nullable Node element;
+        final @Nullable Node values;
         final List<Node> branches;
         final List<String> symbols;
         final int size;
@@ -107,14 +114,14 @@ final class AvroSchema {
         /** A named type's aliases, as full names. */
         private List<String> aliases = List.of();
         /** An enum's {@code default} symbol, or null when it declares none. */
-        private String enumDefault;
+        private @Nullable String enumDefault;
 
         private Node(
                 Kind kind,
                 String logical,
                 String name,
-                Node element,
-                Node values,
+                @Nullable Node element,
+                @Nullable Node values,
                 List<Node> branches,
                 List<String> symbols,
                 int size,
@@ -140,6 +147,7 @@ final class AvroSchema {
             return aliases;
         }
 
+        @Nullable
         String enumDefault() {
             return enumDefault;
         }
@@ -163,7 +171,7 @@ final class AvroSchema {
 
     /** The schema {@code json} declares. */
     static Node parse(String json) {
-        return new AvroSchema().node(readJson(json), "");
+        return new AvroSchema().node(Objects.requireNonNull(readJson(json), "a schema, not JSON null"), "");
     }
 
     // ---- the schema tree ----------------------------------------------------------------------
@@ -223,7 +231,7 @@ final class AvroSchema {
                         0,
                         0,
                         0);
-            default -> decorated(string, object, logical, enclosingNamespace);
+            default -> decorated(Objects.requireNonNull(string), object, logical, enclosingNamespace);
         };
     }
 
@@ -412,11 +420,11 @@ final class AvroSchema {
         return n.intValue();
     }
 
-    private static int optionalNumber(Object value) {
+    private static int optionalNumber(@Nullable Object value) {
         return value instanceof Number n ? n.intValue() : 0;
     }
 
-    private static String text(Object value) {
+    private static String text(@Nullable Object value) {
         return value instanceof String s ? s : "";
     }
 
@@ -432,7 +440,7 @@ final class AvroSchema {
     private static final JsonFactory JSON = new JsonFactory();
 
     /** {@code json} as maps, lists, strings, numbers, booleans and nulls. */
-    static Object readJson(String json) {
+    static @Nullable Object readJson(String json) {
         try (JsonParser parser = JSON.createParser(json)) {
             if (parser.nextToken() == null) {
                 throw new Invalid("the schema is empty");
@@ -447,7 +455,7 @@ final class AvroSchema {
         }
     }
 
-    private static Object value(JsonParser parser) throws IOException {
+    private static @Nullable Object value(JsonParser parser) throws IOException {
         JsonToken token = parser.currentToken();
         return switch (token) {
             case START_OBJECT -> {
@@ -476,7 +484,7 @@ final class AvroSchema {
         };
     }
 
-    private static String firstLine(String message) {
+    private static String firstLine(@Nullable String message) {
         if (message == null) {
             return "unreadable";
         }

@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -32,6 +33,7 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.WakeupException;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -92,7 +94,7 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
 
     private volatile boolean paused;
     private volatile boolean closed;
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
     private volatile String commitProblem = "";
 
     private final AtomicLong commitRequested = new AtomicLong(-1);
@@ -424,7 +426,8 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
         try {
             return new Decoded(record.offset(), decoder.decode(value, record.timestamp()));
         } catch (KafkaValueDecoder.Undecodable e) {
-            return new Rejected(record.offset(), value, e.getMessage());
+            return new Rejected(
+                    record.offset(), value, Objects.requireNonNull(e.getMessage(), "an Undecodable says why"));
         }
     }
 
@@ -489,6 +492,7 @@ final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin
         return partition;
     }
 
+    @Nullable
     PravahaException failure() {
         return failure;
     }

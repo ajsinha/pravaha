@@ -68,6 +68,7 @@ final class JdbcPushdownHarness implements AutoCloseable {
         final IngestPump pump;
         final List<CapturingRowWriter.Captured> output = Collections.synchronizedList(new ArrayList<>());
 
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         Run(JdbcSourcePlugin plugin, PhysicalOperator plan, boolean pushDown) {
             ReadRequest wanted =
                     pushDown ? SourcePushdown.requestFor(plan, "txn", plugin.capabilities()) : ReadRequest.NOTHING;

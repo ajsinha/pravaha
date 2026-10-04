@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
@@ -28,6 +29,7 @@ import org.apache.kafka.clients.admin.RecordsToDelete;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -185,7 +187,8 @@ class KafkaSourceBrokerTest {
             while (committed(admin, group, p0) == null && System.nanoTime() < deadline) {
                 sleep(100);
             }
-            assertThat(committed(admin, group, p0).offset()).isEqualTo(3);
+            assertThat(Objects.requireNonNull(committed(admin, group, p0)).offset())
+                    .isEqualTo(3);
         }
 
         KafkaSourcePlugin restarted = open(topic, Map.of("monitoring.group", group));
@@ -308,7 +311,8 @@ class KafkaSourceBrokerTest {
         return new SourcePartition("txn", index, Map.of());
     }
 
-    private static OffsetAndMetadata committed(Admin admin, String group, TopicPartition partition) throws Exception {
+    private static @Nullable OffsetAndMetadata committed(Admin admin, String group, TopicPartition partition)
+            throws Exception {
         return admin.listConsumerGroupOffsets(group)
                 .partitionsToOffsetAndMetadata()
                 .get(30, TimeUnit.SECONDS)

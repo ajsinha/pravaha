@@ -127,6 +127,7 @@ final class ZSetHarness {
     }
 
     /** The input's own consolidation, in first-arrival order, each surviving row repeated by weight. */
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     static List<Change> net(List<Change> changes) {
         Map<List<Object>, Long> weights = new LinkedHashMap<>();
         Map<List<Object>, Long> times = new LinkedHashMap<>();

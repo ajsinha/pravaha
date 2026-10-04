@@ -95,6 +95,7 @@ final class NexmarkCoverageIT {
      */
     private record Nexmark(String id, String title, String sql, String note) {}
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static List<Nexmark> queries() {
         List<Nexmark> all = new ArrayList<>();
         all.add(new Nexmark("q0", "pass-through", "SELECT auction, bidder, price, date_time, extra FROM bid", ""));
@@ -429,6 +430,7 @@ final class NexmarkCoverageIT {
                 .orElse("");
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static Verdict verdictFor(QueryRegistry registry, Nexmark query) {
         if (query.sql() == null) {
             return new Verdict(query.id(), "NOT EXPRESSIBLE", "-", query.note());
@@ -452,6 +454,7 @@ final class NexmarkCoverageIT {
         return new Verdict(query.id(), "RUNS", "-", query.note());
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static void runOne(NexmarkStreams streams, Nexmark query, double[] rate, long[] taken) {
         try (QueryRegistry registry = new QueryRegistry(
                 new ViewCatalog(), NexmarkStreams.person(), NexmarkStreams.auction(), NexmarkStreams.bid())) {

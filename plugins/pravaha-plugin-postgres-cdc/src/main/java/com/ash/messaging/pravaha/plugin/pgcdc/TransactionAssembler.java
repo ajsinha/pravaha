@@ -19,7 +19,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -58,12 +61,12 @@ final class TransactionAssembler {
     private final Consumer<String> onMessage;
 
     /** Stream field to column index in the current Relation message, or null before one arrived. */
-    private int[] columnOf;
+    private int @Nullable [] columnOf;
 
     private boolean inTransaction;
     private long commitMicros;
     private List<CdcTransaction.Change> changes = new ArrayList<>();
-    private PravahaException failure;
+    private @Nullable PravahaException failure;
 
     /** The end of the last transaction handed on: anything ending at or before it is a repeat. */
     private long delivered;
@@ -75,10 +78,10 @@ final class TransactionAssembler {
     private final java.util.concurrent.atomic.AtomicLong carriedForward = new java.util.concurrent.atomic.AtomicLong();
 
     /** While an initial snapshot is unfinished: which changes before its point the engine keeps. */
-    private final CatchUp catchUp;
+    private final @Nullable CatchUp catchUp;
 
     /** Key column to column index in the current Relation message, when {@link #catchUp} needs keys. */
-    private int[] keyOf;
+    private int @Nullable [] keyOf;
 
     /**
      * The log between a resumed position and an initial snapshot's consistent point, seen through the
@@ -122,7 +125,7 @@ final class TransactionAssembler {
             CdcOffset resume,
             Consumer<CdcTransaction> out,
             Consumer<String> onMessage,
-            CatchUp catchUp) {
+            @Nullable CatchUp catchUp) {
         this.options = options;
         this.mapping = mapping;
         this.tableOid = tableOid;
@@ -171,7 +174,8 @@ final class TransactionAssembler {
                         refuse(keyOnly("an UPDATE"));
                         return;
                     }
-                    changes.add(change(update.before(), null, -1));
+                    changes.add(change(
+                            Objects.requireNonNull(update.before(), "an 'O' update carries its old row"), null, -1));
                     changes.add(change(update.after(), update.before(), +1));
                 }
             }
@@ -255,8 +259,8 @@ final class TransactionAssembler {
     }
 
     private List<CdcTransaction.Change> belowFrontier(List<CdcTransaction.Change> changes) {
-        boolean[] keep = catchUp.atOrBelow(
-                changes.stream().map(CdcTransaction.Change::key).toList());
+        boolean[] keep = Objects.requireNonNull(catchUp, "only a catch-up filters")
+                .atOrBelow(changes.stream().map(CdcTransaction.Change::key).toList());
         List<CdcTransaction.Change> kept = new ArrayList<>();
         for (int i = 0; i < keep.length; i++) {
             if (keep[i]) {
@@ -362,7 +366,8 @@ final class TransactionAssembler {
         }
     }
 
-    private CdcTransaction.Change change(PgOutput.Tuple tuple, PgOutput.Tuple before, long weight) {
+    private CdcTransaction.Change change(PgOutput.Tuple tuple, PgOutput.@Nullable Tuple before, long weight) {
+        int[] columnOf = Objects.requireNonNull(this.columnOf, "a Relation precedes the first change");
         String[] texts = new String[columnOf.length];
         for (int field = 0; field < texts.length; field++) {
             int column = columnOf[field];
@@ -391,10 +396,11 @@ final class TransactionAssembler {
     }
 
     /** A column's text; an unchanged TOAST value is taken from the before-image, which holds it in full. */
-    private String text(PgOutput.Tuple tuple, PgOutput.Tuple before, int column) {
+    private String text(PgOutput.Tuple tuple, PgOutput.@Nullable Tuple before, int column) {
         if (tuple.isUnchangedToast(column)) {
             carriedForward.incrementAndGet();
-            return before.value(column);
+            return Objects.requireNonNull(before, "change() refuses an unchanged TOAST value with no before-image")
+                    .value(column);
         }
         return tuple.value(column);
     }

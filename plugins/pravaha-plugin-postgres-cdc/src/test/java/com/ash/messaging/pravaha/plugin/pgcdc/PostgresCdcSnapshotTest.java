@@ -23,12 +23,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -142,7 +144,7 @@ class PostgresCdcSnapshotTest {
         return plugin;
     }
 
-    private PartitionReader reader(PostgresCdcSourcePlugin plugin, String table, SourceOffset from) {
+    private PartitionReader reader(PostgresCdcSourcePlugin plugin, String table, @Nullable SourceOffset from) {
         PartitionReader reader = plugin.createReader(new SourcePartition(table, 0, Map.of()), from);
         open.add(reader);
         return reader;
@@ -180,7 +182,7 @@ class PostgresCdcSnapshotTest {
 
     /** Polls until the reader has finished any snapshot and passed the WAL as it stands now. */
     private static void drainToNow(PartitionReader reader, Captured sink, Random random) {
-        long target = CdcOffset.parseLsn(PgServer.scalar("SELECT pg_current_wal_lsn()::text"));
+        long target = CdcOffset.parseLsn(Objects.requireNonNull(PgServer.scalar("SELECT pg_current_wal_lsn()::text")));
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90);
         while (true) {
             CdcOffset at = CdcOffset.parse(reader.position());
@@ -394,7 +396,8 @@ class PostgresCdcSnapshotTest {
                 // Lost with the process: what was delivered after the checkpoint.
                 sink.rows().subList(checkpointedRows, sink.rows().size()).clear();
                 CdcOffset from = CdcOffset.parse(checkpoint);
-                if (from.inSnapshot() && from.snapshot().started()) {
+                CdcOffset.Snapshot inside = from.snapshot();
+                if (inside != null && inside.started()) {
                     crashedWithAFrontier++;
                 }
                 PgServer.sleep(random.nextInt(300)); // the writer carries on while nothing reads

@@ -48,6 +48,7 @@ class PartialRestoreTest extends StateTestSupport {
         Checkpoint checkpoint = windowedCheckpointHolding(100, 102);
         // The last four bytes are the grouped-aggregate count, read after every windowed aggregate:
         // cut them off and the restore fails with the windows already back.
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         Checkpoint corrupt =
                 withLaneState(checkpoint, cutShort(checkpoint.operatorState().get("lane-0"), 4));
 
@@ -76,6 +77,7 @@ class PartialRestoreTest extends StateTestSupport {
         assertThat(a.execution.awaitQuiescent(Duration.ofSeconds(10))).isTrue();
         Checkpoint checkpoint = a.execution.checkpoint(1, Duration.ofSeconds(5));
         a.abort();
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         Checkpoint corrupt =
                 withLaneState(checkpoint, cutShort(checkpoint.operatorState().get("lane-0"), 4));
 

@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.cassandra;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import com.datastax.oss.driver.api.core.type.DataTypes;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class CassandraPushdownTest {
 
         assertThat(plan.pushed()).isTrue();
         assertThat(plan.reads()).hasSize(1);
-        KeyRead read = plan.reads().get(0);
+        KeyRead read = reads(plan).get(0);
         assertThat(read.where()).isEqualTo(" WHERE tenant = ? AND id = ?");
         assertThat(read.values()).containsExactly("acme", 7L);
         assertThat(plan.description()).isEqualTo("pushed to Cassandra: partition key tenant = 'acme' and id = 7");
@@ -78,7 +79,7 @@ class CassandraPushdownTest {
                 f("ts", Comparison.LE, 9_000_000L),
                 f("status", Comparison.EQ, "DONE"));
 
-        KeyRead read = plan.reads().get(0);
+        KeyRead read = reads(plan).get(0);
         assertThat(read.where()).isEqualTo(" WHERE tenant = ? AND id = ? AND day = ? AND ts >= ? AND ts <= ?");
         assertThat(read.values())
                 .as("an int filter on a bigint key widens exactly; a timestamp bound is on its millisecond")
@@ -91,7 +92,7 @@ class CassandraPushdownTest {
     @Test
     void aRangeOnAClusteringColumnStopsTheRestrictionsAndOutOfOrderOnesAreLeftToTheEngine() {
         Plan skipped = plan(f("tenant", Comparison.EQ, "a"), f("id", Comparison.EQ, 1L), f("ts", Comparison.GT, 0L));
-        assertThat(skipped.reads().get(0).where())
+        assertThat(reads(skipped).get(0).where())
                 .as("ts cannot be restricted while day is not pinned: CQL would need ALLOW FILTERING")
                 .isEqualTo(" WHERE tenant = ? AND id = ?");
 
@@ -103,10 +104,10 @@ class CassandraPushdownTest {
                 f("day", Comparison.LT, 9),
                 f("day", Comparison.LT, 7),
                 f("ts", Comparison.EQ, 0L));
-        assertThat(ranged.reads().get(0).where())
+        assertThat(reads(ranged).get(0).where())
                 .as("the tightest bound each way, and nothing after the range")
                 .isEqualTo(" WHERE tenant = ? AND id = ? AND day > ? AND day < ?");
-        assertThat(ranged.reads().get(0).values()).containsExactly("a", 1L, 2, 7);
+        assertThat(reads(ranged).get(0).values()).containsExactly("a", 1L, 2, 7);
     }
 
     @Test
@@ -237,7 +238,7 @@ class CassandraPushdownTest {
                 f("ts", Comparison.GE, -1_500_001L),
                 f("ts", Comparison.LT, 2_000_001L));
 
-        assertThat(plan.reads().get(0).values())
+        assertThat(reads(plan).get(0).values())
                 .as("floor for the lower bound, ceiling for the upper, both inclusive")
                 .containsExactly("a", 1L, 1, Instant.ofEpochMilli(-2), Instant.ofEpochMilli(3));
 
@@ -246,7 +247,7 @@ class CassandraPushdownTest {
                 f("id", Comparison.EQ, 1L),
                 f("day", Comparison.EQ, 1),
                 f("ts", Comparison.GT, "x"));
-        assertThat(text.reads().get(0).where())
+        assertThat(reads(text).get(0).where())
                 .as("a bound whose value cannot be carried is left with the engine")
                 .isEqualTo(" WHERE tenant = ? AND id = ? AND day = ?");
     }
@@ -260,7 +261,7 @@ class CassandraPushdownTest {
                 List.of("flag"),
                 types,
                 256);
-        assertThat(onText.reads().get(0).where()).isEqualTo(" WHERE name = ? AND flag = ?");
+        assertThat(reads(onText).get(0).where()).isEqualTo(" WHERE name = ? AND flag = ?");
 
         Plan ranged = CassandraPushdown.plan(
                 new ReadRequest(List.of(f("name", Comparison.EQ, "x"), f("flag", Comparison.GT, false))),
@@ -268,7 +269,7 @@ class CassandraPushdownTest {
                 List.of("flag"),
                 types,
                 256);
-        assertThat(ranged.reads().get(0).where()).isEqualTo(" WHERE name = ?");
+        assertThat(reads(ranged).get(0).where()).isEqualTo(" WHERE name = ?");
 
         Plan uuid = CassandraPushdown.plan(
                 new ReadRequest(List.of(f("u", Comparison.EQ, "0000"))), List.of("u"), List.of(), Map.of(), 256);
@@ -290,5 +291,10 @@ class CassandraPushdownTest {
         assertThat(CassandraSourcePlugin.pushdownType(DataTypes.BOOLEAN)).isEqualTo(ColumnType.BOOLEAN);
         assertThat(CassandraSourcePlugin.pushdownType(DataTypes.UUID)).isNull();
         assertThat(CassandraSourcePlugin.pushdownType(DataTypes.DOUBLE)).isNull();
+    }
+
+    /** A pushed plan's reads. */
+    private static List<KeyRead> reads(Plan plan) {
+        return Objects.requireNonNull(plan.reads(), "a pushed plan");
     }
 }

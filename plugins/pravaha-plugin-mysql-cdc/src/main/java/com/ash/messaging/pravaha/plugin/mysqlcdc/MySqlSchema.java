@@ -26,10 +26,12 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.github.shyiko.mysql.binlog.event.TableMapEventData;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
@@ -187,7 +189,10 @@ final class MySqlSchema {
             case BIG_UNSIGNED -> Types.decimal(38, 0);
             case FLOAT -> Types.float32();
             case DOUBLE -> Types.float64();
-            case DECIMAL -> Types.decimal(38, precisionAndScale(column)[1]);
+            case DECIMAL ->
+                Types.decimal(
+                        38,
+                        Objects.requireNonNull(precisionAndScale(column), "kind() maps only a DECIMAL it can hold")[1]);
             case STRING -> Types.string();
             case BYTES -> Types.bytes();
             case DATE -> Types.date();
@@ -196,7 +201,7 @@ final class MySqlSchema {
     }
 
     /** {@code decimal(p,s)} with {@code p <= 38}, or null. */
-    private static int[] precisionAndScale(Column column) {
+    private static int @Nullable [] precisionAndScale(Column column) {
         Matcher matcher = DECIMAL.matcher(column.columnType());
         if (!matcher.matches()) {
             return null;
@@ -224,7 +229,7 @@ final class MySqlSchema {
      *
      * @throws IllegalArgumentException when the value is not what the column's type decodes to
      */
-    static Object convert(Kind kind, Charset charset, PravahaType type, Serializable raw) {
+    static @Nullable Object convert(Kind kind, Charset charset, PravahaType type, @Nullable Serializable raw) {
         if (raw == null) {
             return null;
         }
@@ -299,7 +304,7 @@ final class MySqlSchema {
      * {@code TEXT} and {@code BLOB} share a binlog type and are told apart only by character set, which
      * the table map carries only under {@code FULL} metadata; a change between them is not detected.
      */
-    static String binlogMismatch(Mapping mapping, TableMapEventData map) {
+    static @Nullable String binlogMismatch(Mapping mapping, TableMapEventData map) {
         if (mapping.columns().size() != mapping.columnCount()) {
             return null;
         }

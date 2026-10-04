@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.aerospike;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import com.aerospike.client.AerospikeException;
 import com.aerospike.client.IAerospikeClient;
@@ -27,6 +28,7 @@ import com.aerospike.client.exp.Exp;
 import com.aerospike.client.exp.Expression;
 import com.aerospike.client.policy.ScanPolicy;
 import com.aerospike.client.query.PartitionFilter;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -101,7 +103,7 @@ final class LutScanReader implements PartitionReader {
      * The pass in progress, which the client updates as each page is read so the next page resumes
      * from it; null between passes.
      */
-    private PartitionFilter pass;
+    private @Nullable PartitionFilter pass;
 
     /** How many empty pages one poll reads before answering zero with the pass still open. */
     private static final int EMPTY_PAGES_PER_POLL = 16;
@@ -141,7 +143,7 @@ final class LutScanReader implements PartitionReader {
      * The bins a pushed projection asks the server for, or null for every bin. Always includes the
      * event-time bin, which this reader reads for itself whatever the engine needs.
      */
-    private final String[] binNames;
+    private final String @Nullable [] binNames;
 
     /** Per schema ordinal, whether that bin was read -- false only under a pushed projection. */
     private final boolean[] read;
@@ -157,7 +159,7 @@ final class LutScanReader implements PartitionReader {
             int scanIntervalMillis,
             int socketTimeoutMillis,
             int totalTimeoutMillis,
-            SourceOffset resumeFrom,
+            @Nullable SourceOffset resumeFrom,
             ReadRequest request) {
         this.client = client;
         this.namespace = namespace;
@@ -192,7 +194,7 @@ final class LutScanReader implements PartitionReader {
      * <p>A requested column the schema does not declare means the request is about something else,
      * and reading every bin is the safe answer to that.
      */
-    static String[] projectedBins(StreamSchema schema, ReadRequest request, int eventTimeOrdinal) {
+    static String @Nullable [] projectedBins(StreamSchema schema, ReadRequest request, int eventTimeOrdinal) {
         if (request.columns().isEmpty()) {
             return null;
         }
@@ -209,7 +211,7 @@ final class LutScanReader implements PartitionReader {
         return bins.size() >= schema.fieldCount() ? null : bins.toArray(new String[0]);
     }
 
-    private static long parse(SourceOffset offset) {
+    private static long parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.token() == null || offset.token().isBlank()) {
             return 0;
         }
@@ -256,10 +258,11 @@ final class LutScanReader implements PartitionReader {
             // nothing that matched -- and an empty poll reads to the pump as "caught up". So a few
             // more pages are tried in the same poll before answering zero; bounded, because a
             // server that kept answering empty and not-done must not hold the lane.
-            for (int attempt = 0; attempt < EMPTY_PAGES_PER_POLL && buffered.isEmpty() && !pass.isDone(); attempt++) {
+            PartitionFilter open = Objects.requireNonNull(pass, "beginPass() opened one");
+            for (int attempt = 0; attempt < EMPTY_PAGES_PER_POLL && buffered.isEmpty() && !open.isDone(); attempt++) {
                 readPage(maxRecords);
             }
-            if (buffered.isEmpty() && pass.isDone()) {
+            if (buffered.isEmpty() && open.isDone()) {
                 finishPass();
                 return 0;
             }
@@ -404,7 +407,7 @@ final class LutScanReader implements PartitionReader {
      * engine keeps its own filter regardless, so an unpushed predicate costs bandwidth; a wrongly
      * pushed one costs rows, and a missing row is indistinguishable from one that was never written.
      */
-    private Expression filter() {
+    private @Nullable Expression filter() {
         List<Exp> conditions = new ArrayList<>();
         conditions.add(Exp.ge(Exp.lastUpdate(), Exp.val(watermarkNanos)));
         return withPushedFilters(conditions, request, schema);
@@ -415,7 +418,7 @@ final class LutScanReader implements PartitionReader {
      * null when there is nothing to filter on. Shared with {@link DetectingScanReader}, whose scan
      * has no last-update condition and must push exactly what this one pushes.
      */
-    static Expression withPushedFilters(List<Exp> conditions, ReadRequest request, StreamSchema schema) {
+    static @Nullable Expression withPushedFilters(List<Exp> conditions, ReadRequest request, StreamSchema schema) {
         for (ReadRequest.Filter pushed : request.filters()) {
             Exp translated = AerospikeExpressions.translate(pushed, schema);
             if (translated != null) {
@@ -433,7 +436,7 @@ final class LutScanReader implements PartitionReader {
     }
 
     /** The bins this reader asks the server for, or null for all of them. For tests. */
-    String[] binNames() {
+    String @Nullable [] binNames() {
         return binNames == null ? null : binNames.clone();
     }
 

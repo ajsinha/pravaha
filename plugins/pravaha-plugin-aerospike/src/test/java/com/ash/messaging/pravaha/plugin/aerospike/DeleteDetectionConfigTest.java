@@ -91,6 +91,7 @@ class DeleteDetectionConfigTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // null values on purpose: what a caller outside NullAway may pass
     void aRecordingReplaysEveryTypeWithTheSameCalls() {
         StreamSchema schema = AerospikeSchemas.parse(
                 "all", "b:BOOLEAN,i8:INT8,i16:INT16,i32:INT32,i64:INT64,f:FLOAT32,d:FLOAT64,s:STRING,x:BYTES,n:STRING");

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,6 +51,7 @@ class DistributionTest {
 
         // `version` and not `--help`: it is the one command that touches no engine state, so a
         // failure here is packaging and nothing else.
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         Launch launch = launch(List.of(java(), "-jar", jar.toString(), "version"));
         assertThat(launch.exitCode())
                 .as("`java -jar %s version` failed: %s", jar.getFileName(), launch.output())
@@ -57,6 +59,7 @@ class DistributionTest {
         assertThat(launch.output()).contains("pravaha-engine");
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void theBuildProducesAnExecutableServerJar() throws Exception {
         Path jar = artifact("pravaha-server", "-app.jar");
@@ -123,7 +126,7 @@ class DistributionTest {
     }
 
     /** The built artifact, or null when this run has not packaged it. */
-    private static Path artifact(String module, String suffix) throws IOException {
+    private static @Nullable Path artifact(String module, String suffix) throws IOException {
         Path target = repoRoot().resolve(module).resolve("target");
         if (!Files.isDirectory(target)) {
             return null;

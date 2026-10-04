@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -69,7 +70,7 @@ class StateClusterTest extends StateTestSupport {
             dir = dir.getParent();
         }
         assertThat(dir).isNotNull();
-        return dir;
+        return Objects.requireNonNull(dir, "run inside the repository");
     }
 
     private static List<String> grep(String pattern, Path root) throws Exception {

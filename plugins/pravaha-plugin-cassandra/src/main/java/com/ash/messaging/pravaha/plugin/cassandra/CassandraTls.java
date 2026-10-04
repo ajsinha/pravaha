@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.cassandra;
 
 import com.datastax.oss.driver.api.core.ssl.ProgrammaticSslEngineFactory;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.PluginTls;
@@ -34,7 +35,7 @@ final class CassandraTls {
     private CassandraTls() {}
 
     /** The engine factory these options describe, or {@code null} when TLS is off. */
-    static ProgrammaticSslEngineFactory engineFactory(PluginContext context) {
+    static @Nullable ProgrammaticSslEngineFactory engineFactory(PluginContext context) {
         return PluginTls.from(context, CassandraErrors.BAD_CONFIGURATION)
                 .map(ssl -> new ProgrammaticSslEngineFactory(ssl, null, PluginTls.verifyHostname(context)))
                 .orElse(null);

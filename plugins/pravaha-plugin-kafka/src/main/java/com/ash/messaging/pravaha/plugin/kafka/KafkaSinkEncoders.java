@@ -24,9 +24,11 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Objects;
 import java.util.function.Function;
 
 import com.google.protobuf.Descriptors.Descriptor;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -62,10 +64,11 @@ final class KafkaSinkEncoders {
     record Spec(String side, String prefix, String format, String file, String id, String descriptor, String message) {}
 
     private final String instanceName;
-    private final SchemaRegistry registry;
+    private final @Nullable SchemaRegistry registry;
     private final Function<String, ConfigurationException> refusal;
 
-    KafkaSinkEncoders(String instanceName, SchemaRegistry registry, Function<String, ConfigurationException> refusal) {
+    KafkaSinkEncoders(
+            String instanceName, @Nullable SchemaRegistry registry, Function<String, ConfigurationException> refusal) {
         this.instanceName = instanceName;
         this.registry = registry;
         this.refusal = refusal;
@@ -195,7 +198,7 @@ final class KafkaSinkEncoders {
     /** The same JSON document, ignoring whitespace and the order of an object's members. */
     private static boolean sameJson(String a, String b) {
         try {
-            return AvroSchema.readJson(a).equals(AvroSchema.readJson(b));
+            return Objects.equals(AvroSchema.readJson(a), AvroSchema.readJson(b));
         } catch (AvroSchema.Invalid e) {
             return false;
         }

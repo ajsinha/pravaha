@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
@@ -253,7 +255,7 @@ abstract class WindowTestSupport {
      * <p>The window assigner sits under a {@code Project} that resolves the boundary columns'
      * names, so "the assigner is the immediate input" does not hold once a projection is involved.
      */
-    protected static com.ash.messaging.pravaha.runtime.plan.PhysicalOperator findByLabel(
+    protected static com.ash.messaging.pravaha.runtime.plan.@Nullable PhysicalOperator findByLabel(
             com.ash.messaging.pravaha.runtime.plan.PhysicalOperator operator, String prefix) {
         if (operator.label().startsWith(prefix)) {
             return operator;

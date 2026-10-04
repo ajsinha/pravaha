@@ -18,11 +18,13 @@ package com.ash.messaging.pravaha.plugin.feedfile;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.Objects;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.example.GroupReadSupport;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -47,11 +49,16 @@ final class ParquetDecoder implements FeedRecordDecoder {
 
     private final Configuration configuration = new Configuration();
 
-    private ParquetReader<Group> reader;
+    private @Nullable ParquetReader<Group> reader;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which comes before any read
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which comes before any read
     private Path file;
+
     private long recordNumber;
-    private Group current;
+    private @Nullable Group current;
     private int eventTimeOrdinal = -1;
     private long lastEventTimeNanos = Long.MIN_VALUE;
 
@@ -79,7 +86,7 @@ final class ParquetDecoder implements FeedRecordDecoder {
 
     @Override
     public void write(RowWriter writer) {
-        Group group = current;
+        Group group = Objects.requireNonNull(current, "write() follows an advance() that returned true");
         lastEventTimeNanos = Long.MIN_VALUE;
         for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
             String name = schema.field(ordinal).name();
@@ -131,9 +138,10 @@ final class ParquetDecoder implements FeedRecordDecoder {
         }
     }
 
-    private Group read() {
+    private @Nullable Group read() {
         try {
-            Group group = reader.read();
+            Group group = Objects.requireNonNull(reader, "open() comes before any read")
+                    .read();
             if (group != null) {
                 recordNumber++;
             }

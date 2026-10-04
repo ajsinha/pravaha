@@ -21,7 +21,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 
@@ -106,7 +109,7 @@ final class CassandraPushdown {
      *     empty when the filters cannot all hold, so no partition can match
      * @param description in words, for the query's feed description
      */
-    record Plan(List<KeyRead> reads, String description) {
+    record Plan(@Nullable List<KeyRead> reads, String description) {
 
         boolean pushed() {
             return reads != null;
@@ -123,7 +126,7 @@ final class CassandraPushdown {
      * @param maxReads the most partition reads the plan may name before it scans instead
      */
     static Plan plan(
-            ReadRequest request,
+            @Nullable ReadRequest request,
             List<String> partitionKey,
             List<String> clustering,
             Map<String, ColumnType> types,
@@ -206,7 +209,11 @@ final class CassandraPushdown {
             }
             List<ReadRequest.Filter> bounds = ranges.get(column);
             if (bounds != null) {
-                return rangeInto(restrictions, column, types.get(column), bounds);
+                return rangeInto(
+                        restrictions,
+                        column,
+                        Objects.requireNonNull(types.get(column), "ranges holds typed columns"),
+                        bounds);
             }
             // CQL restricts a clustering column only when every one before it is pinned by equality.
             return true;
@@ -249,8 +256,12 @@ final class CassandraPushdown {
     }
 
     /** One bound as CQL can carry it, or null when it cannot be carried without narrowing. */
-    private static Restriction bound(
-            ColumnType type, String column, ReadRequest.Comparison comparison, Object value, boolean isLower) {
+    private static @Nullable Restriction bound(
+            ColumnType type,
+            String column,
+            ReadRequest.Comparison comparison,
+            @Nullable Object value,
+            boolean isLower) {
         String op = comparison == ReadRequest.Comparison.GT
                 ? ">"
                 : comparison == ReadRequest.Comparison.GE ? ">=" : comparison == ReadRequest.Comparison.LT ? "<" : "<=";
@@ -282,7 +293,7 @@ final class CassandraPushdown {
     }
 
     /** The filter's value as the driver binds it to a column of {@code type}, or null when it cannot be exact. */
-    static Object exact(ColumnType type, Object value) {
+    static @Nullable Object exact(ColumnType type, @Nullable Object value) {
         return switch (type) {
             case TINYINT, SMALLINT, INT, BIGINT -> {
                 if (!(value instanceof Byte

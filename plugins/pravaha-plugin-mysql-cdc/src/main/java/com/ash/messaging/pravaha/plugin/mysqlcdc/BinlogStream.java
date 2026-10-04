@@ -22,6 +22,7 @@ import java.util.ArrayDeque;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.github.shyiko.mysql.binlog.event.deserialization.EventDeserializer;
 import com.github.shyiko.mysql.binlog.network.SSLMode;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -48,9 +49,9 @@ final class BinlogStream implements AutoCloseable {
     private long resumePosition;
     private int resumeSkip;
     /** GTID mode: the executed set the last queued transaction left, and the partial one's GTID. */
-    private String resumeGtids;
+    private @Nullable String resumeGtids;
 
-    private String resumeSkipGtid;
+    private @Nullable String resumeSkipGtid;
     private int failures;
     private volatile boolean running = true;
     private volatile boolean halted;
@@ -58,11 +59,11 @@ final class BinlogStream implements AutoCloseable {
     /** Set once the first connection is made, and never reset: a refusal may close it at once. */
     private volatile boolean everConnected;
 
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
     private volatile String lastProblem = "";
     private volatile long reconnects;
-    private volatile BinaryLogClient client;
-    private Thread thread;
+    private volatile @Nullable BinaryLogClient client;
+    private @Nullable Thread thread;
 
     BinlogStream(MySqlCdcOptions options, MySqlSchema.Mapping mapping, BinlogOffset start) {
         this.options = options;
@@ -113,6 +114,7 @@ final class BinlogStream implements AutoCloseable {
         }
     }
 
+    @Nullable
     PravahaException failure() {
         return failure;
     }

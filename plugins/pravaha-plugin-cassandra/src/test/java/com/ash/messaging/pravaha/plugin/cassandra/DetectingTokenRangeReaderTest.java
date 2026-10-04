@@ -22,12 +22,14 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.TreeMap;
 
 import com.datastax.oss.driver.api.core.DriverTimeoutException;
 import com.datastax.oss.driver.api.core.cql.Row;
 import org.assertj.core.groups.Tuple;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -59,13 +61,13 @@ class DetectingTokenRangeReaderTest {
 
     private void put(long token, long id, String status, long amount) {
         List<Map<String, Object>> rows = table.computeIfAbsent(token, t -> new ArrayList<>());
-        rows.removeIf(row -> row.get("id").equals(id));
+        rows.removeIf(row -> Objects.equals(row.get("id"), id));
         rows.add(Map.of("id", id, "status", status, "amount", amount, CassandraSourcePlugin.TOKEN_ALIAS, token));
     }
 
     private void delete(long token, long id) {
-        List<Map<String, Object>> rows = table.get(token);
-        rows.removeIf(row -> row.get("id").equals(id));
+        List<Map<String, Object>> rows = Objects.requireNonNull(table.get(token), "a row was put there");
+        rows.removeIf(row -> Objects.equals(row.get("id"), id));
         if (rows.isEmpty()) {
             table.remove(token);
         }
@@ -112,11 +114,11 @@ class DetectingTokenRangeReaderTest {
                 });
     }
 
-    private DetectingTokenRangeReader reader(SourceOffset from) {
+    private DetectingTokenRangeReader reader(@Nullable SourceOffset from) {
         return reader(from, 1_000_000);
     }
 
-    private DetectingTokenRangeReader reader(SourceOffset from, long maxKeys) {
+    private DetectingTokenRangeReader reader(@Nullable SourceOffset from, long maxKeys) {
         return new DetectingTokenRangeReader(
                 this::pass,
                 new boolean[] {true, true, true},

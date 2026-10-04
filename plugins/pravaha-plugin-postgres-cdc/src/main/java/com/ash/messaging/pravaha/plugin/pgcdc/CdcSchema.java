@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -77,7 +79,7 @@ final class CdcSchema {
     }
 
     /** The type a column maps to when nothing is declared, or null when it has no mapping. */
-    static PravahaType natural(Column column) {
+    static @Nullable PravahaType natural(Column column) {
         PravahaType type =
                 switch (column.typeOid()) {
                     case PgValues.BOOL -> Types.bool();
@@ -107,7 +109,7 @@ final class CdcSchema {
      * DECIMAL(38,9)} as it does in the {@code jdbc} source, and a value with more places is refused
      * when it arrives rather than rounded.
      */
-    private static PravahaType numeric(int typmod) {
+    private static @Nullable PravahaType numeric(int typmod) {
         if (typmod < 4) {
             return Types.decimal(38, 9);
         }

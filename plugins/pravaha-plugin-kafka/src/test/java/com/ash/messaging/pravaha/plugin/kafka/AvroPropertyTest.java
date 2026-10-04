@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -55,6 +56,7 @@ class AvroPropertyTest {
         String avro();
 
         /** Writes one random value and returns what the reader must produce for it. */
+        @Nullable
         Object write(Random random, AvroWriter writer);
     }
 
@@ -144,7 +146,7 @@ class AvroPropertyTest {
             }
 
             @Override
-            public Object write(Random random, AvroWriter writer) {
+            public @Nullable Object write(Random random, AvroWriter writer) {
                 if (random.nextInt(4) == 0) {
                     writer.union(0);
                     return null;
@@ -169,7 +171,7 @@ class AvroPropertyTest {
             }
 
             @Override
-            public Object write(Random random, AvroWriter writer) {
+            public @Nullable Object write(Random random, AvroWriter writer) {
                 return write.apply(random, writer);
             }
         };

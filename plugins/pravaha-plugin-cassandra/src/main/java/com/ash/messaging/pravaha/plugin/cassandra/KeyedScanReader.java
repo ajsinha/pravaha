@@ -20,10 +20,12 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.function.Function;
 
 import com.datastax.oss.driver.api.core.DriverException;
 import com.datastax.oss.driver.api.core.cql.Row;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -65,7 +67,7 @@ final class KeyedScanReader implements PartitionReader {
     private final long scanIntervalNanos;
     private final String range;
 
-    private Iterator<Row> current;
+    private @Nullable Iterator<Row> current;
     private long passStartedNanos;
     private long lastScanEndedNanos = Long.MIN_VALUE;
     private long recordsRead;
@@ -82,7 +84,7 @@ final class KeyedScanReader implements PartitionReader {
             long upperBound,
             boolean inclusiveLower,
             int scanIntervalMillis,
-            SourceOffset resumeFrom) {
+            @Nullable SourceOffset resumeFrom) {
         // Validated as a range scan's would be: an offset from deletes: detect or another plugin is
         // still refused by name, and a token is accepted and restarts the pass.
         TokenRangeScanReader.parse(resumeFrom);
@@ -170,7 +172,7 @@ final class KeyedScanReader implements PartitionReader {
         return new Iterator<>() {
             private final Iterator<CassandraPushdown.KeyRead> remaining = reads.iterator();
             private Iterator<Row> rows = Collections.emptyIterator();
-            private Row next;
+            private @Nullable Row next;
 
             @Override
             public boolean hasNext() {
@@ -196,7 +198,7 @@ final class KeyedScanReader implements PartitionReader {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                Row row = next;
+                Row row = Objects.requireNonNull(next, "hasNext() found one");
                 next = null;
                 return row;
             }

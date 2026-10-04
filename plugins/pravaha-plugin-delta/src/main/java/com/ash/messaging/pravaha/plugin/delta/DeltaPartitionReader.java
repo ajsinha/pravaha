@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.plugin.delta;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -30,6 +31,7 @@ import io.delta.kernel.engine.Engine;
 import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterator;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -82,8 +84,13 @@ final class DeltaPartitionReader implements PartitionReader {
     private List<DeltaScanFiles.ScanFile> currentFiles = List.of();
 
     private boolean prepared;
+
+    @SuppressWarnings("NullAway.Init") // set by useSnapshot() before any file is opened
     private Row scanState;
-    private StructType logicalSchema;
+
+    private @Nullable StructType logicalSchema;
+
+    @SuppressWarnings("NullAway.Init") // set by useSnapshot() before any file is opened
     private List<DataType> columnTypes;
 
     /** The column whose value is each row's event time, or blank to stamp zero (HLP-6). */
@@ -92,18 +99,19 @@ final class DeltaPartitionReader implements PartitionReader {
     /** {@link #eventTimeColumn}'s ordinal in {@link #logicalSchema}, or -1. */
     private int eventTimeOrdinal = -1;
 
-    private CloseableIterator<FilteredColumnarBatch> openFile;
+    private @Nullable CloseableIterator<FilteredColumnarBatch> openFile;
     /** The file {@link #openFile} reads, kept only so a failure on it can be reported by name. */
-    private DeltaScanFiles.ScanFile openFileHandle;
+    private DeltaScanFiles.@Nullable ScanFile openFileHandle;
 
-    private ColumnarBatch batch;
+    private @Nullable ColumnarBatch batch;
     /** Which rows of {@link #batch} a deletion vector leaves live, or null when all of them are. */
-    private ColumnVector selection;
+    private @Nullable ColumnVector selection;
 
     private int batchCursor;
     private long rowInFile;
 
-    DeltaPartitionReader(Engine engine, Table table, String streamName, long startVersion, SourceOffset resumeFrom) {
+    DeltaPartitionReader(
+            Engine engine, Table table, String streamName, long startVersion, @Nullable SourceOffset resumeFrom) {
         this.engine = engine;
         this.table = table;
         this.streamName = streamName;
@@ -112,7 +120,7 @@ final class DeltaPartitionReader implements PartitionReader {
     }
 
     /** Stamps each row with this column's value rather than zero; blank keeps zero. */
-    DeltaPartitionReader stampingEventTimeFrom(String column) {
+    DeltaPartitionReader stampingEventTimeFrom(@Nullable String column) {
         this.eventTimeColumn = column == null ? "" : column;
         return this;
     }
@@ -305,7 +313,7 @@ final class DeltaPartitionReader implements PartitionReader {
      */
     private boolean hasNextRow() {
         try {
-            return openFile.hasNext();
+            return Objects.requireNonNull(openFile, "a file is open").hasNext();
         } catch (io.delta.kernel.exceptions.KernelEngineException e) {
             throw vacuumOrReadFailure(e);
         }
@@ -314,14 +322,15 @@ final class DeltaPartitionReader implements PartitionReader {
     /** {@code openFile.next()}, with the same translation as {@link #hasNextRow()}. */
     private FilteredColumnarBatch nextRow() {
         try {
-            return openFile.next();
+            return Objects.requireNonNull(openFile, "a file is open").next();
         } catch (io.delta.kernel.exceptions.KernelEngineException e) {
             throw vacuumOrReadFailure(e);
         }
     }
 
     private PravahaException vacuumOrReadFailure(io.delta.kernel.exceptions.KernelEngineException e) {
-        String path = openFileHandle == null ? "<unknown>" : openFileHandle.path();
+        DeltaScanFiles.ScanFile handle = openFileHandle;
+        String path = handle == null ? "<unknown>" : handle.path();
         if (e.getCause() instanceof java.io.FileNotFoundException) {
             return new PravahaException(
                     DeltaErrors.FILE_VACUUMED,
@@ -340,11 +349,13 @@ final class DeltaPartitionReader implements PartitionReader {
 
     /** Whether the row at the cursor is live: not deleted by the file's deletion vector. */
     private boolean selected() {
-        return selection == null || (!selection.isNullAt(batchCursor) && selection.getBoolean(batchCursor));
+        ColumnVector live = selection;
+        return live == null || (!live.isNullAt(batchCursor) && live.getBoolean(batchCursor));
     }
 
     /** Copies rows out of the open batch, up to {@code limit}, passing over the deleted ones. */
     private int emitRows(RecordSink sink, int limit) {
+        ColumnarBatch batch = Objects.requireNonNull(this.batch, "ensureRows() left a batch open");
         long weight = offset.phase() == DeltaOffset.Phase.REMOVES ? -1L : 1L;
         int emitted = 0;
         while (emitted < limit && batchCursor < batch.getSize()) {
@@ -380,9 +391,10 @@ final class DeltaPartitionReader implements PartitionReader {
             offset = offset.withRow(rowInFile);
         }
         if (batchCursor >= batch.getSize()) {
-            batch = null;
+            this.batch = null;
             selection = null;
-            if (openFile == null || !openFile.hasNext()) {
+            CloseableIterator<FilteredColumnarBatch> file = openFile;
+            if (file == null || !file.hasNext()) {
                 closeOpenFile();
                 offset = offset.nextFile();
             }
@@ -391,9 +403,10 @@ final class DeltaPartitionReader implements PartitionReader {
     }
 
     private void closeOpenFile() {
-        if (openFile != null) {
+        CloseableIterator<FilteredColumnarBatch> file = openFile;
+        if (file != null) {
             try {
-                openFile.close();
+                file.close();
             } catch (Exception e) {
                 throw new PravahaException(
                         DeltaErrors.READ_FAILED, "failed to close a data file of stream " + streamName + ": " + e, e);

@@ -49,6 +49,7 @@ import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterable;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.DataFileStatus;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -262,7 +263,7 @@ final class DeltaSinkCommit {
      * @param label the transaction label to record
      * @return the version committed, or empty when the label was already committed
      */
-    Optional<Long> apply(List<Change> changes, String appId, long label) {
+    Optional<Long> apply(List<Change> changes, @Nullable String appId, long label) {
         Transaction txn;
         try {
             TransactionBuilder builder = table.createTransactionBuilder(engine, ENGINE_INFO, Operation.WRITE)

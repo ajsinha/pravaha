@@ -33,6 +33,7 @@ import io.delta.kernel.data.ColumnarBatch;
 import io.delta.kernel.types.BooleanType;
 import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.StructType;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
@@ -347,7 +348,7 @@ final class DeltaSinkRows {
      * rounded this way would stop matching the row it was meant to replace. The house rule is that
      * where the engine could accept something doubtful or refuse it, it refuses.
      */
-    static long microsOf(String column, long nanos) {
+    static long microsOf(@Nullable String column, long nanos) {
         if (nanos % 1_000L != 0L) {
             throw new PravahaException(
                     DeltaErrors.SINK_WRITE_FAILED,
@@ -435,7 +436,8 @@ final class DeltaSinkRows {
      * One column of {@link ChangeBatch}: a declared column by ordinal, or -- with {@code ordinal}
      * {@code -1} -- changelog mode's {@code _op} (when {@code opColumn}) or {@code _weight}.
      */
-    private record ChangeColumn(List<Change> changes, String name, DataType type, int ordinal, boolean opColumn)
+    private record ChangeColumn(
+            List<Change> changes, @Nullable String name, DataType type, int ordinal, boolean opColumn)
             implements ColumnVector {
 
         @Override
@@ -505,6 +507,8 @@ final class DeltaSinkRows {
         }
 
         @Override
+        @SuppressWarnings(
+                "NullAway") // the op column of a non-changelog batch is null; Kernel's signature does not say so
         public String getString(int rowId) {
             if (ordinal < 0) {
                 return opColumn ? (changes.get(rowId).weight() < 0 ? "delete" : "insert") : null;

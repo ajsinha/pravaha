@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.plugin.delta;
 
 import java.util.Locale;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
@@ -69,7 +71,7 @@ public record DeltaOffset(long version, Phase phase, int fileIndex, long rowInde
      * this one, and guessing would resume at the wrong place -- silently, and visible only as
      * missing or duplicated rows much later.
      */
-    public static DeltaOffset parse(SourceOffset offset) {
+    public static DeltaOffset parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return BEGINNING;
         }

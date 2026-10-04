@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -81,7 +82,7 @@ class JdbcSourcePluginTest {
         }
     }
 
-    private void insert(long id, String name, Double amount, long updatedAt) throws SQLException {
+    private void insert(long id, String name, @Nullable Double amount, long updatedAt) throws SQLException {
         execute("INSERT INTO orders VALUES (" + id + ", '" + name + "', " + (amount == null ? "NULL" : amount) + ", "
                 + updatedAt + ")");
     }

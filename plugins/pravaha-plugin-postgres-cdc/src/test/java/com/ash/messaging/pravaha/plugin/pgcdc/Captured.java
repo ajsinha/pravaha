@@ -20,6 +20,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
@@ -99,7 +101,7 @@ final class Captured implements PartitionReader.RecordSink {
                 return schema;
             }
 
-            private RowWriter set(int ordinal, Object value) {
+            private RowWriter set(int ordinal, @Nullable Object value) {
                 values[ordinal] = value;
                 return this;
             }

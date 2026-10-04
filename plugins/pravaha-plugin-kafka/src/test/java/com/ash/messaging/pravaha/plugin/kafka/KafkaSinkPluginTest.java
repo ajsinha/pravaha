@@ -30,6 +30,7 @@ import org.apache.kafka.clients.producer.MockProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -316,7 +317,7 @@ class KafkaSinkPluginTest {
         return sent;
     }
 
-    private static String text(byte[] bytes) {
+    private static @Nullable String text(byte @Nullable [] bytes) {
         return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
     }
 
@@ -330,9 +331,16 @@ class KafkaSinkPluginTest {
     private static final class Mocks implements KafkaClients {
         private final boolean autoComplete;
         private final TopicPartition staged = new TopicPartition("spend.staging", 0);
+        // Made by the sink's open(), through producer() and consumer() below, before a test reads them.
+        @SuppressWarnings("NullAway.Init")
         MockProducer<byte[], byte[]> target;
+
+        @SuppressWarnings("NullAway.Init")
         MockProducer<byte[], byte[]> staging;
+
+        @SuppressWarnings("NullAway.Init")
         MockConsumer<byte[], byte[]> reader;
+
         long markerAtOpen = -1;
         private int delivered;
 

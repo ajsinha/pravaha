@@ -23,6 +23,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -77,7 +79,7 @@ final class JdbcPartialAggregateReader implements PartitionReader {
     private final ArrayDeque<Object[]> pending = new ArrayDeque<>();
 
     private JdbcOffset offset;
-    private JdbcOffset pageEnd;
+    private @Nullable JdbcOffset pageEnd;
     private boolean paused;
     private long sequence;
     private long pages;
@@ -92,7 +94,7 @@ final class JdbcPartialAggregateReader implements PartitionReader {
             int fetchSize,
             JdbcPushdown pushed,
             ReadRequest.PartialAggregate partial,
-            SourceOffset resumeFrom) {
+            @Nullable SourceOffset resumeFrom) {
         this.connection = connection;
         this.source = source;
         this.watermarkColumn = watermarkColumn;
@@ -143,7 +145,7 @@ final class JdbcPartialAggregateReader implements PartitionReader {
     }
 
     /** Where a page of at most {@code limit} rows after the offset ends, or null when none are new. */
-    private JdbcOffset pageEnd(int limit) throws SQLException {
+    private @Nullable JdbcOffset pageEnd(int limit) throws SQLException {
         String sql = "SELECT " + watermarkColumn + ", " + keyColumn + " FROM " + source + where(afterOffset(), null)
                 + " ORDER BY " + watermarkColumn + ", " + keyColumn + " " + pageClause;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -254,7 +256,7 @@ final class JdbcPartialAggregateReader implements PartitionReader {
     }
 
     /** The resume predicate, or null on the first poll -- see JdbcSourcePlugin for why two shapes. */
-    private String afterOffset() {
+    private @Nullable String afterOffset() {
         return offset.isBeginning()
                 ? null
                 : "(" + watermarkColumn + " > ? OR (" + watermarkColumn + " = ? AND " + keyColumn + " > ?))";
@@ -271,7 +273,7 @@ final class JdbcPartialAggregateReader implements PartitionReader {
     }
 
     /** The WHERE clause: resume, page end, then the pushed filters, in parameter order. */
-    private String where(String after, String upTo) {
+    private String where(@Nullable String after, @Nullable String upTo) {
         List<String> parts = new ArrayList<>(3);
         if (after != null) {
             parts.add(after);

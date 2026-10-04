@@ -21,6 +21,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
@@ -52,7 +54,11 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * 20417. Key values are PostgreSQL's text for them, percent-encoded, comma-separated for a composite
  * key.
  */
-record CdcOffset(long lsn, long partialEnd, long partialDelivered, Snapshot snapshot) {
+record CdcOffset(
+        long lsn,
+        long partialEnd,
+        long partialDelivered,
+        @Nullable Snapshot snapshot) {
 
     static final CdcOffset BEGINNING = new CdcOffset(0L, 0L, 0L);
 
@@ -126,7 +132,7 @@ record CdcOffset(long lsn, long partialEnd, long partialDelivered, Snapshot snap
         return snapshot != null;
     }
 
-    CdcOffset withSnapshot(Snapshot next) {
+    CdcOffset withSnapshot(@Nullable Snapshot next) {
         return new CdcOffset(lsn, partialEnd, partialDelivered, next);
     }
 
@@ -138,13 +144,13 @@ record CdcOffset(long lsn, long partialEnd, long partialDelivered, Snapshot snap
         if (isPartial()) {
             token += ";partial=" + format(partialEnd) + "+" + partialDelivered;
         }
-        if (inSnapshot()) {
+        if (snapshot != null) {
             token += ";snapshot=" + snapshot.token();
         }
         return new SourceOffset(token);
     }
 
-    static CdcOffset parse(SourceOffset offset) {
+    static CdcOffset parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return BEGINNING;
         }

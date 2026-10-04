@@ -26,6 +26,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -53,6 +54,7 @@ import io.delta.kernel.utils.CloseableIterable;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.DataFileStatus;
 import org.apache.hadoop.conf.Configuration;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Builds real Delta tables for the tests, using Kernel's own write path.
@@ -161,7 +163,8 @@ final class DeltaTableFixture {
     }
 
     /** Two columns, or three with times, held as boxed lists because a fixture's job is to be obviously correct. */
-    private record SimpleBatch(List<Long> ids, List<String> names, List<Long> micros) implements ColumnarBatch {
+    private record SimpleBatch(
+            List<Long> ids, List<String> names, @Nullable List<Long> micros) implements ColumnarBatch {
 
         @Override
         public StructType getSchema() {
@@ -173,7 +176,10 @@ final class DeltaTableFixture {
             return switch (ordinal) {
                 case 0 -> new LongVector(ids, LongType.LONG);
                 case 1 -> new StringVector(names);
-                default -> new LongVector(micros, io.delta.kernel.types.TimestampType.TIMESTAMP);
+                default ->
+                    new LongVector(
+                            Objects.requireNonNull(micros, "only a timed batch has a third column"),
+                            io.delta.kernel.types.TimestampType.TIMESTAMP);
             };
         }
 

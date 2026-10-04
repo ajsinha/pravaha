@@ -21,6 +21,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
@@ -78,7 +80,7 @@ final class WeightedCollector implements PartitionReader.RecordSink {
             return schema;
         }
 
-        private RowWriter set(int ordinal, Object value) {
+        private RowWriter set(int ordinal, @Nullable Object value) {
             values[ordinal] = value;
             return this;
         }
@@ -160,7 +162,7 @@ final class WeightedCollector implements PartitionReader.RecordSink {
             List<Object> row = Arrays.asList(values.clone());
             rows.add(new Emitted(row, weight, eventTime));
             view.merge(row, weight, Long::sum);
-            if (view.get(row) == 0L) {
+            if (view.getOrDefault(row, 0L) == 0L) {
                 view.remove(row);
             }
             return 0;

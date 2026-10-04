@@ -22,6 +22,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.plugin.pgcdc.PostgresCdcSourcePlugin.SlotStatus;
@@ -370,7 +372,7 @@ final class Preflight {
      * be {@code PRV-5118} or {@code PRV-5117}, with advice about transactions left idle and {@code
      * max_replication_slots} -- the PostgreSQL detail was right, and the code and the remedy were not.
      */
-    static ConfigurationException replicationRefused(CdcOptions options, SQLException e) {
+    static @Nullable ConfigurationException replicationRefused(CdcOptions options, SQLException e) {
         if (!INSUFFICIENT_PRIVILEGE.equals(e.getSQLState())) {
             return null;
         }

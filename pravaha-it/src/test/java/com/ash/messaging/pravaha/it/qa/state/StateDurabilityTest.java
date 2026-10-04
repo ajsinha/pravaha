@@ -152,6 +152,7 @@ class StateDurabilityTest extends StateTestSupport {
 
         AtomicBoolean stop = new AtomicBoolean(false);
         List<Object[]> observed = java.util.Collections.synchronizedList(new ArrayList<>());
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         Thread reader = new Thread(() -> {
             while (!stop.get()) {
                 for (Long id : store.availableIds()) {

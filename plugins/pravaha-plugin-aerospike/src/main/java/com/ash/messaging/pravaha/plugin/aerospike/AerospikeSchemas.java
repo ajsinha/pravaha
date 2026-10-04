@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.aerospike;
 import java.util.Locale;
 
 import com.aerospike.client.Record;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -126,7 +127,7 @@ public final class AerospikeSchemas {
      *     asked for is written with {@link RowWriter#setUnread} -- the engine said nothing reads it
      *     -- rather than as the null an absent bin would otherwise read as
      */
-    static void copyInto(Record record, StreamSchema schema, RowWriter writer, boolean[] read) {
+    static void copyInto(Record record, StreamSchema schema, RowWriter writer, boolean @Nullable [] read) {
         // A scan that names bins can return a record holding none of them with no bin map at all.
         java.util.Map<String, Object> bins = record.bins == null ? java.util.Map.of() : record.bins;
         for (int ordinal = 0; ordinal < schema.fields().size(); ordinal++) {

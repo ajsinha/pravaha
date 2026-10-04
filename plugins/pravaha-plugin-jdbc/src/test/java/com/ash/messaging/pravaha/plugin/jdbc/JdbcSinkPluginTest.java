@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -658,7 +659,7 @@ class JdbcSinkPluginTest {
     }
 
     /** A real binary row, laid out the way the engine hands one to a sink. */
-    private RowView row(StreamSchema schema, long weight, Object... values) {
+    private RowView row(StreamSchema schema, long weight, @Nullable Object... values) {
         return rows.row(schema, weight, values);
     }
 }

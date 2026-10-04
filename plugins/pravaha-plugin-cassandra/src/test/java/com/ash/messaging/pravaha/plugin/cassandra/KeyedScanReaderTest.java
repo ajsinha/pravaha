@@ -24,6 +24,7 @@ import java.util.Map;
 
 import com.datastax.oss.driver.api.core.DriverTimeoutException;
 import com.datastax.oss.driver.api.core.cql.Row;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -64,7 +65,8 @@ class KeyedScanReaderTest {
         return partitions.getOrDefault((Long) id, List.of()).iterator();
     }
 
-    private KeyedScanReader reader(long lower, long upper, boolean inclusiveLower, int interval, SourceOffset from) {
+    private KeyedScanReader reader(
+            long lower, long upper, boolean inclusiveLower, int interval, @Nullable SourceOffset from) {
         return new KeyedScanReader(
                 List.of(ONE, TWO),
                 this::run,

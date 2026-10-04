@@ -29,6 +29,7 @@ import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.OneofDescriptor;
 import com.google.protobuf.DynamicMessage;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -141,7 +142,7 @@ final class ProtobufRowWriter implements KafkaRecords.ValueEncoder {
         return new ProtobufRowWriter(schema, message, fields, new byte[0]);
     }
 
-    private static FieldDescriptor fieldFor(Descriptor message, String column) {
+    private static @Nullable FieldDescriptor fieldFor(Descriptor message, String column) {
         FieldDescriptor exact = message.findFieldByName(column);
         if (exact != null) {
             return exact;
@@ -155,7 +156,7 @@ final class ProtobufRowWriter implements KafkaRecords.ValueEncoder {
     }
 
     /** Why {@code field} cannot hold every value of a {@code type} column exactly, or null when it can. */
-    private static String why(FieldDescriptor field, PravahaType type) {
+    private static @Nullable String why(FieldDescriptor field, PravahaType type) {
         if (field.isRepeated()) {
             return "a repeated field or a map is many values, and a column is one";
         }

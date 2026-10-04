@@ -92,6 +92,7 @@ class JoinRecoveryTest {
         return new Event("users", id, 0, "seg-" + (id % 3));
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static Event order(long id, long user) {
         return new Event("orders", id, user, null);
     }

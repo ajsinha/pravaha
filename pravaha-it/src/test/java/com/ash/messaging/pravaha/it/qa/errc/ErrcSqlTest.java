@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it.qa.errc;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
@@ -298,7 +299,7 @@ class ErrcSqlTest extends ErrcTestSupport {
         while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
-        return path;
+        return Objects.requireNonNull(path, "run inside the repository");
     }
 
     // ------------------------------------------------------------ ERRC-025 -- PRV-2050

@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -171,7 +172,7 @@ class QuickstartCommandsTest {
     }
 
     /** Commands for a block, or {@code null} if it uses anything this test refuses to guess at. */
-    private static List<List<String>> parse(List<String> body) {
+    private static @Nullable List<List<String>> parse(List<String> body) {
         List<List<String>> commands = new ArrayList<>();
         StringBuilder joined = new StringBuilder();
         for (String raw : body) {

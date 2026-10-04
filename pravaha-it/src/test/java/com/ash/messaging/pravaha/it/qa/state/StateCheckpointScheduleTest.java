@@ -286,6 +286,7 @@ class StateCheckpointScheduleTest extends StateTestSupport {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void state010_aNonPositiveIntervalIsRefusedAtConstruction(@TempDir Path dir) {
         try (RawExecution win = rawWindowed()) {
@@ -359,6 +360,7 @@ class StateCheckpointScheduleTest extends StateTestSupport {
         assertThat(root)
                 .as("must be able to find application.yaml from the test's working directory")
                 .isNotNull();
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         String yamlText = Files.readString(root.resolve("pravaha-server/src/main/resources/application.yaml"));
         int checkpointBlock = yamlText.indexOf("checkpoint:");
         int nextTopLevel = yamlText.indexOf("\n  watermark:", checkpointBlock);

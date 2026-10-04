@@ -36,6 +36,7 @@ import com.github.shyiko.mysql.binlog.event.TableMapEventData;
 import com.github.shyiko.mysql.binlog.event.UpdateRowsEventData;
 import com.github.shyiko.mysql.binlog.event.WriteRowsEventData;
 import com.github.shyiko.mysql.binlog.event.XidEventData;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
@@ -97,7 +98,7 @@ class TransactionAssemblerTest {
         return tableMap(id, table, types, metadata, null);
     }
 
-    private Event tableMap(long id, String table, byte[] types, int[] metadata, java.util.BitSet nullable) {
+    private Event tableMap(long id, String table, byte[] types, int[] metadata, java.util.@Nullable BitSet nullable) {
         TableMapEventData data = new TableMapEventData();
         data.setTableId(id);
         data.setDatabase("shop");
@@ -133,7 +134,7 @@ class TransactionAssemblerTest {
         return new Event(header, data);
     }
 
-    private static Serializable[] row(long id, String tier, String credit) {
+    private static @Nullable Serializable[] row(long id, String tier, @Nullable String credit) {
         return new Serializable[] {
             id, tier.getBytes(StandardCharsets.UTF_8), credit == null ? null : new BigDecimal(credit)
         };

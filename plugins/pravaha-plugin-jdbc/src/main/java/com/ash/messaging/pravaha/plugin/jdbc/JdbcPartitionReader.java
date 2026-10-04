@@ -21,6 +21,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -115,7 +117,7 @@ final class JdbcPartitionReader implements PartitionReader {
             String watermarkColumn,
             String keyColumn,
             int fetchSize,
-            SourceOffset resumeFrom) {
+            @Nullable SourceOffset resumeFrom) {
         this(
                 connection,
                 firstQuery,
@@ -137,9 +139,9 @@ final class JdbcPartitionReader implements PartitionReader {
             String watermarkColumn,
             String keyColumn,
             int fetchSize,
-            SourceOffset resumeFrom,
+            @Nullable SourceOffset resumeFrom,
             java.util.List<Object> pushedValues,
-            List<String> selected) {
+            @Nullable List<String> selected) {
         this.pushedValues = java.util.List.copyOf(pushedValues);
         this.resultIndex = resultIndexes(schema, selected);
         this.connection = connection;
@@ -208,7 +210,7 @@ final class JdbcPartitionReader implements PartitionReader {
     }
 
     /** See {@link #resultIndex}; {@code selected} null means {@code SELECT *}, in schema order. */
-    private static int[] resultIndexes(StreamSchema schema, List<String> selected) {
+    private static int[] resultIndexes(StreamSchema schema, @Nullable List<String> selected) {
         int[] indexes = new int[schema.fieldCount()];
         for (int ordinal = 0; ordinal < indexes.length; ordinal++) {
             indexes[ordinal] = selected == null

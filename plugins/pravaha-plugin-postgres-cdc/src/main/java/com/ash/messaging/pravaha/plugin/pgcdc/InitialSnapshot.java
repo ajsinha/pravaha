@@ -24,11 +24,14 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -91,12 +94,12 @@ final class InitialSnapshot implements AutoCloseable {
     private final AtomicInteger queued = new AtomicInteger();
     private final AtomicLong fetched = new AtomicLong();
 
-    private Connection connection;
+    private @Nullable Connection connection;
     private List<String> lastFetched;
-    private Thread thread;
+    private @Nullable Thread thread;
     private volatile boolean running = true;
     private volatile boolean exhausted;
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
 
     private InitialSnapshot(
             CdcOptions options,
@@ -241,6 +244,7 @@ final class InitialSnapshot implements AutoCloseable {
         return exhausted && rows.isEmpty();
     }
 
+    @Nullable
     PravahaException failure() {
         return failure;
     }
@@ -280,8 +284,9 @@ final class InitialSnapshot implements AutoCloseable {
         boolean fromStart = lastFetched.isEmpty();
         List<CdcTransaction.Change> chunk = new ArrayList<>();
         int fields = mapping.columnNames().size();
-        try (PreparedStatement statement =
-                connection.prepareStatement(key.chunkSql(options, mapping.columnNames(), fromStart, limit))) {
+        try (PreparedStatement statement = Objects.requireNonNull(
+                        connection, "the snapshot's transaction is open while it fetches")
+                .prepareStatement(key.chunkSql(options, mapping.columnNames(), fromStart, limit))) {
             if (!fromStart) {
                 for (int i = 0; i < key.size(); i++) {
                     statement.setString(i + 1, lastFetched.get(i));
@@ -302,7 +307,7 @@ final class InitialSnapshot implements AutoCloseable {
             }
         }
         if (!chunk.isEmpty()) {
-            lastFetched = chunk.getLast().key();
+            lastFetched = Objects.requireNonNull(chunk.getLast().key(), "a snapshot row carries its key");
             rows.addAll(chunk);
             queued.addAndGet(chunk.size());
             fetched.addAndGet(chunk.size());
@@ -318,7 +323,7 @@ final class InitialSnapshot implements AutoCloseable {
         connection = null;
     }
 
-    private static void closeQuietly(Connection connection) {
+    private static void closeQuietly(@Nullable Connection connection) {
         if (connection == null) {
             return;
         }
@@ -355,7 +360,7 @@ final class InitialSnapshot implements AutoCloseable {
         private final SnapshotKey key;
         private final long until;
         private final List<String> frontier;
-        private Connection connection;
+        private @Nullable Connection connection;
 
         CatchUp(CdcOptions options, SnapshotKey key, long until, List<String> frontier) {
             this.options = options;

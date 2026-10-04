@@ -34,6 +34,7 @@ import com.aerospike.client.Key;
 import com.aerospike.client.Record;
 import com.aerospike.client.policy.ScanPolicy;
 import com.aerospike.client.query.PartitionFilter;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -118,7 +119,7 @@ final class DetectingScanReader implements PartitionReader {
     private final int totalTimeoutMillis;
     private final long scanIntervalNanos;
     private final ReadRequest request;
-    private final String[] binNames;
+    private final String @Nullable [] binNames;
     private final boolean[] read;
     private final int eventTimeOrdinal;
     private final EmittedRows<Digest> emitted;
@@ -144,7 +145,7 @@ final class DetectingScanReader implements PartitionReader {
             int scanIntervalMillis,
             int socketTimeoutMillis,
             int totalTimeoutMillis,
-            SourceOffset resumeFrom,
+            @Nullable SourceOffset resumeFrom,
             ReadRequest request,
             Path stateDir,
             long maxKeys) {
@@ -193,7 +194,7 @@ final class DetectingScanReader implements PartitionReader {
         return shape.toString();
     }
 
-    private static String resumeToken(SourceOffset offset) {
+    private static @Nullable String resumeToken(@Nullable SourceOffset offset) {
         if (offset == null || offset.token() == null || offset.token().isBlank()) {
             return null;
         }

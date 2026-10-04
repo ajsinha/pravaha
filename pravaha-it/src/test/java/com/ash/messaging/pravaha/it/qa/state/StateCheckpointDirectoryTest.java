@@ -293,6 +293,7 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void state031_hostileNamesAreRefusedAtThePublicDoor(@TempDir Path root) {
         ViewCatalog views = new ViewCatalog();
@@ -346,6 +347,7 @@ class StateCheckpointDirectoryTest extends StateTestSupport {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void state032_aHandEditedJournalNamingDotDotEtcIsRefusedAtReplayNotTraversed(@TempDir Path tmp) throws Exception {
         Path journalFile = tmp.resolve("registry.journal");

@@ -21,12 +21,14 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -88,11 +90,15 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
 
     private final KafkaClients clients;
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private KafkaSourceOptions options;
-    private Consumer<byte[], byte[]> metadata;
+
+    /** Null until open() and after close(). */
+    private @Nullable Consumer<byte[], byte[]> metadata;
+
     private final Object metadataLock = new Object();
     private final List<KafkaPartitionReader> readers = new CopyOnWriteArrayList<>();
-    private volatile HealthStatus cachedHealth;
+    private volatile @Nullable HealthStatus cachedHealth;
     private volatile long cachedAt;
 
     /** What {@code ServiceLoader} constructs. */
@@ -215,11 +221,11 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return open(partition, resumeFrom, false);
     }
 
-    private PartitionReader open(SourcePartition partition, SourceOffset resumeFrom, boolean fromEarliest) {
+    private PartitionReader open(SourcePartition partition, @Nullable SourceOffset resumeFrom, boolean fromEarliest) {
         requireOpen();
         TopicPartition topicPartition = new TopicPartition(options.topic, partition.index());
         KafkaSourceOffset resume = KafkaSourceOffset.parse(resumeFrom, topicPartition);
@@ -227,10 +233,15 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
         long end;
         synchronized (metadataLock) {
             try {
-                beginning = metadata.beginningOffsets(List.of(topicPartition), options.startTimeout)
-                        .get(topicPartition);
-                end = metadata.endOffsets(List.of(topicPartition), options.startTimeout)
-                        .get(topicPartition);
+                Consumer<byte[], byte[]> open = Objects.requireNonNull(metadata, "requireOpen()");
+                beginning = Objects.requireNonNull(
+                        open.beginningOffsets(List.of(topicPartition), options.startTimeout)
+                                .get(topicPartition),
+                        "the partition asked about");
+                end = Objects.requireNonNull(
+                        open.endOffsets(List.of(topicPartition), options.startTimeout)
+                                .get(topicPartition),
+                        "the partition asked about");
             } catch (KafkaException e) {
                 throw new PravahaException(
                         KafkaErrors.CONNECT_FAILED,

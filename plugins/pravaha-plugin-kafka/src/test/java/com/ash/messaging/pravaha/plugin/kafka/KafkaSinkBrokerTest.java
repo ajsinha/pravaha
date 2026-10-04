@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.admin.Admin;
@@ -253,13 +254,14 @@ class KafkaSinkBrokerTest {
                     .allTopicNames()
                     .get(30, TimeUnit.SECONDS)
                     .get(topic + ".stage");
-            assertThat(staging.partitions()).hasSize(1);
+            assertThat(Objects.requireNonNull(staging).partitions()).hasSize(1);
             ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, topic + ".stage");
             Config config = admin.describeConfigs(List.of(resource))
                     .all()
                     .get(30, TimeUnit.SECONDS)
                     .get(resource);
-            assertThat(config.get("cleanup.policy").value()).isEqualTo("delete");
+            assertThat(Objects.requireNonNull(config).get("cleanup.policy").value())
+                    .isEqualTo("delete");
             assertThat(config.get("retention.ms").value()).isEqualTo("604800000");
         }
     }
@@ -291,7 +293,7 @@ class KafkaSinkBrokerTest {
         List<KafkaBroker.Seen> seen = KafkaBroker.readCommitted(topic);
         assertThat(seen).hasSize(3);
         assertThat(seen.stream()
-                        .filter(s -> s.key().equals("{\"user_id\":\"u1\"}"))
+                        .filter(s -> "{\"user_id\":\"u1\"}".equals(s.key()))
                         .map(Object::toString)
                         .toList())
                 .as("one key's changes stay on one partition, in order")

@@ -19,8 +19,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import com.google.protobuf.Descriptors.Descriptor;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
@@ -40,7 +42,9 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 final class ProtobufRegistryDecoder implements KafkaValueDecoder {
 
     /** A schema id and message's mapping: a decoder, or the reason there is none. */
-    private record Mapped(ProtobufValueDecoder decoder, String failure) {}
+    private record Mapped(
+            @Nullable ProtobufValueDecoder decoder,
+            @Nullable String failure) {}
 
     private final StreamSchema schema;
     private final int eventTimeOrdinal;
@@ -73,7 +77,8 @@ final class ProtobufRegistryDecoder implements KafkaValueDecoder {
         if (mapped.failure() != null) {
             throw new Undecodable(mapped.failure());
         }
-        return mapped.decoder().decode(value, recordTimestampMillis);
+        return Objects.requireNonNull(mapped.decoder(), "mapped without a failure")
+                .decode(value, recordTimestampMillis);
     }
 
     /** Confluent's message-index array: a count and that many indexes, or {@code 0} for {@code [0]}. */

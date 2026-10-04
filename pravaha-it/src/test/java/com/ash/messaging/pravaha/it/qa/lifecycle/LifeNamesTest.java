@@ -140,6 +140,7 @@ class LifeNamesTest extends LifecycleTestSupport {
                 .isNotNull();
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void life013_aNullNameThrowsIllegalArgumentExceptionNotABareNpe() {
         // LIFE-013, as authored, expects requireSayableName's name.matches() to blow up on a null

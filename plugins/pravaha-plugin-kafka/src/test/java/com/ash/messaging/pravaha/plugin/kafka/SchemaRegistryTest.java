@@ -23,11 +23,13 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -54,7 +56,7 @@ class SchemaRegistryTest {
             + "{\"name\":\"id\",\"type\":\"long\"},{\"name\":\"name\",\"type\":\"string\"}]}";
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
-    private FakeRegistry registry;
+    private @Nullable FakeRegistry registry;
 
     @AfterEach
     void stopEverything() throws Exception {
@@ -321,8 +323,8 @@ class SchemaRegistryTest {
         // two requests for one id and calls the cache broken. A test of caching must not be a test
         // of the clock. The timeout's own behaviour is covered by the registry-down cases, which
         // fail on a refused connection rather than on time.
-        SchemaRegistry client =
-                new SchemaRegistry("orders", registry.url(), null, authorization, Duration.ofSeconds(30));
+        SchemaRegistry client = new SchemaRegistry(
+                "orders", Objects.requireNonNull(registry).url(), null, authorization, Duration.ofSeconds(30));
         closeables.add(client);
         return client;
     }
