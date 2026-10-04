@@ -19,6 +19,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -143,9 +145,13 @@ public class PravahaTester {
         return awaitView(query, until, () -> engine.query(rowType, "SELECT * FROM " + query));
     }
 
+    @SuppressWarnings("try") // the subscription is only held, never referenced
     private <T> List<T> awaitView(String query, Predicate<List<T>> until, Supplier<List<T>> read) {
         RegisteredQuery registered = require(query);
-        Object commits = new Object();
+        // A lock and a condition rather than a monitor and wait(): the caller may be a virtual
+        // thread, and on JDK 21 one waiting inside a monitor pins its carrier (ADR-062).
+        ReentrantLock commits = new ReentrantLock();
+        Condition committed = commits.newCondition();
         long[] seen = {0};
         long deadline = System.nanoTime() + timeout.toNanos();
         // Subscribed from the view's snapshot, before the first read, so every commit after the
@@ -165,25 +171,31 @@ public class PravahaTester {
                 woken();
             }
 
-            @SuppressWarnings("try") // the resource is only held, never referenced
             private void woken() {
-                synchronized (commits) {
+                commits.lock();
+                try {
                     seen[0]++;
-                    commits.notifyAll();
+                    committed.signalAll();
+                } finally {
+                    commits.unlock();
                 }
             }
         };
         try (Subscription ignored = engine.subscribeFromSnapshot(query, wake)) {
             while (true) {
                 long before;
-                synchronized (commits) {
+                commits.lock();
+                try {
                     before = seen[0];
+                } finally {
+                    commits.unlock();
                 }
                 List<T> answer = read.get();
                 if (until.test(answer)) {
                     return answer;
                 }
-                synchronized (commits) {
+                commits.lock();
+                try {
                     while (seen[0] == before) {
                         long left = deadline - System.nanoTime();
                         if (left <= 0) {
@@ -197,8 +209,10 @@ public class PravahaTester {
                                             .map(failure -> "; the query failed: " + failure.getMessage())
                                             .orElse(""));
                         }
-                        commits.wait(Math.max(1, left / 1_000_000));
+                        committed.awaitNanos(left);
                     }
+                } finally {
+                    commits.unlock();
                 }
             }
         } catch (InterruptedException e) {

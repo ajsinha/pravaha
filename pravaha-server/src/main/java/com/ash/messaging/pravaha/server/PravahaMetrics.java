@@ -63,6 +63,14 @@ import com.ash.messaging.pravaha.registry.RegisteredQuery;
 @Component
 public final class PravahaMetrics implements AutoCloseable {
 
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because it reads the registry under it, and a registration holds the registry's lock across
+     * network I/O, and on JDK 21 a virtual thread blocked inside a monitor pins its carrier
+     * (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
     private static final Logger log = LoggerFactory.getLogger(PravahaMetrics.class);
 
     /** How often the set of meters is reconciled with the set of queries. */
@@ -143,38 +151,44 @@ public final class PravahaMetrics implements AutoCloseable {
      * <p>Both directions matter. New queries gain meters, and -- the part that is easy to forget --
      * dropped queries lose theirs.
      */
-    public synchronized void sync() {
-        QueryRegistry registry = node.registry().orElse(null);
-        if (registry == null) {
-            return;
-        }
-        publishLaneSharing(registry);
-        tenancy.sync(registry);
-        // Alerts (ADR-057) and the catalogue (ADR-059): their meters follow the alerts that exist.
-        features.sync(registry);
-        Set<String> live = registry.names();
-        // Before the per-query loop below, so a lane whose only query was just registered has a
-        // representative by the time its gauge is next read.
-        rememberLaneRepresentatives(registry);
-
-        for (String name : live) {
-            if (published.containsKey(name)) {
-                continue;
+    public void sync() {
+        lock.lock();
+        try {
+            QueryRegistry registry = node.registry().orElse(null);
+            if (registry == null) {
+                return;
             }
-            registry.find(name).ifPresent(query -> publish(name, query));
-        }
+            publishLaneSharing(registry);
+            tenancy.sync(registry);
+            // Alerts (ADR-057) and the catalogue (ADR-059): their meters follow the alerts that exist.
+            features.sync(registry);
+            Set<String> live = registry.names();
+            // Before the per-query loop below, so a lane whose only query was just registered has a
+            // representative by the time its gauge is next read.
+            rememberLaneRepresentatives(registry);
 
-        List<String> gone =
-                published.keySet().stream().filter(name -> !live.contains(name)).toList();
-        for (String name : gone) {
-            List<Meter.Id> ids = published.remove(name);
-            if (ids != null) {
-                // Removing the meter is what releases the reference to the query behind it.
-                ids.forEach(meters::remove);
+            for (String name : live) {
+                if (published.containsKey(name)) {
+                    continue;
+                }
+                registry.find(name).ifPresent(query -> publish(name, query));
             }
-        }
-        if (!gone.isEmpty()) {
-            log.debug("removed meters for {} dropped queries", gone.size());
+
+            List<String> gone = published.keySet().stream()
+                    .filter(name -> !live.contains(name))
+                    .toList();
+            for (String name : gone) {
+                List<Meter.Id> ids = published.remove(name);
+                if (ids != null) {
+                    // Removing the meter is what releases the reference to the query behind it.
+                    ids.forEach(meters::remove);
+                }
+            }
+            if (!gone.isEmpty()) {
+                log.debug("removed meters for {} dropped queries", gone.size());
+            }
+        } finally {
+            lock.unlock();
         }
     }
 

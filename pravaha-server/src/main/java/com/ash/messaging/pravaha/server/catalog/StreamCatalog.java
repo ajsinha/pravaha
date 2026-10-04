@@ -52,7 +52,10 @@ public class StreamCatalog {
      * its lock, reads this catalogue (the catalogue policy's configured streams), so telling it while
      * holding the monitor could deadlock.
      */
-    private final Object declaring = new Object();
+    // A ReentrantLock rather than a monitor: a declaration tells the registry under it, and the
+    // registry's lock is held across network I/O by a registration -- on JDK 21 a virtual thread (a
+    // request's) waiting for it inside a monitor would pin its carrier (ADR-062).
+    private final java.util.concurrent.locks.ReentrantLock declaring = new java.util.concurrent.locks.ReentrantLock();
 
     /** The registry planning over these streams; told of each stream declared after it was built. */
     private volatile @Nullable QueryRegistry registry;
@@ -67,21 +70,27 @@ public class StreamCatalog {
      * that planned over the copy.
      */
     public QueryRegistry registryOver(Function<StreamSchema[], QueryRegistry> build) {
-        synchronized (declaring) {
+        declaring.lock();
+        try {
             QueryRegistry built = build.apply(all().toArray(new StreamSchema[0]));
             registry = built;
             return built;
+        } finally {
+            declaring.unlock();
         }
     }
 
     public StreamSchema register(StreamSchema schema) {
-        synchronized (declaring) {
+        declaring.lock();
+        try {
             StreamSchema recorded = record(schema);
             QueryRegistry planning = registry;
             if (planning != null) {
                 planning.declare(recorded);
             }
             return recorded;
+        } finally {
+            declaring.unlock();
         }
     }
 
