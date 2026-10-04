@@ -97,7 +97,8 @@ class EmbeddedLaneSettingsTest {
                     .field("id", Types.int64())
                     .field("t", Types.string())
                     .build());
-            var wide = encoder.write(encoder.validate(new Object[] {1L, "y".repeat(300)}), arena, 1);
+            var wide = java.util.Objects.requireNonNull(encoder.write(
+                    encoder.validate(new Object[] {1L, "y".repeat(300)}), arena, 1));
             assertThatThrownBy(() -> query.accept("s", wide))
                     .isInstanceOf(RowTooWideException.class)
                     .hasMessageContaining("PRV-3002")

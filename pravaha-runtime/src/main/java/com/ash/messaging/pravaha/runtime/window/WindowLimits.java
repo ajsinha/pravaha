@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.window;
 
 import java.time.Duration;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
@@ -113,7 +115,7 @@ public final class WindowLimits {
     }
 
     /** The bound in {@code value}, or the default when it is blank; refuses one that is not a positive number. */
-    public static long parse(String value) {
+    public static long parse(@Nullable String value) {
         if (value == null || value.isBlank()) {
             return DEFAULT_MAX_WINDOWS_PER_ROW;
         }

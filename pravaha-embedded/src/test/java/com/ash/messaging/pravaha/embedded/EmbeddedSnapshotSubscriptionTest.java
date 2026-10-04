@@ -88,7 +88,8 @@ class EmbeddedSnapshotSubscriptionTest {
             engine.start();
             RegisteredQuery query = engine.register("all_txn", "SELECT user_id, amount FROM txn", "user_id");
             RowEncoder encoder = new RowEncoder(txn);
-            assertThat(query.accept(encoder.write(encoder.validate(new Object[] {"u1", 10L}), arena, 1)))
+            assertThat(query.accept(java.util.Objects.requireNonNull(
+                            encoder.write(encoder.validate(new Object[] {"u1", 10L}), arena, 1))))
                     .isTrue();
             assertThat(query.awaitApplied(Duration.ofSeconds(10))).isTrue();
             assertThat(engine.query("SELECT * FROM all_txn").rows())

@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class EmbeddedRowDeadLetterTest {
 
-    private static PravahaEngine engine(Path dlq) {
+    private static PravahaEngine engine(@Nullable Path dlq) {
         ConfigurationBuilder builder = Configuration.builder();
         if (dlq != null) {
             builder.set("pravaha.dlq.directory", dlq.toString());

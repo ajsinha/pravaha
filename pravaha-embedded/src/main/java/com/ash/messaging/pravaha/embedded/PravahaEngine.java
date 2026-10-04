@@ -22,6 +22,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.EngineState;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.config.Configuration;
@@ -106,7 +108,7 @@ public interface PravahaEngine extends AutoCloseable {
      * <p>Without an event-time column no watermark can advance and no window ever closes, so a
      * windowed query over a stream declared without one ingests every row and emits nothing.
      */
-    PravahaEngine declareStream(String name, String schemaSpec, String eventTimeColumn);
+    PravahaEngine declareStream(String name, String schemaSpec, @Nullable String eventTimeColumn);
 
     /**
      * Opts {@code stream} in to event time that follows what is pushed: after each {@link #push},

@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.config.Configuration;
 
@@ -49,10 +51,13 @@ import com.ash.messaging.pravaha.common.config.Configuration;
 final class Declarations {
 
     /** A stream as configured: its {@code name:TYPE} spec and, optionally, its event-time column. */
-    record StreamSpec(String schema, String eventTime, Duration outOfOrderness) {}
+    record StreamSpec(
+            @Nullable String schema,
+            @Nullable String eventTime,
+            @Nullable Duration outOfOrderness) {}
 
     /** A source, lookup or sink binding as configured. */
-    record BindingSpec(String plugin, Map<String, String> options) {}
+    record BindingSpec(@Nullable String plugin, Map<String, String> options) {}
 
     final Map<String, StreamSpec> streams = new LinkedHashMap<>();
     final Map<String, BindingSpec> sources = new LinkedHashMap<>();
