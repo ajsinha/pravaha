@@ -595,7 +595,6 @@ class SqlAnswerTest {
      * <p>Rows enter by stream name, which is the whole reason a self-join cannot work: one name
      * cannot say which side of the join a row belongs to.
      */
-    @SuppressWarnings("try") // the resource is only held, never referenced
     private static List<String> joinAnswerOf(String sql, String[][] right, Object[][] left, long watermarkNanos) {
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .build(SqlPlanner.withStreams(orders(), users()).plan(sql));
@@ -657,6 +656,7 @@ class SqlAnswerTest {
     }
 
     /** The refusal message for a two-stream statement, or null if it planned and compiled. */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     private static @Nullable String joinRefusalOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()

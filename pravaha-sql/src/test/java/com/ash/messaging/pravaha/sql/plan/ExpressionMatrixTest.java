@@ -1336,7 +1336,6 @@ class ExpressionMatrixTest {
         return captured.stream().map(ExpressionMatrixTest::render).toList();
     }
 
-    @SuppressWarnings("try") // the resource is only held, never referenced
     private static String render(CapturingRowWriter.Captured row) {
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < row.values().length; i++) {
@@ -1349,6 +1348,7 @@ class ExpressionMatrixTest {
     }
 
     /** The refusal message, or null if the statement planned, built and compiled. */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     private static @Nullable String messageOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
