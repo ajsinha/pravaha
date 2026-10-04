@@ -5,7 +5,7 @@
 # PRAVAHA IN DOCKER, ON ONE MACHINE: the engine, the console, Kafka, and -- behind profiles --
 # PostgreSQL and MySQL for change data capture, Aerospike and Cassandra, Prometheus and Grafana, and
 # a seed job that registers a sample continuous query end to end. docs/operations/RUNNING_IN_DOCKER.md is the
-# reference; docs/development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md walks it step by step.
+# reference; docs/development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md walks it step by step.
 #
 #   tools/docker-env.sh                                   # once: .env, pravaha-home/, credentials
 #   docker compose -f deploy/docker/compose/docker-compose.yml up -d

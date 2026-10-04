@@ -5,8 +5,8 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 Every test tier the repository has, what each needs, how to run it with and without Docker, and how
 long it took on the development machine. This is the reference; for a numbered walkthrough from a
-fresh clone see [Build and test without Docker](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md), and for the
-container route [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
+fresh clone see [Build and test without Docker](setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md), and for the
+container route [Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
 
 **Where the numbers come from.** Every count and time below was taken on 2026-09-29 on the
 development machine (24 cores, 61 GiB RAM, NVMe, Docker Engine 29.8, OpenJDK 21.0.12, Python
@@ -326,7 +326,7 @@ a couple of cores free for a Cassandra run.
 `tools/docker-test.sh unit|it|sdk|console|all|mvn [--docker]` — one runner image (Maven, JDK 25,
 Python 3), runs as the invoking user, caches in `~/.cache/pravaha-docker`, Testcontainers via the
 host socket with `TESTCONTAINERS_HOST_OVERRIDE=localhost`; walkthrough and measured results in
-[Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) step 8. (Added beside this
+[Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) step 8. (Added beside this
 document; the measurements on this page were taken on the host, not through it.)
 
 ### Your own containers are safe
@@ -478,7 +478,7 @@ none is marked now. The cases and logs are under [`../project/qa/cases`](../proj
 
 ### Outside Docker
 
-The walkthrough in [Build and test without Docker](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) does
+The walkthrough in [Build and test without Docker](setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) does
 this step by step with the output it printed. In short:
 
 1. `bin/pravaha-server --spring.profiles.active=dev,users --spring.config.additional-location=file:$PRAVAHA_HOME/conf/application.yaml`
@@ -495,7 +495,7 @@ this step by step with the output it printed. In short:
 ### In Docker
 
 The compose stack, its `PRAVAHA_HOME` layout and a seeded walkthrough are described in
-[Running in Docker](../operations/RUNNING_IN_DOCKER.md) and [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
+[Running in Docker](../operations/RUNNING_IN_DOCKER.md) and [Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
 Point the CLI, the SDK and a PostgreSQL client at the ports that stack publishes, exactly as above;
 nothing in the steps differs except the URLs. `deploy/docker/smoke.sh --image <tag>` is the image's
 own check ([Deployment](../operations/DEPLOYMENT.md#tests)).

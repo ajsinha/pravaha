@@ -1,7 +1,7 @@
 # Build and test Pravaha without Docker
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../../LICENSE).
 
 From a fresh clone to a running node, a continuous query read four ways, and a restart that keeps
 its answer — on a Linux machine with no Docker. Every command below was run on 2026-09-29 on the
@@ -9,7 +9,7 @@ development machine (Ubuntu, 24 cores, 61 GiB RAM, OpenJDK 21.0.12, Python 3.14.
 shown is what it printed, trimmed where marked. **From 2.0 the JDK is 25** (2026-10-01, ADR-061):
 the prerequisites below say so, and the walkthrough's commands are the same on it.
 
-[Testing Pravaha](TESTING.md) is the reference this walks through: every tier, what it needs, what
+[Testing Pravaha](../TESTING.md) is the reference this walks through: every tier, what it needs, what
 skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
 
 ---
@@ -17,7 +17,7 @@ skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_
 ## 1. Prerequisites
 
 **JDK 25, and only 25** (Temurin or OpenJDK), from Pravaha 2.0
-([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). Every module, `pravaha-api` and the
+([ADR-061](../../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). Every module, `pravaha-api` and the
 Java SDKs included, compiles to Java 25 class files (`maven.compiler.release=25`); the enforcer
 refuses an older JDK, and `bin/pravaha-server` and `bin/pravaha-engine` refuse an older JVM by name.
 The JVM warns when libraries use `sun.misc.Unsafe` memory methods (JEP 498: Arrow, Netty, protobuf)
@@ -106,7 +106,7 @@ One test class, then one module, then two of the big ones:
 ```
 
 The eleven skipped ITs are expected here: three need Docker (Aerospike) and eight are performance
-gates that decline to time anything under the coverage agent. [Testing](TESTING.md#without-docker)
+gates that decline to time anything under the coverage agent. [Testing](../TESTING.md#without-docker)
 lists every skip and why.
 
 **The container-backed plugin tests skip, and the build is still green.** Run them anyway to see it:
@@ -148,7 +148,7 @@ is not built"*, step 3 did not run (or ran with `-Dmaven.test.skip`).
 only them (the Java SDK's jars, its `-all` jar, the wheel and the sdist) into `target/sdk-dist/`,
 without building the server; install the wheel from there with `pip install
 'target/sdk-dist/python/pravaha-<version>-py3-none-any.whl[flight]'`. See
-[Testing: the SDKs on their own](TESTING.md#the-sdks-on-their-own).
+[Testing: the SDKs on their own](../TESTING.md#the-sdks-on-their-own).
 
 ## 6. The console's tests
 
@@ -175,7 +175,7 @@ over the DevTools protocol. Without one, the browser tests skip.
 
 A node needs a handful of directories: configuration, data (registry journal, checkpoints, identity
 store, incoming files), logs, plugins, secrets and a temporary directory. The container image lays
-the same things out under `/opt/pravaha`; [Running in Docker](../operations/RUNNING_IN_DOCKER.md) has that table,
+the same things out under `/opt/pravaha`; [Running in Docker](../../operations/RUNNING_IN_DOCKER.md) has that table,
 and describes `bin/pravaha-server`'s home mode: with `PRAVAHA_HOME` set it places every path under
 it and reads `$PRAVAHA_HOME/conf/` by itself. This walkthrough was run before home mode existed,
 so it names every path explicitly — which still works, and shows what each one is for. Pick any
@@ -387,7 +387,7 @@ down — not the whole file again. The CLI's saved session survived too; it is i
 
 Without Docker, every test that needs a real Kafka, PostgreSQL, MySQL, Aerospike or Cassandra skips
 (step 4 shows the counts). They are not replaced by anything; the connectors are covered only by
-their mocked tests. To exercise them you need Docker — see [Testing](TESTING.md#with-docker).
+their mocked tests. To exercise them you need Docker — see [Testing](../TESTING.md#with-docker).
 
 The test suites do **not** read an address for an existing store: each starts its own container
 and connects to the port Docker mapped, so they cannot be pointed at a Kafka or PostgreSQL you
@@ -395,9 +395,9 @@ already run, and cannot harm one. What you can point at an existing store is a *
 a source or sink to it in `conf/application.yaml` and register a query, as in step 9. The server's
 executable jar carries every plugin the project builds — Kafka, JDBC, both CDC sources, Aerospike,
 Cassandra, Delta, feedfile and filesystem — and naming a plugin it does not carry stops the node at
-startup with `PRV-5090`, listing those it does ([Connectors](../guides/CONNECTORS.md)). A plugin from
+startup with `PRV-5090`, listing those it does ([Connectors](../../guides/CONNECTORS.md)). A plugin from
 outside the project goes on the classpath: in home mode `bin/pravaha-server` puts
-`$PRAVAHA_HOME/plugins` there (`-Dloader.path`); [Running in Docker](../operations/RUNNING_IN_DOCKER.md)
+`$PRAVAHA_HOME/plugins` there (`-Dloader.path`); [Running in Docker](../../operations/RUNNING_IN_DOCKER.md)
 says how, in and out of a container — not exercised in this walkthrough. The options for each
 plugin are documented in `pravaha-server/src/main/resources/application.yaml`. Use a scratch topic,
 database or set: a CDC source creates a replication slot, and sinks write.
@@ -417,4 +417,4 @@ database or set: a CDC source creates a replication slot, and sinks write.
 | pgwire: `PRV-6212` / `25P02` *current transaction is aborted* | an earlier statement in the same transaction failed | roll back, as against PostgreSQL |
 | SDK tests skip: *pravaha-flight is not built* | test classes missing | step 3 without `-Dmaven.test.skip` |
 | Console browser tests skip | no Chrome found | install one, or `PRAVAHA_CHROME=/path/to/chrome` |
-| The view stays empty | the stream's schema or the file does not match, or a windowed query with no event-time | `bin/pravaha queries` (ROWS IN), `logs/server.log`, [Troubleshooting](../guides/TROUBLESHOOTING.md) |
+| The view stays empty | the stream's schema or the file does not match, or a windowed query with no event-time | `bin/pravaha queries` (ROWS IN), `logs/server.log`, [Troubleshooting](../../guides/TROUBLESHOOTING.md) |

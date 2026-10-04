@@ -65,7 +65,7 @@ How the components fit is [`ARCHITECTURE.md`](../../design/ARCHITECTURE.md).
   (`test_file_sizes.py`). Split by responsibility, as `RegistrationPlanning` and `RegistryRecovery` were
   split out of `QueryRegistry`; there is no allow-list.
 - **Formatting** is Spotless (palantir-java-format): `./mvnw -o spotless:apply -pl <module>`
-  ([`DEVELOPING_IN_AN_IDE.md`](../DEVELOPING_IN_AN_IDE.md#formatting)).
+  ([`DEVELOPING_IN_AN_IDE.md`](../setup/DEVELOPING_IN_AN_IDE.md#formatting)).
 - **No production class reachable only from tests** (`OrphanedClassTest`).
 
 ## 5. Documentation that moves with the code

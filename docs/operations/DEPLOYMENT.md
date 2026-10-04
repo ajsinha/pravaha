@@ -260,7 +260,7 @@ above); it has not been run under systemd on this machine.
 **The console without Docker** runs from a checkout (`console/`, `make run`) or its wheel, with the
 same convention if you want it: `--config console/config/application.yaml,$PRAVAHA_HOME/conf/console.yaml`,
 `CONSOLE_LOG_FILE=$PRAVAHA_HOME/logs/pravaha-console.log` and `PRAVAHA_CONFIG_DIR=$PRAVAHA_HOME/data/console`.
-[`../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) walks the whole
+[`../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) walks the whole
 no-Docker route, build and tests included.
 ---
 

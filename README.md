@@ -227,12 +227,12 @@ docker compose -f deploy/docker/compose/docker-compose.yml run --rm cli query \
 ```
 
 The console is then at <http://localhost:17070>. Step by step, test suites included:
-[`docs/development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](docs/development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); the reference:
+[`docs/development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](docs/development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); the reference:
 [`docs/operations/RUNNING_IN_DOCKER.md`](docs/operations/RUNNING_IN_DOCKER.md).
 
 **Without Docker** (JDK 25, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
 from a distribution unpacked anywhere (`deploy/release/dist.sh`; [`docs/operations/DEPLOYMENT.md`](docs/operations/DEPLOYMENT.md),
-"Without Docker: the same layout"). The walkthrough is [docs/development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](docs/development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
+"Without Docker: the same layout"). The walkthrough is [docs/development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](docs/development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
 
 ```bash
 ./mvnw -q -DskipTests install
@@ -317,8 +317,8 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [The deck](docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | 99 slides for 2.x: why, the vocabulary, correctness, scale, replacement, queries on queries and alerts, connectors, security and governance, operations, case studies, the evidence — the adversarial QA round against 2.0.0 among it — and what 2.x promises. Generated from [`tools/deck`](tools/deck/GUIDE.md) |
 | [The Medium post](docs/publications/medium/pravaha-medium-post.md) | The design and its trade-offs for engineers, what 1.0 added, 2.0 on Java 25 and the adversarial QA round run against it, 20 diagrams and three case studies worked end to end; also [as one self-contained page](docs/publications/medium/pravaha-medium-post.html); [how to publish it](docs/publications/medium/README.md) |
 | [Python API guide](docs/guides/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
-| [Running from an IDE](docs/development/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
-| [Testing](docs/development/TESTING.md) | Every test tier, with and without Docker, what skips and why, measured times; and a [step-by-step build and test without Docker](docs/development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
+| [Running from an IDE](docs/development/setup/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
+| [Testing](docs/development/TESTING.md) | Every test tier, with and without Docker, what skips and why, measured times; and a [step-by-step build and test without Docker](docs/development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
 
 | Reference | |
 |---|---|

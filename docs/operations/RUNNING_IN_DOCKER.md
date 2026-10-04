@@ -6,8 +6,8 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 The reference for Pravaha in containers: the two images, the one directory everything lives under,
 the compose stack and its profiles, the ports, ownership, backup, upgrade and what goes wrong.
 For a numbered walk from a fresh clone to a running, tested stack, read
-[`../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); for the same without
-Docker, [`../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md). Shipping a
+[`../development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](../development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); for the same without
+Docker, [`../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md). Shipping a
 node to Kubernetes, the image's design decisions and the release are in
 [`DEPLOYMENT.md`](DEPLOYMENT.md); running one, in [`OPERATIONS.md`](OPERATIONS.md).
 
@@ -663,7 +663,7 @@ gained a key in a new version is merged by hand — `diff` your `conf/applicatio
 
 ## Where next
 
-- [`../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md): the numbered
+- [`../development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](../development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md): the numbered
   walkthrough, including the test suites in containers (`tools/docker-test.sh`).
 - [`DEPLOYMENT.md`](DEPLOYMENT.md): the Helm chart, the release, and the same layout without Docker.
 - [`OPERATIONS.md`](OPERATIONS.md): what a running node needs from you.
