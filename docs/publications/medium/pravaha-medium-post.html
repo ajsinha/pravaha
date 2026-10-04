@@ -130,6 +130,7 @@ pre code{font-family:var(--code);font-size:.8rem;line-height:1.6;color:var(--cod
   <p class="by"><b>By Ashutosh Sinha</b> · 2 October 2026</p>
 </header>
 <article>
+<p><em>Since 2.3.0 (4 October 2026) Pravaha runs on Java 21 or later again, tested on 21 and 25 (<a href="https://github.com/ajsinha/pravaha/blob/main/docs/publications/medium/../../design/adr/062-java-21-or-later.md">ADR-062</a>). This post describes 2.0 as it was released, on Java 25.</em></p>
 <p>Most data systems get asked the same question over and over.</p>
 <p>A buyer wants to know which stock lines have fallen to their reorder point. A support desk wants one merchant's takings, minute by minute, all day. An analyst wants revenue per region per hour. The question hardly ever changes. What changes is the data underneath it, and we keep asking again to find out how.</p>
 <p>I built Pravaha for that situation. You register the SQL question once, the engine keeps the answer up to date as rows arrive, change and disappear, and anyone who wants the answer reads it by key or subscribes to its changes.</p>

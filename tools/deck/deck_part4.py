@@ -558,8 +558,8 @@ PART11: list[dict[str, Any]] = [
         "left": {
             "head": "Stable in 2.x",
             "items": [
-                ("Java 25, and the language and APIs",
-                 "JDK 25 the minimum through 2.x. The SQL dialect; the SDKs; every /api/v1 path and field "
+                ("Java 21 or later, and the APIs",
+                 "JDK 21 the minimum through 2.x (2.0.0 asked for 25). The SQL dialect; the SDKs; every /api/v1 path and field "
                  "(an OpenAPI lock checks it); Flight verbs and columns; what pgwire clients send."),
                 ("Operations",
                  "PRV codes and SQLSTATEs, never reused; CLI commands and exit codes; pravaha.* keys; "

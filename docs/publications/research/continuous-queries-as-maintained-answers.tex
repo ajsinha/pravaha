@@ -2535,6 +2535,8 @@ change, so a 1.x Java client keeps speaking to a 2.0 node while an application m
 change removes \code{pravaha.security.administer: legacy-read}, deprecated in 1.0.0: it let anyone who may
 read a view unfiltered drop, pause, resume or replace it, and a node that still sets it refuses to start
 (\code{PRV-7004}). The whole reactor ran 4{,}832 tests on Java~25 with no failure before the release.
+The Java baseline has since been relaxed: from 2.3.0 every module is Java~21 class files again and any
+JDK from 21 builds and runs it, tested on 21 and 25 (ADR-062).
 
 \paragraph{What 2.x keeps stable.} Semantic versioning from 1.0.0: a minor release adds without
 breaking, a patch fixes without changing what a client may rely on, ``except where the old behaviour was

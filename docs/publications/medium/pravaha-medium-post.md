@@ -6,6 +6,8 @@
 
 ---
 
+*Since 2.3.0 (4 October 2026) Pravaha runs on Java 21 or later again, tested on 21 and 25 ([ADR-062](../../design/adr/062-java-21-or-later.md)). This post describes 2.0 as it was released, on Java 25.*
+
 Most data systems get asked the same question over and over.
 
 A buyer wants to know which stock lines have fallen to their reorder point. A support desk wants one merchant's takings, minute by minute, all day. An analyst wants revenue per region per hour. The question hardly ever changes. What changes is the data underneath it, and we keep asking again to find out how.

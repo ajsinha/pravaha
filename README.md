@@ -12,7 +12,7 @@
 
 [![Release](https://img.shields.io/badge/release-2.0.0-crimson)](docs/project/RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/status-wave%2010%20of%2011-blue)](docs/development/HANDOVER.md)
-[![Java](https://img.shields.io/badge/Java-25%20LTS-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
+[![Java](https://img.shields.io/badge/Java-21%2B-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/design/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
 
@@ -427,7 +427,7 @@ hold: the membership, lease and handoff libraries exist and no node uses them. "
 performance gate passed.
 
 Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
-release is `v2.0.0`, one node on JDK 25 (`develop` carries 2.0.1's fixes), with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+releases are in [RELEASE_NOTES.md](docs/project/RELEASE_NOTES.md): 2.x is one node on Java 21 or later, tested on 21 and 25, with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
 packs the server and console images and their YAML files into one files-only bundle for a QA host,
 everything under `/opt/pravaha` ([Deployment](docs/operations/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/design/system_design.md#31-delivery-roadmap)
 

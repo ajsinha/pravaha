@@ -25,11 +25,19 @@ JVMs warn when libraries load native code (JEP 472: snappy, zstd) and, from 23, 
 (older JVMs refuse that option); `PRAVAHA_JAVA_OPTS` still comes last. An application embedding Pravaha
 may add the same options.
 
+Install one if `java -version` shows nothing, or something older than 21. Any JDK from 21 up works; 25
+is the other version CI tests:
+
 ```bash
-/usr/lib/jvm/java-25-openjdk-amd64/bin/java -version
+sudo apt install openjdk-21-jdk          # Debian/Ubuntu; openjdk-25-jdk works too
+sdk install java 21-tem                  # or SDKMAN (Temurin); 25-tem works too
+```
+
+```bash
+/usr/lib/jvm/java-21-openjdk-amd64/bin/java -version
 ```
 ```
-openjdk version "25.0.4.1" 2026-08-18
+openjdk version "21.0.12.1" 2026-08-18
 ```
 
 ```bash
@@ -57,7 +65,7 @@ Set these for every step (the temporary directory is moved off `/tmp`, a RAM-bac
 Linux machines, because tests write real state files):
 
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64   # or any JDK 21 or later
 export TMPDIR=$HOME/.cache/pravaha-tmp
 export MAVEN_OPTS=-Djava.io.tmpdir=$HOME/.cache/pravaha-tmp
 mkdir -p "$TMPDIR"
