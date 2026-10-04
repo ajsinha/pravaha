@@ -320,6 +320,6 @@ class ErrcCrossCuttingTest {
         while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
-        return path;
+        return java.util.Objects.requireNonNull(path, "run inside the repository");
     }
 }

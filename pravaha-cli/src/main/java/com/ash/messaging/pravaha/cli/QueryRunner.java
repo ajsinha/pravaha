@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -132,7 +134,7 @@ public final class QueryRunner {
             String outputSchemaSpec,
             String outputPath,
             int lanes,
-            Path deadLetterFile) {
+            @Nullable Path deadLetterFile) {
         return run(
                 sql, streamName, inputSchemaSpec, "", inputPath, outputSchemaSpec, outputPath, lanes, deadLetterFile);
     }
@@ -154,7 +156,7 @@ public final class QueryRunner {
             String outputSchemaSpec,
             String outputPath,
             int lanes,
-            Path deadLetterFile) {
+            @Nullable Path deadLetterFile) {
 
         StreamSchema sourceSchema = SchemaOption.parse(streamName, inputSchemaSpec, eventTimeColumn);
 
@@ -319,7 +321,7 @@ public final class QueryRunner {
      * asked for the rejected records to be kept, and continuing without keeping them would discard
      * exactly the records they said they wanted.
      */
-    private static DeadLetterQueue openDeadLetters(Path file) {
+    private static @Nullable DeadLetterQueue openDeadLetters(@Nullable Path file) {
         if (file == null) {
             return null;
         }

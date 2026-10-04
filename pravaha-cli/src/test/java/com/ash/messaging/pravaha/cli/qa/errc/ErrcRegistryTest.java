@@ -414,7 +414,7 @@ class ErrcRegistryTest extends ErrcServerSupport {
         while (root != null && !Files.exists(root.resolve("docs/design/adr"))) {
             root = root.getParent();
         }
-        Path finalRoot = root;
+        Path finalRoot = java.util.Objects.requireNonNull(root, "run inside the repository");
         Path nested = finalRoot.resolve(".claude");
         try (var files = Files.walk(finalRoot)) {
             return files.filter(p -> p.toString().endsWith(".java"))
