@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Which of a pipeline's operators hold state, what to call them, and how to read a page (ADR-048).
  *
@@ -99,7 +101,7 @@ final class OperatorStateIndex {
      *
      * @param keyFilter a key to show, or null or blank for every key
      */
-    OperatorState.Page page(String id, String keyFilter, int offset, int limit) {
+    OperatorState.Page page(String id, @Nullable String keyFilter, int offset, int limit) {
         String wanted = keyFilter == null || keyFilter.isBlank() ? null : keyFilter;
         List<OperatorState.Entry> page = new ArrayList<>();
         long[] seen = {0};

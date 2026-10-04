@@ -425,7 +425,7 @@ public final class DebugSession implements AutoCloseable {
      * @param limit capped at {@link #MAX_PAGE}: an unbounded page of a join holding ten million
      *     rows is a request that takes the node down rather than a request that fails
      */
-    public synchronized OperatorState.Page inspect(String operatorId, String key, int offset, int limit) {
+    public synchronized OperatorState.Page inspect(String operatorId, @Nullable String key, int offset, int limit) {
         requireOpen();
         lastUsed = Instant.now();
         if (offset < 0) {

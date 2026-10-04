@@ -205,7 +205,7 @@ public final class DebugSessions implements AutoCloseable {
      * checkpoint at all, this query has not taken one yet, and the id asked for has been pruned.
      * "No checkpoint" without saying which would send an operator to the wrong setting.
      */
-    private Checkpoint checkpointOf(RegisteredQuery query, String name, Long wanted) {
+    private Checkpoint checkpointOf(RegisteredQuery query, String name, @Nullable Long wanted) {
         Path directory = query.checkpointDirectory()
                 .orElseThrow(() -> new PravahaException(
                         DebugErrors.NO_CHECKPOINT,

@@ -645,7 +645,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /** One page of one operator's state, filtered by key (ADR-048). On the lane's own thread. */
-    public OperatorState.Page inspectState(String id, String keyFilter, int offset, int limit) {
+    public OperatorState.Page inspectState(String id, @Nullable String keyFilter, int offset, int limit) {
         return stateIndex().page(id, keyFilter, offset, limit);
     }
 
