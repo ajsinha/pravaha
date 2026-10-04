@@ -83,6 +83,7 @@ class EngineSpansTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // a null attribute on purpose: it is left out
     void aNullAttributeIsLeftOutAndPairsAreRequired() {
         EngineSpans.install(recording);
         EngineSpans.start("s", "a", null, "b", "2").close();

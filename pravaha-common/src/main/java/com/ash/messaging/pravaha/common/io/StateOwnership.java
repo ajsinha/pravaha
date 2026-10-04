@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -409,7 +411,7 @@ public final class StateOwnership implements AutoCloseable {
     }
 
     /** The claim id the marker carries now, or null when there is none or it cannot be read. */
-    private String markerClaimId() {
+    private @Nullable String markerClaimId() {
         Properties properties = new Properties();
         try (InputStream in = Files.newInputStream(marker)) {
             properties.load(in);

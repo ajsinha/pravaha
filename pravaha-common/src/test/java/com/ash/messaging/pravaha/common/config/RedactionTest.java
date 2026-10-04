@@ -58,6 +58,7 @@ class RedactionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // null on purpose: pins that a null text passes through
     void bindingOptionValuesAreStruckByKeyAndByLength() {
         java.util.Map<String, String> options = new java.util.LinkedHashMap<>();
         options.put("password", "abc"); // a credential's key: struck at three characters

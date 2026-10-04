@@ -72,7 +72,7 @@ class PropertiesFormatTest {
         // actually consume.
         assertThat(parsed.get("peers")).isEqualTo("node-1:9070, node-2:9070, node-3:9070");
         assertThat(Configuration.builder()
-                        .set("peers", parsed.get("peers"))
+                        .set("peers", java.util.Objects.requireNonNull(parsed.get("peers")))
                         .build()
                         .getList("peers"))
                 .containsExactly("node-1:9070", "node-2:9070", "node-3:9070");

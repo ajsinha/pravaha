@@ -43,7 +43,9 @@ public final class BinaryRowWriter implements RowWriter {
     private final RowLayout layout;
     private final long requiredMask;
 
+    @SuppressWarnings("NullAway.Init") // a cursor: it is pointed at a row before any write
     private MemoryRegion region;
+
     private int rowOffset;
     private int payloadCursor;
     private int lastVariableOrdinal;

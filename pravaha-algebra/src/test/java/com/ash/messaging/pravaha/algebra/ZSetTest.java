@@ -94,6 +94,7 @@ class ZSetTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: pins the refusal
     void rejectsANullRow() {
         assertThatThrownBy(() -> ZSet.of((String) null, 1)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> ZSet.builder().add(null, 1)).isInstanceOf(NullPointerException.class);

@@ -37,7 +37,10 @@ import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 public final class BinaryRowView implements RowView {
 
     private final RowLayout layout;
+
+    @SuppressWarnings("NullAway.Init") // a cursor: wrap() points it at a row before any read
     private MemoryRegion region;
+
     private int offset;
 
     public BinaryRowView(RowLayout layout) {
