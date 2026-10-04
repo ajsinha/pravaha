@@ -10,7 +10,27 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.3.0 — 2026-10-04
+
+**Java 21 or later.** 2.3.0 runs on any JDK or JRE from 21 up — 21, 22, 23, 24, 25 and later — where
+2.0.0 through 2.2.0 needed 25. Every module is Java 21 class files, the engine image runs on
+`eclipse-temurin:21-jre`, and CI runs the whole reactor on 21 and on 25. The locks that virtual
+threads can block inside are `ReentrantLock`s, so a JDK 21 carrier is never pinned by one
+([ADR-062](../design/adr/062-java-21-or-later.md)). Nothing else changes: the SQL, the APIs, the
+wire protocols, the settings and the state on disk are 2.2.0's. See
+[COMPATIBILITY.md](../operations/COMPATIBILITY.md) "Java 21 or later".
+
+**Read before upgrading from 2.2.0.**
+
+- **Nothing to do on JDK 25:** the same jars run there, as before.
+- **The image is on Java 21:** an image derived from Pravaha's that relied on a Java 25 tool or
+  flag in the base layer needs checking.
+- **Performance:** measured on 21 beside 25 (docs/project/gates/measured-2026-10-04-jdk21) — the
+  generated path is level; JDK 21's ZGC is not generational, so a heap-heavy deployment on ZGC may
+  prefer 25.
+- **Open:** none.
+
+What changed, in detail:
 
 - **Java 21 or later** ([ADR-062](../design/adr/062-java-21-or-later.md)), reversing 2.0's Java 25 only: every module, `pravaha-api` and the Java SDKs included, is Java 21 class files, so embedders, plugin authors and Java SDK users need 21 rather than 25, and any JDK from 21 builds and runs Pravaha (tested on 21 and 25; CI's whole-reactor job is a 21/25 matrix). The engine image runs on `eclipse-temurin:21-jre`; the launchers refuse a JVM older than 21 and pass `--sun-misc-unsafe-memory-access=allow` only on 23 or later; `tools/jdk25.sh` is `tools/jdk.sh`. Because JDK 21 pins a virtual thread's carrier while it blocks inside a `synchronized` monitor, the monitors request and feed virtual threads block inside -- the registry's, replacements, lane rebalance, alerts, debug sessions, sink delivery, the commit lock, source sharing, and the Kafka, Aerospike and postgres-cdc connection locks -- are `ReentrantLock`s; `-Djdk.tracePinnedThreads=full` on 21 reports no pinned park across the suites. JMH on 21 and 25: [measured-2026-10-04-jdk21](gates/measured-2026-10-04-jdk21/README.md).
 
