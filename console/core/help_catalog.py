@@ -98,8 +98,8 @@ CATEGORIES: list[Category] = [
                            "Worked systems, one domain each, from their data to their continuous queries — "
                            "each study's README, with the output of a real run.",
                            "CASE STUDIES", "case study worked example domain banking trading biology"),
-                     _guide("developing-in-an-ide", "Running from an IDE", "laptop",
-                            "The engine in IntelliJ IDEA and the console in PyCharm: run configurations, "
+                     _guide("developing-in-an-ide", "Running in IntelliJ and PyCharm", "laptop",
+                            "The server in IntelliJ IDEA and the console in PyCharm: shared run configurations, "
                             "the JVM flags Flight needs, debugging and tests.")]),
     Category("concepts", "Concepts", "lightbulb",
              "The ideas the engine is built on: streams, continuous queries, views and keys, "

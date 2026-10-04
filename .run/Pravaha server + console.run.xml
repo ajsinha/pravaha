@@ -1,0 +1,12 @@
+<!--
+  Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+  Proprietary and confidential; see the LICENSE file in the root of this repository.
+  Both at once. The console starts whether or not the engine answers yet, and finds it on the default ports.
+-->
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Pravaha server + console" type="CompoundRunConfigurationType">
+    <toRun name="Pravaha server" type="Application" />
+    <toRun name="Pravaha console (shell)" type="ShConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>

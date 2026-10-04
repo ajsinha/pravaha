@@ -99,10 +99,15 @@ class MarkdownRenderer:
     _GITHUB_RUN = re.compile(r"-{2,}")
 
     _LINK = re.compile(r'(href=")([^"]+)(")')
+    #: An image a document embeds by a path relative to itself, as the IDE guide's screenshots do.
+    #: The console does not serve docs/assets/, so it shows the image's description in its place
+    #: rather than a broken image.
+    _RELATIVE_IMG = re.compile(r'<img alt="([^"]*)" src="(?!https?://|/|data:)[^"]*"\s*/?>')
 
     def render(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         engine = markdown.Markdown(extensions=EXTENSIONS, extension_configs=CONFIG)
         html = self.link_codes(self._relink(engine.convert(self._brackets(text))))
+        html = self._RELATIVE_IMG.sub(lambda m: f'<em class="text-muted">Screenshot: {m.group(1)}</em>', html)
         # A code block wider than its card scrolls, and a region that scrolls must be reachable
         # by keyboard (WCAG 2.1.1; axe's scrollable-region-focusable), so every <pre> is a tab stop.
         html = html.replace("<pre>", '<pre tabindex="0">')

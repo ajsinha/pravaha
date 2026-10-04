@@ -31,6 +31,9 @@ Thumbs.db
 
 /state/
 /checkpoints/
+# The dev and users profiles' identity store, relative to the working directory (the IDE run configurations
+# start the server in the repository root): docs/development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md
+/data/
 benchmarks/results/
 
 # Python SDK

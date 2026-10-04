@@ -1,0 +1,18 @@
+<!--
+  Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+  Proprietary and confidential; see the LICENSE file in the root of this repository.
+  The in-process engine CLI (bin/pravaha-engine) on examples/01-filter-and-project's query: no server,
+  no network. Change the program arguments to run, validate or explain your own SQL.
+-->
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="pravaha-engine explain" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.ash.messaging.pravaha.cli.PravahaCli" />
+    <module name="pravaha-cli" />
+    <option name="PROGRAM_PARAMETERS" value="explain --level all --sql &quot;SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount &gt; 100&quot; --schema txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" />
+    <option name="VM_PARAMETERS" value="--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --enable-native-access=ALL-UNNAMED" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

@@ -1,0 +1,18 @@
+<!--
+  Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+  Proprietary and confidential; see the LICENSE file in the root of this repository.
+  The engine node from compiled classes, as bin/pravaha-server starts the jar: the dev and users
+  profiles, the Arrow add-opens and native access. docs/development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md
+-->
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Pravaha server" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.ash.messaging.pravaha.server.PravahaServerApplication" />
+    <module name="pravaha-server" />
+    <option name="PROGRAM_PARAMETERS" value="--spring.profiles.active=dev,users" />
+    <option name="VM_PARAMETERS" value="--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --enable-native-access=ALL-UNNAMED" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
