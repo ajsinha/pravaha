@@ -178,6 +178,7 @@ class QueryOwnershipTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void anUnknownRuleIsRefusedAsAMisconfiguration() {
         assertThatThrownBy(() -> Administration.Rule.parse("owner"))
                 .isInstanceOf(PravahaException.class)

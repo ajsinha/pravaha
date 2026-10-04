@@ -19,6 +19,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /** What an alert shows a reader who may see it (ADR-057): SQL's {@code SHOW ALERTS}, REST, the console. */
 public final class AlertStatus {
 
@@ -45,13 +47,13 @@ public final class AlertStatus {
             List<String> channels,
             String severity,
             Map<String, String> options,
-            Instant snoozedUntil,
+            @Nullable Instant snoozedUntil,
             int firing,
             int pending,
             int keys,
-            Instant lastNotificationAt,
-            String deliveryError,
-            String problem,
+            @Nullable Instant lastNotificationAt,
+            @Nullable String deliveryError,
+            @Nullable String problem,
             Instant createdAt,
             Instant updatedAt,
             String updatedBy) {
@@ -97,15 +99,15 @@ public final class AlertStatus {
             String state,
             long episode,
             long fired,
-            Instant since,
-            Instant firingSince,
-            Instant clearedAt,
+            @Nullable Instant since,
+            @Nullable Instant firingSince,
+            @Nullable Instant clearedAt,
             String notified,
-            Instant lastNotifiedAt,
-            String owed,
+            @Nullable Instant lastNotifiedAt,
+            @Nullable String owed,
             int reminders,
-            String acknowledgedBy,
-            Instant acknowledgedAt,
+            @Nullable String acknowledgedBy,
+            @Nullable Instant acknowledgedAt,
             Map<String, Object> row) {}
 
     /**

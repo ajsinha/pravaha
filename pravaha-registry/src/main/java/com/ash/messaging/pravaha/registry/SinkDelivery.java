@@ -31,6 +31,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.EmitMode;
@@ -159,7 +161,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * The ordinals of the sink's key columns in the rows it is handed, when {@link #upserting};
      * null otherwise, or when a key column is not in the schema. See {@link #supersede}.
      */
-    private final int[] keyOrdinals;
+    private final int @Nullable [] keyOrdinals;
 
     private final AtomicLong rowsWritten = new AtomicLong();
     private final AtomicLong batchesWritten = new AtomicLong();
@@ -178,10 +180,10 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * committed contents, or the difference from a restored checkpoint's, read when it is written.
      * Null once used, or when there is nothing to catch up on.
      */
-    private volatile Supplier<List<ViewChange>> seed;
+    private volatile @Nullable Supplier<List<ViewChange>> seed;
 
-    private volatile AutoCloseable detach;
-    private volatile PravahaException failure;
+    private volatile @Nullable AutoCloseable detach;
+    private volatile @Nullable PravahaException failure;
     private volatile boolean closed;
 
     SinkDelivery(
@@ -222,7 +224,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     }
 
     /** Where each named key column sits in {@code schema}, matched as the shape check matches it. */
-    private static int[] keyOrdinals(StreamSchema schema, List<String> keyColumns) {
+    private static int @Nullable [] keyOrdinals(StreamSchema schema, List<String> keyColumns) {
         int[] ordinals = new int[keyColumns.size()];
         for (int i = 0; i < ordinals.length; i++) {
             ordinals[i] = -1;
@@ -536,8 +538,9 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
 
     /** A row's key, compared by value; byte arrays by content. */
     private List<Object> keyOf(Object[] values) {
-        List<Object> key = new ArrayList<>(keyOrdinals.length);
-        for (int ordinal : keyOrdinals) {
+        int[] ordinals = java.util.Objects.requireNonNull(keyOrdinals, "keyed only when upserting");
+        List<Object> key = new ArrayList<>(ordinals.length);
+        for (int ordinal : ordinals) {
             Object value = values[ordinal];
             key.add(value instanceof byte[] raw ? java.nio.ByteBuffer.wrap(raw) : value);
         }
@@ -720,7 +723,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      *     view, or -- for a section carried forward unclaimed -- the view of the checkpoint it came from
      */
     @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
-    record Restored(long checkpointId, List<Prepared> handles, byte[] view, boolean carriedView) {
+    record Restored(long checkpointId, List<Prepared> handles, byte @Nullable [] view, boolean carriedView) {
 
         /** A section whose view is one this sink holds and no checkpoint of this computation does. */
         static Restored carrying(long checkpointId, byte[] view) {
@@ -732,7 +735,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
             return encode(handles, view);
         }
 
-        static Restored decode(long checkpointId, byte[] section, byte[] checkpointView) {
+        static Restored decode(long checkpointId, byte[] section, byte @Nullable [] checkpointView) {
             try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(section))) {
                 int format = in.readInt();
                 if (format != SECTION_FORMAT) {
@@ -764,7 +767,7 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * A section: the handles, and the view they leave the sink holding when that is not the
      * checkpoint's own ({@code null} for the usual case, where it is).
      */
-    private static byte[] encode(List<Prepared> handles, byte[] view) {
+    private static byte[] encode(List<Prepared> handles, byte @Nullable [] view) {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
             out.writeInt(SECTION_FORMAT);

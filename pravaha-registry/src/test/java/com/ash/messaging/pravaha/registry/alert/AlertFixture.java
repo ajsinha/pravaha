@@ -27,6 +27,8 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.api.plugin.Notification;
@@ -76,6 +78,8 @@ final class AlertFixture implements AutoCloseable {
     final ContinuousQueryStatements statements;
     private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
     private long ts = 1_000_000_000L;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     AlertService service;
 
     AlertFixture() {
@@ -94,11 +98,11 @@ final class AlertFixture implements AutoCloseable {
     }
 
     /** Opens the alert service over the journal at {@code journal} (null: memory), driven by hand. */
-    AlertService open(Path journal) {
+    AlertService open(@Nullable Path journal) {
         return open(journal, AlertService.Settings.manual());
     }
 
-    AlertService open(Path journal, AlertService.Settings settings) {
+    AlertService open(@Nullable Path journal, AlertService.Settings settings) {
         Notifiers notifiers = Notifiers.none().bind("buyers", channel).bind("ops", new Recording("ops"));
         service = AlertService.open(registry, journal, notifiers, AuditSink.NONE, clock, settings);
         return service;

@@ -21,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.sql.AlertStatement;
 
@@ -46,7 +48,7 @@ public record AlertDefinition(
         List<String> channels,
         AlertOptions options,
         boolean paused,
-        Instant snoozedUntil,
+        @Nullable Instant snoozedUntil,
         Instant updatedAt,
         String updatedBy) {
 

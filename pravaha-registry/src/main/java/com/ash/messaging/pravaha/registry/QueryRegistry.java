@@ -25,6 +25,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -100,7 +102,7 @@ public final class QueryRegistry implements AutoCloseable {
     // Insertion-ordered so that listing a registry is stable, which matters for a console that
     // renders the list and for a test that asserts on it.
     private final Map<String, RegisteredQuery> byName = new LinkedHashMap<>();
-    private RegistryJournal journal;
+    private @Nullable RegistryJournal journal;
     /**
      * The threads every query's lane runs on, created on first use and shared by all of them.
      *
@@ -115,7 +117,7 @@ public final class QueryRegistry implements AutoCloseable {
      * <p>Lazily created so a registry that never registers anything starts no threads, which is what
      * a great many of this project's tests are.
      */
-    private volatile com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner;
+    private volatile com.ash.messaging.pravaha.runtime.lane.@Nullable LaneRunner laneRunner;
 
     synchronized com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner() {
         if (laneRunner == null) {
@@ -145,7 +147,7 @@ public final class QueryRegistry implements AutoCloseable {
      * sharing a lane shares its fate: a pipeline that throws kills the lane, and with it every
      * query on it, where a lane per query loses one.
      */
-    private SharedLanes sharedLanes;
+    private @Nullable SharedLanes sharedLanes;
 
     /** How many lanes and what ceiling {@link #sharedLanes} is built with, once multiplexing is on. */
     private int sharedLaneCount;
@@ -337,8 +339,8 @@ public final class QueryRegistry implements AutoCloseable {
             .withThreads("pravaha-query", true);
 
     MemoryAccess access = MemoryAccess.best();
-    private Duration watermarkIdleAfter;
-    private Duration watermarkTick;
+    private @Nullable Duration watermarkIdleAfter;
+    private @Nullable Duration watermarkTick;
     private final Map<QueryFingerprint, RegisteredQuery> byFingerprint = new LinkedHashMap<>();
 
     /** Attaches data to a query's inputs. Nothing, until a deployment says otherwise. */
@@ -475,7 +477,7 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** Debug sessions, created with the first fork (ADR-048, design section 16.4). */
-    private volatile DebugSessions debugSessions;
+    private volatile @Nullable DebugSessions debugSessions;
 
     /** Guards the lazily made debug sessions and replacements, for this registry alone. */
     private final Object lazily = new Object();
@@ -598,7 +600,7 @@ public final class QueryRegistry implements AutoCloseable {
     /** ADR-057's alerts: they follow views -- a drop is refused while they do -- and run their statements. */
     private volatile Alerting alerting = Alerting.NONE;
 
-    public void alertingWith(Alerting alerts) {
+    public void alertingWith(@Nullable Alerting alerts) {
         this.alerting = alerts == null ? Alerting.NONE : alerts;
     }
 
@@ -698,7 +700,7 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName,
+            @Nullable String sinkName,
             String action) {
         return RegistrationPlanning.prepare(
                 this, name, sql, keyColumns, principal, retention, parameters, sinkName, action);
@@ -723,7 +725,7 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName) {
+            @Nullable String sinkName) {
         // ADR-060: a name is registered in its registrant's tenant and keyed there by its engine name.
         QueryNames.require(local, byName.keySet(), ViewNames.engineName(principal.tenant(), local));
         String name = ViewNames.engineName(principal.tenant(), local);
@@ -789,7 +791,7 @@ public final class QueryRegistry implements AutoCloseable {
             List<Integer> keyColumns,
             Principal principal,
             Retention retention,
-            String sinkName,
+            @Nullable String sinkName,
             String checkpointDirectory,
             com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
         return EngineSpans.traced("pravaha.query.replace", "pravaha.query", name, () -> {
@@ -852,11 +854,11 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName,
+            @Nullable String sinkName,
             PhysicalOperator plan,
             List<ParameterPlacement> placements,
             QueryFingerprint fingerprint,
-            SinkDelivery delivery,
+            @Nullable SinkDelivery delivery,
             String checkpointDirectory) {
         RegisteredQuery existing = byFingerprint.get(fingerprint);
         if (existing != null && !existing.state().isTerminal()) {
@@ -936,8 +938,8 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName,
-            String checkpointDirectory) {
+            @Nullable String sinkName,
+            @Nullable String checkpointDirectory) {
         if (journal != null) {
             if (checkpointDirectory == null || checkpointDirectory.equals(QueryCheckpoints.directoryFor(name))) {
                 journal.recordRegistration(
@@ -968,7 +970,7 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName,
+            @Nullable String sinkName,
             String checkpointDirectory,
             Declaring declared) {
         RegistryJournal suspended = journal;
@@ -1011,7 +1013,7 @@ public final class QueryRegistry implements AutoCloseable {
      * overloads of {@code register}, which is a real trade: this is state for the duration of a
      * call, and the alternative is a parameter every caller has to pass null for.
      */
-    private String recoveringInto;
+    private @Nullable String recoveringInto;
 
     private RegisteredQuery start(
             String name,
@@ -1021,9 +1023,9 @@ public final class QueryRegistry implements AutoCloseable {
             QueryFingerprint fingerprint,
             Retention retention,
             List<ParameterPlacement> placements,
-            SinkDelivery delivery,
+            @Nullable SinkDelivery delivery,
             String checkpointDirectory,
-            com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
+            com.ash.messaging.pravaha.backfill.@Nullable BackfillPlan backfill) {
         StreamSchema schema = plan.outputSchema();
         for (int ordinal : keyColumns) {
             if (ordinal < 0 || ordinal >= schema.fieldCount()) {
@@ -1064,7 +1066,10 @@ public final class QueryRegistry implements AutoCloseable {
                 // rather than counting everything before the checkpoint twice (VIEW-2).
                 .checkingViewWith(ServedView::requireReadable);
         if (watermarkIdleAfter != null) {
-            execution.generatingWatermarks(null, watermarkIdleAfter, watermarkTick);
+            execution.generatingWatermarks(
+                    null,
+                    watermarkIdleAfter,
+                    java.util.Objects.requireNonNull(watermarkTick, "set with watermarkIdleAfter"));
         }
         RegisteredQuery query =
                 new RegisteredQuery(fingerprint, sql, name, view, sink, execution, Instant.now(), placements);
@@ -1118,7 +1123,7 @@ public final class QueryRegistry implements AutoCloseable {
      * registry's for the moments that change a name, and a registry method that took them the
      * other way round would eventually meet a cutover coming the other way.
      */
-    volatile QueryReplacements replacements;
+    volatile @Nullable QueryReplacements replacements;
 
     /**
      * The blue/green replacements of this registry's queries (ADR-046, design section 16.3).
@@ -1148,6 +1153,7 @@ public final class QueryRegistry implements AutoCloseable {
     // name moving between two computations is the registry's own bookkeeping, and the replacement
     // orchestrates rather than reaches in.
 
+    @Nullable
     RegistryJournal journal() {
         return journal;
     }
@@ -1180,7 +1186,7 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** Takes the name's sink delivery away from whoever has it, for a cutover to hand over. */
-    synchronized SinkDelivery takeDelivery(String name) {
+    synchronized @Nullable SinkDelivery takeDelivery(String name) {
         return deliveries.remove(name);
     }
 
@@ -1294,7 +1300,10 @@ public final class QueryRegistry implements AutoCloseable {
          *     bare {@link RuntimeException} that {@link #recover} did not itself raise with a code
          * @param reason what the failure said
          */
-        public record Refusal(String query, Optional<ErrorCode> code, String reason) {
+        public record Refusal(
+                String query,
+                Optional<ErrorCode> code,
+                @Nullable String reason) {
 
             public Refusal {
                 Objects.requireNonNull(query, "query");

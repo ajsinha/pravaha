@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -119,7 +120,7 @@ class DedicatedLaneTest {
                 first,
                 "CREATE CONTINUOUS QUERY crowd KEYED BY (user_id) AS SELECT user_id, amount FROM txn WHERE amount > 1");
         RegistryJournal journal = first.journal();
-        assertThat(journal.replay())
+        assertThat(java.util.Objects.requireNonNull(journal).replay())
                 .extracting(RegistryJournal.Entry::name, RegistryJournal.Entry::dedicatedLane)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple("solo", true),
@@ -160,7 +161,7 @@ class DedicatedLaneTest {
         run(auto, "CREATE CONTINUOUS QUERY kept KEYED BY (user_id) WITH (lane = 'dedicated')" + select);
         assertThat(auto.require("plain")).isSameAs(auto.require("kept"));
         assertThat(auto.require("plain").dedicatedLane()).isTrue();
-        assertThat(auto.journal().replay())
+        assertThat(java.util.Objects.requireNonNull(auto.journal()).replay())
                 .as("both names journalled dedicated, so the first registrant replays onto its own lane")
                 .allMatch(RegistryJournal.Entry::dedicatedLane);
     }
@@ -193,7 +194,11 @@ class DedicatedLaneTest {
                 .as("moved onto a lane of its own")
                 .isEmpty();
         assertThat(registry.require("totals").dedicatedLane()).isTrue();
-        assertThat(registry.journal().replay().get(0).dedicatedLane()).isTrue();
+        assertThat(java.util.Objects.requireNonNull(registry.journal())
+                        .replay()
+                        .get(0)
+                        .dedicatedLane())
+                .isTrue();
         log.append("u0", 100L);
         await(() -> totalsOf(views).equals(Map.of("all", 178L)));
 
@@ -229,7 +234,7 @@ class DedicatedLaneTest {
         }
     }
 
-    private QueryRegistry registry(Path journal) {
+    private QueryRegistry registry(@Nullable Path journal) {
         QueryRegistry registry = new QueryRegistry(new ViewCatalog(), SecurityPolicy.PERMISSIVE, AuditSink.NONE, TXN);
         if (journal != null) {
             registry.journalTo(new RegistryJournal(journal));

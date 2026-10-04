@@ -25,6 +25,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -211,7 +212,7 @@ class QueryReplacementTest {
             }
 
             @Override
-            public void onCommit(List<ViewChange> changes, long frontier) {
+            public void onCommit(@Nullable List<ViewChange> changes, long frontier) {
                 snapshotRows.addAll(changes);
             }
         });
@@ -250,7 +251,7 @@ class QueryReplacementTest {
             }
 
             @Override
-            public void onCommit(List<ViewChange> changes, long frontier) {
+            public void onCommit(@Nullable List<ViewChange> changes, long frontier) {
                 after.addAll(changes);
             }
         })) {

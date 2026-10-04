@@ -178,6 +178,7 @@ class SecondaryIndexRegistryTest {
     // ------------------------------------------------------------------ the journal
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void theJournalKeepsTheIndexWithTheRegistrationThroughACompactionAndAReRegistrationClearsIt() {
         RegistryJournal journal = new RegistryJournal(root.resolve("indexes.journal"));
         journal.recordRegistration(
@@ -345,7 +346,11 @@ class SecondaryIndexRegistryTest {
         assertThat(now.indexedColumns())
                 .as("by name: region moved from column 1 to 2")
                 .containsExactly(2);
-        assertThat(registry.journal().replay().get(0).indexed()).containsExactly(2);
+        assertThat(java.util.Objects.requireNonNull(registry.journal())
+                        .replay()
+                        .get(0)
+                        .indexed())
+                .containsExactly(2);
 
         registry.replacements().rollBack("latest", DANA);
         assertThat(registry.require("latest").view().indexedColumns()).containsExactly(REGION);

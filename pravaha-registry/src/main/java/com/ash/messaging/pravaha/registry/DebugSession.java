@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.runtime.exec.OperatorMetrics;
@@ -118,7 +120,7 @@ public final class DebugSession implements AutoCloseable {
     private final List<Action> script = new ArrayList<>();
 
     /** One thing that happened to the fork: a row arriving, or event time moving. */
-    record Action(ReplaySource.ReplayRow row, long watermarkNanos) {
+    record Action(ReplaySource.@Nullable ReplayRow row, long watermarkNanos) {
 
         static Action of(ReplaySource.ReplayRow row) {
             return new Action(row, 0);
@@ -148,7 +150,7 @@ public final class DebugSession implements AutoCloseable {
     private long sequence;
     private volatile Instant lastUsed = Instant.now();
     private volatile boolean closed;
-    private DebugStep last;
+    private @Nullable DebugStep last;
 
     DebugSession(
             String id,
@@ -257,8 +259,11 @@ public final class DebugSession implements AutoCloseable {
                         : taken >= searchCeiling ? "the ceiling of " + searchCeiling + " rows" : "the view changed";
             }
             case UNTIL -> {
-                ViewPredicate predicate =
-                        ViewPredicate.of(request.column(), request.comparison(), request.value(), outputSchema);
+                ViewPredicate predicate = ViewPredicate.of(
+                        request.column(),
+                        java.util.Objects.requireNonNull(request.comparison(), "an until step has its comparison"),
+                        java.util.Objects.requireNonNull(request.value(), "an until step has its value"),
+                        outputSchema);
                 long taken = 0;
                 settle();
                 boolean held = predicate.firstMatch(view.scan()).isPresent();
@@ -435,7 +440,7 @@ public final class DebugSession implements AutoCloseable {
         try {
             return OperatorStateReader.page(execution, operatorId, key, offset, limit, SETTLE);
         } catch (IllegalArgumentException e) {
-            throw new PravahaException(DebugErrors.BAD_STEP, e.getMessage(), e);
+            throw new PravahaException(DebugErrors.BAD_STEP, String.valueOf(e.getMessage()), e);
         }
     }
 

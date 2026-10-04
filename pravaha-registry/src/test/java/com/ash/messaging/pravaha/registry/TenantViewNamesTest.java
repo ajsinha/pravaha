@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -160,10 +161,12 @@ class TenantViewNamesTest {
         probes.put("read", name -> reads.execute("SELECT * FROM " + name, OMAR));
         probes.put("schema", name -> reads.schemaOf("SELECT * FROM " + name, OMAR));
         probes.put("prepare", name -> reads.prepare("SELECT * FROM " + name, OMAR));
-        probes.forEach(
-                (what, probe) -> assertThat(answer(() -> probe.apply("payroll")).replace("payroll", "NAME"))
-                        .as("%s of another tenant's name answers as for a name nobody holds", what)
-                        .isEqualTo(answer(() -> probe.apply("nothing")).replace("nothing", "NAME")));
+        probes.forEach((what, probe) -> assertThat(
+                        java.util.Objects.requireNonNull(answer(() -> probe.apply("payroll")))
+                                .replace("payroll", "NAME"))
+                .as("%s of another tenant's name answers as for a name nobody holds", what)
+                .isEqualTo(java.util.Objects.requireNonNull(answer(() -> probe.apply("nothing")))
+                        .replace("nothing", "NAME")));
 
         // Registering it is not refused, so a refusal cannot say the name is taken.
         assertThat(registry.register("payroll", SMALL, List.of(0), OMAR)).isNotNull();
@@ -180,8 +183,8 @@ class TenantViewNamesTest {
         PravahaException nobody = catchThrowableOfType(
                 PravahaException.class, () -> QueryRegistry.engineName(OMAR, "acme.default.nothing"));
         assertThat(held.errorCode()).isEqualTo(SecurityErrors.FORBIDDEN);
-        assertThat(held.getMessage().replace("payroll", "X"))
-                .isEqualTo(nobody.getMessage().replace("nothing", "X"));
+        assertThat(java.util.Objects.requireNonNull(held.getMessage()).replace("payroll", "X"))
+                .isEqualTo(java.util.Objects.requireNonNull(nobody.getMessage()).replace("nothing", "X"));
         assertThat(QueryRegistry.engineName(DANA, "acme.default.payroll"))
                 .as("a caller's own tenant, qualified, is still its own")
                 .isEqualTo("acme.default.payroll");
@@ -328,14 +331,14 @@ class TenantViewNamesTest {
 
     /** Resolves a journalled owner id to one of the given principals. */
     private static final class RegistryJournalOwners {
-        static java.util.function.Function<String, Optional<Principal>> of(Principal... principals) {
+        static java.util.function.Function<String, Optional<Principal>> of(@Nullable Principal... principals) {
             return id -> java.util.Arrays.stream(principals)
                     .filter(p -> p.id().equals(id))
                     .findFirst();
         }
     }
 
-    private static String answer(Supplier<Object> call) {
+    private static @Nullable String answer(Supplier<Object> call) {
         try {
             Object result = call.get();
             if (result instanceof Optional<?> optional) {
@@ -391,7 +394,8 @@ class TenantViewNamesTest {
                 .getParent();
         try (var files = Files.walk(from)) {
             for (Path each : files.toList()) {
-                Path target = into.resolve(from.relativize(each).toString());
+                Path target = into.resolve(
+                        java.util.Objects.requireNonNull(from).relativize(each).toString());
                 if (Files.isDirectory(each)) {
                     Files.createDirectories(target);
                 } else {

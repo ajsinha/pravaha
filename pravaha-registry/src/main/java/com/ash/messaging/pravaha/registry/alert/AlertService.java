@@ -31,6 +31,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.Notification;
@@ -122,8 +124,8 @@ public final class AlertService implements Alerting, AutoCloseable {
     /** By name; read without the monitor by the evaluating and delivering threads. */
     private final Map<String, Alert> alerts = new ConcurrentHashMap<>();
 
-    private ScheduledExecutorService evaluator;
-    private ExecutorService delivery;
+    private @Nullable ScheduledExecutorService evaluator;
+    private @Nullable ExecutorService delivery;
     private long ticks;
     private volatile boolean closed;
 
@@ -154,7 +156,7 @@ public final class AlertService implements Alerting, AutoCloseable {
      */
     public static AlertService open(
             QueryRegistry registry,
-            Path journalFile,
+            @Nullable Path journalFile,
             Notifiers notifiers,
             AuditSink audit,
             Clock clock,
@@ -472,7 +474,7 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     /** {@link #followersOf(String)}, those {@code principal} may see; every one when it is null. */
     @Override
-    public List<String> followersOf(String view, Principal principal) {
+    public List<String> followersOf(String view, @Nullable Principal principal) {
         List<String> followers = new ArrayList<>();
         for (Alert alert : alerts.values()) {
             if (alert.definition().view().equals(view)
@@ -660,7 +662,7 @@ public final class AlertService implements Alerting, AutoCloseable {
      *
      * @return how many keys were acknowledged
      */
-    public int acknowledge(Principal principal, String name, String key) {
+    public int acknowledge(Principal principal, String name, @Nullable String key) {
         Alert alert;
         synchronized (this) {
             alert = require(principal, name);

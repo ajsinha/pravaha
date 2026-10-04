@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.serving.ViewChange;
 
@@ -97,7 +99,7 @@ public final class Subscription implements AutoCloseable {
     private int bufferedRows;
 
     /** A snapshot that has arrived and not been handed over yet. Guarded by {@link #lock}. */
-    private List<ViewChange> waitingSnapshot;
+    private @Nullable List<ViewChange> waitingSnapshot;
 
     private long waitingSnapshotFrontier;
 
@@ -105,17 +107,17 @@ public final class Subscription implements AutoCloseable {
     private boolean delivering;
 
     /** The delivery thread, started by the first change admitted. Guarded by {@link #lock}. */
-    private Thread deliveryThread;
+    private @Nullable Thread deliveryThread;
 
     private final AtomicLong delivered = new AtomicLong();
     private final AtomicLong conflated = new AtomicLong();
     private final AtomicLong dropped = new AtomicLong();
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
 
     /** The frontier of the snapshot this subscription started from; absent until it arrives. */
-    private volatile Long snapshotFrontier;
+    private volatile @Nullable Long snapshotFrontier;
 
     Subscription(
             String queryName,
@@ -252,8 +254,10 @@ public final class Subscription implements AutoCloseable {
                     consumer.onSnapshot(snapshot, snapshotAt);
                     delivered.addAndGet(snapshot.size());
                 } else {
-                    consumer.onCommit(batch, at);
-                    delivered.addAndGet(batch.size());
+                    List<ViewChange> committed =
+                            java.util.Objects.requireNonNull(batch, "a commit is taken when there is no snapshot");
+                    consumer.onCommit(committed, at);
+                    delivered.addAndGet(committed.size());
                 }
             } catch (RuntimeException e) {
                 // A consumer that throws has stopped consuming. Recording it and closing is better

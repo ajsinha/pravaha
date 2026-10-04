@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.registry;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A debug session, written out as a JUnit test this repository can run offline (ADR-048,
  * design section 16.4).
@@ -52,7 +54,7 @@ public record FixtureExport(String className, String path, Map<String, String> f
     }
 
     /** The generated Java source, which is the file the export is for. */
-    public String source() {
+    public @Nullable String source() {
         return files.get(path);
     }
 

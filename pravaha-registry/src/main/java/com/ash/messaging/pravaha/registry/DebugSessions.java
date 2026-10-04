@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.config.Configuration;
@@ -260,7 +262,7 @@ public final class DebugSessions implements AutoCloseable {
         return require(id, principal, "debug-view").viewRows();
     }
 
-    public Optional<DebugSession.Status> of(String id, Principal principal) {
+    public Optional<DebugSession.Status> of(@Nullable String id, Principal principal) {
         DebugSession session = byId.get(id);
         if (session == null) {
             return Optional.empty();
@@ -333,7 +335,7 @@ public final class DebugSessions implements AutoCloseable {
                 if (action.isWatermark()) {
                     execution.advanceWatermark(action.watermarkNanos());
                 } else {
-                    feeder.feed(action.row());
+                    feeder.feed(java.util.Objects.requireNonNull(action.row(), "a row action has its row"));
                 }
                 // After each action, exactly as the generated fixture does: an expectation that
                 // depended on committing less often than the test does would be an expectation the

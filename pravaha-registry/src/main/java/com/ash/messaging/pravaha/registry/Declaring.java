@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.registry;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -51,7 +53,7 @@ record Declaring(List<Integer> indexes, boolean dedicatedLane, boolean ownLane) 
      * between lanes: {@code existing} is the version serving the name being replaced, and the lane
      * choice differs. Anything else with the same fingerprint would cut over to itself.
      */
-    boolean moves(RegisteredQuery existing, RegisteredQuery serving) {
+    boolean moves(RegisteredQuery existing, @Nullable RegisteredQuery serving) {
         return existing == serving
                 && (existing.dedicatedLane() != dedicatedLane
                         || (ownLane && existing.sharedLane().isPresent()));
@@ -76,7 +78,7 @@ record Declaring(List<Integer> indexes, boolean dedicatedLane, boolean ownLane) 
      * running queries are never moved, and quietly joining would be a setting somebody believes is
      * in force.
      */
-    void join(String name, RegisteredQuery existing, boolean onSharedLane, RegistryJournal journal) {
+    void join(String name, RegisteredQuery existing, boolean onSharedLane, @Nullable RegistryJournal journal) {
         if (!dedicatedLane || existing.dedicatedLane()) {
             return;
         }

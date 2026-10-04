@@ -1029,7 +1029,7 @@ public final class ServedView {
      * @param snapshot an earlier {@link #snapshot()} of this same view
      * @param withRetractions false for a reader that can only append, which is sent the inserts
      */
-    public synchronized List<ViewChange> changesSince(byte[] snapshot, boolean withRetractions) {
+    public synchronized List<ViewChange> changesSince(byte @Nullable [] snapshot, boolean withRetractions) {
         Map<Key, Object[]> then = new LinkedHashMap<>();
         if (snapshot != null && snapshot.length > 0) {
             for (SnapshotRow row : read(snapshot).rows()) {

@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -35,7 +37,8 @@ import com.ash.messaging.pravaha.sql.AlertStatement;
  */
 final class AlertCondition {
 
-    private record Test(int ordinal, String operator, Object literal) {}
+    private record Test(
+            int ordinal, String operator, @Nullable Object literal) {}
 
     private final List<Test> tests;
     private final String text;
@@ -80,7 +83,7 @@ final class AlertCondition {
         return true;
     }
 
-    private static boolean holds(Test test, Object value) {
+    private static boolean holds(Test test, @Nullable Object value) {
         return switch (test.operator()) {
             case "IS_NULL" -> value == null;
             case "IS_NOT_NULL" -> value != null;
@@ -101,7 +104,7 @@ final class AlertCondition {
         };
     }
 
-    private static int compare(Object value, Object literal) {
+    private static int compare(Object value, @Nullable Object literal) {
         if (literal instanceof BigDecimal number && value instanceof Number actual) {
             BigDecimal left = actual instanceof BigDecimal d ? d : new BigDecimal(actual.toString());
             return left.compareTo(number);
@@ -112,9 +115,9 @@ final class AlertCondition {
         return String.valueOf(value).compareTo(String.valueOf(literal));
     }
 
-    private static Object literal(Field field, AlertStatement.Condition condition) {
+    private static @Nullable Object literal(Field field, AlertStatement.Condition condition) {
         TypeName type = field.type().typeName();
-        String written = condition.literal();
+        String written = java.util.Objects.requireNonNull(condition.literal(), "a comparison has its literal");
         switch (type) {
             case INT8, INT16, INT32, INT64, FLOAT32, FLOAT64, DECIMAL -> {
                 try {

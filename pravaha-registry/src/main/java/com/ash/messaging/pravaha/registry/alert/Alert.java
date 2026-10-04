@@ -35,6 +35,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.plugin.Notification;
@@ -106,21 +108,21 @@ final class Alert implements AnswerListener {
             String detail) {}
 
     // ------------------------------------------------------------ evaluation (under this)
-    private ServedView view;
-    private StreamSchema schema;
-    private int[] keyOrdinals;
+    private @Nullable ServedView view;
+    private @Nullable StreamSchema schema;
+    private int @Nullable [] keyOrdinals;
     private AlertCondition condition = AlertCondition.always();
     private com.ash.messaging.pravaha.serving.RowNarrowing narrowing =
             com.ash.messaging.pravaha.serving.RowNarrowing.NONE;
     private String narrowedBy = "";
     private String following = "WAITING";
-    private String problem;
+    private @Nullable String problem;
     private final Map<RowKey, Object[]> matching = new java.util.HashMap<>();
     private final Map<RowKey, KeyState> keys = new LinkedHashMap<>();
     private final ArrayDeque<Told> history = new ArrayDeque<>();
     private boolean recovered;
-    private Instant lastNotificationAt;
-    private String deliveryError;
+    private @Nullable Instant lastNotificationAt;
+    private @Nullable String deliveryError;
 
     /** A notification decided under this monitor and sent outside it. */
     record Dispatch(
@@ -182,7 +184,7 @@ final class Alert implements AnswerListener {
         return narrowedBy;
     }
 
-    synchronized void broken(String why) {
+    synchronized void broken(@Nullable String why) {
         this.following = "BROKEN";
         this.problem = why;
     }
@@ -397,7 +399,7 @@ final class Alert implements AnswerListener {
     }
 
     /** The notification {@code state} is owed now, or null. */
-    private Dispatch owed(KeyState state, Instant now) {
+    private @Nullable Dispatch owed(KeyState state, Instant now) {
         if (state.inFlight || (state.retryAt != null && now.isBefore(state.retryAt))) {
             return null;
         }
@@ -485,7 +487,7 @@ final class Alert implements AnswerListener {
     }
 
     /** Acknowledges every firing key, or the one named; how many were acknowledged. */
-    synchronized int acknowledge(String keyText, String by, Instant now) {
+    synchronized int acknowledge(@Nullable String keyText, String by, Instant now) {
         int acknowledged = 0;
         List<List<String>> decided = new ArrayList<>();
         for (KeyState state : keys.values()) {
@@ -635,7 +637,7 @@ final class Alert implements AnswerListener {
     }
 
     private KeyState restored(String encodedKey) {
-        Object[] key = decodeRow(encodedKey);
+        Object[] key = java.util.Objects.requireNonNull(decodeRow(encodedKey), "an encoded key is never empty");
         return keys.computeIfAbsent(new RowKey(key), k -> new KeyState(key));
     }
 
@@ -763,9 +765,10 @@ final class Alert implements AnswerListener {
     // ------------------------------------------------------------------ values
 
     private RowKey keyOf(Object[] row) {
-        Object[] key = new Object[keyOrdinals.length];
+        int[] ordinals = java.util.Objects.requireNonNull(keyOrdinals, "bound to its view");
+        Object[] key = new Object[ordinals.length];
         for (int i = 0; i < key.length; i++) {
-            key[i] = row[keyOrdinals[i]];
+            key[i] = row[ordinals[i]];
         }
         return new RowKey(key);
     }
@@ -783,13 +786,15 @@ final class Alert implements AnswerListener {
 
     private Map<String, Object> keyMap(Object[] key) {
         Map<String, Object> named = new LinkedHashMap<>();
-        for (int i = 0; i < keyOrdinals.length; i++) {
-            named.put(schema.field(keyOrdinals[i]).name(), shown(keyOrdinals[i], key[i]));
+        int[] ordinals = java.util.Objects.requireNonNull(keyOrdinals, "checked by keyMapOrText");
+        StreamSchema bound = java.util.Objects.requireNonNull(schema, "checked by keyMapOrText");
+        for (int i = 0; i < ordinals.length; i++) {
+            named.put(bound.field(ordinals[i]).name(), shown(ordinals[i], key[i]));
         }
         return named;
     }
 
-    private Map<String, Object> rowMap(Object[] row) {
+    private Map<String, Object> rowMap(Object @Nullable [] row) {
         if (row == null || schema == null) {
             return Map.of();
         }
@@ -805,7 +810,7 @@ final class Alert implements AnswerListener {
     }
 
     /** A value as a reader expects it: a timestamp as an instant, a date as a date. */
-    private Object shown(int ordinal, Object value) {
+    private @Nullable Object shown(int ordinal, @Nullable Object value) {
         if (value == null || schema == null) {
             return value;
         }
@@ -836,7 +841,7 @@ final class Alert implements AnswerListener {
         return encodeRow(key);
     }
 
-    static String encodeRow(Object[] row) {
+    static String encodeRow(Object @Nullable [] row) {
         if (row == null) {
             return "";
         }
@@ -850,7 +855,7 @@ final class Alert implements AnswerListener {
         return Base64.getEncoder().withoutPadding().encodeToString(bytes.toByteArray());
     }
 
-    static Object[] decodeRow(String text) {
+    static Object @Nullable [] decodeRow(String text) {
         if (text == null || text.isEmpty()) {
             return null;
         }
@@ -876,34 +881,58 @@ final class Alert implements AnswerListener {
         }
     }
 
-    private static String text(Instant at) {
+    private static String text(@Nullable Instant at) {
         return at == null ? "" : at.toString();
     }
 
-    private static Instant instant(String text) {
+    private static @Nullable Instant instant(String text) {
         return text == null || text.isEmpty() ? null : Instant.parse(text);
     }
 
     /** One key's state: what is true about it, and what the channels were last told. */
     static final class KeyState {
         final Object[] key;
-        Object[] row;
+        Object @Nullable [] row;
         boolean in;
+
+        @Nullable
         Instant inSince;
+
+        @Nullable
         Instant outSince;
+
         boolean firing;
         long episode;
         long fired;
+
+        @Nullable
         Instant firingSince;
+
+        @Nullable
         Instant clearedAt;
+
         String notified = "NONE";
+
+        @Nullable
         Instant lastNotifiedAt;
+
+        @Nullable
         Instant lastSentAt;
+
         int reminders;
+
+        @Nullable
         String acknowledgedBy;
+
+        @Nullable
         Instant acknowledgedAt;
+
         boolean inFlight;
+
+        @Nullable
         Instant retryAt;
+
+        @Nullable
         String lastError;
 
         KeyState(Object[] key) {

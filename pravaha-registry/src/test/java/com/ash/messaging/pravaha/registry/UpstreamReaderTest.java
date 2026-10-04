@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -166,7 +167,7 @@ class UpstreamReaderTest {
                         e -> assertThat(e.errorCode()).isEqualTo(RegistryErrors.CHAIN_UNSUPPORTED));
     }
 
-    private UpstreamReader follow(byte[] image) {
+    private UpstreamReader follow(byte @Nullable [] image) {
         UpstreamReader reader = new UpstreamReader("u", view, ROWS, image);
         reader.follow(() -> {});
         return reader;

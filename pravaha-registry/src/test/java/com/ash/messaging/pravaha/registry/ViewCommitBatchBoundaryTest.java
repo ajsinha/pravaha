@@ -72,6 +72,8 @@ class ViewCommitBatchBoundaryTest {
             .build();
 
     private RowArena arena;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryExecution execution;
 
     @BeforeEach

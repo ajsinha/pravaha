@@ -21,6 +21,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -57,7 +59,7 @@ public final class RegisteredQuery implements AutoCloseable {
     private final ViewSink sink;
     private final QueryExecution execution;
     private volatile SourceFeed feed = SourceFeed.NONE;
-    private volatile AutoCloseable checkpointer;
+    private volatile @Nullable AutoCloseable checkpointer;
     private final Instant registeredAt;
     private final java.util.List<com.ash.messaging.pravaha.sql.plan.ParameterPlacement> placements;
 
@@ -65,7 +67,7 @@ public final class RegisteredQuery implements AutoCloseable {
     private final AtomicLong watermarkNanos = new AtomicLong(Long.MIN_VALUE);
 
     private volatile QueryState state = QueryState.RUNNING;
-    private volatile PravahaException failure;
+    private volatile @Nullable PravahaException failure;
 
     RegisteredQuery(
             QueryFingerprint fingerprint,
@@ -243,7 +245,7 @@ public final class RegisteredQuery implements AutoCloseable {
         sharedLane = lane;
     }
 
-    private volatile Integer sharedLane;
+    private volatile @Nullable Integer sharedLane;
 
     /**
      * Where each of this query's parameters had to be applied, and what that cost (ADR-032).
@@ -351,7 +353,7 @@ public final class RegisteredQuery implements AutoCloseable {
      *
      * @param streamName which input the row arrived on, or null for a query that reads only one
      */
-    public boolean accept(String streamName, RowView row) {
+    public boolean accept(@Nullable String streamName, RowView row) {
         if (state != QueryState.RUNNING) {
             return false;
         }
@@ -486,7 +488,7 @@ public final class RegisteredQuery implements AutoCloseable {
      *     directly and has no name in mind
      */
     public Subscription subscribeAs(
-            String underName,
+            @Nullable String underName,
             SubscriptionOptions options,
             SubscriptionFilter filter,
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
@@ -843,7 +845,7 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /** What a restored checkpoint recorded of the answer this query follows, or null (ADR-056). */
-    byte[] restoredUpstreamInput() {
+    byte @Nullable [] restoredUpstreamInput() {
         return restoredUpstreamInput;
     }
 
@@ -853,8 +855,8 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     private volatile boolean restored;
-    private volatile byte[] restoredUpstreamInput;
-    private volatile java.util.function.Supplier<byte[]> upstreamCut;
+    private volatile byte @Nullable [] restoredUpstreamInput;
+    private volatile java.util.function.@Nullable Supplier<byte[]> upstreamCut;
 
     /** What the restored checkpoint recorded for the sink of registration {@code name}, taken once. */
     java.util.Optional<SinkDelivery.Restored> claimRestoredSink(String name) {
@@ -985,7 +987,7 @@ public final class RegisteredQuery implements AutoCloseable {
      * <p>Not a name it can be reached by: it is out of {@link #names} and the registry has
      * forgotten it. It exists so a refusal can be about the word the caller used.
      */
-    private String lastName;
+    private @Nullable String lastName;
 
     /** Any one of this computation's names, for a log line or a wire response. */
     public synchronized String name() {
@@ -1116,9 +1118,9 @@ public final class RegisteredQuery implements AutoCloseable {
      * nobody: the name is the other version's now. A subscription opened here would follow a view
      * no reader can reach, so it is refused rather than served.
      */
-    private volatile String replacedBy;
+    private volatile @Nullable String replacedBy;
 
-    void replacedBy(String version) {
+    void replacedBy(@Nullable String version) {
         this.replacedBy = version;
     }
 
@@ -1229,8 +1231,8 @@ public final class RegisteredQuery implements AutoCloseable {
         checkpointFailures.incrementAndGet();
     }
 
-    private volatile java.nio.file.Path checkpointDirectory;
-    private volatile String lastCheckpointFailure;
+    private volatile java.nio.file.@Nullable Path checkpointDirectory;
+    private volatile @Nullable String lastCheckpointFailure;
     private final AtomicLong checkpointFailures = new AtomicLong();
 
     /**

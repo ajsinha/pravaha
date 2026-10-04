@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.registry.alert;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.Principal;
@@ -112,7 +114,7 @@ public final class AlertStatementRunner {
         return row(summary.name(), summary.state(), detail);
     }
 
-    private static ViewQuery.Result row(String name, String state, String detail) {
+    private static ViewQuery.Result row(String name, String state, @Nullable String detail) {
         return new ViewQuery.Result(CHANGED, List.<Object[]>of(new Object[] {name, state, detail}));
     }
 }

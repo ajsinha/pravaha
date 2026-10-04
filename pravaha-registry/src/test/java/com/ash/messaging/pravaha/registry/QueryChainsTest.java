@@ -128,6 +128,7 @@ class QueryChainsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aPausedDownstreamHoldsItsAnswerAndCatchesUpWhenResumed() {
         QueryRegistry registry = registry(false);
         RegisteredQuery cleaned = registry.register("cleaned", CLEANED, List.of(0), DANA);

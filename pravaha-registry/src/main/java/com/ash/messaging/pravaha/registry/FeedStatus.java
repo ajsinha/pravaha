@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -52,7 +54,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * @param sources one entry per partition the feed reads, in the order it opened them; empty when
  *     nothing is bound
  */
-public record FeedStatus(State state, String description, List<Source> sources) {
+public record FeedStatus(State state, @Nullable String description, List<Source> sources) {
 
     /** The feed as a whole. */
     public enum State {
@@ -80,7 +82,12 @@ public record FeedStatus(State state, String description, List<Source> sources) 
      * @param shared the reader is one that several queries share (SRC-3), so its stop stops all of them
      * @param stop why it stopped, or null while it is reading
      */
-    public record Source(String stream, int partition, boolean shared, SourceState state, Stop stop) {
+    public record Source(
+            String stream,
+            int partition,
+            boolean shared,
+            SourceState state,
+            @Nullable Stop stop) {
 
         public Source {
             if (state == SourceState.STOPPED && stop == null) {
@@ -104,14 +111,14 @@ public record FeedStatus(State state, String description, List<Source> sources) 
      * @param origin true when this partition's own read raised it; false when it stopped because it
      *     shares a thread with one that did, or because publishing the query's frontier failed
      */
-    public record Stop(PravahaException failure, Instant at, boolean origin) {
+    public record Stop(PravahaException failure, @Nullable Instant at, boolean origin) {
 
         /** {@code PRV-5092}, or the source's own code. */
         public String code() {
             return failure.errorCode().code();
         }
 
-        public String message() {
+        public @Nullable String message() {
             return failure.getMessage();
         }
     }
@@ -130,7 +137,7 @@ public record FeedStatus(State state, String description, List<Source> sources) 
      * stopped, paused if every one is paused, running otherwise -- and running for a feed that
      * reports no sources at all, which is what an implementation that predates this says.
      */
-    public static FeedStatus of(String description, List<Source> sources) {
+    public static FeedStatus of(@Nullable String description, List<Source> sources) {
         State state = State.RUNNING;
         if (sources.stream().anyMatch(source -> source.state() == SourceState.STOPPED)) {
             state = State.STOPPED;
@@ -159,7 +166,8 @@ public record FeedStatus(State state, String description, List<Source> sources) 
     public Optional<Source> firstStopped() {
         List<Source> stopped = stoppedSources();
         return stopped.stream()
-                .filter(source -> source.stop().origin())
+                .filter(source -> java.util.Objects.requireNonNull(source.stop(), "a stopped source has its stop")
+                        .origin())
                 .findFirst()
                 .or(() -> stopped.stream().findFirst());
     }
@@ -174,7 +182,8 @@ public record FeedStatus(State state, String description, List<Source> sources) 
     public int failures() {
         Set<PravahaException> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Source source : stoppedSources()) {
-            seen.add(source.stop().failure());
+            seen.add(java.util.Objects.requireNonNull(source.stop(), "a stopped source has its stop")
+                    .failure());
         }
         return seen.size();
     }

@@ -35,6 +35,8 @@ import java.util.function.Function;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.plugin.HealthStatus;
 import com.ash.messaging.pravaha.api.plugin.Notification;
@@ -71,9 +73,9 @@ public final class WebhookNotifier implements NotifierPlugin {
     private static final java.util.Set<String> REFUSED = java.util.Set.of("secret", "token", "password", "key");
 
     private final Function<String, String> environment;
-    private HttpClient client;
-    private URI url;
-    private byte[] secret;
+    private @Nullable HttpClient client;
+    private @Nullable URI url;
+    private byte @Nullable [] secret;
     private String format = "json";
     private int retries = 4;
     private Duration backoff = Duration.ofMillis(500);
@@ -199,7 +201,8 @@ public final class WebhookNotifier implements NotifierPlugin {
             headers.forEach(request::header);
             boolean retryable;
             try {
-                HttpResponse<Void> response = client.send(request.build(), HttpResponse.BodyHandlers.discarding());
+                HttpResponse<Void> response = java.util.Objects.requireNonNull(client, "configured")
+                        .send(request.build(), HttpResponse.BodyHandlers.discarding());
                 int status = response.statusCode();
                 if (status >= 200 && status < 300) {
                     return Delivery.delivered(attempt, "HTTP " + status);
@@ -209,7 +212,11 @@ public final class WebhookNotifier implements NotifierPlugin {
             } catch (IOException e) {
                 // Never the URL: it can be a credential (url-env exists for that reason).
                 last = e.getClass().getSimpleName()
-                        + (e.getMessage() == null ? "" : ": " + e.getMessage()).replace(url.toString(), "<url>");
+                        + (e.getMessage() == null ? "" : ": " + e.getMessage())
+                                .replace(
+                                        java.util.Objects.requireNonNull(url, "configured")
+                                                .toString(),
+                                        "<url>");
                 retryable = true;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -250,7 +257,8 @@ public final class WebhookNotifier implements NotifierPlugin {
     }
 
     /** A value given inline ({@code inline}), from the environment, or from a file -- one of them. */
-    private String reference(Map<String, String> options, String inline, String env, String file, String what)
+    private @Nullable String reference(
+            Map<String, String> options, @Nullable String inline, String env, String file, String what)
             throws ConfigurationException {
         int given = (inline != null && options.containsKey(inline) ? 1 : 0)
                 + (options.containsKey(env) ? 1 : 0)

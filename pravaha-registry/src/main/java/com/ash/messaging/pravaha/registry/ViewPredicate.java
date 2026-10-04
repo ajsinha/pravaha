@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.registry;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
@@ -91,7 +93,7 @@ final class ViewPredicate {
      * that is not in the view would otherwise never hold, and "it never stopped" is the hardest
      * kind of wrong to notice.
      */
-    static ViewPredicate of(String column, String comparison, String value, StreamSchema schema) {
+    static ViewPredicate of(@Nullable String column, String comparison, String value, StreamSchema schema) {
         if (column == null || column.isBlank()) {
             throw new PravahaException(
                     DebugErrors.BAD_STEP, "a predicate needs a column of the view to compare; none was given");

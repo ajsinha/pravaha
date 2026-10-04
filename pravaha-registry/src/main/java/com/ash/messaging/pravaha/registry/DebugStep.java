@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.registry;
 import java.util.List;
 import java.util.OptionalLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.serving.ViewChange;
 
@@ -82,7 +84,13 @@ public record DebugStep(
      * What a caller asks for. Built through the factories, so an unreadable request is refused
      * where it is made rather than half-way through a step.
      */
-    public record Request(Kind kind, long count, long watermarkNanos, String column, String comparison, String value) {
+    public record Request(
+            Kind kind,
+            long count,
+            long watermarkNanos,
+            @Nullable String column,
+            @Nullable String comparison,
+            @Nullable String value) {
 
         /** One input row. */
         public static Request row() {
@@ -121,7 +129,7 @@ public record DebugStep(
          * over -- a Flight action's fields, a CLI flag, a JSON body -- would otherwise have to
          * agree on the same six and none of them wants five nulls.
          */
-        public static Request parse(String text) {
+        public static Request parse(@Nullable String text) {
             String request = text == null ? "" : text.strip();
             if (request.isEmpty() || request.equalsIgnoreCase("row")) {
                 return row();

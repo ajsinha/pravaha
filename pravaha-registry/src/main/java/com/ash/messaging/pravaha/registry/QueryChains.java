@@ -25,6 +25,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
@@ -388,7 +390,7 @@ final class QueryChains {
     }
 
     /** The names from {@code from} down its upstreams to {@code to}, or null when it does not reach. */
-    private List<String> pathTo(String from, String to, int guard) {
+    private @Nullable List<String> pathTo(String from, String to, int guard) {
         if (from.equals(to)) {
             return List.of(from);
         }
@@ -436,13 +438,17 @@ final class QueryChains {
                     + "answer again on top of what the view already counted, so the restore is refused");
         }
         StreamSchema schema = scanOf(plan, upstream);
-        UpstreamReader reader = new UpstreamReader(upstream, followed.view(), schema, image);
+        UpstreamReader reader = new UpstreamReader(
+                upstream,
+                followed.view(),
+                java.util.Objects.requireNonNull(schema, "the plan reads what it follows"),
+                image);
         var pump = execution.pumpInto(0, upstream, 0, reader, BackpressurePolicy.defaults());
         query.cuttingUpstreamWith(reader::cut);
         return Optional.of(new UpstreamFeed(name, upstream, followed, pump, reader, query).start());
     }
 
-    private static StreamSchema scanOf(PhysicalOperator plan, String name) {
+    private static @Nullable StreamSchema scanOf(PhysicalOperator plan, String name) {
         if (plan instanceof ScanOperator scan && scan.streamName().equals(name)) {
             return scan.outputSchema();
         }

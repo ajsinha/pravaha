@@ -114,6 +114,7 @@ class WindowLimitRegistrationTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void theArithmeticAndTheSetting() {
         WindowSpec seven = WindowSpec.hopping(86_400_000_000_000L, 7_000_000_000L);
         assertThat(WindowLimits.windowsPerRow(seven)).isEqualTo(12_343);

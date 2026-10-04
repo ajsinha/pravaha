@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
@@ -161,7 +163,7 @@ public final class QueryListing {
             return row;
         }
 
-        private static void set(String[] row, String field, String value) {
+        private static void set(String[] row, String field, @Nullable String value) {
             row[com.ash.messaging.pravaha.api.wire.ControlWire.listField(field)] = value;
         }
     }

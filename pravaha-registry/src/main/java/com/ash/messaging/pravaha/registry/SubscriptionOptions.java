@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.registry;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What a subscriber wants done when it cannot keep up (ADR-026).
  *
@@ -66,7 +68,8 @@ public record SubscriptionOptions(int bufferRows, Overflow overflow, Changes cha
     }
 
     /** The changelog, as every subscription had before {@link Changes} existed. */
-    public SubscriptionOptions(int bufferRows, Overflow overflow) {
+    @SuppressWarnings("NullAway") // the canonical constructor reads a null overflow as CONFLATE
+    public SubscriptionOptions(int bufferRows, @Nullable Overflow overflow) {
         this(bufferRows, overflow, Changes.CHANGELOG);
     }
 
@@ -75,7 +78,7 @@ public record SubscriptionOptions(int bufferRows, Overflow overflow, Changes cha
         return new SubscriptionOptions(bufferRows, overflow, Changes.ANSWER);
     }
 
-    public static SubscriptionOptions of(int bufferRows, Overflow overflow) {
+    public static SubscriptionOptions of(int bufferRows, @Nullable Overflow overflow) {
         return new SubscriptionOptions(bufferRows, overflow);
     }
 

@@ -48,6 +48,7 @@ class AlertServiceTest {
     @TempDir
     Path dir;
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private AlertFixture fixture;
 
     @AfterEach

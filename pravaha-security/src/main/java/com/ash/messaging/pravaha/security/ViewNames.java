@@ -15,8 +15,6 @@
  */
 package com.ash.messaging.pravaha.security;
 
-import org.jspecify.annotations.Nullable;
-
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -85,7 +83,8 @@ public final class ViewNames {
     }
 
     /** How {@code engineName} is shown to {@code principal}: bare in its own tenant, qualified outside it. */
-    public static @Nullable String shown(Principal principal, String engineName) {
+    @SuppressWarnings("NullAway") // null only for a null name, which only a caller outside NullAway passes
+    public static String shown(Principal principal, String engineName) {
         if (engineName == null) {
             return null;
         }
@@ -97,7 +96,7 @@ public final class ViewNames {
      * view of another tenant than the default as {@link #shown}, and a bare name as it is. A view reads
      * only its own tenant's views (ADR-056), so a bare name there is a stream or a default-tenant view.
      */
-    public static @Nullable String shownSource(Principal principal, String name) {
+    public static String shownSource(Principal principal, String name) {
         return qualifierAt(name) < 0 ? name : shown(principal, name);
     }
 

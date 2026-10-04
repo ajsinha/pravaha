@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.dlq.DeadLetterCounts;
 import com.ash.messaging.pravaha.runtime.dlq.DeadLetterEntry;
@@ -85,7 +87,8 @@ public final class DeadLetters {
     private final AuditSink audit;
     private final DeadLetterStore store;
 
-    public DeadLetters(QueryRegistry registry, SecurityPolicy policy, AuditSink audit, DeadLetterStore store) {
+    public DeadLetters(
+            QueryRegistry registry, SecurityPolicy policy, AuditSink audit, @Nullable DeadLetterStore store) {
         this.registry = registry;
         this.policy = policy == null ? SecurityPolicy.PERMISSIVE : policy;
         this.audit = audit == null ? AuditSink.NONE : audit;

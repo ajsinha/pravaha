@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The journalled registrations a recovery refused, kept visible until they are dropped or registered
  * again (RECOVERYHEALTH-1).
@@ -44,7 +46,8 @@ public final class RecoveryRefusals {
      * @param sql the registration's SQL, from the journal; empty when the entry was a replacement
      * @param owner the id the journal recorded as its owner; empty when it recorded none
      */
-    public record Refused(String name, String code, String reason, String sql, String owner) {}
+    public record Refused(
+            String name, String code, @Nullable String reason, String sql, String owner) {}
 
     private final Map<String, Refused> refused = new LinkedHashMap<>();
 
@@ -97,7 +100,10 @@ public final class RecoveryRefusals {
      * @return whether {@code name} was a refused registration; false leaves the drop to the registry
      */
     synchronized boolean drop(
-            String name, RegistryJournal journal, QueryCheckpoints checkpoints, List<RegisteredQuery> running) {
+            String name,
+            @Nullable RegistryJournal journal,
+            QueryCheckpoints checkpoints,
+            List<RegisteredQuery> running) {
         if (!refused.containsKey(name)) {
             return false;
         }
@@ -110,7 +116,7 @@ public final class RecoveryRefusals {
             boolean shared = running.stream()
                     .map(RegisteredQuery::checkpointDirectory)
                     .flatMap(Optional::stream)
-                    .anyMatch(path::equals);
+                    .anyMatch(java.util.Objects.requireNonNull(path, "checkpoints are enabled")::equals);
             if (!shared) {
                 checkpoints.delete(path);
             }
