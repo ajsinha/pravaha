@@ -2799,7 +2799,7 @@ A few findings are instructive about the method rather than about the engine.
       on the Java Flight SDK resolved two Netty lines and failed on its first call (SDKNETTYMIX-1). The
       SDK's own tests run inside the build and could not see it; the standalone check did.
 \item \textbf{Taking a figure again.} The per-operator metrics' cost had been quoted as 8\,\%; taken again
-      without the coverage agent it is about 12\,\% (PERF-1).
+      without the coverage agent it is about 12\,\% (PERF-1), and 10--13\,\% on Java~25.
 \end{itemize}
 
 The common thread is that each defect was invisible from where the previous tests stood --- inside the
@@ -2920,10 +2920,15 @@ kept unchanged as gate criteria, and ADR-042 records that restating the requirem
 
 There is no reference hardware. Every figure below was taken on one development machine: an AMD Ryzen
 AI~9 HX~370 laptop part, 12 physical cores of two designs (Zen~5 and Zen~5c) with SMT2 (24 logical),
-61~GiB of memory, OpenJDK~21.0.12 with G1. Every throughput and cost figure in this section was taken
-on Java~21, before 2.0 moved the engine to 25, and none has been re-taken on 25 (the heap figures of the
-adversarial replays, at the end of \Cref{sec:evaluation}'s figures, are on 25); the repository records
-the performance gates as not measured in the 2.0 pass. On 2026-09-20 the machine was running other build agents and
+61~GiB of memory. The figures were first taken on OpenJDK~21.0.12 with G1, between 9 and 29 September
+2026, and \textbf{re-measured on Java~25 (25.0.4.1) on 4 October 2026}, on the same machine (Linux
+7.1.5), with the same harnesses and settings, the coverage agent off, at load averages of 1.2--4.9 on 24
+logical processors (\code{docs/project/gates/measured-2026-10-04-jdk25/README.md}). Where both are known
+the tables give both; no figure regressed on 25. The two differ in a month of code as well as in the JDK,
+and because the class files are now Java~25 the two cannot be separated. Some figures were not re-taken
+--- the pipeline alone, the subscriber costs, the spill tier, and the firing of spilled windows and the
+exact sums recorded in commits --- and are on Java~21, as marked. On
+2026-09-20 the machine was running other build agents and
 containers throughout, with load averages between 5.8 and 77.8 on 24 logical processors, printed beside
 every figure. The evidence pack (\code{docs/project/gates/measured-2026-09-20/README.md}) says in its first
 section that the numbers are a floor for one machine on one afternoon and not the engine's capability,
@@ -2933,18 +2938,15 @@ and we repeat that here.
 
 \begin{center}
 \small
-\begin{tabular}{@{}L{0.30\linewidth}L{0.31\linewidth}L{0.29\linewidth}@{}}
+\begin{tabular}{@{}L{0.25\linewidth}L{0.24\linewidth}L{0.22\linewidth}L{0.19\linewidth}@{}}
 \toprule
-\textbf{Measurement} & \textbf{Figure} & \textbf{Conditions and source}\\
+\textbf{Measurement} & \textbf{Java~21} & \textbf{Java~25, 2026-10-04} & \textbf{Source}\\
 \midrule
-Profile A, one lane, warm pool (512 rows, in L2) & best of five 29.9--31.0~M rows/s over three runs & load 6.5--9.2; \cls{ProfileAGateIT}\\
-Profile A, through the registry and a served view, cold pool (34.7~MiB) & best 5.9--18.5~M rows/s; worst single pass 1{,}043{,}974 rows/s & load 23.5--77.0; the worst pass is the one below the 1.2~M target\\
-Profile B, windowed aggregate, 100{,}000 Zipf keys & best 2.47--2.85~M rows/s; worst of fifteen passes 1.10~M & load 7.2--8.1; \cls{ProfileBGateIT}\\
-Scaling, one lane to eight (2026-09-20) & 28--42\,\% of linear, eight runs & JaCoCo agent attached (found later); \cls{ProfileAGateIT}\\
-Scaling, one lane to eight (2026-09-26) & 33--46\,\% of linear & agent removed; load 1.1--4.4\\
-Scaling, one lane to eight (2026-09-29) & 30--31\,\% of linear & every harness refusing the agent
-(PERF-1); load 3.1--5.2\\
-The machine's own scaling, 16 independent threads & 51--55\,\% of linear & \code{machineScalingReference} arm\\
+Profile A, one lane, warm pool (512 rows, in L2) & best of five 29.9--31.0~M rows/s over three runs, load 6.5--9.2, coverage agent attached & best 55.2--59.6~M over three runs, load 1.3--4.9 & \cls{ProfileAGateIT}\\
+Profile A, through the registry and a served view, cold pool (34.7~MiB) & best 5.9--18.5~M; worst single pass 1{,}043{,}974 rows/s, below the 1.2~M target, at load 77.0 & best 46.1--49.6~M; worst pass 29.7~M, load 4.2 & \cls{ProfileAGateIT}\\
+Profile B, windowed aggregate, 100{,}000 Zipf keys & best 2.47--2.85~M; worst of fifteen passes 1.10~M; load 7.2--8.1 & best 2.30--2.73~M over four runs; worst of twenty 2.19~M; load 1.3--4.7 & \cls{ProfileBGateIT}\\
+Scaling, one lane to eight & 28--42\,\% (2026-09-20, agent attached); 33--46\,\% (09-26); 30--31\,\% (09-29, load 3.1--5.2) & 32--37\,\% of linear, load 1.3 & \cls{ProfileAGateIT}\\
+The machine's own scaling, 2 to 16 independent threads & 51--55\,\% of linear & 50\,\% & \code{machineScalingReference}\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -2953,19 +2955,22 @@ The per-lane throughput criteria of Profiles A and B are reached on this machine
 is not. The 2026-09-26 re-measurement found that every earlier scaling run carried a coverage agent whose
 shared probe arrays made eight lanes contend on the same cache lines; that JFR attributed half of each
 lane's samples to decoding a string column for every row in a text comparison, since fixed; and that the
-machine itself gives 51--55\,\% of linear for sixteen threads that share nothing. Against that ceiling the
-engine keeps 60--90\,\% of what the machine gives, but the gate is stated against linear and is recorded
+machine itself gives 51--55\,\% of linear for sixteen threads that share nothing (50\,\% on Java~25).
+Against that ceiling the engine keeps 60--90\,\% of what the machine gives (64--74\,\% on Java~25), but the gate is stated against linear and is recorded
 as not reached. Nothing here is evidence that the software scales, or that it does not.
 
 \subsection{Generated against interpreted code}
 
 A registered query's filter and projection have run generated code since 2026-09-26. The pipeline
 alone, fed in a loop on one thread, runs 106--118~million rows a second generated against 60--66~million
-interpreted, $1.7\times$. End to end through a lane the two are level, $0.95\times$ to $1.13\times$ by
-best pass, because one producer thread copying every row into the inbox is then the bound. The
-README's ``roughly $10\times$'' is a different measurement (\cls{ProfileABenchmark}: the generated batch
-loop against interpreted operators over one batch, with no pipeline, arena or sink around either), and
-the evidence pack says so.
+interpreted, $1.7\times$ (Java~21; not re-taken, since no harness reproduces it). End to end through a
+lane the two were level on Java~21, $0.95\times$ to $1.13\times$ by best pass, because one producer
+thread copying every row into the inbox is then the bound; on Java~25 the same interleaved comparison
+gives $1.27\times$ on one lane and $1.30\times$ through the registry, one run. \cls{ProfileABenchmark}
+--- the generated batch loop against interpreted operators over one batch, with no pipeline, arena or
+sink around either --- read ``roughly $10\times$'' on Java~21 on 2026-09-09 and reads $3.5\times$ on
+Java~25 (317 against 91~million rows a second): the interpreted arm is $3.2\times$ faster, most likely
+because its text comparison no longer decodes the column for every row.
 
 \subsection{Nexmark coverage}
 
@@ -2977,7 +2982,7 @@ repository. What was measured is how many of the 23 published queries the engine
 grouping (five queries, refused for unbounded state), a window aggregate over a row frame, session
 windows, processing time, a user-defined function, and a partitioned file sink. Throughputs of the
 twelve that run were recorded once, at load 2.53, from the harness's own generator: from 65{,}705 rows/s
-(q20) to 6{,}934{,}430 (q2). The pack says these ``are not Nexmark numbers and must never be presented as
+(q20) to 6{,}934{,}430 (q2) on Java~21, and from 100{,}614 to 12{,}214{,}222 on Java~25 at load 1.6. The pack says these ``are not Nexmark numbers and must never be presented as
 any'', because the data is not Nexmark's and the missing queries are the expensive ones; we do not
 present them as such.
 
@@ -2992,8 +2997,8 @@ present them as such.
 Off-heap per idle query on its own lane & 1{,}024~KiB (the inbox) & \cls{NodeScaleTest}, \code{OPERATIONS.md}\\
 Off-heap per active query on its own lane & 1{,}328~KiB & \cls{NodeScaleTest}\\
 Platform threads added by 1{,}000 queries, 24 cores & $+24$ & \cls{ThousandQueryTest}, \code{EXECUTION\_MODEL.md} \S6\\
-Off-heap for 1{,}000 queries, default / advised sizing & 1{,}000~MiB / 61~MiB & \cls{ThousandQueryTest}\\
-Registration, per query, 1{,}000 queries & 3.7~ms & \cls{ThousandQueryTest}\\
+Off-heap for 1{,}000 queries, default / advised sizing & 1{,}001~MiB / 62~MiB on Java~25 & \cls{ThousandQueryTest}\\
+Registration, per query, 1{,}000 queries & 2.6~ms on Java~25 (3.7~ms on 21) & \cls{ThousandQueryTest}\\
 Before lane multiplexing (ADR-036) & 1.00 thread and $\sim$5~MiB per query & \cls{NodeScaleTest}, recorded as the ``before'' figures\\
 1{,}000 queries over one source, shared lanes & 8 lanes, 8 copies of each row & \cls{SharedLaneDensityTest}\\
 Four queries over one Aerospike set, shared reader & 1.0 scans/s in total, where it was 1.0 each & ADR-036, against a real single-node cluster\\
@@ -3008,7 +3013,7 @@ cost.
 
 \subsection{Subscribers, state beyond memory, and instrumentation}
 
-\paragraph{Subscribers.} \cls{SubscriptionIngestCostTest} (ADR-026) measured one query, 100{,}000
+\paragraph{Subscribers.} On Java~21, \cls{SubscriptionIngestCostTest} (ADR-026) measured one query, 100{,}000
 distinct keys, a commit every 250 rows, at load 10.36. In process, with a consumer that returns at once,
 ingest was flat in subscriber count: 680{,}474 rows/s with none and 663{,}204 with twenty. Over Flight,
 with subscribers connected and never reading, it fell from 536{,}768 with none to 130{,}656 with twenty.
@@ -3017,21 +3022,22 @@ call thread, and has no call that hands an already-serialised batch to a second 
 subscriber capacity is therefore bounded by serialisation and linear in subscribers; ADR-026 records
 that an earlier ``encode once, write $N$ times'' claim was never true.
 
-\paragraph{State larger than memory.} ADR-044 measured the memory-mapped overflow tier twice
+\paragraph{State larger than memory.} On Java~21, ADR-044 measured the memory-mapped overflow tier twice
 (\cls{SpillTierMeasurementIT}, \cls{SpillBeyondRamMeasurementIT}, the second under a cgroup memory cap
 with swap off). While the page cache holds the spilled state, throughput stays within about $2\times$ of
 RAM; once the state exceeds what the node can cache, a random lookup costs page faults and throughput
 falls to about 1{,}000--2{,}500 operations a second on the machine's NVMe, against 160{,}000--540{,}000
 cached. The tier is off by default and documented as survival, not capacity.
 
-\paragraph{Instrumentation.} Per-operator counters and sampled self time cost about 12\,\% of a narrow
-query's throughput (\cls{OperatorMetricsOverheadIT}: 12.6, 11.9 and 11.5\,\% in three runs at load 1.7--3.9
-on 24 logical processors), so they are compiled in only when switched on. The first edition quoted
+\paragraph{Instrumentation.} Per-operator counters and sampled self time cost about 10--13\,\% of a
+narrow query's throughput (\cls{OperatorMetricsOverheadIT} on Java~25: 9.4, 10.1 and 10.5\,\% in three runs
+at load 2.2--3.2, 12.6\,\% in a rerun at load 1.2; on Java~21, 12.6, 11.9 and 11.5\,\% at load 1.7--3.9, on
+24 logical processors), so they are compiled in only when switched on. The first edition quoted
 8\,\%, a figure taken with a coverage agent attached; every timing harness now declines to report under
 one (PERF-1).
 
 \paragraph{Figures taken since the first edition.} Each is from the commit or release note that
-recorded it, on the same machine.
+recorded it, on the same machine, on Java~21 except where a Java~25 figure is given.
 \begin{itemize}[leftmargin=*,itemsep=2pt]
 \item \emph{Firing spilled windows.} Firing a window and discarding dead slices had walked every
       accumulator in the index's hash order, a random read each; walking the store slab by slab instead,
@@ -3041,7 +3047,8 @@ recorded it, on the same machine.
 \item \emph{Restarting with generated code.} A node with a journal and checkpoints restarted with 100, 500
       and 1{,}000 distinct queries in 0.51, 1.04 and 1.54~s, of which compiling the generated pipelines was
       0.23, 0.76 and 1.15~s; without the code generator the restarts took 0.28, 0.28 and 0.39~s (warm JVM,
-      load 3--4, \cls{RestartCompileIT}). Every query is running generated code when the restart returns.
+      load 3--4, \cls{RestartCompileIT}, Java~21). On Java~25: 0.41, 0.88 and 1.21~s, of which compiling
+      was 0.25, 0.55 and 0.74~s, and 0.16, 0.33 and 0.47~s without the generator (load 1.4--1.7). Every query is running generated code when the restart returns.
 \item \emph{Exact sums.} Netting sums in 128 bits within a batch (\Cref{sec:bounds}) left throughput
       where it was: the commit that made the change records the pairs 19.2 and 19.7~ns a row for a
       global sum, 35.5 and 34.4 keyed, 98.5 and 98.8 windowed, and no load average, so we read them only

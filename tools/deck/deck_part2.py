@@ -313,13 +313,13 @@ PART5: list[dict[str, Any]] = [
     },
     {
         "kind": "stats",
-        "kicker": "Measured on the development machine",
+        "kicker": "Measured on the development machine, JDK 25, 2026-10-04",
         "title": "Threads follow cores, not queries",
         "stats": [
             ("24 threads", "Added by 200 queries on 24 cores — where they once added 400"),
             ("~1 MiB", "Off-heap per idle query on a lane of its own; 1.3 MiB active"),
-            ("3.7 ms", "To register each of a thousand distinct continuous queries"),
-            ("61 MiB", "Off-heap for those thousand, at the advised inbox sizing"),
+            ("2.6 ms", "To register each of a thousand distinct continuous queries (3.7 ms on JDK 21)"),
+            ("62 MiB", "Off-heap for those thousand, at the advised inbox sizing"),
         ],
         "items": [
             ("The per-query megabyte is the inbox",
@@ -332,7 +332,8 @@ PART5: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: README.md 'Many queries on one node' and 'Performance' (200 queries, 24 "
-        "threads; 1 MiB idle; 3.7 ms and 61 MiB, NodeScaleTest and SourceScaleTest); "
+        "threads; 1 MiB idle; 3.7 ms and 61 MiB on JDK 21, NodeScaleTest and SourceScaleTest); "
+        "docs/project/gates/measured-2026-10-04-jdk25/README.md (ThousandQueryTest on JDK 25: 2.6 ms, 62 MiB); "
         "docs/operations/OPERATIONS.md 'Sizing a node for many queries' (1,024 KiB, 1,328 KiB, 64 KiB) and "
         "'Sharing lanes between queries' (SRC-2).",
     },

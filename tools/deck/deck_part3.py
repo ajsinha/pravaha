@@ -932,10 +932,10 @@ PART9: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "Shipped beside them: four Grafana dashboards, Prometheus rules (and a Helm "
         "PrometheusRule), JSON logs with correlation and trace ids, OpenTelemetry tracing (off by "
-        "default). Per-operator metrics cost about 12 % of throughput, so they are off by default.",
+        "default). Per-operator metrics cost about 10–13 % of throughput (JDK 25), so they are off by default.",
         "source": "Source: docs/operations/OPERATIONS.md 'Watching a running node' (per-query and per-node tables; "
         "FEED-1; ADR-037 B1); docs/project/RELEASE_NOTES.md '1.0.0' (Observability, built out; PERF-1: about "
-        "12 %, re-taken without the coverage agent).",
+        "12 %, re-taken without the coverage agent); OPERATIONS.md 'What it costs' (10–13 % on JDK 25, 2026-10-04).",
     },
     {
         "kind": "flow",
