@@ -126,6 +126,13 @@ public final class PravahaFlightClient implements AutoCloseable {
     private final java.util.Set<Subscription> subscriptions = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
+     * Results opened and not yet closed (SDKCLOSE-1): {@link #close} closes them, or the allocator
+     * underneath them refused to close with an uncoded "Memory was leaked" that replaced whatever the
+     * caller's own try block had returned or thrown.
+     */
+    private final java.util.Set<QueryResult> results = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
      * The node this client was pointed at, as {@code host:port}.
      *
      * <p>Held only to name it in a failure. E-7: "io exception" is what a dead server used to say,
@@ -1077,7 +1084,9 @@ public final class PravahaFlightClient implements AutoCloseable {
         FlightStream stream = client.getStream(info.getEndpoints().get(0).getTicket(), callOptions);
         OpenDeadline opening = OpenDeadline.arm(stream, deadline);
         try {
-            return new QueryResult(stream, this);
+            QueryResult result = new QueryResult(stream, this, results::remove);
+            results.add(result);
+            return result;
         } catch (FlightRuntimeException e) {
             throw openFailureOf(e, opening, call, ClientErrors.QUERY_REFUSED);
         }
@@ -1168,6 +1177,12 @@ public final class PravahaFlightClient implements AutoCloseable {
             subscription.close();
         }
         subscriptions.clear();
+        // Then any result the caller did not close, for the same reason: its stream holds buffers
+        // from this client's allocator, which refuses to close while they are outstanding.
+        for (QueryResult result : java.util.List.copyOf(results)) {
+            result.close();
+        }
+        results.clear();
         try {
             client.close();
         } catch (Exception e) {

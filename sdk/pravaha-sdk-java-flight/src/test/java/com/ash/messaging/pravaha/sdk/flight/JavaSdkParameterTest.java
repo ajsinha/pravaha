@@ -207,4 +207,17 @@ class JavaSdkParameterTest {
                 .isInstanceOf(PravahaClientException.class)
                 .hasMessageContaining("more decimal places");
     }
+
+    @Test
+    void closingTheClientClosesAResultItsCallerLeftOpen() {
+        // SDKCLOSE-1: the allocator refused to close under an unclosed result, and its uncoded
+        // IllegalStateException ("Memory was leaked") replaced whatever the try block returned.
+        PravahaFlightClient careless = PravahaFlightClient.connect("grpc://localhost:" + server.port());
+        QueryResult leftOpen = careless.query("SELECT user_id FROM user_volume WHERE total > ?", 40L);
+        assertThat(leftOpen.toList()).hasSize(2);
+        org.assertj.core.api.Assertions.assertThatCode(careless::close).doesNotThrowAnyException();
+        org.assertj.core.api.Assertions.assertThatCode(leftOpen::close)
+                .as("and the caller closing it afterwards is harmless")
+                .doesNotThrowAnyException();
+    }
 }

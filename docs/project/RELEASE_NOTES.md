@@ -70,6 +70,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `SSLHandshakeException` or certificate exception in the cause chain) is now the new
   `PRV-1046 CLIENT_TLS_HANDSHAKE_FAILED`, not retryable, carrying the JVM's reason. The Python SDK
   already said "certificate verify failed" under `PRV-1040` and is unchanged.
+- **Closing the Java client closes the results its caller left open** (SDKCLOSE-1).
+  `client.query(sql).toList()` without closing the `QueryResult`, then `client.close()`, threw an
+  uncoded `IllegalStateException: Memory was leaked by query` from the Arrow allocator, replacing
+  whatever the try block had returned or thrown. The client now tracks open results and closes them
+  (after its subscriptions) before its allocator; closing a result twice is harmless.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 
