@@ -64,9 +64,4 @@ class PostgresCdcSnapshotTckTest extends SourcePluginTck {
     protected int expectedRecordCount() {
         return RECORDS;
     }
-
-    @Override
-    protected RowCollector newCollector(StreamSourcePlugin plugin) {
-        return new ArenaCollector(plugin.discoverSchemas().get(0));
-    }
 }

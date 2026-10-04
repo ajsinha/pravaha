@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -95,7 +96,7 @@ class ParquetFeedTest {
         writeParquet(dir.resolve("orders-02.parquet"), 4L, 5L);
 
         FeedFileSourcePlugin plugin = open(dir);
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             while (reader.poll(collector, 64) > 0) {
@@ -128,7 +129,7 @@ class ParquetFeedTest {
                         "completion", "immediate",
                         "event.time", "id")));
         plugin.open();
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             while (reader.poll(collector, 64) > 0) {
@@ -145,14 +146,14 @@ class ParquetFeedTest {
         FeedFileSourcePlugin plugin = open(dir);
 
         SourceOffset checkpoint;
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 2)).isEqualTo(2);
             checkpoint = reader.position();
         }
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader resumed =
                         plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
             while (resumed.poll(collector, 64) > 0) {
@@ -173,7 +174,7 @@ class ParquetFeedTest {
         FeedFileSourcePlugin plugin = open(dir);
 
         SourceOffset checkpoint;
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 2)).isEqualTo(2);
@@ -186,7 +187,7 @@ class ParquetFeedTest {
         Files.delete(dir.resolve("orders-01.parquet"));
         writeParquet(dir.resolve("orders-02.parquet"), 5L, 6L);
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader resumed =
                         plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> resumed.poll(collector, 64))
@@ -210,7 +211,7 @@ class ParquetFeedTest {
         FeedFileSourcePlugin plugin = open(dir);
 
         SourceOffset checkpoint;
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             while (reader.poll(collector, 64) > 0) {
@@ -221,7 +222,7 @@ class ParquetFeedTest {
 
         Files.delete(dir.resolve("orders-01.parquet"));
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader resumed =
                         plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
             org.assertj.core.api.Assertions.assertThatCode(() -> resumed.poll(collector, 64))

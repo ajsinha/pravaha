@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -83,10 +84,10 @@ class JdbcLookupPluginTest {
 
     /** Collects the rows a lookup writes. */
     private static final class Collector implements PartitionReader.RecordSink {
-        private final JdbcCollector delegate;
+        private final ArenaRowCollector delegate;
 
         Collector(JdbcLookupPlugin plugin) {
-            this.delegate = new JdbcCollector(plugin.schema());
+            this.delegate = new ArenaRowCollector(plugin.schema());
         }
 
         @Override

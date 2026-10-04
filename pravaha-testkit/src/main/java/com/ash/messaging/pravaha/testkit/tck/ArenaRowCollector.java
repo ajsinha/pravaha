@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.plugin.pgcdc;
+package com.ash.messaging.pravaha.testkit.tck;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,38 +27,54 @@ import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
-import com.ash.messaging.pravaha.testkit.tck.SourcePluginTck;
 
 /**
- * Collects emitted rows into an arena, the way a lane does.
+ * Collects a reader's rows into an arena, the way a lane does: the TCK's default collector, and one a
+ * plugin's own tests can use (TCKCOLLECT-1).
  *
- * <p>Records on {@code commit}, never on {@code beginRow}. A collector that counted begun rows
- * would hide a reader that starts rows it does not finish, and the tests would then encode that
- * behaviour as correct.
+ * <p>Every source plugin's TCK test used to carry its own copy of these 175 lines. Into an arena rather
+ * than into objects on purpose: a collector that materialised each row as a map would not exercise the
+ * writer the engine actually uses, and the row layout is where several of this project's real defects
+ * have lived. Rows are recorded on {@code commit}, never on {@code beginRow}: a collector that counted
+ * begun rows would hide a reader that starts rows it does not finish, and the tests would then encode
+ * that behaviour as correct. An aborted row is not recorded.
+ *
+ * <p>The rows are views into the arena, valid until {@link #close()}.
  */
-final class ArenaCollector implements SourcePluginTck.RowCollector {
+public final class ArenaRowCollector implements SourcePluginTck.RowCollector {
+
+    /** Variable-length bytes reserved per row unless a test says otherwise. */
+    public static final int DEFAULT_VARIABLE_BYTES = 512;
 
     private final RowLayout layout;
+    private final int variableBytes;
     private final RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 64);
     private final BinaryRowWriter writer;
     private final List<RowView> rows = new ArrayList<>();
 
-    ArenaCollector(StreamSchema schema) {
+    public ArenaRowCollector(StreamSchema schema) {
+        this(schema, DEFAULT_VARIABLE_BYTES);
+    }
+
+    /** @param variableBytes room for strings and byte arrays in one row; a wider row is refused */
+    public ArenaRowCollector(StreamSchema schema, int variableBytes) {
         this.layout = RowLayout.of(schema);
+        this.variableBytes = variableBytes;
         this.writer = new BinaryRowWriter(layout);
     }
 
     @Override
     public RowWriter beginRow() {
-        long handle = arena.allocate(layout.rowSize(512));
+        long handle = arena.allocate(layout.rowSize(variableBytes));
         if (handle == ArenaHandle.NULL) {
-            throw new IllegalStateException("collector arena exhausted");
+            throw new IllegalStateException("the collector's arena is exhausted; a TCK fixture should be small");
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-        return new Recording(
+        return new CommitRecording(
                 writer, () -> rows.add(new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle))));
     }
 
+    /** The committed rows, in the order they were committed. */
     @Override
     public List<RowView> rows() {
         return rows;
@@ -69,7 +85,8 @@ final class ArenaCollector implements SourcePluginTck.RowCollector {
         arena.close();
     }
 
-    private record Recording(BinaryRowWriter delegate, Runnable onCommit) implements RowWriter {
+    /** Delegates everything, and records the row when it is committed. */
+    private record CommitRecording(BinaryRowWriter delegate, Runnable onCommit) implements RowWriter {
 
         @Override
         public StreamSchema schema() {

@@ -138,6 +138,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   occurred. The defaults keep that behaviour (every read admitted, no deadline); a value out of range
   stops the node with `PRV-1026` naming the key; the node logs the limits at start, and
   `pravaha_read_refused_total{reason}` and `pravaha_read_in_flight` are published.
+- **The testkit has a shared row collector and a sink TCK** (TCKCOLLECT-1). `ArenaRowCollector` is the
+  source TCK's default collector, so a connector's TCK test no longer carries its own 175-line copy; the
+  JDBC, Delta, feed-file, PostgreSQL CDC and filesystem plugins use it (Aerospike and Cassandra, whose
+  tests need Docker, keep theirs). `SinkPluginTck` holds a sink to its declared capabilities against what
+  the destination holds: whole batches, keys, retractions, upserts, idempotent replay, and for a
+  transactional sink invisibility before commit, idempotent commit, abort, and commit-or-discard after a
+  restart. The JDBC sink runs it in both of its shapes. There is no lookup TCK yet.
 
 Register: **572 findings — 549 fixed, 4 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
 

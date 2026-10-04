@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.PushdownKind;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -88,7 +89,7 @@ class JdbcProjectionAndPartialTest {
         return plugin;
     }
 
-    private static List<RowView> drain(PartitionReader reader, JdbcCollector collector, int batch) {
+    private static List<RowView> drain(PartitionReader reader, ArenaRowCollector collector, int batch) {
         while (reader.poll(collector, batch) > 0) {
             // each poll returns what is ready
         }
@@ -140,7 +141,7 @@ class JdbcProjectionAndPartialTest {
         // QTY for the engine; UPDATED_AT and ID because the reader orders and resumes by them.
         assertThat(plugin.pollQueryFor(request)).startsWith("SELECT ID, QTY, UPDATED_AT FROM sales");
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), null, request)) {
             List<RowView> rows = drain(reader, collector, 64);
@@ -178,7 +179,7 @@ class JdbcProjectionAndPartialTest {
 
         assertThat(plugin.pollQueryFor(request)).contains("WHERE REGION = ? AND ((QTY < ?) OR (QTY > ?))");
 
-        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), null, request)) {
             assertThat(drain(reader, collector, 64).stream()
@@ -248,7 +249,7 @@ class JdbcProjectionAndPartialTest {
 
         Map<Integer, long[]> actual = new TreeMap<>();
         SourceOffset midway;
-        JdbcCollector first = new JdbcCollector(grouped());
+        ArenaRowCollector first = new ArenaRowCollector(grouped());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), null, request)) {
             assertThat(reader.deliversPartialAggregate()).isTrue();
@@ -263,7 +264,7 @@ class JdbcProjectionAndPartialTest {
             assertThat(((JdbcPartialAggregateReader) reader).pages()).isEqualTo(4);
             assertThat(((JdbcPartialAggregateReader) reader).rowsSummarised()).isEqualTo(20);
         }
-        JdbcCollector rest = new JdbcCollector(grouped());
+        ArenaRowCollector rest = new ArenaRowCollector(grouped());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), midway, request)) {
             drain(reader, rest, 5);
@@ -296,7 +297,7 @@ class JdbcProjectionAndPartialTest {
                 .field("NONNULL", Types.int64())
                 .build();
 
-        JdbcCollector collector = new JdbcCollector(global);
+        ArenaRowCollector collector = new ArenaRowCollector(global);
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("sales").get(0), null, request)) {
             // COUNT(*) with no GROUP BY answers (0, 0) over no rows; writing it would tell the

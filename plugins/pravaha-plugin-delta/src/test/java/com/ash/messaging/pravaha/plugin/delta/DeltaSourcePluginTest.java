@@ -29,6 +29,7 @@ import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,7 +54,7 @@ class DeltaSourcePluginTest {
     }
 
     /** Drains a reader completely, which for a Delta table means "until the table stops moving". */
-    private static List<RowView> drain(PartitionReader reader, DeltaCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, ArenaRowCollector collector) {
         while (reader.poll(collector, 128) > 0) {
             // keep going: each poll returns what was ready, not what will ever exist
         }
@@ -71,7 +72,7 @@ class DeltaSourcePluginTest {
         assertThat(schema.field(0).name()).isEqualTo("id");
         assertThat(schema.field(1).name()).isEqualTo("name");
 
-        try (DeltaCollector collector = new DeltaCollector(schema);
+        try (ArenaRowCollector collector = new ArenaRowCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
@@ -101,7 +102,7 @@ class DeltaSourcePluginTest {
         plugin.open();
         StreamSchema schema = plugin.discoverSchemas().get(0);
         assertThat(schema.eventTimeOrdinal()).hasValue(2);
-        try (DeltaCollector collector = new DeltaCollector(schema);
+        try (ArenaRowCollector collector = new ArenaRowCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
@@ -129,7 +130,7 @@ class DeltaSourcePluginTest {
 
         DeltaSourcePlugin plugin = openPlugin(table);
         StreamSchema schema = plugin.discoverSchemas().get(0);
-        try (DeltaCollector collector = new DeltaCollector(schema);
+        try (ArenaRowCollector collector = new ArenaRowCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(2);
@@ -156,7 +157,7 @@ class DeltaSourcePluginTest {
 
         DeltaSourcePlugin plugin = openPlugin(table);
         StreamSchema schema = plugin.discoverSchemas().get(0);
-        try (DeltaCollector collector = new DeltaCollector(schema);
+        try (ArenaRowCollector collector = new ArenaRowCollector(schema);
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("people").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(4);
@@ -200,14 +201,14 @@ class DeltaSourcePluginTest {
 
         SourceOffset checkpoint;
         List<Long> first;
-        try (DeltaCollector collector = new DeltaCollector(schema);
+        try (ArenaRowCollector collector = new ArenaRowCollector(schema);
                 PartitionReader reader = plugin.createReader(partition, SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 2)).isEqualTo(2);
             checkpoint = reader.position();
             first = collector.rows().stream().map(r -> r.getLong(0)).toList();
         }
 
-        try (DeltaCollector collector = new DeltaCollector(schema);
+        try (ArenaRowCollector collector = new ArenaRowCollector(schema);
                 PartitionReader resumed = plugin.createReader(partition, checkpoint)) {
             List<Long> rest =
                     drain(resumed, collector).stream().map(r -> r.getLong(0)).toList();

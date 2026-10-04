@@ -32,6 +32,7 @@ import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
+import com.ash.messaging.pravaha.testkit.tck.ArenaRowCollector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -65,7 +66,7 @@ class FeedFileSourcePluginTest {
         Files.writeString(dir.resolve(name), String.join("\n", lines) + "\n");
     }
 
-    private static List<RowView> drain(PartitionReader reader, FeedCollector collector) {
+    private static List<RowView> drain(PartitionReader reader, ArenaRowCollector collector) {
         while (reader.poll(collector, 64) > 0) {
             // each poll returns what is ready, not what will ever exist
         }
@@ -82,7 +83,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-02.csv", "3,cat,30.25", "4,dan,");
 
         FeedFileSourcePlugin plugin = open(dir, Map.of());
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
@@ -105,7 +106,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-01.csv", "1,ann,10.5");
         FeedFileSourcePlugin plugin = open(dir, Map.of("completion", "marker"));
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 64))
@@ -148,7 +149,7 @@ class FeedFileSourcePluginTest {
         FeedFileSourcePlugin plugin = open(dir, Map.of());
 
         SourceOffset checkpoint;
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(reader.poll(collector, 2)).isEqualTo(2);
@@ -156,7 +157,7 @@ class FeedFileSourcePluginTest {
             assertThat(collector.rows().stream().map(r -> r.getLong(0))).containsExactly(1L, 2L);
         }
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader resumed =
                         plugin.createReader(plugin.partitions("orders").get(0), checkpoint)) {
             assertThat(drain(resumed, collector).stream().map(r -> r.getLong(0)))
@@ -170,7 +171,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-01.csv", "1,a,1.0");
         FeedFileSourcePlugin plugin = open(dir, Map.of());
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(1);
@@ -186,7 +187,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-01.csv", "1,\"Smith, Ann\",10.5", "2,\"say \"\"hi\"\"\",20.0");
         FeedFileSourcePlugin plugin = open(dir, Map.of());
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
@@ -203,7 +204,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-03.csv", "3,c,3.0");
 
         FeedFileSourcePlugin plugin = open(dir, Map.of("quarantine.dir", quarantine.toString()));
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);
@@ -221,7 +222,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-01.csv", "oops,a,1.0");
         FeedFileSourcePlugin plugin = open(dir, Map.of());
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThatThrownBy(() -> reader.poll(collector, 64))
@@ -239,7 +240,7 @@ class FeedFileSourcePluginTest {
         writeCsv(dir, "orders-01.csv", "1,a,1.0");
         FeedFileSourcePlugin plugin = open(dir, Map.of("archive.dir", archive.toString()));
 
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             assertThat(drain(reader, collector)).hasSize(1);
@@ -275,7 +276,7 @@ class FeedFileSourcePluginTest {
         FeedFileSourcePlugin plugin = new FeedFileSourcePlugin();
         plugin.configure(new Ctx("orders", config));
         plugin.open();
-        try (FeedCollector collector = new FeedCollector(plugin.schema());
+        try (ArenaRowCollector collector = new ArenaRowCollector(plugin.schema());
                 PartitionReader reader =
                         plugin.createReader(plugin.partitions("orders").get(0), SourceOffset.BEGINNING)) {
             List<RowView> rows = drain(reader, collector);

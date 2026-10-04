@@ -70,9 +70,4 @@ class DeltaSourceTckTest extends SourcePluginTck {
     protected int expectedRecordCount() {
         return RECORDS;
     }
-
-    @Override
-    protected RowCollector newCollector(StreamSourcePlugin plugin) {
-        return new DeltaCollector(plugin.discoverSchemas().get(0));
-    }
 }

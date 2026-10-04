@@ -79,9 +79,4 @@ class FeedFileSourceTckTest extends SourcePluginTck {
     protected int expectedRecordCount() {
         return RECORDS;
     }
-
-    @Override
-    protected RowCollector newCollector(StreamSourcePlugin plugin) {
-        return new FeedCollector(plugin.discoverSchemas().get(0));
-    }
 }

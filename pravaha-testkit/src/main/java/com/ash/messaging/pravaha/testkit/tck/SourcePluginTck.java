@@ -55,6 +55,9 @@ import static org.assertj.core.api.Assertions.fail;
  *     protected int expectedRecordCount() { return 3; }
  * }
  * }</pre>
+ *
+ * <p>Rows are collected by an {@link ArenaRowCollector} unless {@link #newCollector} is overridden.
+ * A sink has its own suite, {@link SinkPluginTck}.
  */
 public abstract class SourcePluginTck {
 
@@ -67,8 +70,14 @@ public abstract class SourcePluginTck {
     /** How many records the fixture holds. Must be at least 3 so resume can be tested meaningfully. */
     protected abstract int expectedRecordCount();
 
-    /** Collects rows a reader produces. Supplied by the harness the plugin's tests already use. */
-    protected abstract RowCollector newCollector(StreamSourcePlugin plugin);
+    /**
+     * Collects rows a reader produces: by default an {@link ArenaRowCollector} over the plugin's first
+     * discovered schema, the way a lane does (TCKCOLLECT-1). Override for a stream with another schema,
+     * or for rows wider than {@link ArenaRowCollector#DEFAULT_VARIABLE_BYTES}.
+     */
+    protected RowCollector newCollector(StreamSourcePlugin plugin) {
+        return new ArenaRowCollector(plugin.discoverSchemas().get(0));
+    }
 
     /** What a TCK run needs from a collector. */
     public interface RowCollector extends PartitionReader.RecordSink, AutoCloseable {
