@@ -155,7 +155,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   embedded engine, which it did not before, so an application on the starter can limit reads as a node
   does. The IDE and build-and-test guides moved to `docs/development/setup/`.
 
-Register: **573 findings — 553 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **573 findings — 554 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.1.0 — 2026-10-03
 

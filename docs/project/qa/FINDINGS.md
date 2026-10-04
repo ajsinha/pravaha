@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **573 findings carrying a
-status — 553 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 554 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7793,6 +7793,5 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 ### STARTERREAD-1 (LOW) — the Spring Boot starter does not forward `pravaha.serving.read.*` to its embedded engine
 
-> **Status:** OPEN — the starter maps the embedded engine's keys explicitly and does not yet carry the new read-admission settings, so an application on the starter cannot set them through its own configuration; the embedded engine reads them only from its own Configuration.
-> **Disposition:** POST-GA — a small mapping; nothing behaves differently from before the settings existed.
+> **Status:** FIXED — PravahaProperties carries pravaha.serving.read.{max-concurrent, max-queued, queue-timeout, tenant-share, deadline}, each unset by default so the engine keeps its defaults, and the auto-configuration passes them to the embedded engine's own keys; an out-of-range value fails the application's startup with PRV-1026. PravahaAutoConfigurationTest#readAdmissionSettingsReachTheEngine; the starter's help topic and USER_GUIDE §10 list them.
 
