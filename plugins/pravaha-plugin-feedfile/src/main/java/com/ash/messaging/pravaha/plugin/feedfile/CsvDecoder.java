@@ -23,6 +23,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -45,11 +48,16 @@ final class CsvDecoder implements FeedRecordDecoder {
     private final String nullLiteral;
     private final boolean skipHeader;
 
-    private BufferedReader reader;
+    private @Nullable BufferedReader reader;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which comes before any read
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by open(), which comes before any read
     private Path file;
+
     private long lineNumber;
-    private String current;
+    private @Nullable String current;
     private int eventTimeOrdinal = -1;
     private long lastEventTimeNanos = Long.MIN_VALUE;
 
@@ -85,7 +93,7 @@ final class CsvDecoder implements FeedRecordDecoder {
 
     @Override
     public void write(RowWriter writer) {
-        String line = current;
+        String line = Objects.requireNonNull(current, "write() follows an advance() that returned true");
         List<String> fields = split(line);
         if (fields.size() != schema.fieldCount()) {
             throw new PravahaException(
@@ -104,9 +112,10 @@ final class CsvDecoder implements FeedRecordDecoder {
         return lastEventTimeNanos;
     }
 
-    private String readLine() {
+    private @Nullable String readLine() {
         try {
-            String line = reader.readLine();
+            String line = Objects.requireNonNull(reader, "open() comes before any read")
+                    .readLine();
             if (line != null) {
                 lineNumber++;
             }

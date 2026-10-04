@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -67,12 +69,25 @@ import com.ash.messaging.pravaha.api.plugin.Version;
 public final class FeedFileSourcePlugin implements StreamSourcePlugin {
 
     private String instanceName = "feedfile";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Path directory;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String streamName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private FeedDirectory feed;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Supplier<FeedRecordDecoder> decoders;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private FeedDirectory.Completion completion;
+
     private Optional<Path> archiveDir = Optional.empty();
     private Optional<Path> quarantineDir = Optional.empty();
 
@@ -234,7 +249,7 @@ public final class FeedFileSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return new FeedFilePartitionReader(feed, schema, decoders, archiveDir, quarantineDir, resumeFrom);
     }
 

@@ -21,8 +21,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -58,8 +61,8 @@ final class FeedFilePartitionReader implements PartitionReader {
     private final Optional<Path> quarantineDir;
 
     private FeedFileOffset offset;
-    private FeedRecordDecoder decoder;
-    private Path openPath;
+    private @Nullable FeedRecordDecoder decoder;
+    private @Nullable Path openPath;
     private boolean paused;
     private boolean currentFileDone;
     private long recordsInFile;
@@ -71,7 +74,7 @@ final class FeedFilePartitionReader implements PartitionReader {
             Supplier<FeedRecordDecoder> decoders,
             Optional<Path> archiveDir,
             Optional<Path> quarantineDir,
-            SourceOffset resumeFrom) {
+            @Nullable SourceOffset resumeFrom) {
         this.feed = feed;
         this.schema = schema;
         this.decoders = decoders;
@@ -101,6 +104,7 @@ final class FeedFilePartitionReader implements PartitionReader {
 
     /** Reads up to {@code limit} records from the open file. */
     private int readFrom(RecordSink sink, int limit) {
+        FeedRecordDecoder decoder = Objects.requireNonNull(this.decoder, "poll() opens a file before reading");
         int emitted = 0;
         while (emitted < limit) {
             boolean hasRecord;
@@ -202,13 +206,14 @@ final class FeedFilePartitionReader implements PartitionReader {
     }
 
     private void open(Path file, long skip) {
-        decoder = decoders.get();
+        FeedRecordDecoder opened = decoders.get();
+        decoder = opened;
         currentFileDone = false;
-        decoder.open(file, schema);
+        opened.open(file, schema);
         openPath = file;
         recordsInFile = skip;
         if (skip > 0) {
-            decoder.skip(skip);
+            opened.skip(skip);
         }
     }
 
@@ -216,8 +221,9 @@ final class FeedFilePartitionReader implements PartitionReader {
     private void finishFile() {
         closeDecoder();
         currentFileDone = true;
-        if (openPath != null) {
-            archiveDir.ifPresent(dir -> move(openPath, dir));
+        Path finished = openPath;
+        if (finished != null) {
+            archiveDir.ifPresent(dir -> move(finished, dir));
             openPath = null;
         }
         // The cursor stays on the finished file's name with its final record count, so a restart
@@ -229,7 +235,7 @@ final class FeedFilePartitionReader implements PartitionReader {
             closeDecoder();
             throw failure;
         }
-        Path poison = openPath;
+        Path poison = Objects.requireNonNull(openPath, "a decode failure comes from an open file");
         closeDecoder();
         move(poison, quarantineDir.get());
         openPath = null;
@@ -252,8 +258,9 @@ final class FeedFilePartitionReader implements PartitionReader {
     }
 
     private void closeDecoder() {
-        if (decoder != null) {
-            decoder.close();
+        FeedRecordDecoder open = decoder;
+        if (open != null) {
+            open.close();
             decoder = null;
         }
     }

@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.plugin.feedfile;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
@@ -49,7 +51,7 @@ public record FeedFileOffset(String fileName, long recordIndex) {
      * plugin would otherwise resume somewhere plausible and wrong, and the symptom arrives much
      * later as missing or duplicated records.
      */
-    public static FeedFileOffset parse(SourceOffset offset) {
+    public static FeedFileOffset parse(@Nullable SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return BEGINNING;
         }
