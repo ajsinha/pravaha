@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.dlq;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,7 +29,9 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Optional;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
+import com.ash.messaging.pravaha.state.StateErrors;
 
 /**
  * The default dead-letter queue: one JSON object per line, appended to a file.
@@ -41,10 +45,14 @@ import com.ash.messaging.pravaha.common.io.SensitiveFiles;
  * are Base64 -- they are arbitrary and frequently not text, and embedding them raw would produce a
  * file that breaks the line-oriented reading it exists for.
  *
- * <p><strong>Writing never throws.</strong> The caller is already handling a failure and cannot
- * handle a second one; an exception here would turn a bad record into a stopped pipeline, which is
- * precisely what a DLQ exists to prevent. Failures are counted instead, and a non-zero count is the
- * signal that the DLQ itself needs attention.
+ * <p><strong>An entry that cannot be written is refused, not dropped</strong> (DLQFULL-1). It used to
+ * be counted and nothing else: on a full disk the records went nowhere, nothing was logged and the
+ * source read on. Now the failure is counted ({@link #failures()}, which the node publishes as
+ * {@code pravaha_query_dead_letters_write_failures_total}), logged at ERROR, and thrown as
+ * {@code PRV-4090} -- so what was feeding the record stops at it, exactly as it would with no queue
+ * configured, instead of reading past a record nobody kept. A failed append can leave part of the
+ * entry behind; the next append cuts the file back to the last whole entry first, so a queue that
+ * recovers once space is freed is never left with a torn line in the middle.
  *
  * <p><strong>Bounded, by evicting the oldest.</strong> Unbounded, this file was a way for one
  * renamed column to fill the disk the node's checkpoints are on. The bound is
@@ -59,9 +67,12 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
     private final Path file;
     private final Path evictionRecord;
     private final DeadLetterRetention retention;
-    private BufferedWriter writer;
+    private FileChannel channel;
     private long count;
     private long failures;
+
+    /** Whether the last append failed and may have left part of an entry after {@link #bytesInFile}. */
+    private boolean torn;
 
     /** What is in the file now, kept as it is written so that the bound costs no stat per record. */
     private long bytesInFile;
@@ -89,7 +100,7 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
         SensitiveFiles.createOwnerOnly(file);
         this.bytesInFile = Files.exists(file) ? Files.size(file) : 0;
         this.entriesInFile = countEntries(file);
-        this.writer = open(file);
+        this.channel = open(file);
     }
 
     /**
@@ -98,21 +109,38 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
      */
     @Override
     public synchronized void accept(DeadLetter letter) {
+        byte[] entry = (DeadLetterJson.write(letter) + "\n").getBytes(StandardCharsets.UTF_8);
         try {
-            String line = DeadLetterJson.write(letter);
-            writer.write(line);
-            writer.newLine();
-            // Flushed per entry. A DLQ whose last few entries are lost in a buffer when the process
-            // dies loses them at exactly the moment they matter most -- a crash is when the
-            // interesting records arrive.
-            writer.flush();
-            count++;
-            entriesInFile++;
-            bytesInFile += line.getBytes(StandardCharsets.UTF_8).length + 1L;
-            enforceRetention();
+            if (torn) {
+                // The failed append may have left the bytes that fitted. Cut back to the last whole
+                // entry first, or this one would be glued to a fragment and neither would read.
+                channel.truncate(bytesInFile);
+                torn = false;
+            }
+            // One unbuffered write per entry: a buffered writer kept a line that failed to flush and
+            // wrote it again in front of the next one. Not forced to the device -- a process crash
+            // loses nothing that reached the kernel, and an fsync per record is the price of a
+            // machine crash nobody asked this queue to survive.
+            ByteBuffer bytes = ByteBuffer.wrap(entry);
+            while (bytes.hasRemaining()) {
+                channel.write(bytes);
+            }
         } catch (IOException e) {
+            torn = true;
             failures++;
+            String where = (letter.stream().isEmpty() ? "" : " on stream '" + letter.stream() + "'")
+                    + (letter.sourceOffset().isEmpty() ? "" : " at source offset " + letter.sourceOffset());
+            String message = "the dead letter for query '" + letter.queryId() + "'" + where
+                    + " could not be written to " + file + " (" + e.getMessage() + "); " + failures
+                    + " write failure(s) so far. The record was not kept, so what fed it stops here rather "
+                    + "than read past it. Free space or fix the dead-letter directory, then drop and register the query or restart the node.";
+            LOG.log(System.Logger.Level.ERROR, message, e);
+            throw new PravahaException(StateErrors.DLQ_UNUSABLE, message, e);
         }
+        count++;
+        entriesInFile++;
+        bytesInFile += entry.length;
+        enforceRetention();
     }
 
     /**
@@ -206,13 +234,13 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
                     continue;
                 }
                 out.write(line);
-                out.newLine();
+                out.write('\n');
             }
         }
-        writer.close();
+        channel.close();
         Files.move(replacement, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         SensitiveFiles.createOwnerOnly(file);
-        this.writer = open(file);
+        this.channel = open(file);
         this.bytesInFile = Files.size(file);
         this.entriesInFile = countEntries(file);
         this.evictedEntries += went;
@@ -257,9 +285,8 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
                 : (query == null ? parent.resolve(name + ".evicted") : DeadLetterFiles.evicted(parent, query));
     }
 
-    private static BufferedWriter open(Path file) throws IOException {
-        return Files.newBufferedWriter(
-                file, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    private static FileChannel open(Path file) throws IOException {
+        return FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
     }
 
     private static long countEntries(Path file) throws IOException {
@@ -324,7 +351,7 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
     @Override
     public synchronized void close() {
         try {
-            writer.close();
+            channel.close();
         } catch (IOException e) {
             failures++;
         }

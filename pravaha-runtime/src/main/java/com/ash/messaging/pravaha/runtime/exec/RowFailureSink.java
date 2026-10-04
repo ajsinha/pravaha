@@ -23,9 +23,10 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  *
  * <p>Attached by whatever opens the query's dead-letter queue ({@link
  * QueryExecution#deadLetterRowFailures}); with none attached, such a row stops the query as it always
- * did. Called on the lane thread, once per refused row, and must not throw: the lane is already
- * handling a failure. The row is handed over as text because the flyweight it was read through is
- * reused the moment this returns.
+ * did. Called on the lane thread, once per refused row. It throws only when the row could not be
+ * kept ({@code PRV-4090}, DLQFULL-1), and then the row stops the query just as it would with no sink:
+ * a row left out of the view and kept nowhere would be a row dropped. The row is handed over as text
+ * because the flyweight it was read through is reused the moment this returns.
  */
 @FunctionalInterface
 public interface RowFailureSink {

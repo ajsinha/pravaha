@@ -795,7 +795,7 @@ it then arrives in order.
 | `pravaha_query_dead_letters{query=}` | How many are waiting now — the one to alert on. The running total keeps rising for a queue somebody is on top of; the depth does not |
 | `pravaha_query_dead_letters_bytes{query=}` | How large the file is, against `max-bytes` |
 | `pravaha_query_dead_letters_evicted_total{query=}` | What retention has thrown away and will not give back |
-| `pravaha_query_dead_letters_write_failures_total{query=}` | Records the queue itself could not write. Non-zero means the queue needs attention *before* the records in it do: those records are gone and nothing else says so |
+| `pravaha_query_dead_letters_write_failures_total{query=}` | Records the queue itself could not write (a full disk). Each stopped what fed it with `PRV-4090` rather than drop the record, so non-zero means a feed is stopped at a record that was not kept: free the space, then drop and register the query or restart the node |
 | `pravaha_query_dead_letters_fraction{query=}` | The share rejected in the current window |
 | `pravaha_query_dead_letters_degraded{query=}` | 1 once that share passes the threshold |
 

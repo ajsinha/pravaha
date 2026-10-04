@@ -192,7 +192,7 @@ groups:
         labels: {severity: critical}
         annotations:
           summary: "{{ $labels.query }} could not write a rejected record to its dead-letter file"
-          description: "Those records are gone and nothing else records them. Check the disk and the permissions on pravaha.dlq.directory (PRV-4090)."
+          description: "The feed stopped at a record it could not keep (PRV-4090). Check the disk and the permissions on pravaha.dlq.directory, then drop and register the query, or restart the node."
 
   - name: pravaha-alerts-catalog
     rules:

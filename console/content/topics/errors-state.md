@@ -168,8 +168,12 @@ start**. Deliberately fatal: an operator who configured a dead-letter queue aske
 records to be kept, and starting without one would hand them the behaviour they configured it to
 avoid — one bad field ending the poll and taking the rest of the file with it (TIME-4).
 
-**Do:** fix the path and its permissions, or unset the key to go back to failing loudly on a bad
-record. See [Dead letters](/help/topics/dead-letters).
+The same code stops a running query's feed when one dead letter cannot be written (a full disk, a
+removed directory): the record is not dropped, the feed stops at it, and the message names the
+stream and source offset (DLQFULL-1).
+
+**Do:** fix the path and its permissions (or free the space, then drop and register the query or restart the node), or unset the key
+to go back to failing loudly on a bad record. See [Dead letters](/help/topics/dead-letters).
 
 ### PRV-4091 — no such dead letter
 

@@ -31,6 +31,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   append that the disk failed part way left its bytes behind; once space returned, the next
   registration was written after them, and the next start refused the journal with `PRV-8005`. A
   failed append now has the next one cut the torn bytes first. Found by the ADV-GAPS QA pass.
+- **A dead letter that cannot be written stops the feed instead of vanishing** (DLQFULL-1). On a
+  full disk `FileDeadLetterQueue` counted the failed write and nothing else: the record went
+  nowhere, nothing was logged, and the source read on. Now the write failure is logged at ERROR,
+  counted in `pravaha_query_dead_letters_write_failures_total`, and refused `PRV-4090`, so the feed
+  stops at that record (FEED-1: describe and health show it) exactly as it would with no queue
+  configured; a row whose evaluation failed stops its query the same way, and `pravaha-engine run
+  --dlq` fails the run. A failed append no longer leaves a torn line for the next entry to join.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 
