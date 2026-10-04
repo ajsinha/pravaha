@@ -327,7 +327,8 @@ except QueryError as e:
     print(e.engine_code)     # PRV-2050 -- an unbounded GROUP BY; the fix is a window (§11)
 ```
 
-`ConnectError` (nothing answered — the engine is down or restarting) is retryable. A `QueryError`
+`ConnectError` (nothing answered — the engine is down or restarting) and `DeadlineExceededError`
+(nothing answered in time) are retryable. A `QueryError`
 or an `ApiError` below 500 is the engine's considered refusal and will be refused again. On the
 0.1.1 wheel, see the note in [§17](#17-errors).
 
@@ -375,11 +376,20 @@ audit trail, but the only thing they gate in the built-in policies is reading th
 ### `connect`
 
 ```python
-connect(connection_string=None, *, options=None, http_url=None) -> Client
+connect(connection_string=None, *, options=None, http_url=None, timeout=None) -> Client
 ```
 
 Give a connection string (`"grpc://host:19090"`, `"grpc+tls://host:19090"`, or several hosts
-comma-separated) **or** `options`, not both. `http_url` may be given here or in `options`.
+comma-separated) **or** `options`, not both. `http_url` and `timeout` may be given here or in
+`options` (`timeout` is `request_timeout_seconds`), not both.
+
+**Every request has a deadline**, `timeout` seconds (30 unless set): an HTTP call, a Flight action
+(register, list, pause, drop, replace, dead letters, debug), and a query up to its first batch —
+planning, preparing, binding and opening its result. A call past it raises `DeadlineExceededError`
+(`PRV-1045`, retryable), whose message, `call` and `deadline` say which call and how long it was
+given. A subscription is a call meant to run for hours, so it gets no total deadline: only its
+*opening* is bounded, and once the server has answered it runs for as long as it runs. Reading the
+rows of a query result that has opened is not bounded either.
 
 ```python
 client = connect("grpc://localhost:19090", http_url="http://localhost:18080")   # no token
@@ -398,7 +408,7 @@ client = connect("grpc://localhost:19090", http_url="http://localhost:18080")   
 | `allow_insecure_token` | `False` | Permit a token over plaintext (`PRV-1031` otherwise) |
 | `tls` | `TlsOptions()` | Certificates, for a `grpc+tls://` endpoint and an `https://` `http_url` |
 | `connect_timeout_seconds` | `10.0` | |
-| `request_timeout_seconds` | `30.0` | Per HTTP call |
+| `request_timeout_seconds` | `30.0` | The deadline of one request: every HTTP call, every Flight action, and a query up to its first batch; a subscription only while it opens. `connect(…, timeout=)` sets it. Past it: `DeadlineExceededError`, PRV-1045, retryable |
 | `subscriber_buffer_rows` | `10000` | Reserved; a subscription's buffer is set per call with `buffer_rows` |
 | `conflate_on_overflow` | `True` | Reserved; set per call with `overflow` |
 | `application_name` | `"pravaha-python-sdk"` | Carried in the options; 0.1.1 does not send it |
@@ -1096,6 +1106,7 @@ PravahaError                    code (int), retryable (bool), help_url
 ├── ConnectError       1040     nothing answered -- retryable
 ├── QueryError         1041     the engine refused; engine_code, message
 ├── ReadError          1042     a result could not be read, or was read twice
+├── DeadlineExceededError 1045  not answered within request_timeout_seconds -- retryable; call, deadline
 ├── ApiError           (engine's code, or 1040/1041)   an HTTP call; status, engine_code, message
 ├── MalformedEndpointError 1030 a connection string or endpoint config that cannot be parsed
 ├── InvalidOptionsError    1031 options that contradict each other -- a token over plaintext

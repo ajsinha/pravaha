@@ -47,6 +47,17 @@ public final class ClientErrors {
     public static final ErrorCode TLS_UNREADABLE = new ErrorCode(1044, "CLIENT_TLS_UNREADABLE");
 
     /**
+     * A call was not answered within {@link ClientOptions#requestTimeout()}. Retryable: a node that
+     * is slow now may not be in a moment, and the request itself was not refused.
+     *
+     * <p>SDKDEADLINE-1. Every blocking call used to wait for as long as the server took, and a node
+     * that accepted a call and never answered held its caller for ever. The message names the call
+     * and the deadline, because "timed out" alone does not say which of several calls, or which
+     * setting to raise.
+     */
+    public static final ErrorCode DEADLINE_EXCEEDED = new ErrorCode(1045, "CLIENT_DEADLINE_EXCEEDED");
+
+    /**
      * The engine's own parameter-arity refusal, raised here because here is where it is noticed.
      *
      * <p>X-8. The server declares this as {@code SqlErrors.PARAMETER_ARITY} and

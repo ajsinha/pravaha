@@ -16,7 +16,7 @@ class _Scripted(Client):
         self._attempts = list(attempts)
         self.opened = 0
 
-    def _open_subscription(self, ticket):
+    def _open_subscription(self, ticket, call="subscribe"):
         self.opened += 1
         step = self._attempts.pop(0)
         if isinstance(step, Exception):

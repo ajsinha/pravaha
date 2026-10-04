@@ -53,6 +53,15 @@ invocation, so the refusal above was switched off for every CLI user without a w
 script that sends a token to a `grpc://` URL, it will now be refused until you add the flag, and the
 right fix is usually `grpc+tls://` rather than the flag.
 
+**Every request has a deadline**, 30 seconds unless set — `requestTimeout(Duration)` in Java,
+`request_timeout_seconds` or `connect(…, timeout=)` in Python, `--timeout` on the CLI. It bounds a
+query up to its first batch (planning, preparing, binding, opening the result) and every action —
+register, list, pause, drop, replace, dead letters, debug. A call past it fails with `PRV-1045
+CLIENT_DEADLINE_EXCEEDED`, retryable, naming the call and the deadline. A subscription gets no total
+deadline — it is meant to run for hours — so only its opening is bounded; nor is reading the rows of
+a result that has opened. Until 2.1.1 the setting existed and nothing read it over Flight, so a node
+that accepted a call and never answered held the caller for ever (SDKDEADLINE-1).
+
 ## 2. Register a continuous query
 
 In SQL, through anything that sends SQL — `client.query(...)` in either SDK, `pravaha query --sql`,

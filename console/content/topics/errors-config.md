@@ -23,7 +23,7 @@ They are grouped here by who raises them:
 | Codes | Raised by | When |
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
-| PRV-1030 – PRV-1044 | The Java and Python SDKs | Constructing a client, or talking to the node |
+| PRV-1030 – PRV-1045 | The Java and Python SDKs | Constructing a client, or talking to the node |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
@@ -309,6 +309,15 @@ not decode. Rows already delivered are not a complete answer; read again.
 
 A call on a client (or a subscription) that has already been closed. Create a new client; a closed
 one does not reopen.
+
+### PRV-1045 — CLIENT_DEADLINE_EXCEEDED
+
+A call was not answered within the client's request timeout — `requestTimeout` in Java,
+`request_timeout_seconds` or `connect(…, timeout=)` in Python, `--timeout` on the `pravaha` CLI; 30 s
+unless set. The message names the call (`query (planning)`, `action ListQueries`, `subscribe(v)`) and
+the deadline. **Retryable**: nothing was refused. The node is slow, stalled or overloaded — the
+first query on a node that has just started plans cold and takes longest. A subscription is bounded
+only while it opens; once open it runs for as long as it runs.
 
 ## The REST API's own refusals
 

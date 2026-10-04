@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.sdk.flight;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import org.apache.arrow.flight.CallStatus;
@@ -73,6 +74,25 @@ final class ServerFailures {
      *     for a result that stopped part way through
      */
     static PravahaClientException of(FlightRuntimeException e, String endpoint, ErrorCode fallback) {
+        return of(e, endpoint, fallback, null, null);
+    }
+
+    /**
+     * The same, for a call made with a deadline: {@code call} names it and {@code deadline} is the
+     * one it was given, so a call that ran out of time says which call and which setting to raise.
+     *
+     * <p>SDKDEADLINE-1. gRPC reports an expired deadline as {@code DEADLINE_EXCEEDED}, which Flight
+     * calls {@code TIMED_OUT}; with no Pravaha code in it, that is this client giving up rather than
+     * the server refusing, and it is {@link ClientErrors#DEADLINE_EXCEEDED}. A server that diagnosed
+     * a timeout of its own still answers under its own code -- the first question below is asked
+     * first.
+     */
+    static PravahaClientException of(
+            FlightRuntimeException e,
+            String endpoint,
+            ErrorCode fallback,
+            @Nullable String call,
+            @Nullable Duration deadline) {
         CallStatus status = e.status();
         String description = describe(status, e);
 
@@ -83,6 +103,9 @@ final class ServerFailures {
             // in PRV-1041 used to be ("PRV-1041  PRV-8002  no query named 'nosuch'").
             return new PravahaClientException(
                     reported.get(), messageUnder(reported.get(), description), retryable(status), e);
+        }
+        if (status.code() == FlightStatusCode.TIMED_OUT && call != null && deadline != null) {
+            return deadlineExceeded(call, deadline, endpoint, e);
         }
         if (status.code() == FlightStatusCode.UNAVAILABLE) {
             // No Pravaha code because no Pravaha answered. E-7: this is the scenario every new user
@@ -97,6 +120,27 @@ final class ServerFailures {
                     e);
         }
         return new PravahaClientException(fallback, description, retryable(status), e);
+    }
+
+    /**
+     * {@code call} was not answered by {@code endpoint} within {@code deadline}: retryable, since
+     * nothing was refused, and naming the setting that sets it.
+     */
+    static PravahaClientException deadlineExceeded(String call, Duration deadline, String endpoint, Throwable cause) {
+        return new PravahaClientException(
+                ClientErrors.DEADLINE_EXCEEDED,
+                call + " was not answered by " + endpoint + " within the " + seconds(deadline)
+                        + " deadline (ClientOptions.requestTimeout). The node is slow, stalled or"
+                        + " overloaded; retry, or raise requestTimeout if the request is known to take"
+                        + " longer",
+                true,
+                cause);
+    }
+
+    /** {@code 30 s}, {@code 0.5 s}: how a deadline is named in a message. */
+    static String seconds(Duration deadline) {
+        long millis = deadline.toMillis();
+        return millis % 1000 == 0 ? (millis / 1000) + " s" : (millis / 1000.0) + " s";
     }
 
     /**

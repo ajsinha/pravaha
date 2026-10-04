@@ -109,6 +109,20 @@ public final class ClientOptions {
         return connectTimeout;
     }
 
+    /**
+     * How long one request may wait for its answer: 30 seconds unless set.
+     *
+     * <p>The deadline of every unary call -- running a query up to its first batch (planning,
+     * preparing, binding and opening the result), and every action: registering, listing,
+     * describing, pausing, dropping, replacing, dead letters, debugging. A call past it fails with
+     * {@link ClientErrors#DEADLINE_EXCEEDED} naming the call and the deadline.
+     *
+     * <p>A subscription is not a request and gets no total deadline -- it is meant to run for
+     * hours. Only its <em>opening</em> is bounded: if the server has not answered the subscription
+     * with its schema within this time, the subscription fails the same way. Reading the rows of a
+     * query result that has opened is not bounded either, so that a large answer read slowly is not
+     * cut off part way.
+     */
     public Duration requestTimeout() {
         return requestTimeout;
     }
@@ -199,6 +213,7 @@ public final class ClientOptions {
             return this;
         }
 
+        /** See {@link ClientOptions#requestTimeout()}; refused unless positive. */
         public Builder requestTimeout(Duration value) {
             this.requestTimeout = requirePositive("requestTimeout", value);
             return this;

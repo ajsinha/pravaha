@@ -35,6 +35,16 @@ A connection string without a scheme is TLS; `grpc://host:port` is plaintext. A 
 `ClientOptions.builder(endpoint).token(...)`, and is refused over plaintext unless
 `allowInsecureToken(true)` on the builder says otherwise.
 
+**Every request has a deadline**: `ClientOptions.builder(endpoint).requestTimeout(Duration)`, 30
+seconds unless set. It bounds `query(...)` up to its first batch — planning, preparing, binding and
+opening the result — and every action: `register`, `queries`, `pause`, `resume`, `drop`, the
+replacement and dead-letter calls, and the debugger's. A call past it throws
+`PravahaClientException` with `ClientErrors.DEADLINE_EXCEEDED` (`PRV-1045`, `retryable()` true),
+naming the call and the deadline. A subscription (`subscribe…`) gets no total deadline, since it is
+meant to run for hours: only its opening is bounded — if the server has not answered with the
+stream's schema in time, `awaitOpen()` or `run()` throws the same `PRV-1045` — and once open it runs
+for as long as it runs. Reading the rows of a `QueryResult` that has opened is not bounded either.
+
 ## The artefacts
 
 | Artefact | What it is | Depends on |

@@ -583,7 +583,7 @@ with connect(options=options) as client:
 | `.token(String)` | `token` | none | Bearer token; never printed by `toString` |
 | `.allowInsecureToken(boolean)` | `allow_insecure_token` | `false` | Permit a token over plaintext — loopback tests, a TLS-terminating sidecar |
 | `.connectTimeout(Duration)` | `connect_timeout_seconds` | 10 s | |
-| `.requestTimeout(Duration)` | `request_timeout_seconds` | 30 s | |
+| `.requestTimeout(Duration)` | `request_timeout_seconds` (or `connect(…, timeout=)`) | 30 s | The deadline of one request: a query up to its first batch, every action (register, list, pause, drop, replace, dead letters, debug), and in Python every HTTP call. A subscription gets no total deadline; only its opening is bounded. Past it: PRV-1045 |
 | `.tls(TlsOptions)` | `tls` | defaults | How to verify the server, and mTLS; refused on a `grpc://` endpoint |
 | `.applicationName(String)` | `application_name` | `pravaha-java-sdk` / `pravaha-python-sdk` | |
 | `.defaultConsistency(Consistency)` | `default_consistency` | `CONSISTENT` | Declared; the server answers every read at the committed frontier today |
@@ -765,6 +765,7 @@ code.
 | `ClientErrors.READ_FAILED` | `ReadError` | PRV-1042 | A result could not be read, or was read twice |
 | `ClientErrors.CLOSED` | — | PRV-1043 | The client was used after `close()` |
 | `ClientErrors.TLS_UNREADABLE` | — | PRV-1044 | Certificate or keystore material that cannot be read |
+| `ClientErrors.DEADLINE_EXCEEDED` (retryable) | `DeadlineExceededError` (retryable; `call`, `deadline`) | PRV-1045 | A call was not answered within the request timeout; the message names the call and the deadline |
 | — | `ApiError` (`status`, `engine_code`, `message`) | the engine's own, else 1040 / 1041 | An HTTP call failed; `status` is the HTTP status (`0` when nothing answered), `code` the engine's number when it gave one (`7002` for PRV-7002), retryable when nothing answered or the status was 5xx |
 
 Every Python error's `str()` starts with its own code (`PRV-1041  …`). A refusal from the engine over
