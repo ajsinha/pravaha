@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.serving;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * How a view snapshot writes one value, and reads it back, as its own class (VIEW-2).
  *
@@ -106,7 +108,7 @@ final class ViewValues {
         }
     }
 
-    static Object read(java.io.DataInputStream in) throws java.io.IOException {
+    static @Nullable Object read(java.io.DataInputStream in) throws java.io.IOException {
         byte tag = in.readByte();
         return switch (tag) {
             case NULL -> null;

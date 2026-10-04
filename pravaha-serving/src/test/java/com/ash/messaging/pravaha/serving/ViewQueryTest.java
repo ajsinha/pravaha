@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.serving;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -58,7 +59,7 @@ class ViewQueryTest {
         view.commit(100);
     }
 
-    private void put(String user, String tier, long total) {
+    private void put(String user, @Nullable String tier, long total) {
         view.applyValues(new Object[] {user, tier, total}, 1, 100);
     }
 

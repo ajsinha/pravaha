@@ -50,11 +50,14 @@ class ViewIndexEquivalenceTest {
             .build();
 
     /** Answers by the probe and the index: keyed by (user_id, window_end). */
+    @SuppressWarnings("NullAway.Init") // set by load() before any test reads it
     private ServedView indexed;
 
     /** Answers by a scan every time: keyed by an id no predicate below mentions. */
+    @SuppressWarnings("NullAway.Init") // set by load() before any test reads it
     private ServedView scanned;
 
+    @SuppressWarnings("NullAway.Init") // set by load() before any test reads it
     private ViewCatalog catalog;
 
     private void load(Random random, int users, int windows) {

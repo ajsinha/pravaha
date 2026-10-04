@@ -29,6 +29,7 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -174,7 +175,7 @@ class ViewZSetPropertyTest {
                     }
                     List<Long> present = new ArrayList<>(rows.keySet());
                     long value = present.get(step.value() % present.size());
-                    long weight = Math.min(step.weight(), rows.get(value));
+                    long weight = Math.min(step.weight(), java.util.Objects.requireNonNull(rows.get(value)));
                     view.applyValues(new Object[] {key, value}, -weight, ++position);
                     long left = rows.get(value) - weight;
                     if (left == 0) {
@@ -214,12 +215,12 @@ class ViewZSetPropertyTest {
         assertThat(zset).as("a subscriber's snapshot is the Z-set itself").isEqualTo(model);
     }
 
-    private static Long shown(ViewResult result) {
+    private static @Nullable Long shown(ViewResult result) {
         return result.values().map(values -> (Long) values[1]).orElse(null);
     }
 
     /** The row a key shows: the last to gain weight among those still present, or none. */
-    private static Long expected(SequencedMap<Long, Long> rows) {
+    private static @Nullable Long expected(@Nullable SequencedMap<Long, Long> rows) {
         if (rows == null || rows.isEmpty()) {
             return null;
         }

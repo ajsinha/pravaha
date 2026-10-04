@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
@@ -111,7 +113,7 @@ final class ViewAccessPath {
                     ordinal = null;
                     break;
                 }
-                ordinal = comparison.ordinal();
+                ordinal = java.util.Objects.requireNonNull(comparison).ordinal(); // a value came from it
                 values.add(value);
             }
             if (ordinal != null) {
@@ -205,7 +207,7 @@ final class ViewAccessPath {
     /** {@code column op literal}, whatever width the literal was compiled at. */
     private record Comparison(int ordinal, Predicate.Op op, Object value) {}
 
-    private static Comparison comparisonOf(Predicate predicate) {
+    private static @Nullable Comparison comparisonOf(Predicate predicate) {
         return switch (predicate) {
             case Predicate.CompareLong p -> new Comparison(p.ordinal(), p.op(), p.value());
             case Predicate.CompareInt p -> new Comparison(p.ordinal(), p.op(), p.value());
@@ -229,7 +231,7 @@ final class ViewAccessPath {
      * decimal types are refused outright -- {@code -0.0} and {@code 0.0} are one value to the
      * filter and two keys to the map, and {@code 1.0} and {@code 1.00} are the other way round.
      */
-    private static Object asStored(StreamSchema schema, int ordinal, Object literal) {
+    private static @Nullable Object asStored(StreamSchema schema, int ordinal, Object literal) {
         TypeName type = schema.field(ordinal).type().typeName();
         if (literal instanceof String text) {
             return type == TypeName.STRING ? text : null;

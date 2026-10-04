@@ -22,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * One commit's change to a view's answer, netted before it is handed to followers (ADR-056).
  *
@@ -47,7 +49,11 @@ final class AnswerChanges {
      *
      * @return what was handed over, or null when the commit changed nothing in the answer
      */
-    static Netted handOver(List<AnswerListener> listeners, List<Object[]> left, List<Object[]> entered, long frontier) {
+    static @Nullable Netted handOver(
+            List<AnswerListener> listeners,
+            @Nullable List<Object[]> left,
+            @Nullable List<Object[]> entered,
+            long frontier) {
         Netted netted = net(left, entered);
         if (netted != null) {
             for (AnswerListener listener : listeners) {
@@ -62,15 +68,16 @@ final class AnswerChanges {
      *
      * @return the netted change, or null when it changes nothing in the answer
      */
-    static Netted net(List<Object[]> left, List<Object[]> entered) {
-        if (left == null || (left.isEmpty() && entered.isEmpty())) {
+    static @Nullable Netted net(@Nullable List<Object[]> left, @Nullable List<Object[]> entered) {
+        if (left == null
+                || (left.isEmpty() && java.util.Objects.requireNonNull(entered).isEmpty())) {
             return null;
         }
         Map<Row, Integer> net = new LinkedHashMap<>();
         for (Object[] row : left) {
             net.merge(new Row(row), -1, Integer::sum);
         }
-        for (Object[] row : entered) {
+        for (Object[] row : java.util.Objects.requireNonNull(entered, "entered is set with left")) {
             net.merge(new Row(row), 1, Integer::sum);
         }
         List<Object[]> leaving = new ArrayList<>();

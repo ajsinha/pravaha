@@ -24,6 +24,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.locks.LockSupport;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -173,7 +175,7 @@ public final class ServedView {
      * with a confident face. `PRV-8004 QUERY_FAILED` existed for exactly this and fired nowhere near
      * it — its throw sites were subscriber-side failures, which is a different event entirely.
      */
-    private volatile com.ash.messaging.pravaha.api.PravahaException failure;
+    private volatile com.ash.messaging.pravaha.api.@Nullable PravahaException failure;
 
     /** Marks this view's producer as dead. Called by the registry when a query fails. */
     public void failed(com.ash.messaging.pravaha.api.PravahaException cause) {
@@ -310,7 +312,7 @@ public final class ServedView {
     }
 
     /** Records a key's rows in the overlay; null when it holds one row or none. */
-    private void stageRows(Key key, KeyRows rows) {
+    private void stageRows(Key key, @Nullable KeyRows rows) {
         if (rows != null || pendingRowsOf.containsKey(key) || rowsOf.containsKey(key)) {
             pendingRowsOf.put(key, rows);
         }
@@ -376,7 +378,8 @@ public final class ServedView {
                     leaving.add(replaced);
                 }
                 if (values != null) {
-                    entering.add(values);
+                    java.util.Objects.requireNonNull(entering, "set with leaving")
+                            .add(values);
                 }
             }
             if (replaced != null) {
@@ -558,7 +561,7 @@ public final class ServedView {
      * an index entry becomes visible in the same critical section as the row it points at, and a
      * reader can never see one without the other.
      */
-    private Map<Key, java.util.TreeMap<Object, Object[]>> ordered;
+    private @Nullable Map<Key, java.util.TreeMap<Object, Object[]>> ordered;
 
     private long pointLookups;
     private long rangeLookups;
@@ -777,7 +780,7 @@ public final class ServedView {
      * @param prefix the key's leading columns, one value each; empty for a single-column key
      */
     public synchronized List<Object[]> committedRange(
-            Object[] prefix, Object low, boolean lowInclusive, Object high, boolean highInclusive) {
+            Object[] prefix, @Nullable Object low, boolean lowInclusive, @Nullable Object high, boolean highInclusive) {
         if (prefix.length != keyOrdinals.length - 1) {
             throw new IllegalArgumentException("view '" + name + "' is keyed by " + keyOrdinals.length
                     + " columns, so a range needs " + (keyOrdinals.length - 1) + " leading values, not "
@@ -798,7 +801,8 @@ public final class ServedView {
                 return List.of();
             }
         }
-        java.util.TreeMap<Object, Object[]> bucket = ordered.get(new Key(prefix.clone()));
+        java.util.TreeMap<Object, Object[]> bucket =
+                java.util.Objects.requireNonNull(ordered, "buildIndex built it").get(new Key(prefix.clone()));
         if (bucket == null) {
             return List.of();
         }
@@ -978,7 +982,7 @@ public final class ServedView {
         }
     }
 
-    private static PravahaException unreadable(String whose, String why, Throwable cause) {
+    private static PravahaException unreadable(String whose, String why, @Nullable Throwable cause) {
         return new PravahaException(
                 com.ash.messaging.pravaha.state.StateErrors.STATE_UNREADABLE,
                 "cannot restore " + whose + " from this checkpoint: " + why + ". The query resumes from its "
@@ -1120,18 +1124,18 @@ public final class ServedView {
     private final List<AnswerListener> answerListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /** The rows leaving and entering the answer in the commit in progress; null when nobody follows. */
-    private List<Object[]> leaving;
+    private @Nullable List<Object[]> leaving;
 
-    private List<Object[]> entering;
+    private @Nullable List<Object[]> entering;
 
     /**
      * {@link #leaving} and {@link #entering} as they stood before this commit's first eviction, or
      * null when nothing aged out: the answer change a sink is handed, to which eviction stays silent
      * (SINKKEYROWS-1).
      */
-    private List<Object[]> keptLeaving;
+    private @Nullable List<Object[]> keptLeaving;
 
-    private List<Object[]> keptEntering;
+    private @Nullable List<Object[]> keptEntering;
 
     /**
      * Hands {@code listener} the committed answer now, and every change to it after, from inside
@@ -1181,24 +1185,24 @@ public final class ServedView {
     private volatile boolean answerWanted;
 
     /** The last commit's netted answer change, until taken; null when it changed nothing. */
-    private AnswerChanges.Netted lastAnswer;
+    private AnswerChanges.@Nullable Netted lastAnswer;
 
     void answerWanted(boolean wanted) {
         answerWanted = wanted;
     }
 
     /** Takes the answer change the last commit kept, under the monitor that commit held. */
-    synchronized AnswerChanges.Netted takeAnswer() {
+    synchronized AnswerChanges.@Nullable Netted takeAnswer() {
         AnswerChanges.Netted taken = lastAnswer;
         lastAnswer = null;
         return taken;
     }
 
     /** The last commit's answer change with nothing aged out, for a sink (SINKKEYROWS-1); null when none. */
-    private AnswerChanges.Netted lastRetained;
+    private AnswerChanges.@Nullable Netted lastRetained;
 
     /** Takes {@link #lastRetained}, as {@link #takeAnswer} takes the answer. */
-    synchronized AnswerChanges.Netted takeRetainedAnswer() {
+    synchronized AnswerChanges.@Nullable Netted takeRetainedAnswer() {
         AnswerChanges.Netted taken = lastRetained;
         lastRetained = null;
         return taken;
@@ -1273,7 +1277,9 @@ public final class ServedView {
                     }
                     // A row that entered in this very commit never reached the answer: it leaves
                     // the entering list rather than being handed over as both.
-                    if (leaving != null && !entering.remove(entry.getValue())) {
+                    if (leaving != null
+                            && !java.util.Objects.requireNonNull(entering, "set with leaving")
+                                    .remove(entry.getValue())) {
                         leaving.add(entry.getValue());
                     }
                     writtenAt.remove(key);
@@ -1375,7 +1381,7 @@ public final class ServedView {
         return values;
     }
 
-    private Object value(RowView row, int ordinal) {
+    private @Nullable Object value(RowView row, int ordinal) {
         if (row.isNull(ordinal)) {
             return null;
         }
