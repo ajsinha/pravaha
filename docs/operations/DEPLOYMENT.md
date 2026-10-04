@@ -19,14 +19,14 @@ bounds its memory, what to watch, what a restart costs, what is not solved — i
 ./mvnw -o -pl pravaha-server -am package -DskipTests
 
 # 2. build the image from them (Java 25, the only JRE from 2.0)
-deploy/docker/build.sh --tag pravaha/pravaha-server:2.0.1-SNAPSHOT
+deploy/docker/build.sh --tag pravaha/pravaha-server:2.1.0
 
 # 3. prove it serves, end to end, against a real container
-deploy/docker/smoke.sh --image pravaha/pravaha-server:2.0.1-SNAPSHOT
+deploy/docker/smoke.sh --image pravaha/pravaha-server:2.1.0
 
 # 4. install it
 helm install pravaha deploy/helm/pravaha \
-  --set image.tag=2.0.1-SNAPSHOT \
+  --set image.tag=2.1.0 \
   --set auth.existingSecret=pravaha-tokens
 ```
 
@@ -176,7 +176,7 @@ docker run -d --name pravaha --user "$(id -u):$(id -g)" --read-only \
   -v "$PWD/pravaha-home/data:/opt/pravaha/data" \
   -v "$PWD/pravaha-home/logs:/opt/pravaha/logs" \
   -v "$PWD/pravaha-home/tmp:/opt/pravaha/tmp" \
-  pravaha/pravaha-server:2.0.1-SNAPSHOT
+  pravaha/pravaha-server:2.1.0
 ```
 
 `--read-only` works and is tested: the node needs nothing writable outside `/opt/pravaha`
@@ -219,12 +219,12 @@ Maven), as a directory and a tarball that is a home the moment it is unpacked:
 ```bash
 ./mvnw -o -pl pravaha-server,pravaha-cli -am package -DskipTests
 deploy/release/dist.sh
-#   dist.sh: .../target/dist/pravaha-2.0.1-SNAPSHOT
-#   dist.sh: .../target/dist/pravaha-2.0.1-SNAPSHOT.tar.gz (185M)
+#   dist.sh: .../target/dist/pravaha-2.1.0
+#   dist.sh: .../target/dist/pravaha-2.1.0.tar.gz (185M)
 ```
 
 ```
-pravaha-2.0.1-SNAPSHOT/
+pravaha-2.1.0/
   bin/pravaha-server  bin/pravaha-engine
   lib/pravaha-server.jar  lib/pravaha-engine.jar
   conf/application.yaml.example  conf/pravaha-server.service
@@ -235,9 +235,9 @@ pravaha-2.0.1-SNAPSHOT/
 Unpacked anywhere and started from anywhere, it finds its home from `bin/`:
 
 ```bash
-tar xzf pravaha-2.0.1-SNAPSHOT.tar.gz && cd pravaha-2.0.1-SNAPSHOT
+tar xzf pravaha-2.1.0.tar.gz && cd pravaha-2.1.0
 cp conf/application.yaml.example conf/application.yaml     # open, for a first run; edit it
-cd / && /path/to/pravaha-2.0.1-SNAPSHOT/bin/pravaha-server
+cd / && /path/to/pravaha-2.1.0/bin/pravaha-server
 ```
 
 Run that way on 2026-09-29 (from `/`, `PRAVAHA_HOME` unset), the node came ready and wrote only

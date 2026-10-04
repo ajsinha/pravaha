@@ -4,7 +4,7 @@
   <parent>
     <groupId>com.ash.messaging</groupId>
     <artifactId>pravaha</artifactId>
-    <version>2.0.1-SNAPSHOT</version>
+    <version>2.1.0</version>
   </parent>
   <artifactId>pravaha-serving</artifactId>
   <name>Pravaha :: serving</name>
