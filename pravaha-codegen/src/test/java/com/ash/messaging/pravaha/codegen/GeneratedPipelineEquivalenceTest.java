@@ -27,6 +27,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.statistics.Statistics;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -100,6 +101,7 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     @Property(tries = 400)
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aLanePipelineGivesTheSameAnswerGeneratedAsInterpreted(@ForAll("seeds") long seed) {
         Case c = randomCase(new Random(seed));
 
@@ -132,6 +134,7 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void theEquivalenceCatchesAGeneratedStageThatDisagrees() {
         // A differential that cannot fail certifies anything. A generator whose stage passes every
         // row must be seen to disagree on a chain whose filter rejects some.
@@ -160,6 +163,7 @@ class GeneratedPipelineEquivalenceTest {
                         }
 
                         @Override
+                        @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
                         public void project(MemoryRegion region, int row, MemoryRegion out, int outRow) {
                             stage.project(region, row, out, outRow);
                         }
@@ -172,6 +176,7 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void thePipelineSaysWhichPathEachChainIsOn() {
         StreamSchema schema = StreamSchema.builder("s")
                 .field("a", Types.int64())
@@ -204,6 +209,7 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aSumNettedOverABatchIsTheSameGeneratedAsInterpreted() {
         // TRANSOVF-1 under a generated filter and projection: the aggregate nets a batch in 128 bits
         // whichever path fed it, answers a total that passed 2^63 and came back, and refuses a net
@@ -236,6 +242,7 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aNarrowIntegerOverflowIsTheSameGeneratedAsInterpreted() {
         // NARROWINT-1 behind a generated filter: the computed INT column above it is checked against
         // INT's range on either path, so 2e9 * 2 is the same INT overflow generated and interpreted
@@ -271,6 +278,7 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void anAllNullSumIsTheSameGeneratedAsInterpreted() {
         // ALLNULLAGG-1 under a generated filter and projection: SUM of only nulls is NULL on both
         // paths, and COUNT(*) still counts the rows.
@@ -303,8 +311,9 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     /** Runs {@code chain} over rows of INT32, INT64 and BOOLEAN columns as one batch, then ends the input. */
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     private static List<String> rowsRun(
-            PhysicalOperator chain, StreamSchema schema, List<Object[]> rows, StageGenerator generator) {
+            PhysicalOperator chain, StreamSchema schema, List<Object[]> rows, @Nullable StageGenerator generator) {
         GeneratedChains.install(generator);
         List<String> answer = new ArrayList<>();
         RowLayout layout = RowLayout.of(schema);
@@ -341,8 +350,9 @@ class GeneratedPipelineEquivalenceTest {
     }
 
     /** Runs {@code chain} over (amount, keep) pairs as one batch, then ends the input. */
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     private static List<String> aggregateRun(
-            PhysicalOperator chain, StreamSchema schema, long[] pairs, StageGenerator generator) {
+            PhysicalOperator chain, StreamSchema schema, long[] pairs, @Nullable StageGenerator generator) {
         GeneratedChains.install(generator);
         List<String> answer = new ArrayList<>();
         RowLayout layout = RowLayout.of(schema);
@@ -399,7 +409,7 @@ class GeneratedPipelineEquivalenceTest {
                 String generatedFailure = null;
                 String writtenFailure = null;
                 try {
-                    outcome.stage().project(region, 0, generated, 0);
+                    java.util.Objects.requireNonNull(outcome.stage()).project(region, 0, generated, 0);
                 } catch (IllegalArgumentException e) {
                     generatedFailure = e.getMessage();
                 }
@@ -458,7 +468,8 @@ class GeneratedPipelineEquivalenceTest {
                 chain, () -> new Recorder(chain.outputSchema(), new ArrayList<>()), Map.of(), false, generate);
     }
 
-    private static Run run(Case c, StageGenerator generator) {
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
+    private static Run run(Case c, @Nullable StageGenerator generator) {
         GeneratedChains.install(generator);
         List<String> answer = new ArrayList<>();
         List<String> paths;

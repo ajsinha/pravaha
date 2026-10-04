@@ -65,7 +65,7 @@ public final class GeneratedChains {
      * <p>Process-wide and read at compile time, like {@link InterpretedPipeline#measureOperators}: a
      * query already running keeps the path it was built on.
      */
-    public static void install(StageGenerator generator) {
+    public static void install(@Nullable StageGenerator generator) {
         installed = generator;
     }
 
