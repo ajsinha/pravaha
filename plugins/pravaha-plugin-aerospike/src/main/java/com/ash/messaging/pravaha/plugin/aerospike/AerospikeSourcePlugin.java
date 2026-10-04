@@ -23,6 +23,7 @@ import java.util.Map;
 import com.aerospike.client.Host;
 import com.aerospike.client.IAerospikeClient;
 import com.aerospike.client.policy.ClientPolicy;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -84,29 +85,48 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class AerospikeSourcePlugin implements StreamSourcePlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String instanceName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String namespace;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String set;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String streamName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
 
     /** The bin holding each row's own event time, or blank for the scan's time. See configure. */
     private String eventTimeColumn = "";
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private AerospikeStrategy strategy;
+
     private int partitions;
     private int recordsPerSecond;
     private int scanIntervalMillis;
     private int socketTimeoutMillis;
     private int totalTimeoutMillis;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Host[] hosts;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private ClientPolicy clientPolicy;
-    private IAerospikeClient client;
+
+    /** Null until open() and after close(). */
+    private @Nullable IAerospikeClient client;
 
     /** {@code deletes: detect}; see {@link #configureDeletes}. */
     private boolean detectDeletes;
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private java.nio.file.Path deletesStateDir;
+
     private long deletesMaxKeys;
 
     @Override
@@ -375,12 +395,13 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         return createReader(partition, resumeFrom, ReadRequest.NOTHING);
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
+    public PartitionReader createReader(
+            SourcePartition partition, @Nullable SourceOffset resumeFrom, ReadRequest request) {
         if (client == null) {
             throw new PravahaException(
                     AerospikeErrors.CONNECT_FAILED, "source '" + instanceName + "' was not opened before use");

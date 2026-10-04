@@ -25,6 +25,7 @@ import com.aerospike.client.Bin;
 import com.aerospike.client.IAerospikeClient;
 import com.aerospike.client.Key;
 import com.aerospike.client.policy.WritePolicy;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -568,7 +569,9 @@ class AerospikePluginIT {
     }
 
     private static List<Object[]> drain(
-            AerospikeSourcePlugin plugin, com.ash.messaging.pravaha.api.plugin.SourceOffset from, ReadRequest request) {
+            AerospikeSourcePlugin plugin,
+            com.ash.messaging.pravaha.api.plugin.@Nullable SourceOffset from,
+            ReadRequest request) {
         Collector out = new Collector(plugin.schema());
         try (PartitionReader reader =
                 plugin.createReader(plugin.partitions("orders").get(0), from, request)) {

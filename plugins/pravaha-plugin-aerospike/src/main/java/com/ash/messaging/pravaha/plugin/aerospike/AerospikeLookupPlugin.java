@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.plugin.aerospike;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 
 import com.aerospike.client.AerospikeException;
 import com.aerospike.client.Host;
@@ -25,6 +26,7 @@ import com.aerospike.client.Key;
 import com.aerospike.client.Record;
 import com.aerospike.client.policy.ClientPolicy;
 import com.aerospike.client.policy.Policy;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -58,16 +60,34 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class AerospikeLookupPlugin implements LookupSourcePlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String instanceName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String namespace;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String set;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String keyBin;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Duration cacheFor;
+
     private int concurrency;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Host[] hosts;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private ClientPolicy clientPolicy;
-    private IAerospikeClient client;
+
+    /** Null until open() and after close(). */
+    private @Nullable IAerospikeClient client;
 
     @Override
     public String name() {
@@ -145,7 +165,7 @@ public final class AerospikeLookupPlugin implements LookupSourcePlugin {
 
         Key recordKey = keyFor(key[0]);
         try {
-            Record record = client.get(new Policy(), recordKey);
+            Record record = Objects.requireNonNull(client, "open() first").get(new Policy(), recordKey);
             if (record == null) {
                 return 0;
             }

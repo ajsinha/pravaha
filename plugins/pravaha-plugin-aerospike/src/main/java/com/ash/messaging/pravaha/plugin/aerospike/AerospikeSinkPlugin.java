@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.aerospike;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 
 import com.aerospike.client.AerospikeException;
 import com.aerospike.client.Bin;
@@ -28,6 +29,7 @@ import com.aerospike.client.Value;
 import com.aerospike.client.policy.ClientPolicy;
 import com.aerospike.client.policy.RecordExistsAction;
 import com.aerospike.client.policy.WritePolicy;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -69,16 +71,35 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class AerospikeSinkPlugin implements StreamSinkPlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String instanceName;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String namespace;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String set;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private List<String> keyBins;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private int[] keyOrdinals;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
     private int ttlSeconds;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Host[] hosts;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private ClientPolicy clientPolicy;
-    private IAerospikeClient client;
+
+    /** Null until open() and after close(). */
+    private @Nullable IAerospikeClient client;
+
     private long written;
     private long deleted;
 
@@ -251,7 +272,7 @@ public final class AerospikeSinkPlugin implements StreamSinkPlugin {
             bins.add(binOf(row, ordinal));
         }
         try {
-            client.put(policy, keyOf(row), bins.toArray(new Bin[0]));
+            Objects.requireNonNull(client, "open() first").put(policy, keyOf(row), bins.toArray(new Bin[0]));
             written++;
         } catch (AerospikeException e) {
             throw new PravahaException(
@@ -263,7 +284,7 @@ public final class AerospikeSinkPlugin implements StreamSinkPlugin {
 
     private void delete(RowView row) {
         try {
-            client.delete(new WritePolicy(), keyOf(row));
+            Objects.requireNonNull(client, "open() first").delete(new WritePolicy(), keyOf(row));
             deleted++;
         } catch (AerospikeException e) {
             throw new PravahaException(

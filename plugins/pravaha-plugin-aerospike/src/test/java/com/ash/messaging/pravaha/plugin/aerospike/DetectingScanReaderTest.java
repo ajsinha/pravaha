@@ -31,6 +31,7 @@ import com.aerospike.client.Key;
 import com.aerospike.client.Record;
 import com.aerospike.client.ResultCode;
 import com.aerospike.client.ScanCallback;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -92,11 +93,11 @@ class DetectingScanReaderTest {
         store.put(id, Map.of("id", id, "status", status, "amount", amount));
     }
 
-    private DetectingScanReader reader(SourceOffset from) {
+    private DetectingScanReader reader(@Nullable SourceOffset from) {
         return reader(from, 1_000_000, ReadRequest.NOTHING);
     }
 
-    private DetectingScanReader reader(SourceOffset from, long maxKeys, ReadRequest request) {
+    private DetectingScanReader reader(@Nullable SourceOffset from, long maxKeys, ReadRequest request) {
         return new DetectingScanReader(
                 client, "test", "orders", SCHEMA, 0, 4096, 0, 0, 1000, 1000, from, request, stateDir, maxKeys);
     }
