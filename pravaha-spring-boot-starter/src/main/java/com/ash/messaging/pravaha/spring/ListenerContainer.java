@@ -331,7 +331,11 @@ public final class ListenerContainer implements AutoCloseable {
     public boolean awaitDelivered(java.time.Duration timeout) throws InterruptedException {
         long deadline = System.nanoTime() + timeout.toNanos();
         Subscription attached = subscription;
-        if (attached != null && !attached.awaitQuiet(timeout)) {
+        // A listener its error handler stopped closed its subscription, abandoning whatever the
+        // subscription still held: those changes are undelivered by design, not owed, so an
+        // abandoned buffer is not a failure to deliver (checked after the wait, as the stop can
+        // land during it).
+        if (attached != null && !attached.awaitQuiet(timeout) && !stopped.get()) {
             return false;
         }
         ThreadPoolExecutor[] current = workers;
