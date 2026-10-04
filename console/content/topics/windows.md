@@ -473,3 +473,4 @@ GROUP BY t.user_id, p.tier, window_start, window_end
 - [Aggregation](/help/topics/aggregation) — every aggregate function and its rules
 - [Joins](/help/topics/joins) — windowed joins, and enriching a window from a table
 - The long form: [Streams, queries and SQL §5](/help/continuous-queries#5-windows-worked)
+- How it is built: [Architecture: windows and watermarks](/help/architecture-runtime#windows-and-watermarks)

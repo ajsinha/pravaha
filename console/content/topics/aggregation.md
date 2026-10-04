@@ -293,3 +293,4 @@ total drifts from the view's the first time a row is corrected.
 - [Windows, worked](/help/topics/windows#worked-examples) — when each window is published.
 - [Z-set weights](/help/topics/zset-weights) — why an aggregate can be maintained incrementally.
 - [Point reads](/help/topics/views-and-keys#point-reads) — reading an aggregate view.
+- How it is built: [Architecture: runtime](/help/architecture-runtime)

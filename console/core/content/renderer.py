@@ -74,6 +74,17 @@ class MarkdownRenderer:
         "LIMITS.md": "/help/limits",
         "DEPLOYMENT.md": "/help/deploying",
         "COMPETITIVE_LANDSCAPE.md": "/about/competitive",
+        # The architecture's component pages, docs/design/architecture/*.md.
+        "foundations.md": "/help/architecture-foundations",
+        "planning.md": "/help/architecture-planning",
+        "runtime.md": "/help/architecture-runtime",
+        "registry.md": "/help/architecture-registry",
+        "ingest-and-egress.md": "/help/architecture-ingest-egress",
+        "serving.md": "/help/architecture-serving",
+        "governance.md": "/help/architecture-governance",
+        "hosts.md": "/help/architecture-hosts",
+        "clients-and-console.md": "/help/architecture-clients-console",
+        "observability-and-packaging.md": "/help/architecture-observability-packaging",
     }
 
     #: A help topic linked from a document as its file -- ``../console/content/topics/event-time-watermarks.md#late-data``

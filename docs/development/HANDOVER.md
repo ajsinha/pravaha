@@ -545,7 +545,7 @@ Rewritten and extended in Wave 7. What exists now:
 | [`../operations/SECURITY.md`](../operations/SECURITY.md) | The three seams, row filters, the soundness rule |
 | [`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md) | Every `PRV-` code. The table is **hand-maintained**; `ErrcCrossCuttingTest` fails the build if it and the `ErrorCode` declarations disagree in either direction |
 | [`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md) | Every construct, planned and compiled by a test |
-| [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) | Restructured around the life of a query |
+| [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) | How every component fits together, traced end to end, with a page per component under `design/architecture/` |
 
 **Checked by the build, not by memory:** every SQL statement in `CONTINUOUS_QUERIES.md` and in the case
 studies is planned, built and compiled against the real engine; `ErrcCrossCuttingTest` holds the
@@ -579,12 +579,14 @@ there is nothing to keep in step.
 
 ### Conventions that matter
 
+The conventions every change follows — boundaries, error codes, licence headers, the file-size limit,
+the documents that move with the code, building, testing and commits — are written once in
+[`guides/CONTRIBUTING.md`](guides/CONTRIBUTING.md). Two that are specific to this record:
+
 - **Cross-references:** bare `§N` means *this* document; `design §N` means the other one. A CI check
   resolves both directions.
-- **Error codes** are `PRV-nnnn`, ranged by subsystem, never renumbered. Add to the relevant
-  `*Errors` class.
-- **Commit messages** explain *why*, including what was wrong and what was learned. Ashutosh Sinha
-  is the sole author, and a message ends with its own text — no trailers of any kind.
+- **Ashutosh Sinha is the sole author**, and a commit message ends with its own text — no trailers of
+  any kind.
 - **Branches:** work happens on `develop`, pushed after every verified change ("drill to develop").
   `main` is merged from it when the owner says so ("drill to main"; a bare "drill" is both), so
   between drills it is behind `develop`.

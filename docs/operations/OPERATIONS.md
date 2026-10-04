@@ -411,6 +411,12 @@ permit, and what the other tenants report is "Pravaha is down".
 Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff — not as
 `INVALID_ARGUMENT`, which they give up on.
 
+**Where it applies.** A `ReadAdmission` is given to a gateway with `admitting(admission, readDeadline)` —
+on `PravahaFlightServer` and `PravahaPgWireServer` — by whoever assembles it. **`pravaha-server` does not
+yet configure one**: a node's Flight and PostgreSQL gateways admit every read, with no read deadline, so
+`PRV-4026`–`PRV-4029` come only from a gateway an application assembles itself. There is no
+`pravaha.*` setting for it (suggested finding LETTERS-2).
+
 ## Connections and request bodies
 
 What a caller can make the node hold **before it has authenticated** is bounded on both ports that

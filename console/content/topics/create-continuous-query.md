@@ -559,3 +559,5 @@ shape that was expected, never with a syntax error about a word Calcite has neve
 - [Views and keys](/help/topics/views-and-keys) — choosing the key.
 - [Sinks](/help/topics/sinks-overview) — what `WRITING TO` needs.
 - [Sharing by fingerprint](/help/topics/sharing) — why two names can be one computation.
+- How it is built: [Architecture: planning](/help/architecture-planning)
+- How it is built: [Architecture: registry](/help/architecture-registry)

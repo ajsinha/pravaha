@@ -209,3 +209,5 @@ what. See [authorization](/help/topics/authorization).
 - [Views and keys](/help/topics/views-and-keys) — what a registration maintains
 - [Sharing by fingerprint](/help/topics/sharing)
 - The long form: [Streams, queries and SQL §3 and §8](/help/continuous-queries#3-registering-a-continuous-query)
+- How it is built: [Architecture: the life of a registered query](/help/architecture#the-life-of-a-registered-query)
+- How it is built: [Architecture: registry](/help/architecture-registry#registration-and-sharing)

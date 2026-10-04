@@ -401,3 +401,4 @@ is down and work again as soon as it is back.
 - [Z-set weights and retractions](/help/topics/zset-weights) — the algebra behind `+1` and `-1`.
 - [Late data and corrections](/help/topics/event-time-watermarks#late-data) — where retractions come from.
 - [Consistency](/help/topics/consistency) — how a subscription and a read relate.
+- How it is built: [Architecture: subscriptions](/help/architecture-registry#subscriptions)

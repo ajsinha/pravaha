@@ -276,3 +276,4 @@ moving between nodes pauses for a checkpoint and a restore.
 - [ADR-045: cluster mode assigns queries, not rows](/help/decisions/045-cluster-mode-assigns-queries-not-rows)
 - [ADR-034: distribution deferred](/help/decisions/034-distribution-deferred)
 - [Operations: rebalancing, as designed](/help/operations#rebalancing-what-happens-when-the-membership-changes)
+- How it is built: [Architecture: the cluster, and why it is on hold](/help/architecture-hosts#pravaha-cluster-and-why-multi-node-is-on-hold)

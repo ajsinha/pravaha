@@ -240,3 +240,4 @@ source with the table above in mind.
 - [The Kafka source](/help/topics/source-kafka) — a topic, exactly once
 - [Lookup tables](/help/topics/lookups) — reference data asked, not consumed
 - [Connector security](/help/topics/connector-security) — credentials and TLS for every store
+- How it is built: [Architecture: ingest and egress](/help/architecture-ingest-egress)

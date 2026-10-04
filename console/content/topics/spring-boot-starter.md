@@ -260,3 +260,4 @@ Declare your own `PravahaEngine` bean and the starter steps aside entirely.
 - [The embedded engine](/help/topics/embedded-engine) — every call the template wraps.
 - [Subscriptions](/help/topics/subscriptions) — whole commits and weights.
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — making a restart keep state.
+- How it is built: [Architecture: the Spring Boot starter](/help/architecture-hosts#pravaha-spring-boot-starter)

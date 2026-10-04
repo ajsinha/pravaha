@@ -505,3 +505,4 @@ registry, fix the cause, and re-register it.
 - [Clients and SDKs](/help/topics/clients) — this read in every client
 - [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query) — the whole grammar, `INDEX` and `RANGE` included
 - The long form: [Streams, queries and SQL §3](/help/continuous-queries#3-registering-a-continuous-query)
+- How it is built: [Architecture: serving](/help/architecture-serving)

@@ -852,3 +852,4 @@ engine's.
 - [The filesystem source](/help/topics/source-filesystem) — every option, including `op.column`
 - [Observability](/help/topics/observability) — the numbers behind Operations
 - The long form: [Quick start](/help/quickstart) and [Concepts](/help/concepts)
+- How it is built: [Architecture: how Pravaha fits together](/help/architecture)

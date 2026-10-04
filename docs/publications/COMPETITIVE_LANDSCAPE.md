@@ -180,7 +180,7 @@ the indexes of its own structures, not those of an external store.
   `SourcePushdownEquivalenceTest` and `PartialAggregatePushdownEquivalenceTest` hold a pushed query
   to the same answer as an unpushed one.
 - A source declares what it can evaluate, and the planner pushes only that
-  ([`CONNECTORS.md` §2](../guides/CONNECTORS.md#sourcecapabilities--the-part-that-is-load-bearing)). A query's
+  ([connector guide §4](../development/guides/CONNECTOR_DEVELOPMENT.md#4-capabilities-claim-the-weakest-thing-that-is-true)). A query's
   `feed.description` on `GET /api/v1/queries/{name}` says what the store was asked for.
 - Streams from different stores join each other
   ([`CONNECTORS.md` §4](../guides/CONNECTORS.md#4-joining-across-different-sources)); the limits are written
@@ -730,7 +730,7 @@ data, with materialized views triggered on insert rather than retracting.
 | ksqlDB | Two ways to ask: a read of the answer, and a subscription to its changes | [ADR-026](../design/adr/026-one-subscription-model-three-carriers.md) |
 | Materialize, RisingWave | The PostgreSQL wire protocol, so existing tools read a view | [the PostgreSQL gateway](../../console/content/topics/pgwire.md) |
 | Debezium | Change data capture from PostgreSQL's logical replication — reimplemented, not depended on | [ADR-041](../design/adr/041-change-data-capture-without-debezium.md) |
-| Trino | Connectors that say what they can evaluate, so the planner pushes only that | [`CONNECTORS.md` §2](../guides/CONNECTORS.md#sourcecapabilities--the-part-that-is-load-bearing) |
+| Trino | Connectors that say what they can evaluate, so the planner pushes only that | [connector guide §4](../development/guides/CONNECTOR_DEVELOPMENT.md#4-capabilities-claim-the-weakest-thing-that-is-true) |
 | Unity Catalog | Namespaced objects, owners, tags, inherited grants, row filters and column masks as objects | [ADR-059](../design/adr/059-the-pravaha-catalog-governs-live-answers.md) |
 
 ## Disclaimer

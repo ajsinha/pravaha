@@ -8,7 +8,7 @@ summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any 
 badge: GATEWAY
 audience: Developers
 keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", "select 1", hikari, "connectionTestQuery", "search_path", copy, PRV-6201, PRV-6211, PRV-6200, PRV-6216, PRV-6217, PRV-6218, PRV-6219, PRV-6221, allow-plaintext, "53300", max-connections, idle-timeout, revoked]
-guide: architecture
+guide: architecture-serving
 related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
 
@@ -458,3 +458,4 @@ the rest of that list.
 - [Point reads](/help/topics/views-and-keys#point-reads) — what every read here does underneath.
 - [Authentication](/help/topics/authentication) — where the token the password carries comes from.
 - [TLS everywhere](/help/topics/tls) — encrypting every other connection.
+- How it is built: [Architecture: the PostgreSQL gateway](/help/architecture-serving#pravaha-pgwire)

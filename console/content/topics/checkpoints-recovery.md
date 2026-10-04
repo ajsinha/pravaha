@@ -263,3 +263,5 @@ not know. Restore both to the same paths under the same `pravaha.node.id`.
 - [Delivery guarantees](/help/topics/delivery-guarantees) — what a replay does to each sink
 - [Upgrades](/help/topics/upgrades) — checkpoints across versions
 - [ADR-008: aligned checkpoints](/help/decisions/008-aligned-checkpoints)
+- How it is built: [Architecture: the checkpoint cut](/help/architecture-registry#the-checkpoint-cut)
+- How it is built: [Architecture: a restart, traced](/help/architecture#a-restart)

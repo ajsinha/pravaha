@@ -127,3 +127,4 @@ The rest are on [Security codes](/help/topics/errors-security).
 - [Authorization](/help/topics/authorization) — the policy the catalogue implements
 - [Audit](/help/topics/audit) — every grant, revocation and refusal is recorded
 - [CLI reference](/help/topics/cli-reference#the-pravaha-catalog-and-grants)
+- How it is built: [Architecture: the catalogue](/help/architecture-governance#pravaha-catalog)

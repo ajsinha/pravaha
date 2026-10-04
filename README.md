@@ -95,7 +95,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 <!-- A list, not a table: these entries are paragraphs, and GitHub's mobile app stops rendering a
      table past about 10,000 bytes, taking the rest of this page with it. -->
 
-- **SQL** — Calcite parses and optimises; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs the fused filter and project about **3.5× the interpreted path** (JMH, JDK 25, 2026-10-04; it read 10× on JDK 21 on 2026-09-09, before the interpreted string comparison stopped decoding the column per row). Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/guides/CONTINUOUS_QUERIES.md), checked against the planner by a test
+- **SQL** — Calcite parses and validates; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs the fused filter and project about **3.5× the interpreted path** (JMH, JDK 25, 2026-10-04; it read 10× on JDK 21 on 2026-09-09, before the interpreted string comparison stopped decoding the column per row). Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/guides/CONTINUOUS_QUERIES.md), checked against the planner by a test
 - **Continuous queries** — Registered with a name and a key; paused, resumed, dropped. Identical questions from one tenant share one computation under many names, matched on the normalised plan, so ten desks asking the same thing cost one read of the source. Each tenant is admitted by quota (queries, view state) and refused by name at the limit ([ADR-050](docs/design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md))
 - **Windows and event time** — Tumbling and hopping (sliding) windows, with slicing, a hop's windows starting on multiples of its slide as SQL's `HOP` does; a hop so fine a row would land in more than `pravaha.lane.max-windows-per-row` windows is refused (`PRV-3026`), and session windows are refused (`PRV-2020`). A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back — and when every partition has gone quiet the watermark catches up to what the ones that spoke said — and a window publishes when time passes its end
 - **Corrections** — Late data within a stream's declared allowed lateness (`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`; zero by default) reopens a closed window as a retraction plus the corrected answer. Every change carries a Z-set weight, through the engine, across the wire and into both SDKs
@@ -323,7 +323,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | Reference | |
 |---|---|
 | [Streams, queries and SQL](docs/guides/CONTINUOUS_QUERIES.md) | Declaring streams and sources, registering, reading, sinks, windows, joins — and every SQL construct that works or is refused |
-| [Connectors](docs/guides/CONNECTORS.md) and [TLS](docs/guides/CONNECTOR_TLS.md) | Building a source or sink plugin; encrypting every connection |
+| [Connectors](docs/guides/CONNECTORS.md) and [TLS](docs/guides/CONNECTOR_TLS.md) | The connectors that ship, change-data-capture and cross-source joins; encrypting every connection |
 | [Operations](docs/operations/OPERATIONS.md) | Configuration, sizing, sinks, state, recovery, what to watch |
 | [Running in Docker](docs/operations/RUNNING_IN_DOCKER.md) | The two images, the `/opt/pravaha` layout, the compose stack and its profiles, ownership, backup, troubleshooting |
 | [Deployment](docs/operations/DEPLOYMENT.md) | The container image and the Helm chart: volumes, ports, environment, probes, upgrading a node, the release procedure, and what the chart deliberately does not do |
@@ -334,7 +334,8 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 
 | How and why | |
 |---|---|
-| [Architecture](docs/design/ARCHITECTURE.md) | How it is put together, and why each part is shaped that way |
+| [Architecture](docs/design/ARCHITECTURE.md) | How every component fits together: module graph, end-to-end traces, lifecycles, and [a page per component](docs/design/architecture/README.md) |
+| [Developer guides](docs/development/guides/README.md) | Extending it: [connectors](docs/development/guides/CONNECTOR_DEVELOPMENT.md), [the engine](docs/development/guides/ENGINE_DEVELOPMENT.md), [clients](docs/development/guides/CLIENT_DEVELOPMENT.md), [the console](docs/development/guides/CONSOLE_DEVELOPMENT.md), [security](docs/development/guides/SECURITY_EXTENSIONS.md), and the [conventions](docs/development/guides/CONTRIBUTING.md) they share |
 | [System design](docs/design/system_design.md) | The full specification |
 | [Decision records](docs/design/adr/) | Every architectural decision, including the ones later reversed |
 | [Research paper](docs/publications/research/continuous-queries-as-maintained-answers.pdf) · [article](docs/publications/research/continuous-queries-as-maintained-answers-article.md) | *Continuous Queries as Maintained Answers*: the model, and why subscription, recovery, reader sharing and replacement are exact — third edition for 2.x, adding the adversarial QA round against 2.0.0 and the semantics its fixes changed; each claim marked with the test that carries it, or marked argued |

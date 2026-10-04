@@ -7,7 +7,7 @@ icon: check2-square
 summary: "A read sees a view at its last commit, never half of one. What a commit is, how it relates to the watermark and to retention, what two reads of two views can and cannot promise, and what a read sees during a correction."
 audience: Developers
 keywords: [commit, frontier, committed, watermark, retention, evict, snapshot, stale, reconcile, isolation, Consistency, CONSISTENT, LATEST, AS_OF]
-guide: architecture#what-a-lane-is
+guide: architecture-serving
 related: [views-and-keys, subscriptions, event-time-watermarks]
 ---
 
@@ -207,3 +207,4 @@ GROUP BY user_id, window_start, window_end;
 - [Point reads](/help/topics/views-and-keys#point-reads) and [Subscriptions](/help/topics/subscriptions).
 - [Event time and watermarks](/help/topics/event-time-watermarks).
 - [Late data and corrections](/help/topics/event-time-watermarks#late-data).
+- How it is built: [Architecture: serving](/help/architecture-serving)

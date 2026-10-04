@@ -634,3 +634,4 @@ answered locally until they expire.
 - [State and spill](/help/topics/state-spill) — when join state is larger than memory
 - [Windows](/help/topics/windows#worked-examples) — windows over a joined stream
 - [Aerospike source](/help/topics/source-aerospike) and [JDBC source](/help/topics/source-jdbc)
+- How it is built: [Architecture: joins](/help/architecture-runtime#joins)

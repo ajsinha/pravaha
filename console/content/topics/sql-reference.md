@@ -1036,3 +1036,4 @@ generation, so a plan built when a view had three columns is not reused after it
 - [Clients and SDKs](/help/topics/clients#snippets) — binding a parameter from every client
 - [Sharing by fingerprint](/help/topics/sharing) — why a bound value makes a new computation
 - [Streams, queries and SQL](/help/continuous-queries#11-projection-select) — the long form
+- How it is built: [Architecture: planning](/help/architecture-planning)

@@ -217,3 +217,4 @@ as well.
 - [Windows](/help/topics/windows) and [Joins](/help/topics/joins) — the bounds that come from the query itself
 - [ADR-037: state that degrades instead of dying](/help/decisions/037-state-that-degrades-instead-of-dying)
 - [ADR-044: no RocksDB; the mapped tier is L1](/help/decisions/044-no-rocksdb-the-mapped-tier-is-l1)
+- How it is built: [Architecture: state](/help/architecture-runtime#pravaha-state)

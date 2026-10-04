@@ -248,7 +248,7 @@ PART2: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §2 'Declaring a stream' (the three blocks and "
-        "the YAML, schema line wrapped for the slide); docs/guides/CONNECTORS.md §3 ('a binding is per "
+        "the YAML, schema line wrapped for the slide); docs/guides/CONNECTORS.md §4 ('a binding is per "
         "stream name, not per query'); README.md 'Sources' (one reader per source binding).",
     },
     {
@@ -343,7 +343,7 @@ PART3: list[dict[str, Any]] = [
             "Reading the answer",
             "Subscribing to the changes",
         ],
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3–§4; docs/design/ARCHITECTURE.md 'One path, end to end'.",
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3–§4; docs/design/ARCHITECTURE.md §4, trace two.",
     },
     {
         "kind": "code",
@@ -461,7 +461,7 @@ PART3: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: README.md 'What it is' (both SDK snippets, string literal split across "
-        "lines for the slide) and 'Serving'; docs/design/ARCHITECTURE.md 'One path, end to end' step 4.",
+        "lines for the slide) and 'Serving'; docs/design/ARCHITECTURE.md §3, trace one (the read).",
     },
     {
         "kind": "bullets",

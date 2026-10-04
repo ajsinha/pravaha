@@ -380,3 +380,4 @@ The Python SDK's `client.sinks()` returns the same list; the console's **Catalog
   once, and what checkpoints have to do with it
 - [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query) — the whole grammar
 - [Z-set weights and retractions](/help/topics/zset-weights) — why a sink receives `-1` rows
+- How it is built: [Architecture: sinks and lookups](/help/architecture-ingest-egress#sinks-and-lookups)

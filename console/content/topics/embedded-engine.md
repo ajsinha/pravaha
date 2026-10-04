@@ -276,3 +276,4 @@ service that must survive a restart. See [Checkpoints and recovery](/help/topics
 - [Spring Boot starter](/help/topics/spring-boot-starter) — the same engine as a bean.
 - [Subscriptions](/help/topics/subscriptions) — weights and whole commits.
 - [SDK reference](/help/topics/clients#sdk-reference) — talking to a server instead.
+- How it is built: [Architecture: the embedded engine](/help/architecture-hosts#pravaha-embedded)

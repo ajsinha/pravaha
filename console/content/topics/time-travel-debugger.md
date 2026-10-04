@@ -243,3 +243,4 @@ screen with the fork control disabled and the policy's own reason beside it.
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what a fork starts from
 - [Registry codes](/help/topics/errors-registry) — the six refusals, each by name
 - [Comparing two versions](/help/topics/backfill-cutover#comparing-two-versions) — the other way to find out what changed
+- How it is built: [Architecture: the debugger](/help/architecture-registry#the-time-travel-debugger)

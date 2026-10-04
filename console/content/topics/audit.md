@@ -195,3 +195,4 @@ payroll" has an answer too.
 
 - [Authorization](/help/topics/authorization) — the decisions being recorded
 - [Authentication](/help/topics/authentication) — where the principal comes from
+- How it is built: [Architecture: security](/help/architecture-governance#pravaha-security)

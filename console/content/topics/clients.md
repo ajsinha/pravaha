@@ -810,3 +810,4 @@ except QueryError as e:
 - [The PostgreSQL gateway](/help/topics/pgwire) and [the HTTP API](/help/topics/http-api) — every endpoint
 - [The embedded engine](/help/topics/embedded-engine) and [the Spring Boot starter](/help/topics/spring-boot-starter)
 - The long form: [User guide](/help/user-guide), [Python SDK](/help/python-sdk) and the [Python integration guide](/help/python-api-guide)
+- How it is built: [Architecture: clients and the console](/help/architecture-clients-console)

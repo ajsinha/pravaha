@@ -549,3 +549,4 @@ node logs the answer once at startup: `off-heap access: bytebuffer (-Dpravaha.me
 - [Authentication](/help/topics/authentication) — the settings the defaults refuse to start without
 - [Observability](/help/topics/observability) — watching what you configured
 - [Operations (long form)](/help/operations)
+- How it is built: [Architecture: the server](/help/architecture-hosts#pravaha-server)

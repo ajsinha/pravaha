@@ -158,3 +158,4 @@ by v2.
 - [Standby](/help/topics/standby)
 - [CREATE CONTINUOUS QUERY and the management statements](/help/topics/create-continuous-query)
 - [ADR-016: blue/green query updates](/help/decisions/016-blue-green-query-updates)
+- How it is built: [Architecture: packaging](/help/architecture-observability-packaging#packaging-and-deployment)
