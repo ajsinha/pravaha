@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **566 findings carrying a
-status — 536 FIXED, 11 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 11 open, **0 are
-GA-BLOCKER, 2 GA-REQUIRED, 9 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 547 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7712,8 +7712,7 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 ### DLQFULL-1 (HIGH) — a dead letter that cannot be written is dropped with nothing said
 
-> **Status:** OPEN — `FileDeadLetterQueue.accept` catches the `IOException` of a write and only counts it (`failures++`); in the node nothing reads that count, nothing is logged, the dead-letter metrics do not move, and the source reads on. On a full disk (ADV-GAPS QG-D04, a 16 MiB tmpfs) five undecodable lines reached one query's queue and not the other's: `v1.dlq` 0 bytes, `pravaha_query_dead_letters{query="v1"}` 0, feed RUNNING. Repro: `pravaha.dlq.directory` on a full filesystem, one undecodable line into a file source. Fix direction: a write that fails stops the feed with a code (as with no queue configured, which "fails loudly"), or at least logs ERROR and counts it in a metric and on the query.
-> **Disposition:** GA-REQUIRED — records lost without a refusal, at exactly the moment (a full disk) the queue exists for.
+> **Status:** FIXED — a dead letter that cannot be written is counted (pravaha_query_dead_letters_write_failures_total), logged at ERROR and refused PRV-4090 naming the query, stream and source offset, which stops the feed through the feed-failure path (health DEGRADED) instead of vanishing; a row whose evaluation failed stops its query the same way, and `pravaha-engine run --dlq` fails the run. The writer is an unbuffered channel and cuts a failed partial entry before the next append. DeadLetterQueueTest (a closed queue, and /dev/full for a full disk).
 
 ### DISKJOURNAL-1 (HIGH) — after a full disk refuses one registration, the next one makes the node refuse to start
 
@@ -7722,50 +7721,40 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 ### PGTLSONLY-1 (MEDIUM) — a TLS-configured PostgreSQL gateway still accepts plaintext and asks for the token in clear
 
-> **Status:** OPEN — with `pravaha.pgwire.tls.*` set, a client that sends a startup packet without `SSLRequest` (`sslmode=disable`; Npgsql 4.0.17's default) is answered `AuthenticationCleartextPassword` over plaintext and signed in. The `pgwire` topic says "authenticates **after** the handshake, so the token is always inside it" and `PgWireConnection.authenticate` "a configured certificate always covers the password". Repro: ADV-GAPS QG-T06 (raw startup → `R 3`, token → `R 0`). Fix direction: when a certificate is configured, refuse a startup that did not come through `SSLRequest` (`28000`, naming `sslmode=verify-full`) — PostgreSQL's `hostssl` — with an explicit opt-out if plaintext must stay possible.
-> **Disposition:** GA-REQUIRED — a documented credential protection that a client can switch off without the server's say.
+> **Status:** FIXED — with a certificate configured, a startup that did not come through SSLRequest is refused FATAL 28000 PRV-6221 before any credential is asked for (PostgreSQL's hostssl); `pravaha.pgwire.tls.allow-plaintext` (default false) opts back in. JdbcClientTest (pgjdbc sslmode=disable), a raw-socket startup, PsqlSessionTest.
 
 ### DECPARAM-1 (MEDIUM) — a parameter compared with a DECIMAL column is refused on every transport
 
-> **Status:** OPEN — `SELECT id FROM v WHERE price > ?` (price DECIMAL) is `PRV-2021 expression '?0' is a RexDynamicParam, which Pravaha cannot evaluate yet` for a `Decimal` or an integer value, over Flight (Python SDK), pgwire text and binary (psycopg) and Npgsql; the literal answers. CONTINUOUS_QUERIES §9 says parameters are supported in `WHERE`, with no type excluded, and the message names a Calcite class. Repro: ADV-GAPS QG-N05, `decparam.txt`.
-> **Disposition:** POST-GA — refused with a code, never a wrong answer; but parameterised filters on money columns are the common case for BI tools and prepared statements.
+> **Status:** FIXED — a bound parameter compared with a DECIMAL column takes the literal's exact path (typed comparison at the column's scale, the exact general comparison otherwise, false for NULL); Flight declares it decimal128, pgwire decodes binary numeric and integers and refuses binary float, the Java SDK binds BigDecimal and integers and refuses a double (PRV-2062). FlightDecimalTest, JdbcClientTest, PgTypesTest, JavaSdkParameterTest.
 
 ### CASSDC-1 (MEDIUM) — `local.datacenter` is documented as auto-detected and is required
 
-> **Status:** OPEN — `source-cassandra` and the plugin javadoc say a single-datacenter cluster's `local.datacenter` "is detected from the contact points"; the plugin builds the session with explicit contact points and no local DC, and the 4.x driver refuses that: every Cassandra registration without the option fails `PRV-5091 … java.lang.IllegalStateException: Since you provided explicit contact points, the local DC must be explicitly set`. The topic's own examples set it, which is why nothing caught it. Repro: ADV-GAPS QG-S07. Fix direction: configure the driver's `DcInferringLoadBalancingPolicy` when the option is blank (or make it required and say so), and turn the raw exception into `PRV-5088`.
-> **Disposition:** POST-GA — fails at registration with a message that names the fix.
+> **Status:** FIXED — with `local.datacenter` blank the session uses the driver's DcInferringLoadBalancingPolicy, as documented; a datacenter that cannot be settled is refused PRV-5088 naming the setting. CassandraPluginIT with a no-DC case (Testcontainers cassandra:4.1, 9/9).
 
 ### CKPTWHY-1 (LOW) — why a checkpoint failed is recorded and shown nowhere
 
-> **Status:** OPEN — on a full disk `pravaha_query_checkpoint_failures_total` rises, but no log line says a checkpoint failed or why: `QueryCheckpoints.start` hands the checkpointer's narrative (one line per failure) to `message -> {}`, and `RegisteredQuery.lastCheckpointFailure()` has no reader. `errors-state` (PRV-4095) says "the reason is its last checkpoint failure" as if it were visible. Repro: ADV-GAPS QG-D03.
-> **Disposition:** POST-GA — the failure is counted and alerted on; only its cause is missing.
+> **Status:** FIXED — each checkpoint failure is logged at WARN naming the query, and GET /api/v1/queries/{name} carries checkpoint {enabled, last, failures, lastFailure} with the reason redacted like other failure text (OpenAPI lock regenerated; the console page does not show it yet). CheckpointFailureVisibleTest, OpenApiContractTest.
 
 ### TLSDIAG-1 (LOW) — the Java SDK reports a certificate it does not trust as a node it cannot reach
 
-> **Status:** OPEN — an untrusted or expired server certificate is `PRV-1040 CLIENT_CONNECT_FAILED`, `retryable=true`, "cannot reach host:port: io exception Channel Pipeline: [SslHandler#0, …]. Check that a Pravaha node is running there and that the scheme matches" — nothing about the certificate. The Python SDK, psql and pgjdbc all say "certificate verify failed"/"certificate has expired". Repro: ADV-GAPS QG-T10, QG-T14.
-> **Disposition:** POST-GA — diagnosability.
+> **Status:** FIXED — in the Java SDK an SSLHandshakeException or certificate exception in the cause chain is PRV-1046, not retryable, with the JVM's reason; the Python SDK keeps PRV-1040, whose message already says 'certificate verify failed' (documented). JavaSdkTlsTest.
 
 ### SDKCLOSE-1 (LOW) — closing the Java client with an unclosed `QueryResult` throws an uncoded `IllegalStateException`
 
-> **Status:** OPEN — `client.query(sql).toList()` without closing the result, then `client.close()` → `IllegalStateException: Memory was leaked by query … Allocator(flight-client)` from the allocator, replacing whatever the try block returned or threw. `close()` already closes subscriptions and swallows the transport's failure; open results are neither tracked nor closed. Repro: ADV-GAPS QG-T09 (`tls-java-unclosed-result.txt`).
-> **Disposition:** POST-GA — the documented pattern closes the result; the failure is the client's, loud, and late.
+> **Status:** FIXED — the Java client tracks open QueryResults and closes them before its allocator; QueryResult.close() is idempotent. JavaSdkParameterTest#closingTheClientClosesAResultItsCallerLeftOpen.
 
 ### MTLSDOC-1 (LOW) — the SDKs offer "mutual TLS" to a node that never asks for a certificate
 
-> **Status:** OPEN — the node's Flight and pgwire listeners never request a client certificate (no setting exists), so a client certificate from any CA, or none, is accepted alike; the `tls` topic's SDK table lists `client_certificate`/`client_key` "for mutual TLS" without saying it only matters to a terminator in front of the node. Repro: ADV-GAPS QG-T16.
-> **Disposition:** POST-GA — documentation; server-side mTLS is a feature not built.
+> **Status:** FIXED — documentation: the tls, clients and cli-reference topics, the Python guide and SECURITY.md say the node neither requests nor verifies client certificates, and a client certificate is for a TLS terminator in front of it; server-side mutual TLS was not built (it needs trust anchors on both listeners and a rule relating a certificate to the token).
 
 ### NPGSQLNEW-1 (LOW) — Npgsql after 4.x fails to open with PRV-6201, and the workaround is undocumented
 
-> **Status:** OPEN — Npgsql 8.0.5 sends its type loading as one four-statement Query and gets `PRV-6201`; the `power-bi` topic says such versions get `PRV-6205`. With `Server Compatibility Mode=NoTypeLoading` Npgsql 8 opens and every read works. Repro: ADV-GAPS QG-N07.
-> **Disposition:** POST-GA — Power BI pins 4.0.17; document the code and the connection-string setting for other .NET clients.
+> **Status:** FIXED — the multi-statement refusal (PRV-6201) names `Server Compatibility Mode=NoTypeLoading` when the batch reads pg_type, and the power-bi, pgwire and errors-gateway topics and TROUBLESHOOTING give the real code and the workaround; answering Npgsql's type-loading batch itself is not built. SimpleQueryTextTest.
 
 ### PBDRIFT-1 (LOW) — a protobuf field of the wrong wire type reads as zero
 
-> **Status:** OPEN — a record whose field 2 (declared `int64`) arrives length-delimited is read with that column at its default (0), not dead-lettered: `DynamicMessage` keeps the field among the unknown fields and the proto3 default rule fills the column. Repro: ADV-GAPS QG-K05. Fix direction: a declared field number present in the unknown fields is a dead letter naming the field and both wire types.
-> **Disposition:** POST-GA — a producer-side schema break, but answered with a wrong number under a success status.
+> **Status:** FIXED — a declared protobuf field number arriving with the wrong wire type is undecodable, naming the field, its declared type and the wire type, and is dead-lettered (or stops the source without a queue); undeclared field numbers are still skipped. ProtobufValueDecoderTest.
 
 ### CERTEXP-1 (LOW) — a node starts on an expired certificate without a word
 
-> **Status:** OPEN — with an expired pair the node logs `over TLS`/`flight transport=TLS` and every verifying client then fails its handshake. The pair is checked at startup (SX-17); its validity dates are not. Repro: ADV-GAPS QG-T14. Fix direction: WARN at startup (and a metric) when the leaf is expired or expires within N days.
-> **Disposition:** POST-GA.
+> **Status:** FIXED — CertificateValidity checks the leaf certificate of both listeners at start: expired or not yet valid is refused under each listener's TLS code (PRV-6104 Flight, PRV-6206 pgwire) naming the date and setting, and a certificate expiring within 30 days starts with a WARN. PgTlsTest; the Flight TLS tests.

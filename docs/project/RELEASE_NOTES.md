@@ -100,7 +100,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   and one that expires within 30 days starts with a `WARN` naming the date. **Changes behaviour:** a
   node that used to start on an expired certificate does not.
 
-Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
+Register: **566 findings — 547 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.1.0 — 2026-10-03
 
