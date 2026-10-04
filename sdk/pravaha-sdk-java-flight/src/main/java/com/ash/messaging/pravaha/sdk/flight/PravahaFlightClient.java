@@ -16,12 +16,16 @@
 package com.ash.messaging.pravaha.sdk.flight;
 
 import java.io.InputStream;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.CallOption;
+import org.apache.arrow.flight.CallOptions;
 import org.apache.arrow.flight.FlightCallHeaders;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightInfo;
@@ -96,6 +100,21 @@ public final class PravahaFlightClient implements AutoCloseable {
     private final CallOption[] callOptions;
 
     /**
+     * {@link #callOptions} plus {@link ClientOptions#requestTimeout()} as the call's deadline: what
+     * every unary call is made with (SDKDEADLINE-1).
+     *
+     * <p>Two arrays because a deadline in gRPC bounds the whole call, and a subscription is a call
+     * that is meant not to end. Unary calls -- planning a query, preparing and binding it, every
+     * action -- take this one; streams take {@link #callOptions} and have only their opening bounded,
+     * by {@link OpenDeadline}. Before this nothing read {@code requestTimeout} at all, and a node
+     * that accepted a call and never answered held its caller for ever.
+     */
+    private final CallOption[] unaryOptions;
+
+    /** {@link ClientOptions#requestTimeout()}, held to arm {@link OpenDeadline} and to name it. */
+    private final Duration deadline;
+
+    /**
      * Subscriptions this client opened and that nobody has closed.
      *
      * <p>Tracked so that closing the client releases the <em>server's</em> side of them. A
@@ -146,6 +165,7 @@ public final class PravahaFlightClient implements AutoCloseable {
             FlightClient transport,
             FlightSqlClient client,
             CallOption[] callOptions,
+            Duration deadline,
             String endpoint,
             com.ash.messaging.pravaha.api.wire.ControlWire.SubscriberPreference preference) {
         this.transport = transport;
@@ -153,6 +173,8 @@ public final class PravahaFlightClient implements AutoCloseable {
         this.ownsAllocator = ownsAllocator;
         this.client = client;
         this.callOptions = callOptions;
+        this.deadline = deadline;
+        this.unaryOptions = withDeadline(callOptions, deadline);
         this.endpoint = endpoint;
         this.preference = preference;
     }
@@ -195,6 +217,7 @@ public final class PravahaFlightClient implements AutoCloseable {
                     transport,
                     new FlightSqlClient(transport),
                     credentialsOf(options),
+                    options.requestTimeout(),
                     node.host() + ":" + node.port(),
                     new com.ash.messaging.pravaha.api.wire.ControlWire.SubscriberPreference(
                             options.subscriberBufferRows(), options.conflateOnOverflow() ? "CONFLATE" : "FAIL"));
@@ -270,6 +293,12 @@ public final class PravahaFlightClient implements AutoCloseable {
                 .orElse(new CallOption[0]);
     }
 
+    private static CallOption[] withDeadline(CallOption[] options, Duration deadline) {
+        CallOption[] bounded = Arrays.copyOf(options, options.length + 1);
+        bounded[options.length] = CallOptions.timeout(deadline.toNanos(), TimeUnit.NANOSECONDS);
+        return bounded;
+    }
+
     private static FlightCallHeaders headersWith(String token) {
         FlightCallHeaders headers = new FlightCallHeaders();
         headers.insert("authorization", "Bearer " + token);
@@ -287,8 +316,13 @@ public final class PravahaFlightClient implements AutoCloseable {
         try {
             // Refused here, not sent: protobuf would put '?' where a lone surrogate was.
             ControlWire.requireWellFormed(sql, "the SQL");
-            FlightInfo info = client.execute(sql, callOptions);
-            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
+            FlightInfo info;
+            try {
+                info = client.execute(sql, unaryOptions);
+            } catch (FlightRuntimeException e) {
+                throw failureOf(e, "query (planning)");
+            }
+            return result(info, "query (opening its result)");
         } catch (FlightRuntimeException e) {
             // The server's own diagnosis *and its own code*, rather than a wrapper that keeps the
             // first and discards the second: "PRV-4023 ... this server serves [user_volume]" is
@@ -320,15 +354,20 @@ public final class PravahaFlightClient implements AutoCloseable {
         ControlWire.requireWellFormed(sql, "the SQL");
         FlightSqlClient.PreparedStatement statement;
         try {
-            statement = client.prepare(sql, callOptions);
+            statement = client.prepare(sql, unaryOptions);
         } catch (FlightRuntimeException e) {
-            throw failureOf(e);
+            throw failureOf(e, "query (preparing)");
         }
         try (VectorSchemaRoot bound = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
             Parameters.write(bound, parameters);
             statement.setParameters(bound);
-            FlightInfo info = statement.execute(callOptions);
-            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
+            FlightInfo info;
+            try {
+                info = statement.execute(unaryOptions);
+            } catch (FlightRuntimeException e) {
+                throw failureOf(e, "query (binding and planning)");
+            }
+            return result(info, "query (opening its result)");
         } catch (FlightRuntimeException e) {
             throw failureOf(e);
         } finally {
@@ -338,7 +377,7 @@ public final class PravahaFlightClient implements AutoCloseable {
             // result that had already been computed. The server holds nothing for a prepared
             // statement, so a failed close costs nothing -- the Python SDK closes the same way.
             try {
-                statement.close(callOptions);
+                statement.close(unaryOptions);
             } catch (RuntimeException ignored) {
                 // Nothing to release on the server; tidying up must not replace the answer.
             }
@@ -737,7 +776,7 @@ public final class PravahaFlightClient implements AutoCloseable {
      *     the network. Equality only. A column the view does not have is refused rather than ignored
      */
     public Subscription subscribe(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
-        return open(ControlWire.subscribeTicket(view, pairs(filters), preference), onBatch);
+        return open(ControlWire.subscribeTicket(view, pairs(filters), preference), "subscribe(" + view + ")", onBatch);
     }
 
     /**
@@ -756,7 +795,10 @@ public final class PravahaFlightClient implements AutoCloseable {
      * fresh snapshot. A server older than this SDK refuses the subscription with {@code PRV-6102}.
      */
     public Subscription subscribeFromSnapshot(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
-        return open(ControlWire.subscribeFromSnapshotTicket(view, pairs(filters)), onBatch);
+        return open(
+                ControlWire.subscribeFromSnapshotTicket(view, pairs(filters)),
+                "subscribeFromSnapshot(" + view + ")",
+                onBatch);
     }
 
     /** {@link #subscribeFromSnapshot(String, Map, Consumer)} with no filter. */
@@ -775,7 +817,10 @@ public final class PravahaFlightClient implements AutoCloseable {
      * SDK refuses the subscription as a ticket it does not know.
      */
     public Subscription subscribeToAnswer(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
-        return open(ControlWire.subscribeTicket(view, pairs(filters), preference, false, true), onBatch);
+        return open(
+                ControlWire.subscribeTicket(view, pairs(filters), preference, false, true),
+                "subscribeToAnswer(" + view + ")",
+                onBatch);
     }
 
     /**
@@ -785,7 +830,10 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     public Subscription subscribeToAnswerFromSnapshot(
             String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
-        return open(ControlWire.subscribeTicket(view, pairs(filters), null, true, true), onBatch);
+        return open(
+                ControlWire.subscribeTicket(view, pairs(filters), null, true, true),
+                "subscribeToAnswerFromSnapshot(" + view + ")",
+                onBatch);
     }
 
     private static List<String> pairs(Map<String, String> filters) {
@@ -797,15 +845,18 @@ public final class PravahaFlightClient implements AutoCloseable {
         return pairs;
     }
 
-    private Subscription open(byte[] ticket, Consumer<ChangeBatch> onBatch) {
+    private Subscription open(byte[] ticket, String call, Consumer<ChangeBatch> onBatch) {
         requireOpen();
+        // No deadline on the call itself: a subscription is meant to outlive any request timeout.
+        // Only its opening is bounded (SDKDEADLINE-1), by OpenDeadline.
         FlightStream stream = client.getStream(new Ticket(ticket), callOptions);
+        OpenDeadline opening = OpenDeadline.arm(stream, deadline);
         // API-F7: the same mapper every other call on this connection uses. A subscription is a
         // result that arrives over time, so its fallback is READ_FAILED rather than QUERY_REFUSED,
         // matching QueryResult; a server that diagnosed the failure is reported under its own code
         // either way, and a node that is not there is PRV-1040 naming the address.
-        Subscription subscription =
-                new Subscription(stream, onBatch, subscriptions::remove, e -> failureOf(e, ClientErrors.READ_FAILED));
+        Subscription subscription = new Subscription(
+                stream, onBatch, subscriptions::remove, e -> openFailureOf(e, opening, call, ClientErrors.READ_FAILED));
         subscriptions.add(subscription);
         return subscription;
     }
@@ -984,10 +1035,10 @@ public final class PravahaFlightClient implements AutoCloseable {
         List<List<String>> results = new java.util.ArrayList<>();
         try {
             transport
-                    .doAction(new Action(type, ControlWire.encode(fields)), callOptions)
+                    .doAction(new Action(type, ControlWire.encode(fields)), unaryOptions)
                     .forEachRemaining(result -> results.add(ControlWire.decode(result.getBody())));
         } catch (FlightRuntimeException e) {
-            throw failureOf(e);
+            throw failureOf(e, "action " + type);
         }
         return results;
     }
@@ -1006,6 +1057,42 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     PravahaClientException failureOf(FlightRuntimeException e) {
         return failureOf(e, ClientErrors.QUERY_REFUSED);
+    }
+
+    /** A failed unary call named {@code call}, which ran with {@link #unaryOptions}' deadline. */
+    private PravahaClientException failureOf(FlightRuntimeException e, String call) {
+        if (closed) {
+            return failureOf(e, ClientErrors.QUERY_REFUSED);
+        }
+        return ServerFailures.of(e, endpoint, ClientErrors.QUERY_REFUSED, call, deadline);
+    }
+
+    /**
+     * Opens a query's result stream, its opening bounded by the deadline and its reading not.
+     *
+     * <p>{@link QueryResult}'s constructor waits for the schema; if {@link OpenDeadline} gave up
+     * first, that wait ends in a cancellation, reported here as the deadline it was.
+     */
+    private QueryResult result(FlightInfo info, String call) {
+        FlightStream stream = client.getStream(info.getEndpoints().get(0).getTicket(), callOptions);
+        OpenDeadline opening = OpenDeadline.arm(stream, deadline);
+        try {
+            return new QueryResult(stream, this);
+        } catch (FlightRuntimeException e) {
+            throw openFailureOf(e, opening, call, ClientErrors.QUERY_REFUSED);
+        }
+    }
+
+    /**
+     * A stream that failed: the deadline if {@code opening} gave up on it, else as before --
+     * {@code fallback} is QUERY_REFUSED for a query's result and READ_FAILED for a subscription.
+     */
+    private PravahaClientException openFailureOf(
+            FlightRuntimeException e, OpenDeadline opening, String call, ErrorCode fallback) {
+        if (!closed && opening.expired()) {
+            return ServerFailures.deadlineExceeded(call, deadline, endpoint, e);
+        }
+        return failureOf(e, fallback);
     }
 
     /** The same, for a caller whose "something else went wrong" code is not QUERY_REFUSED. */

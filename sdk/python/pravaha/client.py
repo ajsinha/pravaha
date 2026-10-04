@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import threading
 import time
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
 
@@ -188,6 +189,29 @@ class ConnectError(PravahaError):
 
     def __init__(self, message: str) -> None:
         super().__init__(1040, message, retryable=True)
+
+
+class DeadlineExceededError(PravahaError):
+    """A call was not answered within ``ClientOptions.request_timeout_seconds``.
+
+    Worth retrying: nothing was refused, and a node that is slow now may not be in a moment.
+    The same ``PRV-1045`` as the Java SDK's ``ClientErrors.DEADLINE_EXCEEDED`` (SDKDEADLINE-1).
+    The message names the call and the deadline, because "timed out" alone says neither which
+    of several calls it was nor which setting to raise.
+    """
+
+    def __init__(self, call: str, uri: str, deadline: float) -> None:
+        super().__init__(
+            1045,
+            f"{call} was not answered by {uri} within the {deadline:g} s deadline "
+            "(request_timeout_seconds). The node is slow, stalled or overloaded; retry, or raise "
+            "request_timeout_seconds if the request is known to take longer",
+            retryable=True,
+        )
+        #: What was asked -- ``"query (planning)"``, ``"action ListQueries"``, ``"subscribe(v)"``.
+        self.call = call
+        #: The deadline it was given, in seconds.
+        self.deadline = deadline
 
 
 class Row:
@@ -488,6 +512,74 @@ class Client(DebugCommands):
         headers = self._auth_headers + traced
         return _flight.FlightCallOptions(headers=headers) if headers else _flight.FlightCallOptions()
 
+    @property
+    def _unary_options(self) -> Any:
+        """:attr:`_call_options` with ``request_timeout_seconds`` as the call's deadline: what every
+        unary call -- planning, preparing, binding, every action -- is made with (SDKDEADLINE-1).
+
+        Streams are not given it. gRPC's deadline bounds a whole call, and a subscription is a call
+        meant to run for hours; a stream's *opening* is bounded instead, by :meth:`_open_stream`.
+        Before this, ``request_timeout_seconds`` reached only the HTTP API, and a node that accepted
+        a Flight call and never answered held its caller for ever."""
+        traced = [(k.encode(), v.encode()) for k, v in tracecontext.headers().items()]
+        headers = self._auth_headers + traced
+        return _flight.FlightCallOptions(
+            headers=headers, timeout=self._options.request_timeout_seconds
+        )
+
+    def _deadline_or_failure(self, exc: Exception, call: str) -> PravahaError:
+        """:func:`_failure`, except that a call this client gave up on is the deadline it was."""
+        timed_out = getattr(_flight, "FlightTimedOutError", None)
+        if timed_out is not None and isinstance(exc, timed_out):
+            if _engine_code_of(_server_words(_message_of(exc))) is None:
+                return DeadlineExceededError(call, self._uri, self._options.request_timeout_seconds)
+        return _failure(exc)
+
+    def _open_stream(self, ticket: Any, call: str) -> Any:
+        """``do_get``, its opening bounded by ``request_timeout_seconds`` and its reading not.
+
+        pyarrow's ``do_get`` returns once the server has sent the schema, and a deadline on it
+        would bound the whole stream -- wrong for a subscription, and for a large answer read
+        slowly. So the opening runs on a helper thread and is waited for with the deadline; if
+        the server has not answered by then, the caller gets :class:`DeadlineExceededError`, and
+        a stream that does open afterwards is cancelled, since nobody is waiting for it.
+        """
+        options = self._call_options  # built here: the trace context is the caller's thread's
+        lock = threading.Lock()
+        opened: dict[str, Any] = {}
+        abandoned = False
+        finished = threading.Event()
+
+        def open_it() -> None:
+            try:
+                reader = self._client.do_get(ticket, options)
+            except BaseException as exc:  # handed to the waiting caller, never lost
+                opened["error"] = exc
+            else:
+                with lock:
+                    if abandoned:
+                        try:
+                            reader.cancel()
+                        except Exception:  # pragma: no cover - already gone
+                            pass
+                        return
+                    opened["reader"] = reader
+            finally:
+                finished.set()
+
+        threading.Thread(target=open_it, name="pravaha-open", daemon=True).start()
+        if not finished.wait(self._options.request_timeout_seconds):
+            with lock:
+                if "reader" not in opened and "error" not in opened:
+                    abandoned = True
+            if abandoned:
+                raise DeadlineExceededError(call, self._uri, self._options.request_timeout_seconds)
+            finished.wait()
+        if "error" in opened:
+            error = opened["error"]
+            raise _failure(error) from error
+        return opened["reader"]
+
     def query(self, sql: str, parameters: Optional[Sequence[object]] = None) -> QueryResult:
         """Runs one query and returns its rows.
 
@@ -511,13 +603,10 @@ class Client(DebugCommands):
             return self._query_with_parameters(sql, parameters)
         try:
             descriptor = _flight.FlightDescriptor.for_command(_statement_command(sql))
-            info = self._client.get_flight_info(descriptor, self._call_options)
-            reader = self._client.do_get(info.endpoints[0].ticket, self._call_options)
-        except _flight.FlightError as exc:
-            raise _failure(exc) from exc
+            info = self._client.get_flight_info(descriptor, self._unary_options)
         except Exception as exc:
-            raise _failure(exc) from exc
-        return QueryResult(reader)
+            raise self._deadline_or_failure(exc, "query (planning)") from exc
+        return QueryResult(self._open_stream(info.endpoints[0].ticket, "query (opening its result)"))
 
     def _query_with_parameters(self, sql: str, parameters: Sequence[object]) -> QueryResult:
         """Prepare, bind, fetch.
@@ -528,16 +617,22 @@ class Client(DebugCommands):
         client can be answered by any node and can come back after a restart.
         """
         try:
-            handle, parameter_schema = self._prepare(sql)
+            try:
+                handle, parameter_schema = self._prepare(sql)
+            except Exception as exc:
+                raise self._deadline_or_failure(exc, "query (preparing)") from exc
             try:
                 batch = _bind(parameter_schema, parameters)
-                handle = self._put_parameters(handle, batch)
-                descriptor = _flight.FlightDescriptor.for_command(_prepared_command(handle))
-                info = self._client.get_flight_info(descriptor, self._call_options)
-                reader = self._client.do_get(info.endpoints[0].ticket, self._call_options)
+                try:
+                    handle = self._put_parameters(handle, batch)
+                    descriptor = _flight.FlightDescriptor.for_command(_prepared_command(handle))
+                    info = self._client.get_flight_info(descriptor, self._unary_options)
+                except Exception as exc:
+                    raise self._deadline_or_failure(exc, "query (binding and planning)") from exc
+                reader = self._open_stream(info.endpoints[0].ticket, "query (opening its result)")
             finally:
                 self._close_prepared(handle)
-        except (QueryError, ValueError):
+        except (PravahaError, ValueError):
             raise
         except _flight.FlightError as exc:
             raise _failure(exc) from exc
@@ -547,7 +642,7 @@ class Client(DebugCommands):
 
     def _prepare(self, sql: str) -> tuple[bytes, "pyarrow.Schema"]:
         action = _flight.Action("CreatePreparedStatement", _create_prepared_request(sql))
-        results = list(self._client.do_action(action, self._call_options))
+        results = list(self._client.do_action(action, self._unary_options))
         if not results:
             raise QueryError("the server did not return a prepared statement")
         handle, _dataset, parameter_schema_bytes = _parse_prepared_result(results[0].body.to_pybytes())
@@ -555,7 +650,7 @@ class Client(DebugCommands):
 
     def _put_parameters(self, handle: bytes, batch: "pyarrow.RecordBatch") -> bytes:
         descriptor = _flight.FlightDescriptor.for_command(_prepared_command(handle))
-        writer, reader = self._client.do_put(descriptor, batch.schema, self._call_options)
+        writer, reader = self._client.do_put(descriptor, batch.schema, self._unary_options)
         with writer:
             writer.write_batch(batch)
             writer.done_writing()
@@ -569,7 +664,7 @@ class Client(DebugCommands):
     def _close_prepared(self, handle: bytes) -> None:
         try:
             action = _flight.Action("ClosePreparedStatement", _close_prepared_request(handle))
-            list(self._client.do_action(action, self._call_options))
+            list(self._client.do_action(action, self._unary_options))
         except Exception:  # pragma: no cover - closing is best effort
             # The server holds nothing, so a failure here costs nothing. Letting it
             # propagate would replace a good result with an error about tidying up.
@@ -957,19 +1052,21 @@ class Client(DebugCommands):
         opened = self._subscription_ticket(
             view, filters, snapshot, buffer_rows, overflow, answer=changes == "answer"
         )
+        call = f"subscribe({view})"
         if not reconnect:
-            yield from self._batches(self._open_subscription(opened))
+            yield from self._batches(self._open_subscription(opened, call))
             return
-        yield from self._reconnecting(opened, reconnect_timeout)
+        yield from self._reconnecting(opened, reconnect_timeout, call)
 
-    def _reconnecting(self, ticket: Any, timeout: Optional[float]) -> Iterator[ChangeBatch]:
+    def _reconnecting(self, ticket: Any, timeout: Optional[float],
+                      call: str = "subscribe") -> Iterator[ChangeBatch]:
         delay = _RECONNECT_FIRST_DELAY
         down_since: Optional[float] = None
         reopened = False
         while True:
             streaming = False
             try:
-                reader = self._open_subscription(ticket)
+                reader = self._open_subscription(ticket, call)
                 streaming = True
                 down_since, delay = None, _RECONNECT_FIRST_DELAY
                 for batch in self._batches(reader):
@@ -1011,14 +1108,12 @@ class Client(DebugCommands):
             _subscribe_ticket(view, pairs, snapshot=snapshot, preference=preference, answer=answer)
         )
 
-    def _open_subscription(self, ticket: Any) -> Any:
-        try:
-            return self._client.do_get(ticket, self._call_options)
-        except Exception as exc:
-            # A refused subscription -- an unknown view, a filter naming a column the view does
-            # not have -- surfaces here, before a single batch. Converted like every other
-            # failure so callers catch one exception type rather than pyarrow's several.
-            raise _failure(exc) from exc
+    def _open_subscription(self, ticket: Any, call: str = "subscribe") -> Any:
+        # A refused subscription -- an unknown view, a filter naming a column the view does not
+        # have -- surfaces here, before a single batch, converted like every other failure so
+        # callers catch one exception type rather than pyarrow's several. One that is never
+        # answered at all is DeadlineExceededError; one that opened runs as long as it runs.
+        return self._open_stream(ticket, call)
 
     def _batches(self, reader: Any) -> Iterator[ChangeBatch]:
         try:
@@ -1055,7 +1150,7 @@ class Client(DebugCommands):
         # Encoded before the try, so a lone surrogate is refused as PRV-1053 rather than wrapped.
         payload = _wire_encode(fields)
         try:
-            results = self._client.do_action(_flight.Action(action, payload), self._call_options)
+            results = self._client.do_action(_flight.Action(action, payload), self._unary_options)
             return [_wire_decode(bytes(r.body)) for r in results]
         except QueryError:
             raise
@@ -1064,7 +1159,7 @@ class Client(DebugCommands):
             # all. pyarrow maps Flight statuses onto several of its own exception classes --
             # ArrowInvalid for INVALID_ARGUMENT, FlightError for others -- and which one a caller
             # sees should not depend on which status the server happened to choose.
-            raise _failure(exc) from exc
+            raise self._deadline_or_failure(exc, f"action {action}") from exc
 
     # ---------------------------------------------------------------------------------
     # The engine's published HTTP API: the calls that have no Flight form.
@@ -1230,6 +1325,7 @@ def connect(
     *,
     options: Optional[ClientOptions] = None,
     http_url: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> Client:
     """Connects to a Pravaha server.
 
@@ -1238,13 +1334,21 @@ def connect(
 
     ``http_url`` is the engine's HTTP port (``http://host:18080``), needed only for the
     catalogue, validation, plans, sinks and status calls; pass it here or in ``options``.
+
+    ``timeout`` is ``ClientOptions.request_timeout_seconds`` (30 by default): how long one
+    request may wait for its answer -- every query up to its first batch, every action, every
+    HTTP call, and the *opening* of a subscription, which then runs for as long as it runs. A
+    call past it raises :class:`DeadlineExceededError` (PRV-1045).
     """
     if options is None:
         if connection_string is None:
             raise ValueError("connect() needs a connection string or options")
-        options = ClientOptions(endpoint=Endpoint.parse(connection_string), http_url=http_url)
+        extra: dict[str, Any] = {} if timeout is None else {"request_timeout_seconds": timeout}
+        options = ClientOptions(endpoint=Endpoint.parse(connection_string), http_url=http_url, **extra)
     elif http_url is not None:
         raise ValueError("give http_url in options or as an argument, not both")
+    elif timeout is not None:
+        raise ValueError("give timeout in options (request_timeout_seconds) or as an argument, not both")
     return Client(options)
 
 #: Backoff between attempts to reopen a ``reconnect=True`` subscription, in seconds.

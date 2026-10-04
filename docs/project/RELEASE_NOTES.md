@@ -10,6 +10,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **Every SDK request has a deadline** (SDKDEADLINE-1). `ClientOptions.requestTimeout` (Java) and
+  `request_timeout_seconds` (Python; also `connect(…, timeout=)` and the CLI's `--timeout`), 30 s by
+  default, now bound every unary Flight call — a query up to its first batch, and every action — and
+  the opening of a subscription, which then runs unbounded. Before, the Java setting had no reader
+  and the Python one reached only HTTP, so a node that accepted a call and never answered held the
+  caller for ever. A call past the deadline fails `PRV-1045 CLIENT_DEADLINE_EXCEEDED`, retryable,
+  naming the call and the deadline. The 60 s stall the 2.1.0 gate saw in `JavaSdkTlsTest` was a cold
+  first query (Calcite bootstrap in a fresh JVM, under full-build load) still making progress, not a
+  hang.
+
 ## 2.1.0 — 2026-10-03
 
 **Everything the adversarial QA of 2.0.0 found, fixed — and several answers change.** 2.1.0 carries
