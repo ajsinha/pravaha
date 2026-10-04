@@ -146,7 +146,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   transactional sink invisibility before commit, idempotent commit, abort, and commit-or-discard after a
   restart. The JDBC sink runs it in both of its shapes. There is no lookup TCK yet.
 
-Register: **572 findings — 549 fixed, 4 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
+Register: **573 findings — 553 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.1.0 — 2026-10-03
 

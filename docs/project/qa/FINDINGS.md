@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **572 findings carrying a
-status — 549 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 3 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **573 findings carrying a
+status — 553 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7769,18 +7769,15 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 ### POLICYPLUG-1 (LOW) — a node offers no way to plug in a custom SecurityPolicy, TokenVerifier or AuditSink
 
-> **Status:** OPEN — `pravaha-server` and the embedded engine construct their policy, verifier and audit sink from settings only, yet the node's PRV-7004 message says "or implement SecurityPolicy for rules of your own"; a custom one is possible only in a host that assembles the registry itself (as docs/development/guides/SECURITY_EXTENSIONS.md now explains). Either add a supported extension point (a Spring bean / ServiceLoader in the server, a builder hook in the embedded engine) or change the message.
-> **Disposition:** POST-GA — an extension the message promises and the hosts do not offer; nothing is wrong at runtime.
+> **Status:** FIXED — a node uses a SecurityPolicy, TokenVerifier or AuditSink bean of the application's own on every surface (found by name, resolved lazily; the node's own are @Primary), refused PRV-7004 where it would be ignored or ambiguous (two of a type, a policy with the catalogue on, a verifier without token authentication or with identity on); the embedded engine takes securedBy(policy) and auditingTo(sink) before start(); the PRV-7004 message points to grants or a bean. SecurityExtensionNodeTest, CustomPolicyBeanTest, EmbeddedSecurityHookTest; SECURITY_EXTENSIONS.md.
 
 ### READADMIT-1 (LOW) — read admission is never configured on a node, so PRV-4026 to PRV-4029 cannot occur
 
-> **Status:** OPEN — the node's Flight and pgwire gateways use `ReadAdmission.UNLIMITED` with no read deadline and no setting for either, so the read-admission refusals the code and the docs describe never happen on a node; help topics and OPERATIONS said otherwise and were corrected. Add the settings (concurrent reads, read deadline) and wire them, or document admission as host-assembly-only.
-> **Disposition:** POST-GA — reads are bounded by the client deadline and the row ceiling; this is a missing control, not a wrong answer.
+> **Status:** FIXED — pravaha.serving.read.{max-concurrent, max-queued, queue-timeout, tenant-share, deadline} build one ReadAdmission and deadline shared by a node's Flight and pgwire gateways and by the embedded engine; the defaults keep every read admitted; an out-of-range value is PRV-1026; pravaha.read.refused and pravaha.read.in_flight are published. ReadLimitsTest, ReadAdmissionNodeTest (PRV-4026 at max-concurrent=1), EmbeddedReadLimitsTest.
 
 ### TCKCOLLECT-1 (LOW) — the source TCK has no shared row collector, and there is no TCK for sinks or lookups
 
-> **Status:** OPEN — each plugin's TCK test copies about 175 lines of row-collecting scaffolding, and sinks and lookups have no conformance kit at all; a new connector author (docs/development/guides/CONNECTOR_DEVELOPMENT.md) gets the source half of the contract tested and nothing for the rest.
-> **Disposition:** POST-GA — test tooling for connector authors.
+> **Status:** FIXED — ArenaRowCollector is the source TCK's shared collector (the JDBC, Delta, feed-file, postgres-cdc and filesystem plugins dropped their copies; Aerospike and Cassandra keep theirs, unverified without Docker), and SinkPluginTck checks the sink contract by declared capability (keys, batches, retraction, upsert, idempotent replay, and for transactional sinks invisibility before commit, single application, abort and restart), run by JdbcSinkTckTest over H2. A lookup TCK remains to be written; CONNECTOR_DEVELOPMENT.md says so.
 
 ## Found clearing NullAway in the engine core (2026-10-04), 2 findings
 
@@ -7790,6 +7787,12 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 ### AUDITROTATE-1 (MEDIUM) — after a failed rotation the file audit sink drops every event silently
 
-> **Status:** OPEN — in FileAuditSink, a rotation that fails leaves the output stream null, and from then on writeLine discards every audit event without counting it as failed or dropped and without a log line; an audit trail that silently stops is the failure audit exists to prevent. Fix: count and log the failure, retry opening on the next event, and surface it in health (or refuse writes loudly), with a test that fails a rotation. Seen while clearing NullAway; not changed there.
-> **Disposition:** GA-REQUIRED — audit records lost without a word.
+> **Status:** FIXED — a failed rotation reopens and keeps writing the current file and retries the rotation every 5 s; a stream that fails or cannot open is reopened on the next event; every event not written is counted and recorded as an audit.lost line once the file is writable again; each failure is logged at ERROR when it starts and when it ends; health is DEGRADED while it lasts and pravaha.audit.failing / pravaha.audit.unrecorded report it. Auditing still never fails a query, as SECURITY.md promises. FileAuditSinkTest (three cases), AuditFileSinkConfigurationTest.
+
+## Found fixing READADMIT-1 (2026-10-04), 1 finding
+
+### STARTERREAD-1 (LOW) — the Spring Boot starter does not forward `pravaha.serving.read.*` to its embedded engine
+
+> **Status:** OPEN — the starter maps the embedded engine's keys explicitly and does not yet carry the new read-admission settings, so an application on the starter cannot set them through its own configuration; the embedded engine reads them only from its own Configuration.
+> **Disposition:** POST-GA — a small mapping; nothing behaves differently from before the settings existed.
 
