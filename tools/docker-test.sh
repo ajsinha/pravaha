@@ -22,7 +22,7 @@
 #   tools/docker-test.sh mvn --docker -pl plugins/pravaha-plugin-kafka test -Dtest=KafkaSinkBrokerTest
 #                                                     ... with the Docker socket, for one Testcontainers test
 #
-# One image, pravaha/test-runner:local (deploy/docker/test/Dockerfile: Maven, JDK 25 and Python 3),
+# One image, pravaha/test-runner:local (deploy/docker/test/Dockerfile: Maven, JDK 21 and Python 3),
 # built on first use; PRAVAHA_TEST_IMAGE names another and skips the build. One image because the
 # Python suites are cross-language: they start the real Flight server from pravaha-flight's test
 # classpath, which the sdk and console suites therefore build first.

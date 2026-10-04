@@ -700,12 +700,13 @@ class SqlSupportMatrixTest {
      * side a row belongs to. A matrix that stopped at the planner called that supported, and the
      * documentation it backs repeated the claim. "Supported" has to mean executable.
      */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     private static @Nullable String messageOf(Case testCase) {
         SqlPlanner planner =
                 testCase.lookup() ? SqlPlanner.withLookups(TXN, DIM) : SqlPlanner.withStreams(TXN, OTHER, THIRD);
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder().build(planner.plan(testCase.sql()));
-            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline ignored = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("the matrix builds pipelines but never runs rows through them");
             })) {
                 return null;

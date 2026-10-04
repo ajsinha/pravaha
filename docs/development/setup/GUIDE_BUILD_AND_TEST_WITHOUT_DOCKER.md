@@ -6,8 +6,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 From a fresh clone to a running node, a continuous query read four ways, and a restart that keeps
 its answer — on a Linux machine with no Docker. Every command below was run on 2026-09-29 on the
 development machine (Ubuntu, 24 cores, 61 GiB RAM, OpenJDK 21.0.12, Python 3.14.4), and the output
-shown is what it printed, trimmed where marked. **From 2.0 the JDK is 25** (2026-10-01, ADR-061):
-the prerequisites below say so, and the walkthrough's commands are the same on it.
+shown is what it printed, trimmed where marked. **The JDK is 21 or later** ([ADR-062](../../design/adr/062-java-21-or-later.md)): the prerequisites below say so, and the walkthrough's commands are the same on 21 and on 25.
 
 [Testing Pravaha](../TESTING.md) is the reference this walks through: every tier, what it needs, what
 skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
@@ -16,15 +15,15 @@ skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_
 
 ## 1. Prerequisites
 
-**JDK 25, and only 25** (Temurin or OpenJDK), from Pravaha 2.0
-([ADR-061](../../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). Every module, `pravaha-api` and the
-Java SDKs included, compiles to Java 25 class files (`maven.compiler.release=25`); the enforcer
-refuses an older JDK, and `bin/pravaha-server` and `bin/pravaha-engine` refuse an older JVM by name.
-The JVM warns when libraries use `sun.misc.Unsafe` memory methods (JEP 498: Arrow, Netty, protobuf)
-or load native code (JEP 472: snappy, zstd), so the launchers always add
-`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`, and `PRAVAHA_JAVA_OPTS`
-still comes last. An application embedding Pravaha may add the same two options. (Pravaha 1.x ran
-on 21 and 25.)
+**JDK 21 or later** (Temurin or OpenJDK; CI runs 21 and 25), per
+[ADR-062](../../design/adr/062-java-21-or-later.md). Every module, `pravaha-api` and the Java SDKs
+included, compiles to Java 21 class files (`maven.compiler.release=21`); the enforcer refuses a JDK
+older than 21, and `bin/pravaha-server` and `bin/pravaha-engine` refuse an older JVM by name. Newer
+JVMs warn when libraries load native code (JEP 472: snappy, zstd) and, from 23, when they use
+`sun.misc.Unsafe` memory methods (JEP 498: Arrow, Netty, protobuf), so the launchers always add
+`--enable-native-access=ALL-UNNAMED` and, on a JVM 23 or later, `--sun-misc-unsafe-memory-access=allow`
+(older JVMs refuse that option); `PRAVAHA_JAVA_OPTS` still comes last. An application embedding Pravaha
+may add the same options.
 
 ```bash
 /usr/lib/jvm/java-25-openjdk-amd64/bin/java -version
@@ -43,15 +42,15 @@ git version 2.53.0
 
 | | Needed for | Notes |
 |---|---|---|
-| JDK 25 | everything | set `JAVA_HOME` to it. The build scripts (`tools/worktree-build.sh`, `tools/verify-clean.sh`, ...) find `/usr/lib/jvm/java-25-openjdk*` when it is unset, and refuse a `JAVA_HOME` older than 25 by name; plain `./mvnw` uses whatever `JAVA_HOME` or `PATH` gives it, and the enforcer refuses anything before 25 |
+| JDK 21 or later | everything | set `JAVA_HOME` to it. The build scripts (`tools/worktree-build.sh`, `tools/verify-clean.sh`, ...) source `tools/jdk.sh`: with `JAVA_HOME` unset it takes the first of `/usr/lib/jvm/java-25-openjdk*` and `/usr/lib/jvm/java-21-openjdk*`, then a `javac` 21 or later on `PATH`, and it refuses a `JAVA_HOME` older than 21 by name; plain `./mvnw` uses whatever `JAVA_HOME` or `PATH` gives it, and the enforcer refuses anything before 21 |
 | Git | the clone | |
 | Python ≥ 3.11 with `venv` | the SDK (≥ 3.9) and the console (≥ 3.11) | Debian/Ubuntu split `venv` out: without `python3.X-venv`, `make install` stops at *"ensurepip is not available"*. Install that package, or create the venv with `uv venv --seed .venv` and then run `make install` |
 | Chrome or Chromium | the console's browser suites only | found on `PATH`, or `PRAVAHA_CHROME=<path>` |
 | `psql` | optional, step 9 | any PostgreSQL client works; this machine had none, so step 9 uses psycopg |
 | Disk / RAM | | a few GiB for the build and `~/.m2`; 8 GiB RAM is ample for everything here |
 
-**macOS.** Not run for this guide. The same commands apply with a JDK 25 from your package manager
-(`JAVA_HOME=$(/usr/libexec/java_home -v 25)`); `/tmp` is not a tmpfs there, and the Linux-only
+**macOS.** Not run for this guide. The same commands apply with a JDK 21 or later from your package manager
+(`JAVA_HOME=$(/usr/libexec/java_home -v 21)`); `/tmp` is not a tmpfs there, and the Linux-only
 measurement tests (`systemd-run` memory caps, `strace`) skip themselves with a reason.
 
 Set these for every step (the temporary directory is moved off `/tmp`, a RAM-backed tmpfs on many
@@ -408,7 +407,7 @@ database or set: a CDC source creates a replication slot, and sinks write.
 |---|---|---|
 | `make install`: *ensurepip is not available* | Debian/Ubuntu `venv` package missing | install `python3.X-venv`, or `uv venv --seed .venv` then `make install` |
 | A test fails in one module after a change in another, or passes when it should not | a stale Pravaha jar in `~/.m2` (MAVENRACE-1) | `./mvnw -o -pl <module> -am …`; in a worktree `tools/worktree-build.sh`; before committing `tools/verify-clean.sh` |
-| `release version 25 not supported`, the enforcer refuses the JDK, or *"Pravaha 2.x requires Java 25"* | `JAVA_HOME` (or `java` on `PATH`) is older than 25 | `export JAVA_HOME=…25…` |
+| `release version 21 not supported`, the enforcer refuses the JDK, or a launcher says Pravaha needs Java 21 | `JAVA_HOME` (or `java` on `PATH`) is older than 21 | `export JAVA_HOME=…` at a JDK 21 or later |
 | State or spill tests slow, or `/tmp` fills | `/tmp` is RAM | `TMPDIR` and `MAVEN_OPTS=-Djava.io.tmpdir=…` as in step 1 |
 | Node exits with `PRV-6202 … Address already in use` | a port in use (another node, a PostgreSQL on 5432 for pgwire) | change `server.port`, `pravaha.flight.port`, `pravaha.pgwire.port` |
 | CLI: `PRV-1031` | a token over plaintext | `PRAVAHA_INSECURE_TOKEN=true` on loopback; TLS otherwise |

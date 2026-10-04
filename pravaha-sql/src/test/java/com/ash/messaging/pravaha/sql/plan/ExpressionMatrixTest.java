@@ -1348,11 +1348,12 @@ class ExpressionMatrixTest {
     }
 
     /** The refusal message, or null if the statement planned, built and compiled. */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     private static @Nullable String messageOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(TXN, OTHER).plan(sql));
-            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline ignored = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("no row is fed while a refusal is being checked");
             })) {
                 return null;

@@ -117,7 +117,7 @@ class SharedLaneFateTest {
         // A MIN cannot take a retraction without the multiset it does not keep: the pipeline throws
         // on the lane's thread, and the lane with it.
         // Whether this call sees the failure is timing; the states below are what is asserted.
-        var _ = catchThrowable(() -> feed(doomed, "ann", 10, -1));
+        var unused = catchThrowable(() -> feed(doomed, "ann", 10, -1));
         awaitState(doomed, QueryState.FAILED);
         // Its lane-mate is not fed anything: it fails because its lane did, not because it was touched.
         awaitState(mate, QueryState.FAILED);

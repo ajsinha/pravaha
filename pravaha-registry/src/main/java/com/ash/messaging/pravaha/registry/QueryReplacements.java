@@ -86,6 +86,14 @@ import com.ash.messaging.pravaha.state.checkpoint.Checkpoint;
  */
 public final class QueryReplacements implements AutoCloseable {
 
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because a replacement starts, cuts over and releases computations under it, opening sources
+     * and sinks and waiting for lanes, and on JDK 21 a virtual thread blocked inside a monitor pins
+     * its carrier (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
     private static final System.Logger LOG = System.getLogger(QueryReplacements.class.getName());
 
     /** How often the backfills are looked at: progress, catch-up, auto-cutover, retention. */
@@ -121,9 +129,14 @@ public final class QueryReplacements implements AutoCloseable {
      * be <em>comparable</em> with the version that is serving, so that the cutover is a decision
      * about two known positions rather than a hope.
      */
-    public synchronized QueryReplacement.Status replace(
+    public QueryReplacement.Status replace(
             String name, String sql, List<Integer> keyColumns, Principal principal, ReplacementOptions options) {
-        return replace(name, sql, keyColumns, principal, options, null);
+        lock.lock();
+        try {
+            return replace(name, sql, keyColumns, principal, options, null);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -131,104 +144,109 @@ public final class QueryReplacements implements AutoCloseable {
      *     again, so its backfill picks up where it left off rather than beginning again beside the
      *     checkpoints of the one that was interrupted; null for a new replacement
      */
-    private synchronized QueryReplacement.Status replace(
+    private QueryReplacement.Status replace(
             String name,
             String sql,
             List<Integer> keyColumns,
             Principal principal,
             ReplacementOptions options,
             @Nullable String resuming) {
-        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "replace");
-        RegisteredQuery serving = registry.require(name);
-        // ADR-056: a loop through other queries first, then anything a chain makes inexact.
-        registry.chains.refuseReplacement(name, sql, principal);
-        QueryReplacement existing = byName.get(name);
-        if (existing != null && existing.active()) {
-            throw new PravahaException(
-                    BackfillErrors.REPLACEMENT_IN_PROGRESS,
-                    "'" + name + "' is already being replaced (" + existing.state() + "). One shadow at a time: "
-                            + "a second candidate would have to be compared against a version that may never "
-                            + "serve. Cut over, roll back or abandon the first.");
-        }
-        if (serving.names().size() > 1) {
-            throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION,
-                    "'" + name + "' shares its computation with " + serving.names()
-                            + ", and a replacement moves one name: the subscribers of this computation cannot be "
-                            + "told which name they arrived through, so some of them would be following the "
-                            + "old version under a name that now answers the new one. Registrations that ask "
-                            + "the same question share a computation, so change the others too or drop them "
-                            + "first.");
-        }
-        if (serving.state() != QueryState.RUNNING) {
-            throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION,
-                    "'" + name + "' is " + serving.state() + ", and a replacement has to meet the running version "
-                            + "at a position it is still reaching. Resume it first.");
-        }
-        for (String stream : registry.sourceStreamsOf(sql)) {
-            registry.feeds().backfillRefusal(stream).ifPresent(why -> {
-                throw new PravahaException(
-                        BackfillErrors.SOURCE_UNSUPPORTED,
-                        "'" + name + "' cannot be replaced with a version reading '" + stream + "': " + why
-                                + ". The new version would start from empty state and report itself "
-                                + "caught up, which is the failure this whole operation exists to "
-                                + "avoid.");
-            });
-        }
-
-        String sink = registry.sinkOf(name).orElse(null);
-        Retention retention = serving.view().retention();
-        Instant startedAt = Instant.now();
-        String directory =
-                resuming != null ? resuming : QueryCheckpoints.shadowDirectoryFor(name, startedAt.toEpochMilli());
-        BackfillJob job = new BackfillJob("replace:" + name, options.rateLimit());
-        BackfillPlan plan = new BackfillPlan(
-                job, splicePositions(serving), options.backfill() == ReplacementOptions.Backfill.HISTORY);
-
-        // The new version keeps the running one's lane choice unless lane = '...' says otherwise --
-        // which, with the SQL unchanged, is how a running query moves between lanes at a cutover.
-        boolean dedicated = options.lane() == ReplacementOptions.Lane.KEEP
-                ? serving.dedicatedLane()
-                : options.lane() == ReplacementOptions.Lane.DEDICATED;
-        RegisteredQuery candidate = registry.declaring(
-                new Declaring(List.of(), dedicated, options.lane() == ReplacementOptions.Lane.OWN),
-                () -> registry.startShadow(name, sql, keyColumns, principal, retention, sink, directory, plan));
-        QueryReplacement replacement;
+        lock.lock();
         try {
-            RegistryJournal.Pending pending = new RegistryJournal.Pending(
-                    name, sql, keyColumns, principal.id(), retention, sink, options.toString(), directory);
-            RegistryJournal journal = registry.journal();
-            if (journal != null && resuming == null) {
-                // A replacement being started again after a restart is already in the journal, and
-                // recording it twice would leave a second pending entry for one candidate.
-                journal.recordReplacementStarted(pending);
+            ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "replace");
+            RegisteredQuery serving = registry.require(name);
+            // ADR-056: a loop through other queries first, then anything a chain makes inexact.
+            registry.chains.refuseReplacement(name, sql, principal);
+            QueryReplacement existing = byName.get(name);
+            if (existing != null && existing.active()) {
+                throw new PravahaException(
+                        BackfillErrors.REPLACEMENT_IN_PROGRESS,
+                        "'" + name + "' is already being replaced (" + existing.state() + "). One shadow at a time: "
+                                + "a second candidate would have to be compared against a version that may never "
+                                + "serve. Cut over, roll back or abandon the first.");
             }
-            replacement = new QueryReplacement(
-                    name,
-                    sql,
-                    keyColumns,
-                    sink,
-                    options,
-                    principal,
-                    registry.owners().ownerOf(name).orElse(null),
-                    startedAt,
-                    directory,
-                    job,
-                    serving,
-                    candidate,
-                    journalledEntry(name).orElse(null));
-        } catch (RuntimeException e) {
-            registry.releaseShadow(candidate);
-            throw e;
+            if (serving.names().size() > 1) {
+                throw new PravahaException(
+                        RegistryErrors.ILLEGAL_TRANSITION,
+                        "'" + name + "' shares its computation with " + serving.names()
+                                + ", and a replacement moves one name: the subscribers of this computation cannot be "
+                                + "told which name they arrived through, so some of them would be following the "
+                                + "old version under a name that now answers the new one. Registrations that ask "
+                                + "the same question share a computation, so change the others too or drop them "
+                                + "first.");
+            }
+            if (serving.state() != QueryState.RUNNING) {
+                throw new PravahaException(
+                        RegistryErrors.ILLEGAL_TRANSITION,
+                        "'" + name + "' is " + serving.state() + ", and a replacement has to meet the running version "
+                                + "at a position it is still reaching. Resume it first.");
+            }
+            for (String stream : registry.sourceStreamsOf(sql)) {
+                registry.feeds().backfillRefusal(stream).ifPresent(why -> {
+                    throw new PravahaException(
+                            BackfillErrors.SOURCE_UNSUPPORTED,
+                            "'" + name + "' cannot be replaced with a version reading '" + stream + "': " + why
+                                    + ". The new version would start from empty state and report itself "
+                                    + "caught up, which is the failure this whole operation exists to "
+                                    + "avoid.");
+                });
+            }
+
+            String sink = registry.sinkOf(name).orElse(null);
+            Retention retention = serving.view().retention();
+            Instant startedAt = Instant.now();
+            String directory =
+                    resuming != null ? resuming : QueryCheckpoints.shadowDirectoryFor(name, startedAt.toEpochMilli());
+            BackfillJob job = new BackfillJob("replace:" + name, options.rateLimit());
+            BackfillPlan plan = new BackfillPlan(
+                    job, splicePositions(serving), options.backfill() == ReplacementOptions.Backfill.HISTORY);
+
+            // The new version keeps the running one's lane choice unless lane = '...' says otherwise --
+            // which, with the SQL unchanged, is how a running query moves between lanes at a cutover.
+            boolean dedicated = options.lane() == ReplacementOptions.Lane.KEEP
+                    ? serving.dedicatedLane()
+                    : options.lane() == ReplacementOptions.Lane.DEDICATED;
+            RegisteredQuery candidate = registry.declaring(
+                    new Declaring(List.of(), dedicated, options.lane() == ReplacementOptions.Lane.OWN),
+                    () -> registry.startShadow(name, sql, keyColumns, principal, retention, sink, directory, plan));
+            QueryReplacement replacement;
+            try {
+                RegistryJournal.Pending pending = new RegistryJournal.Pending(
+                        name, sql, keyColumns, principal.id(), retention, sink, options.toString(), directory);
+                RegistryJournal journal = registry.journal();
+                if (journal != null && resuming == null) {
+                    // A replacement being started again after a restart is already in the journal, and
+                    // recording it twice would leave a second pending entry for one candidate.
+                    journal.recordReplacementStarted(pending);
+                }
+                replacement = new QueryReplacement(
+                        name,
+                        sql,
+                        keyColumns,
+                        sink,
+                        options,
+                        principal,
+                        registry.owners().ownerOf(name).orElse(null),
+                        startedAt,
+                        directory,
+                        job,
+                        serving,
+                        candidate,
+                        journalledEntry(name).orElse(null));
+            } catch (RuntimeException e) {
+                registry.releaseShadow(candidate);
+                throw e;
+            }
+            byName.put(name, replacement);
+            watch();
+            LOG.log(
+                    System.Logger.Level.INFO,
+                    "replacing '" + name + "': " + replacement.status().candidate() + " backfilling beside "
+                            + replacement.status().replacing() + " (" + options + ")");
+            return replacement.status();
+        } finally {
+            lock.unlock();
         }
-        byName.put(name, replacement);
-        watch();
-        LOG.log(
-                System.Logger.Level.INFO,
-                "replacing '" + name + "': " + replacement.status().candidate() + " backfilling beside "
-                        + replacement.status().replacing() + " (" + options + ")");
-        return replacement.status();
     }
 
     /** Where the running version is, per stream, so the candidate knows what to splice onto. */
@@ -269,45 +287,65 @@ public final class QueryReplacements implements AutoCloseable {
 
     // ------------------------------------------------------------------ the controls
 
-    public synchronized QueryReplacement.Status throttle(String name, long rowsPerSecond, Principal principal) {
-        QueryReplacement replacement = administrable(name, principal, "throttle-backfill");
+    public QueryReplacement.Status throttle(String name, long rowsPerSecond, Principal principal) {
+        lock.lock();
         try {
-            replacement.job().throttleTo(rowsPerSecond);
-        } catch (IllegalArgumentException e) {
-            throw new PravahaException(
-                    BackfillErrors.SOURCE_UNSUPPORTED,
-                    "the backfill of '" + name + "' cannot be run at " + rowsPerSecond + " records a second: "
-                            + e.getMessage() + ". The limit this replacement was started with is a ceiling, "
-                            + "not a suggestion; start another replacement to raise it.");
+            QueryReplacement replacement = administrable(name, principal, "throttle-backfill");
+            try {
+                replacement.job().throttleTo(rowsPerSecond);
+            } catch (IllegalArgumentException e) {
+                throw new PravahaException(
+                        BackfillErrors.SOURCE_UNSUPPORTED,
+                        "the backfill of '" + name + "' cannot be run at " + rowsPerSecond + " records a second: "
+                                + e.getMessage() + ". The limit this replacement was started with is a ceiling, "
+                                + "not a suggestion; start another replacement to raise it.");
+            }
+            return replacement.status();
+        } finally {
+            lock.unlock();
         }
-        return replacement.status();
     }
 
-    public synchronized QueryReplacement.Status pause(String name, Principal principal) {
-        QueryReplacement replacement = administrable(name, principal, "pause-backfill");
-        replacement.job().pause();
-        return replacement.status();
+    public QueryReplacement.Status pause(String name, Principal principal) {
+        lock.lock();
+        try {
+            QueryReplacement replacement = administrable(name, principal, "pause-backfill");
+            replacement.job().pause();
+            return replacement.status();
+        } finally {
+            lock.unlock();
+        }
     }
 
-    public synchronized QueryReplacement.Status resume(String name, Principal principal) {
-        QueryReplacement replacement = administrable(name, principal, "resume-backfill");
-        replacement.job().resume();
-        return replacement.status();
+    public QueryReplacement.Status resume(String name, Principal principal) {
+        lock.lock();
+        try {
+            QueryReplacement replacement = administrable(name, principal, "resume-backfill");
+            replacement.job().resume();
+            return replacement.status();
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Ends a replacement that has not cut over, releasing the candidate and everything it holds. */
-    public synchronized QueryReplacement.Status abandon(String name, Principal principal) {
-        QueryReplacement replacement = administrable(name, principal, "abandon-replacement");
-        if (replacement.state() == QueryReplacement.State.CUT_OVER) {
-            throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION,
-                    "'" + name + "' has already cut over. Roll it back to undo it, or finish it to release the "
-                            + "version it replaced.");
+    public QueryReplacement.Status abandon(String name, Principal principal) {
+        lock.lock();
+        try {
+            QueryReplacement replacement = administrable(name, principal, "abandon-replacement");
+            if (replacement.state() == QueryReplacement.State.CUT_OVER) {
+                throw new PravahaException(
+                        RegistryErrors.ILLEGAL_TRANSITION,
+                        "'" + name + "' has already cut over. Roll it back to undo it, or finish it to release the "
+                                + "version it replaced.");
+            }
+            registry.releaseShadow(replacement.candidate());
+            endedInTheJournal(name);
+            replacement.abandoned();
+            return replacement.status();
+        } finally {
+            lock.unlock();
         }
-        registry.releaseShadow(replacement.candidate());
-        endedInTheJournal(name);
-        replacement.abandoned();
-        return replacement.status();
     }
 
     /**
@@ -316,17 +354,22 @@ public final class QueryReplacements implements AutoCloseable {
      * <p>Also what the retention window does on its own. An operator who is watching the new
      * version and is satisfied should not have to wait an hour for the old one's memory back.
      */
-    public synchronized QueryReplacement.Status finish(String name, Principal principal) {
-        QueryReplacement replacement = administrable(name, principal, "finish-replacement");
-        if (replacement.state() != QueryReplacement.State.CUT_OVER) {
-            throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION,
-                    "'" + name + "' is " + replacement.state() + " and there is nothing to confirm: only a "
-                            + "cutover leaves a version retained.");
+    public QueryReplacement.Status finish(String name, Principal principal) {
+        lock.lock();
+        try {
+            QueryReplacement replacement = administrable(name, principal, "finish-replacement");
+            if (replacement.state() != QueryReplacement.State.CUT_OVER) {
+                throw new PravahaException(
+                        RegistryErrors.ILLEGAL_TRANSITION,
+                        "'" + name + "' is " + replacement.state() + " and there is nothing to confirm: only a "
+                                + "cutover leaves a version retained.");
+            }
+            release(replacement);
+            replacement.finished();
+            return replacement.status();
+        } finally {
+            lock.unlock();
         }
-        release(replacement);
-        replacement.finished();
-        return replacement.status();
     }
 
     private void release(QueryReplacement replacement) {
@@ -335,8 +378,13 @@ public final class QueryReplacements implements AutoCloseable {
 
     // ------------------------------------------------------------------ the cutover
 
-    public synchronized QueryReplacement.Status cutOver(String name, Principal principal) {
-        return cutOver(administrable(name, principal, "cutover"), false);
+    public QueryReplacement.Status cutOver(String name, Principal principal) {
+        lock.lock();
+        try {
+            return cutOver(administrable(name, principal, "cutover"), false);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -482,66 +530,75 @@ public final class QueryReplacements implements AutoCloseable {
      * backfill: it is one alignment and one swap, and it takes the few milliseconds the cutover
      * took.
      */
-    public synchronized QueryReplacement.Status rollBack(String name, Principal principal) {
-        QueryReplacement replacement = administrable(name, principal, "rollback");
-        if (replacement.state() != QueryReplacement.State.CUT_OVER) {
-            throw new PravahaException(
-                    RegistryErrors.ILLEGAL_TRANSITION,
-                    "'" + name + "' is " + replacement.state()
-                            + " and there is nothing to roll back: the version it replaced has "
-                            + (replacement.state() == QueryReplacement.State.FINISHED
-                                    ? "been released, which is what finishing a replacement means"
-                                    : "not been replaced"));
-        }
-        RegisteredQuery from = replacement.serving();
-        RegisteredQuery to = replacement.retained().orElseThrow();
-        long seam = nextSeam();
-        Map<String, List<String>> at = align(from, to);
+    public QueryReplacement.Status rollBack(String name, Principal principal) {
+        lock.lock();
         try {
-            long label = from.checkpointNow().map(Checkpoint::id).orElse(0L);
-            SinkDelivery moved = handSinkOver(name, from, to, label);
-            RegistryJournal journal = registry.journal();
-            RegistryJournal.Entry previous = replacement.previous();
-            if (journal != null) {
-                journal.recordCutover(
-                        previous != null
-                                ? previous
-                                : new RegistryJournal.Entry(
-                                        name,
-                                        to.sql(),
-                                        to.view().keyOrdinals(),
-                                        replacement.owner(),
-                                        to.view().retention(),
-                                        List.of(),
-                                        replacement.sink(),
-                                        QueryCheckpoints.directoryFor(name)));
+            QueryReplacement replacement = administrable(name, principal, "rollback");
+            if (replacement.state() != QueryReplacement.State.CUT_OVER) {
+                throw new PravahaException(
+                        RegistryErrors.ILLEGAL_TRANSITION,
+                        "'" + name + "' is " + replacement.state()
+                                + " and there is nothing to roll back: the version it replaced has "
+                                + (replacement.state() == QueryReplacement.State.FINISHED
+                                        ? "been released, which is what finishing a replacement means"
+                                        : "not been replaced"));
             }
-            carryIndexes(name, from, to, journal);
-            from.endSubscriptions(new PravahaException(
-                    BackfillErrors.VIEW_REPLACED,
-                    "the replacement of '" + name + "' was rolled back, so the name answers the previous query "
-                            + "again. Subscribe again to follow it."));
-            registry.moveName(name, from, to);
-            registry.owners().transferred(name, replacement.previousOwner());
-            to.replacedBy(null);
-            from.replacedBy(to.fingerprint().shortForm());
-            if (moved != null) {
-                moved.attachTo(to, true);
-                registry.putDelivery(name, moved);
+            RegisteredQuery from = replacement.serving();
+            RegisteredQuery to = replacement.retained().orElseThrow();
+            long seam = nextSeam();
+            Map<String, List<String>> at = align(from, to);
+            try {
+                long label = from.checkpointNow().map(Checkpoint::id).orElse(0L);
+                SinkDelivery moved = handSinkOver(name, from, to, label);
+                RegistryJournal journal = registry.journal();
+                RegistryJournal.Entry previous = replacement.previous();
+                if (journal != null) {
+                    journal.recordCutover(
+                            previous != null
+                                    ? previous
+                                    : new RegistryJournal.Entry(
+                                            name,
+                                            to.sql(),
+                                            to.view().keyOrdinals(),
+                                            replacement.owner(),
+                                            to.view().retention(),
+                                            List.of(),
+                                            replacement.sink(),
+                                            QueryCheckpoints.directoryFor(name)));
+                }
+                carryIndexes(name, from, to, journal);
+                from.endSubscriptions(new PravahaException(
+                        BackfillErrors.VIEW_REPLACED,
+                        "the replacement of '" + name + "' was rolled back, so the name answers the previous query "
+                                + "again. Subscribe again to follow it."));
+                registry.moveName(name, from, to);
+                registry.owners().transferred(name, replacement.previousOwner());
+                to.replacedBy(null);
+                from.replacedBy(to.fingerprint().shortForm());
+                if (moved != null) {
+                    moved.attachTo(to, true);
+                    registry.putDelivery(name, moved);
+                }
+                replacement.deployment().rollBack(seam);
+                replacement.rolledBack();
+            } finally {
+                to.feed().resume();
+                from.feed().resume();
             }
-            replacement.deployment().rollBack(seam);
-            replacement.rolledBack();
+            // The version that was rolled back is released now rather than retained: nothing reads it,
+            // and a rollback is a judgement that it should not have been serving.
+            registry.releaseShadow(replacement.candidate());
+            endedInTheJournal(name);
+            audit.record(AuditEvent.of(
+                    principal,
+                    "rollback",
+                    name,
+                    com.ash.messaging.pravaha.security.AccessDecision.allow(),
+                    "at " + at));
+            return replacement.status();
         } finally {
-            to.feed().resume();
-            from.feed().resume();
+            lock.unlock();
         }
-        // The version that was rolled back is released now rather than retained: nothing reads it,
-        // and a rollback is a judgement that it should not have been serving.
-        registry.releaseShadow(replacement.candidate());
-        endedInTheJournal(name);
-        audit.record(AuditEvent.of(
-                principal, "rollback", name, com.ash.messaging.pravaha.security.AccessDecision.allow(), "at " + at));
-        return replacement.status();
     }
 
     /**
@@ -688,9 +745,14 @@ public final class QueryReplacements implements AutoCloseable {
         }
     }
 
-    private synchronized long nextSeam() {
-        lastSeam = Math.max(lastSeam + 1, System.currentTimeMillis());
-        return lastSeam;
+    private long nextSeam() {
+        lock.lock();
+        try {
+            lastSeam = Math.max(lastSeam + 1, System.currentTimeMillis());
+            return lastSeam;
+        } finally {
+            lock.unlock();
+        }
     }
 
     // ------------------------------------------------------------------ the watcher
@@ -724,7 +786,8 @@ public final class QueryReplacements implements AutoCloseable {
             try {
                 replacement.observe();
                 if (replacement.claimReleaseOfFailure()) {
-                    synchronized (this) {
+                    lock.lock();
+                    try {
                         String why = replacement.status().failure() == null
                                 ? ""
                                 : ": " + replacement.status().failure();
@@ -735,18 +798,24 @@ public final class QueryReplacements implements AutoCloseable {
                                         + "it again once the cause is fixed.");
                         registry.releaseShadow(replacement.candidate());
                         endedInTheJournal(replacement.name());
+                    } finally {
+                        lock.unlock();
                     }
                 }
                 if (replacement.state() == QueryReplacement.State.CAUGHT_UP
                         && replacement.options().cutover() == ReplacementOptions.Cutover.AUTO) {
-                    synchronized (this) {
+                    lock.lock();
+                    try {
                         if (replacement.state() == QueryReplacement.State.CAUGHT_UP) {
                             cutOver(replacement, true);
                         }
+                    } finally {
+                        lock.unlock();
                     }
                 }
                 if (replacement.rollbackWindowClosed(Instant.now())) {
-                    synchronized (this) {
+                    lock.lock();
+                    try {
                         if (replacement.rollbackWindowClosed(Instant.now())) {
                             LOG.log(
                                     System.Logger.Level.INFO,
@@ -755,6 +824,8 @@ public final class QueryReplacements implements AutoCloseable {
                             release(replacement);
                             replacement.finished();
                         }
+                    } finally {
+                        lock.unlock();
                     }
                 }
             } catch (RuntimeException e) {

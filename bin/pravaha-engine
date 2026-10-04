@@ -24,8 +24,8 @@ if [[ -z "$jar" || ! -f "$jar" ]]; then
   exit 2
 fi
 
-# Java 25 or later, only (2.0, ADR-061); an older JVM is refused by name. Always the two options that
-# keep the JVM from warning about Unsafe memory access (JEP 498) and native loading (JEP 472).
+# Java 21 or later (ADR-062); an older JVM is refused by name. The options that keep a newer JVM
+# from warning about Unsafe memory access (JEP 498, 24+) and native loading (JEP 472), where valid.
 # bin/pravaha-server explains at length.
 java_bin="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 java_feature=""
@@ -35,13 +35,18 @@ fi
 if [[ -z "$java_feature" ]]; then
   java_feature="$("$java_bin" -version 2>&1 | sed -n 's/.* version "\([0-9][0-9]*\).*/\1/p' | head -n 1)" || true
 fi
-if [[ "$java_feature" =~ ^[0-9]+$ ]] && (( java_feature < 25 )); then
-  echo "pravaha-engine: Java $java_feature found ($java_bin); Pravaha 2.x requires Java 25 or later." >&2
-  echo "  Point JAVA_HOME at a JDK or JRE 25, e.g. JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64" >&2
-  echo "  (Pravaha 1.x is the line that runs on Java 21; docs/operations/COMPATIBILITY.md)." >&2
+if [[ "$java_feature" =~ ^[0-9]+$ ]] && (( java_feature < 21 )); then
+  echo "pravaha-engine: Java $java_feature found ($java_bin); Pravaha requires Java 21 or later." >&2
+  echo "  Point JAVA_HOME at a JDK or JRE 21 or later, e.g. JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64" >&2
+  echo "  (docs/operations/COMPATIBILITY.md)." >&2
   exit 1
 fi
-jdk_opts=(--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED)
+# --enable-native-access is accepted from 21 on; --sun-misc-unsafe-memory-access only from 23, and a
+# JVM refuses an option it does not know, so that one is given only when the version says 23 or later.
+jdk_opts=(--enable-native-access=ALL-UNNAMED)
+if [[ "$java_feature" =~ ^[0-9]+$ ]] && (( java_feature >= 23 )); then
+  jdk_opts+=(--sun-misc-unsafe-memory-access=allow)
+fi
 
 # Arrow allocates off-heap through java.nio internals that the module system closes by default.
 # Without these the engine's Arrow paths fail with nothing explaining why -- which cost an

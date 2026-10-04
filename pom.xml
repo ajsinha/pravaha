@@ -78,9 +78,9 @@
          "@{jacoco.surefire.argLine}" to the JVM, which then could not start. -->
     <jacoco.surefire.argLine />
     <maven.shade.version>3.6.0</maven.shade.version>
-    <!-- Java 25 LTS is the baseline from 2.0, for every module, the API and the Java SDK included
-         (ADR-061, amending design 4.5, which set 21 with the API on 17). -->
-    <maven.compiler.release>25</maven.compiler.release>
+    <!-- Java 21 is the baseline from 2.3, for every module, the API and the Java SDK included, and
+         the build itself runs on JDK 21 or later (ADR-062, superseding ADR-061's Java 25 only). -->
+    <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <!-- Reproducible builds. -->
@@ -621,7 +621,7 @@
                   <version>[3.9,)</version>
                 </requireMavenVersion>
                 <requireJavaVersion>
-                  <version>[25,)</version>
+                  <version>[21,)</version>
                 </requireJavaVersion>
                 <banDuplicatePomDependencyVersions />
                 <requirePluginVersions>
@@ -632,7 +632,7 @@
           </execution>
           <execution>
             <!--
-              ADR-053: Pravaha runs on any platform a JDK 25 runs on. A native library is platform
+              ADR-053: Pravaha runs on any platform a JDK 21 runs on. A native library is platform
               code. It loads on the builds its publisher made (usually glibc, on a handful of CPUs)
               and fails everywhere else, at the first use rather than at startup. snappy-java
               reached the Alpine image through Parquet and could not load there (PORT-1).

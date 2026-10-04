@@ -114,6 +114,7 @@ class SubscribeFromSnapshotTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void subscribingThenReadingLosesTheCommitInFlight() {
         // The defect, as a plain subscription still has it: kept so the documentation's word
         // "gapful" is a tested statement rather than a warning.
@@ -121,7 +122,7 @@ class SubscribeFromSnapshotTest {
         applied(query, "u1", 10);
 
         List<ViewChange> heard = new ArrayList<>();
-        try (Subscription _ = query.subscribe(heard::addAll)) {
+        try (Subscription ignored = query.subscribe(heard::addAll)) {
             List<Object[]> read = query.view().scan();
             query.commit();
 

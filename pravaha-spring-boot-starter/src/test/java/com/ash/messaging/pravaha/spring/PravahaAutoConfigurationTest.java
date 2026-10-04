@@ -216,12 +216,13 @@ class PravahaAutoConfigurationTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void theTemplateIsTheEnginesCallsUnderTheirOwnNames() {
         runner.withPropertyValues("pravaha.streams.txn.schema=" + TXN).run(context -> {
             PravahaTemplate template = context.getBean(PravahaTemplate.class);
             template.register("big_txn", "SELECT user_id, amount FROM txn WHERE amount > 100", "user_id");
             List<Object> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
-            try (var _ = template.subscribe("big_txn", change -> seen.add(change.get("user_id")))) {
+            try (var ignored = template.subscribe("big_txn", change -> seen.add(change.get("user_id")))) {
                 template.push("txn", new Object[] {"u9", 900L});
                 long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
                 while (seen.isEmpty() && System.nanoTime() < deadline) {

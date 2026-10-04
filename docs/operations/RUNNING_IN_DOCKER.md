@@ -12,7 +12,7 @@ node to Kubernetes, the image's design decisions and the release are in
 [`DEPLOYMENT.md`](DEPLOYMENT.md); running one, in [`OPERATIONS.md`](OPERATIONS.md).
 
 Everything below was run on the development machine on 2026-09-29 (Docker 29.8.1, Compose 5.5.1,
-buildx 0.37.1), and again on 2026-10-01 on the Java 25 images (Docker 29.8.2) — the smoke run, the
+buildx 0.37.1), and again on 2026-10-01 on the Java 25 images (Docker 29.8.2; the images now run on Java 21, and the output below is as recorded) — the smoke run, the
 compose journey with the `seed`, `cdc` and `observability` profiles, the restart and recreate, and the
 ownership and `docker diff` checks all printed what is shown. Outputs are trimmed only where marked.
 
@@ -103,24 +103,26 @@ arguments.
 |---|---|---|
 | Dockerfile | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile) (release, over a built jar); [`Dockerfile`](../../Dockerfile) at the root builds from source | [`deploy/docker/console/Dockerfile`](../../deploy/docker/console/Dockerfile) |
 | Built by | [`deploy/docker/build.sh`](../../deploy/docker/build.sh) | [`deploy/docker/console/build.sh`](../../deploy/docker/console/build.sh) |
-| Base | `eclipse-temurin:25-jre` (glibc, ADR-053), the only JRE (ADR-061) | `python:3.13-slim` |
+| Base | `eclipse-temurin:21-jre` (glibc, ADR-053) | `python:3.13-slim` |
 | Size, as built here | **822 MB** on disk, 282 MB content (the jar is 176 MB); **881 MB** / 310 MB from the root `Dockerfile`, which adds `pravaha-engine` | **497 MB** on disk, 122 MB content |
 | User | `10001:10001` by default; **any uid** works (below) | the same |
 | Entrypoint / command | `/__cacert_entrypoint.sh bin/pravaha-server` | `python run_pravaha_web.py --config <three files>` |
 | Ports | 18080 HTTP, 19090 Flight SQL, 5432 pgwire when enabled | 17070 |
 | Volumes | `/opt/pravaha/data`, `/opt/pravaha/logs` | `/opt/pravaha/data/console`, `/opt/pravaha/logs` |
-| Healthcheck | `bin/pravaha-health /actuator/health/liveness` every 30s (bash only: the 25 JRE has no `wget` or `curl`) | `GET :17070/health/live` every 30s |
-| Labels | `org.opencontainers.image.{title,description,version,revision,created,authors,licenses,source}`, and `com.ash.messaging.pravaha.java` (the JRE: `25`) | the OCI ones |
+| Healthcheck | `bin/pravaha-health /actuator/health/liveness` every 30s (bash only: the JRE image has no `wget` or `curl`) | `GET :17070/health/live` every 30s |
+| Labels | `org.opencontainers.image.{title,description,version,revision,created,authors,licenses,source}`, and `com.ash.messaging.pravaha.java` (the JRE: `21`) | the OCI ones |
 
-**The JRE is 25, and only 25.** Every Docker build is Java 25: the engine image runs on
-`eclipse-temurin:25-jre`, the root Dockerfile compiles in `maven:3.9-eclipse-temurin-25`, and the test
-runner (`tools/docker-test.sh`) is `maven:3.9-eclipse-temurin-25`. From 2.0 the jar's classes are
-Java 25 class files ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)), so 25 is a
-requirement, and the 1.x `--java 21` option, its `-jre21` tag and the `JAVA_VERSION` build argument
-are gone (`build.sh --java` is refused by name). The launcher gives the JVM
-`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` (Arrow's allocator, Netty
-and the Parquet codecs use exactly what those options permit), so the node starts with no JVM
-warning. The image's JRE is recorded in the label `com.ash.messaging.pravaha.java`:
+**The JRE is 21, and there is one engine image.** Every Docker build is Java 21: the engine image runs on
+`eclipse-temurin:21-jre`, the root Dockerfile compiles in `maven:3.9-eclipse-temurin-21`, and the test
+runner (`tools/docker-test.sh`) is `maven:3.9-eclipse-temurin-21`. The jar's classes are Java 21 class
+files, so any JRE from 21 up would run it ([ADR-062](../design/adr/062-java-21-or-later.md),
+[COMPATIBILITY.md](COMPATIBILITY.md#java-21-or-later)); the image picks the oldest, which is the
+requirement. There is no `--java` option, no `JAVA_VERSION` build argument and no `-jre21` or `-jre25`
+tag (`build.sh --java` is refused by name). The launcher gives the JVM `--enable-native-access=ALL-UNNAMED`
+(Arrow's allocator, Netty and the Parquet codecs use what it permits), so the node starts with no
+JVM warning on 21; `--sun-misc-unsafe-memory-access=allow` is added only on a JVM 23 or later.
+The image's JRE is recorded in the label `com.ash.messaging.pravaha.java` (as recorded on the Java 25 image;
+a current image prints `21`):
 
 ```text
 $ docker image inspect pravaha/pravaha-server:1.0.1-SNAPSHOT --format '{{index .Config.Labels "com.ash.messaging.pravaha.java"}}'
@@ -134,8 +136,8 @@ The image passes `deploy/docker/smoke.sh`, every check, read-only root included.
 **Which engine Dockerfile.** `deploy/docker/build.sh` stages the launcher and a jar you already built
 (`./mvnw -pl pravaha-server -am package -DskipTests`) into an ~190 MB context and builds that: fast,
 and the image holds exactly the artefact you tested ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)).
-It needs a JDK 25 on the host to produce the jar. The root `Dockerfile` needs **nothing but Docker**:
-it builds `pravaha-server` and `pravaha-cli` inside a `maven:3.9-eclipse-temurin-25` stage (with a
+It needs a JDK 21 or later on the host to produce the jar. The root `Dockerfile` needs **nothing but Docker**:
+it builds `pravaha-server` and `pravaha-cli` inside a `maven:3.9-eclipse-temurin-21` stage (with a
 BuildKit cache for `~/.m2`) and produces the same runtime layout, plus `bin/pravaha-engine`:
 
 ```bash

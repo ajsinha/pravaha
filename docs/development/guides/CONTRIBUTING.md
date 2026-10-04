@@ -97,7 +97,7 @@ top of [`ARCHITECTURE.md`](../../design/ARCHITECTURE.md)) and put it there; else
 The tiers, the Docker set-up and what skips are [`TESTING.md`](../TESTING.md). The short form:
 
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64      # JDK 25 only (ADR-061)
+export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64      # JDK 21 or later (ADR-062); CI runs 21 and 25
 
 # In a linked git worktree, always this wrapper: it gives the worktree its own Maven repository,
 # so parallel checkouts never compile against each other's SNAPSHOT jars (MAVENRACE-1).

@@ -188,6 +188,7 @@ public final class ViewQuery {
      * operator precedence better than whoever wrote the concatenation; a filter in the plan has no
      * syntax for the caller to reach (section 25).
      */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     public Result execute(String sql, Principal principal) {
         // SX-5. Authorize the name the query *text* gives, before anything resolves it.
         //
@@ -250,7 +251,7 @@ public final class ViewQuery {
         // Taken *after* the policy check, so a refused read never occupies a permit somebody
         // authorized could have used, and before any planning work that would otherwise be done on
         // behalf of a read this node has no capacity for.
-        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
     }
@@ -382,6 +383,7 @@ public final class ViewQuery {
      * keeps about its customers; answering "what would this query return" for someone who may not
      * run it hands them that list for free.
      */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     public StreamSchema schemaOf(String sql, Principal principal) {
         PhysicalOperator plan = physicalOf(relFor(catalog.scopedTo(principal), sql), BoundParameters.none());
         String source = ViewNames.resolve(principal, sourceViewOf(plan));
@@ -395,7 +397,7 @@ public final class ViewQuery {
         // metadata call that skipped admission would be an unmetered way in: a client asking only
         // for schemas, in a loop, would consume the same planner and the same CPU as the reads this
         // limit exists to bound, while the counter the operator watches stayed flat.
-        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(principal)) {
             return plan.outputSchema();
         }
     }
@@ -702,6 +704,7 @@ public final class ViewQuery {
      * <p>Authorized on every call, not once at preparation: the policy may have changed, and a
      * handle is a plan rather than a permission.
      */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     public Result execute(Prepared prepared, BoundParameters parameters, Principal principal) {
         parameters.requireArity(prepared.parameters().count());
         // A prepared statement is its preparer's; another tenant's is a view this caller cannot name.
@@ -725,7 +728,7 @@ public final class ViewQuery {
         }
         plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
         RowNarrowing narrowing = narrowed(prepared.rel(), view, sourceViewOf(plan), prepared.view(), principal);
-        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
     }

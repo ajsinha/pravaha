@@ -76,8 +76,9 @@ class StructuredLoggingTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void jsonIsOneObjectPerLineCarryingTheLoggingContext(CapturedOutput output) throws Exception {
-        try (ConfigurableApplicationContext _ = start("json")) {
+        try (ConfigurableApplicationContext ignored = start("json")) {
             Logger log = LoggerFactory.getLogger("com.ash.messaging.pravaha.server.Probe");
             MDC.put(NodeFlightObservation.MDC_CORRELATION, "req-42");
             MDC.put(NodeFlightObservation.MDC_QUERY, "hourly_spend");
@@ -117,8 +118,9 @@ class StructuredLoggingTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void textStaysAPatternAPersonReads(CapturedOutput output) {
-        try (ConfigurableApplicationContext _ = start("text")) {
+        try (ConfigurableApplicationContext ignored = start("text")) {
             LoggerFactory.getLogger("com.ash.messaging.pravaha.server.Probe").info("plain words");
         }
         assertThat(output.getOut()).contains("plain words").doesNotContain("\"message\":\"plain words\"");

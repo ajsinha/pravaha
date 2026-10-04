@@ -10,7 +10,7 @@ topic. You need only the one your study uses — each case study says which.
 
 The other six — sensor anomalies, checkout funnel, click attribution, CDR fraud, delivery SLAs and
 the Iceberg lakehouse — need no store at all: their sources are CSV files the node follows, and each
-README says how to generate them. For those, only Java 25, the Python client and the node below
+README says how to generate them. For those, only Java 21 or later, the Python client and the node below
 apply.
 
 This page is the part that is identical everywhere. Each case study has its own section for the
@@ -20,16 +20,16 @@ namespaces, tables and rows *it* needs, and you should read that after this.
 
 | | Check it with | If it is missing |
 |---|---|---|
-| Java 25 | `java -version` | `sudo apt install openjdk-25-jdk`, or SDKMAN: `sdk install java 25-tem` |
+| Java 21 or later | `java -version` | `sudo apt install openjdk-21-jdk`, or SDKMAN: `sdk install java 21-tem` |
 | Docker | `docker ps` | [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) |
 | Python 3.11+ | `python3 --version` | `sudo apt install python3 python3-venv` |
 | This repository, built | `./mvnw -q -DskipTests install` | Takes a few minutes the first time |
 
-> **Java 25 specifically.** Pravaha 2.x targets 25 and refuses anything older. If `java -version`
+> **Java 21 or later.** Pravaha 2.x refuses anything older ([what is supported](../../docs/operations/COMPATIBILITY.md#java-21-or-later)). If `java -version`
 > and `javac -version` disagree — which happens on distributions that ship several JDKs — set
 > `JAVA_HOME` explicitly:
 > ```bash
-> export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+> export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 > ```
 > Put that line in your shell profile. Every command on these pages assumes it.
 

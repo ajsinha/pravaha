@@ -10,6 +10,10 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **Java 21 or later** ([ADR-062](../design/adr/062-java-21-or-later.md)), reversing 2.0's Java 25 only: every module, `pravaha-api` and the Java SDKs included, is Java 21 class files, so embedders, plugin authors and Java SDK users need 21 rather than 25, and any JDK from 21 builds and runs Pravaha (tested on 21 and 25; CI's whole-reactor job is a 21/25 matrix). The engine image runs on `eclipse-temurin:21-jre`; the launchers refuse a JVM older than 21 and pass `--sun-misc-unsafe-memory-access=allow` only on 23 or later; `tools/jdk25.sh` is `tools/jdk.sh`. Because JDK 21 pins a virtual thread's carrier while it blocks inside a `synchronized` monitor, the monitors request and feed virtual threads block inside -- the registry's, replacements, lane rebalance, alerts, debug sessions, sink delivery, the commit lock, source sharing, and the Kafka, Aerospike and postgres-cdc connection locks -- are `ReentrantLock`s; `-Djdk.tracePinnedThreads=full` on 21 reports no pinned park across the suites. JMH on 21 and 25: [measured-2026-10-04-jdk21](gates/measured-2026-10-04-jdk21/README.md).
+
 ## 2.2.0 — 2026-10-04
 
 **Every open finding closed, a deadline on every SDK call, and NullAway at zero everywhere.** 2.2.0

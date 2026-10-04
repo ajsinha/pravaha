@@ -554,7 +554,7 @@ Each is one line here; the reasoning and the alternatives are in the ADR.
 | Authorization is enforced in the engine | Row filters go into the plan, never into SQL text | [031](adr/031-authorization-at-the-pravaha-layer.md) |
 | The engine is the identity authority | Users, keys and sessions in `pravaha-identity` | [052](adr/052-the-engine-is-the-identity-authority.md) |
 | Grants are kept with the answer | The Pravaha Catalog: grants, row filters, masks, tenancy | [059](adr/059-the-pravaha-catalog-governs-live-answers.md) |
-| JDK 25 from 2.0 | One JDK to build and run | [061](adr/061-jdk-25-is-the-baseline-from-2-0.md) |
+| Java 21 or later (25 only in 2.0.0) | Any JDK from 21 builds and runs it; virtual-thread paths use `ReentrantLock`, not `synchronized`, so 21 does not pin carriers | [062](adr/062-java-21-or-later.md), [061](adr/061-jdk-25-is-the-baseline-from-2-0.md) |
 
 ---
 

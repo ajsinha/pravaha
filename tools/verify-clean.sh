@@ -115,8 +115,8 @@ else
     echo "no previously installed Pravaha artefacts to remove"
 fi
 
-# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
-source "$REPO_ROOT/tools/jdk25.sh"
+# JDK 21 or later on JAVA_HOME, or a stop naming the requirement (ADR-062).
+source "$REPO_ROOT/tools/jdk.sh"
 
 echo "cleaning and installing from the working tree"
 # clean as well: a resource deleted from src/ stays in target/ until something removes it, and a

@@ -656,11 +656,12 @@ class SqlAnswerTest {
     }
 
     /** The refusal message for a two-stream statement, or null if it planned and compiled. */
+    @SuppressWarnings("try") // the resource is only held, never referenced
     private static @Nullable String joinRefusalOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(orders(), users()).plan(sql));
-            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline ignored = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("no row is fed while a refusal is being checked");
             })) {
                 return null;

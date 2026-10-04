@@ -24,6 +24,7 @@ Exit 0 when everything passes, 1 with one line per problem otherwise.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -40,9 +41,11 @@ except ImportError:  # pragma: no cover - the message is the point
 # branch holds today, which makes a green build yesterday no evidence about today.
 FLOATING = {"main", "master", "latest", "HEAD"}
 
-# The one JDK a workflow may set up (ADR-061: Pravaha 2.x builds, tests and runs on Java 25 only).
-# A leg on another JDK is either testing a version nobody supports or failing at the enforcer.
-JAVA = "25"
+# The JDKs a workflow may set up (ADR-062: Pravaha builds, tests and runs on Java 21 or later, and
+# CI proves it on the floor and on the newest LTS). A leg on another JDK is either testing a version
+# nobody supports or failing at the enforcer. A matrix expression (${{ matrix.java }}) is checked
+# value by value against the job's matrix.
+JAVA = ("21", "25")
 
 
 def problems_in(path: Path) -> list[str]:
@@ -115,10 +118,20 @@ def problems_in(path: Path) -> list[str]:
                 elif uses.rsplit("@", 1)[1] in FLOATING:
                     bad(f"{at} uses '{uses}', a floating ref; pin it to a tag or a sha")
                 if uses.startswith("actions/setup-java@"):
-                    wanted = str((step.get("with") or {}).get("java-version", "")).split()
-                    if wanted != [JAVA]:
-                        bad(f"{at} sets up Java {' '.join(wanted) or '(none named)'}; "
-                            f"Pravaha 2.x builds and runs on Java {JAVA} only (ADR-061)")
+                    named = str((step.get("with") or {}).get("java-version", "")).strip()
+                    expression = re.fullmatch(r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}", named)
+                    if expression:
+                        matrix = ((job.get("strategy") or {}).get("matrix") or {})
+                        values = matrix.get(expression.group(1))
+                        wanted = [str(v) for v in values] if isinstance(values, list) else []
+                        if not wanted:
+                            bad(f"{at} sets up Java {named}, and the job's matrix names no such values")
+                    else:
+                        wanted = named.split() or [""]
+                    for version in wanted:
+                        if version not in JAVA:
+                            bad(f"{at} sets up Java {version or '(none named)'}; "
+                                f"Pravaha is built and tested on Java {' and '.join(JAVA)} (ADR-062)")
 
     return found
 

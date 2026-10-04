@@ -96,7 +96,10 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
     /** Null until open() and after close(). */
     private @Nullable Consumer<byte[], byte[]> metadata;
 
-    private final Object metadataLock = new Object();
+    // A ReentrantLock rather than a monitor: the metadata consumer asks the brokers under it, and on
+    // JDK 21 a virtual thread blocked inside a monitor pins its carrier.
+    private final java.util.concurrent.locks.ReentrantLock metadataLock =
+            new java.util.concurrent.locks.ReentrantLock();
     private final List<KafkaPartitionReader> readers = new CopyOnWriteArrayList<>();
     private volatile @Nullable HealthStatus cachedHealth;
     private volatile long cachedAt;
@@ -231,7 +234,8 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
         KafkaSourceOffset resume = KafkaSourceOffset.parse(resumeFrom, topicPartition);
         long beginning;
         long end;
-        synchronized (metadataLock) {
+        metadataLock.lock();
+        try {
             try {
                 Consumer<byte[], byte[]> open = Objects.requireNonNull(metadata, "requireOpen()");
                 beginning = Objects.requireNonNull(
@@ -249,6 +253,8 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
                                 + options.bootstrapServers + ": " + e.getMessage(),
                         e);
             }
+        } finally {
+            metadataLock.unlock();
         }
         long start;
         if (resume == null) {
@@ -328,7 +334,8 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
                 .sorted(Comparator.comparingInt(TopicPartition::partition))
                 .toList();
         Map<TopicPartition, Long> ends;
-        synchronized (metadataLock) {
+        metadataLock.lock();
+        try {
             if (metadata == null) {
                 return HealthStatus.unhealthy("not open");
             }
@@ -344,6 +351,8 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
                 return HealthStatus.unhealthy("the brokers at " + options.bootstrapServers + " did not answer within "
                         + HEALTH_TIMEOUT.toSeconds() + "s: " + e.getMessage());
             }
+        } finally {
+            metadataLock.unlock();
         }
         StringBuilder lags = new StringBuilder();
         long worst = 0;
@@ -378,11 +387,14 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
             reader.close();
         }
         readers.clear();
-        synchronized (metadataLock) {
+        metadataLock.lock();
+        try {
             if (metadata != null) {
                 closeQuietly(metadata);
                 metadata = null;
             }
+        } finally {
+            metadataLock.unlock();
         }
         if (options != null) {
             // The schema registry's HTTP client, when the binding has one.

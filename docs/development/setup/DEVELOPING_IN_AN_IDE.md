@@ -16,7 +16,7 @@ signed in and showed the engine as `RUNNING`.
 
 | | |
 |---|---|
-| JDK | **25** (Temurin or OpenJDK), the only one from 2.0 (ADR-061). Every module, `pravaha-api` included, targets 25 |
+| JDK | **21 or later** (Temurin or OpenJDK; [ADR-062](../../design/adr/062-java-21-or-later.md)). Every module, `pravaha-api` included, targets 21 |
 | IntelliJ IDEA | Community or Ultimate, 2024.1 or later |
 | Python | 3.11 or later for the console (the SDK itself runs on 3.9+) |
 | PyCharm | Community or Professional; IntelliJ Ultimate with the Python plugin works the same way |
@@ -28,8 +28,8 @@ signed in and showed the engine as `RUNNING`.
 
 1. **File → Open…** and choose the repository's root `pom.xml`, then **Open as Project**. IntelliJ
    imports all the reactor's modules.
-2. **File → Project Structure → Project**: set the **SDK** to your JDK 25 and the **language level**
-   to 25 (Pravaha 2.x is Java 25 only, ADR-061).
+2. **File → Project Structure → Project**: set the **SDK** to your JDK (21 or later) and the **language level**
+   to 21 (every module compiles with `--release 21`).
 3. Let the Maven import finish: the progress bar at the bottom, or the **Maven** tool window's
    refresh button.
 

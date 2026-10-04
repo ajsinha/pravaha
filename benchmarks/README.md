@@ -82,11 +82,14 @@ validation (design §5.2) needs dedicated hardware and is a Wave 3 activity.
 | `profile-a.json` | `ProfileABenchmark` — generated against interpreted; JDK 21.0.12, 2026-09-09. History |
 | `memory-access-jdk25-2026-10.json` | The same benchmark and settings (1 fork, 3 × 1 s warm-up, 3 × 1 s measured, `bytebuffer`), JDK 25.0.4.1, 2026-10-04 |
 | `profile-a-jdk25-2026-10.json` | The same benchmark and settings (2 forks, 3 × 1 s warm-up, 5 × 1 s measured), JDK 25.0.4.1, 2026-10-04. Adds the `predicateOnly` arm, which the JDK 21 file predates |
+| `memory-access-jdk21-2026-10.json` | The same benchmark and settings as its `-jdk25-` file, JDK 21.0.12.1, 2026-10-04, on the Java 21 class files of ADR-062 |
+| `profile-a-jdk21-2026-10.json` | The same benchmark and settings as its `-jdk25-` file, JDK 21.0.12.1, 2026-10-04, on the Java 21 class files of ADR-062 |
 
-The JDK 21 files are kept as history and not overwritten. From 2.0 the engine builds and runs on JDK
-25 only (ADR-061), so the `-jdk25-` files are the ones to read; the two pairs were taken on the same
-machine (below) and differ in the JDK **and** in a month of code, and the class files are Java 25, so
-a run on 21 to separate the two is no longer possible.
+The 2026-09 files are kept as history and not overwritten. The `-jdk21-2026-10` and `-jdk25-2026-10`
+pairs are the ones to read: from ADR-062 the class files are Java 21 again, so the same jar runs on
+both JDKs and the JDK can be told apart from the code. [The 21-against-25
+pack](../docs/project/gates/measured-2026-10-04-jdk21/README.md) compares them, with a second run on
+25 from the same jar.
 
 **`LaneScalingBenchmark` deliberately has no committed baseline.** A baseline is a regression bar CI
 enforces, and enforcing one against a number this hardware cannot measure reliably would fail builds

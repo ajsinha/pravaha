@@ -907,10 +907,10 @@ Secure it as you secure the rest of the management port.
 
 ### Boot versions
 
-Built and tested against Boot 3.5 (3.5.16, the server's version). **Boot 3.4 is the floor from
-Pravaha 2.0**: the starter's classes are Java 25 class files, and Boot 3.2 and 3.3 (Spring Framework
-6.0 and 6.1) cannot read them — every test errors with *Unsupported class file major version 69*
-while Boot reads the auto-configuration (ADR-061). In 1.x the starter ran on 3.2 to 3.5. The
+Built and tested against Boot 3.5 (3.5.16, the server's version). **Boot 3.4 and 3.5 are the
+tested lines** (the starter needs [Java 21 or later](../operations/COMPATIBILITY.md#java-21-or-later), [ADR-062](../design/adr/062-java-21-or-later.md)). 2.0.0's Java 25 class files made Boot 3.2 and 3.3 (Spring Framework
+6.0 and 6.1) fail with *Unsupported class file major version 69* (ADR-061); Java 21 class files would load there again, but those lines are out of
+open-source support and are not brought back. In 1.x the starter ran on 3.2 to 3.5. The
 starter's pom has profiles `boot-3.4` and `boot-3.5`, each moving the Boot BOM, and
 `BootVersionTest` fails a leg that ran some other Boot than the one it names:
 

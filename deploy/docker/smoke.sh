@@ -209,7 +209,7 @@ ok "liveness and readiness are separate groups"
 
 # The image's own HEALTHCHECK, run now inside the container rather than waited for (its first run is
 # 30s away). Everything above probes from the HOST, which is how a HEALTHCHECK that called a wget the
-# JRE 25 base does not carry passed this script while Docker called the node unhealthy forever.
+# JRE base does not carry passed this script while Docker called the node unhealthy forever.
 mapfile -t health_cmd < <("$docker_bin" image inspect "$image" \
   --format '{{join .Config.Healthcheck.Test "\n"}}')
 case "${health_cmd[0]:-}" in
@@ -405,8 +405,8 @@ ok "ready, and serving, with --read-only and only /opt/pravaha/{data,logs,tmp} w
 # to round-trip bytes inside the image, under the same constraints as step 10, because a native
 # library that does not load fails at the first Parquet file rather than at startup -- which is how
 # snappy-java failed unseen on the Alpine image (PORT-1). --enable-native-access is what
-# bin/pravaha-server always gives the JVM (JEP 472); without it the Java 25 image prints four WARNING
-# lines about the very loading this step is here to prove.
+# bin/pravaha-server always gives the JVM (JEP 472); without it a JRE of 24 or later prints four
+# WARNING lines about the very loading this step is here to prove.
 codecs="$("$docker_bin" run --rm --read-only --tmpfs /tmp:rw,exec,size=64m --entrypoint java "$image" \
   --enable-native-access=ALL-UNNAMED -cp lib/pravaha-server.jar -Dloader.main=com.ash.messaging.pravaha.server.NativeCodecs \
   org.springframework.boot.loader.launch.PropertiesLauncher 2>&1)" || fail "a native codec does not load in the image:

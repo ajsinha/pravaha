@@ -24,8 +24,8 @@ honest account of what the "zero downtime" machinery does today.
 
 1. **Read the release notes for format changes.** Look for a checkpoint snapshot version change and
    for journal record changes. Most releases have neither. **Upgrading 1.x to 2.0** changes neither,
-   and needs **Java 25**: point `JAVA_HOME` at a JDK or JRE 25 first, or the new launcher refuses to
-   start (the image is already on 25). **Upgrading 2.0.0 to 2.0.1** changes answers where 2.0.0's
+   and needs **Java 21 or later** (2.0.0 asked for 25; 2.x now asks for 21): point `JAVA_HOME` at a JDK or JRE 21 or later first, or the new launcher refuses to
+   start (the image is on 21). **Upgrading 2.0.0 to 2.0.1** changes answers where 2.0.0's
    were defects — NULL for an all-NULL `SUM`, overflow instead of wrap, merged `NaN`/`-0.0` groups,
    `HOP` windows on multiples of the slide, `MIN`/`MAX` over a CDC source refused — and the `users`
    profile's policy; read the release notes' list (and COMPATIBILITY.md, "2.0.1") first.
@@ -147,10 +147,10 @@ by v2.
     upgrade and fills from whatever its sources still hold.
 
 !!! warning "Pitfall: the JVM flags of a custom launcher"
-    A new Java version may need another flag. From 2.0 (Java 25 only) a launcher of your own needs
-    `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`, as `bin/pravaha-server`
-    passes them, or the JVM warns; Java 21 refused the first as an unknown option, which is why 1.x
-    passed it only on 24 and later. `bin/pravaha-server` passes `PRAVAHA_JAVA_OPTS` through.
+    A new Java version may need another flag. A launcher of your own needs
+    `--enable-native-access=ALL-UNNAMED` (valid from Java 21) and, on a JVM 23 or later,
+    `--sun-misc-unsafe-memory-access=allow`, as `bin/pravaha-server` passes them, or the JVM warns;
+    older JVMs refuse the second as an unknown option, which is why it is passed only on 23 and later. `bin/pravaha-server` passes `PRAVAHA_JAVA_OPTS` through.
 
 ## Where next
 

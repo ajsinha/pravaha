@@ -114,6 +114,7 @@ class LifeFailureTest extends LifecycleTestSupport {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void life130_aNewSubscriptionToAFailedQueryIsRefused() {
         registry.register("healthy", S1, List.of(0), Principal.ANONYMOUS);
         driveToFailedByMinRetraction("v_min");
@@ -125,7 +126,7 @@ class LifeFailureTest extends LifecycleTestSupport {
                 .hasMessageContaining("it is FAILED");
 
         // Control: a healthy query establishes normally.
-        try (var _ = registry.require("healthy").subscribe(changes -> {})) {
+        try (var ignored = registry.require("healthy").subscribe(changes -> {})) {
             assertThat(registry.require("healthy").subscriberCount()).isEqualTo(1);
         }
     }

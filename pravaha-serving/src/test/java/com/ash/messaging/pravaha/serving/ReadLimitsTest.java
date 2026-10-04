@@ -59,9 +59,10 @@ class ReadLimitsTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aFullNodeRefusesWithTheDocumentedCode() {
         ReadAdmission admission = new ReadLimits(1, 0, 1.0, Duration.ZERO, Duration.ZERO).admission();
-        try (ReadAdmission.Lease _ = admission.acquire(new com.ash.messaging.pravaha.security.Principal(
+        try (ReadAdmission.Lease ignored = admission.acquire(new com.ash.messaging.pravaha.security.Principal(
                 "a", "other", java.util.Set.of(), java.util.Map.of()))) {
             assertThatThrownBy(() -> admission.acquire(com.ash.messaging.pravaha.security.Principal.ANONYMOUS))
                     .isInstanceOf(PravahaException.class)

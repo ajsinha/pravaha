@@ -566,11 +566,16 @@ public final class ViewSink {
      *
      * <p>The snapshot is captured under the publish lock, before the listener can be in any
      * commit's audience, and handed over after the lock is released -- by whichever comes first of
-     * the thread that captured it and a commit delivering to this listener. The monitor on this
+     * the thread that captured it and a commit delivering to this listener. The lock on this
      * object orders the two, so a commit that races the handover waits for it rather than arriving
      * first. A slow listener holds up only its own deliveries, as before.
      */
     private static final class Handoff implements ViewChangeListener {
+
+        // A ReentrantLock rather than a monitor: the listener is called under it, and a sink's
+        // listener writes over the network -- on JDK 21 a virtual thread blocked inside a monitor
+        // pins its carrier (ADR-062).
+        private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
 
         private final ViewChangeListener target;
         private @Nullable List<ViewChange> snapshot;
@@ -589,41 +594,61 @@ public final class ViewSink {
             this.answer = answer;
         }
 
-        synchronized void capture(List<ViewChange> rows, long frontier) {
-            snapshot = rows;
-            snapshotFrontier = frontier;
-        }
-
-        synchronized void handOver() {
-            List<ViewChange> rows = snapshot;
-            if (rows == null || closed) {
-                return;
-            }
-            snapshot = null;
+        void capture(List<ViewChange> rows, long frontier) {
+            lock.lock();
             try {
-                target.onSnapshot(rows, snapshotFrontier);
-            } catch (RuntimeException | Error escaped) {
-                // The same backstop deliver() is: a listener owns its failures.
-                LOG.log(
-                        System.Logger.Level.WARNING,
-                        "a view change listener threw on its snapshot; the listener is responsible for "
-                                + "its own failure and this is only the backstop",
-                        escaped);
+                snapshot = rows;
+                snapshotFrontier = frontier;
+            } finally {
+                lock.unlock();
             }
         }
 
-        synchronized void close() {
-            closed = true;
-            snapshot = null;
+        void handOver() {
+            lock.lock();
+            try {
+                List<ViewChange> rows = snapshot;
+                if (rows == null || closed) {
+                    return;
+                }
+                snapshot = null;
+                try {
+                    target.onSnapshot(rows, snapshotFrontier);
+                } catch (RuntimeException | Error escaped) {
+                    // The same backstop deliver() is: a listener owns its failures.
+                    LOG.log(
+                            System.Logger.Level.WARNING,
+                            "a view change listener threw on its snapshot; the listener is responsible for "
+                                    + "its own failure and this is only the backstop",
+                            escaped);
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        void close() {
+            lock.lock();
+            try {
+                closed = true;
+                snapshot = null;
+            } finally {
+                lock.unlock();
+            }
         }
 
         @Override
-        public synchronized void onCommit(List<ViewChange> changes, long frontier) {
-            if (closed) {
-                return;
+        public void onCommit(List<ViewChange> changes, long frontier) {
+            lock.lock();
+            try {
+                if (closed) {
+                    return;
+                }
+                handOver();
+                target.onCommit(changes, frontier);
+            } finally {
+                lock.unlock();
             }
-            handOver();
-            target.onCommit(changes, frontier);
         }
     }
 

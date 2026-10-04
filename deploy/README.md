@@ -15,7 +15,7 @@ docker/     the container images and the compose stack (docs/operations/RUNNING_
   console/            the console's image (python:3.13-slim) and its build.sh
   compose/            engine + console + Kafka as the invoking user; profiles seed, cdc, stores,
                       observability, tools. tools/docker-env.sh prepares it
-  test/               the test runner image tools/docker-test.sh uses (Maven, JDK 25, Python 3)
+  test/               the test runner image tools/docker-test.sh uses (Maven, JDK 21, Python 3)
 
 helm/       the Kubernetes chart
   pravaha/            one node, as a StatefulSet. Values documented one line each in values.yaml

@@ -87,6 +87,7 @@ class ReadAdmissionNodeTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aNodeAtItsReadLimitRefusesWithTheDocumentedCode() throws Exception {
         ReadLimitsProperties limits = new ReadLimitsProperties();
         limits.setMaxConcurrent(1);
@@ -102,7 +103,7 @@ class ReadAdmissionNodeTest {
             read(node, "SELECT id FROM ids"); // admitted while nothing else is running
 
             // Another tenant's read holds the node's one permit, and no read may queue.
-            try (ReadAdmission.Lease _ = admission.acquire(new Principal("bob", "other", Set.of(), Map.of()))) {
+            try (ReadAdmission.Lease ignored = admission.acquire(new Principal("bob", "other", Set.of(), Map.of()))) {
                 assertThatThrownBy(() -> read(node, "SELECT id FROM ids"))
                         .isInstanceOf(FlightRuntimeException.class)
                         .hasMessageContaining("PRV-4026");

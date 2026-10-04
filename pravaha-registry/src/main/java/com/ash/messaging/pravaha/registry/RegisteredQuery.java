@@ -739,11 +739,17 @@ public final class RegisteredQuery implements AutoCloseable {
      * <em>before</em> taking it, because that waits for a task on the lane, and the lane may be
      * inside {@link #cutOutput} waiting for this.
      */
-    private final Object commitLock = new Object();
+    // A ReentrantLock rather than a monitor: a commit hands rows to every sink under it, which is
+    // network I/O for most sinks, and on JDK 21 a virtual thread -- a feed's -- blocked inside a
+    // monitor pins its carrier (ADR-062).
+    private final java.util.concurrent.locks.ReentrantLock commitLock = new java.util.concurrent.locks.ReentrantLock();
 
     private void commitView() {
-        synchronized (commitLock) {
+        commitLock.lock();
+        try {
             sink.commitApplied();
+        } finally {
+            commitLock.unlock();
         }
     }
 
@@ -782,7 +788,8 @@ public final class RegisteredQuery implements AutoCloseable {
      * @return the view's snapshot and each attached sink's section, for the checkpoint
      */
     java.util.Map<String, byte[]> cutOutput(long checkpointId) {
-        synchronized (commitLock) {
+        commitLock.lock();
+        try {
             sink.commitApplied();
             java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
             byte[] contents = view.snapshot();
@@ -806,6 +813,8 @@ public final class RegisteredQuery implements AutoCloseable {
             }
             lastCut = Math.max(lastCut, checkpointId);
             return entries;
+        } finally {
+            commitLock.unlock();
         }
     }
 

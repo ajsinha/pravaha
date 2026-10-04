@@ -8,8 +8,8 @@
   </parent>
   <artifactId>pravaha-api</artifactId>
   <name>Pravaha :: api</name>
-  <description>The public SPI. Zero third-party dependencies (design 7.2); Java 25 class files, like
-    every module, from 2.0 (ADR-061).</description>
+  <description>The public SPI. Zero third-party dependencies (design 7.2); Java 21 class files, like
+    every module (ADR-062).</description>
 
   <properties>
     <jacoco.line.coverage>0.85</jacoco.line.coverage>

@@ -461,7 +461,7 @@ opens and reads every type the gateway sends. Power BI's Npgsql 4.0.17 needs not
 **`RST_STREAM ... CANCEL` from a Flight client, with nothing explaining why.** Almost always the JVM
 missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED`.
 Arrow fails *inside the server* and cancels the stream; the client sees only the cancellation. Add
-`--sun-misc-unsafe-memory-access=allow` as well, or Java 25 warns (`bin/pravaha-server` does both).
+`--enable-native-access=ALL-UNNAMED` as well, and `--sun-misc-unsafe-memory-access=allow` on a JVM 23 or later (older JVMs refuse it), or newer JVMs warn (`bin/pravaha-server` does all of it).
 
 **A `kafka-sink` detached with `PRV-5102` saying another producer fenced it.** Two sinks opened with
 the same `transactional.id` — two nodes running one binding, or two registrations naming it — and

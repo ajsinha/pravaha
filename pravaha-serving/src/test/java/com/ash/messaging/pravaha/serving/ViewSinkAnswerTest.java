@@ -42,13 +42,14 @@ class ViewSinkAnswerTest {
             .build();
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void anUpsertAndAnEvictionReachTheAnswerButNotTheChangelog() throws Exception {
         ServedView view = new ServedView("feed", SCHEMA, List.of(0), 10_000, Retention.ofAge(Duration.ofSeconds(10)));
         ViewSink sink = new ViewSink(view, SCHEMA);
         List<ViewChange> answer = new CopyOnWriteArrayList<>();
         List<ViewChange> changelog = new CopyOnWriteArrayList<>();
-        try (AutoCloseable _ = sink.onAnswer((changes, frontier) -> answer.addAll(changes));
-                AutoCloseable _ = sink.onCommit((changes, frontier) -> changelog.addAll(changes))) {
+        try (AutoCloseable ignored1 = sink.onAnswer((changes, frontier) -> answer.addAll(changes));
+                AutoCloseable ignored2 = sink.onCommit((changes, frontier) -> changelog.addAll(changes))) {
             sink.begin().setLong(0, 1).setString(1, "one").weight(1).sequence(0).commit();
             sink.commit(0);
             sink.begin()

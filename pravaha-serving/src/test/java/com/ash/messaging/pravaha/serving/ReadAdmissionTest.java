@@ -54,10 +54,11 @@ class ReadAdmissionTest {
     private static final Principal OTHER = new Principal("sam", "globex", Set.of("analyst"), Map.of());
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aReadThatFitsIsAdmitted() {
         ReadAdmission admission = new ReadAdmission(2, 0, 1.0, Duration.ZERO);
 
-        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
             assertThat(admission.inFlight()).isEqualTo(1);
         }
 
@@ -66,10 +67,11 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aFullNodeWithNoQueueRefusesRatherThanWaits() {
         ReadAdmission admission = new ReadAdmission(1, 0, 1.0, Duration.ZERO);
 
-        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER))
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-4026")
@@ -82,10 +84,11 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aReadThatWaitsTooLongIsToldApartFromOneThatNeverWaited() {
         ReadAdmission admission = new ReadAdmission(1, 4, 1.0, Duration.ofMillis(50));
 
-        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER))
                     .isInstanceOf(PravahaException.class)
                     // PRV-4027, not PRV-4026. One says "the node is full right now" and the other
@@ -98,6 +101,7 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aQueuedReadGetsThePermitWhenOneIsReleased() throws Exception {
         ReadAdmission admission = new ReadAdmission(1, 4, 1.0, Duration.ofSeconds(5));
         CountDownLatch waiting = new CountDownLatch(1);
@@ -107,7 +111,7 @@ class ReadAdmissionTest {
         ReadAdmission.Lease held = admission.acquire(ACME);
         Thread second = Thread.ofVirtual().start(() -> {
             waiting.countDown();
-            try (ReadAdmission.Lease _ = admission.acquire(OTHER)) {
+            try (ReadAdmission.Lease ignored = admission.acquire(OTHER)) {
                 finished.countDown();
             } catch (Throwable t) {
                 failure.set(t);
@@ -125,12 +129,13 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void oneTenantCannotHoldEveryPermit() {
         // Four permits, half of them any one tenant's share.
         ReadAdmission admission = new ReadAdmission(4, 0, 0.5, Duration.ZERO);
 
-        try (ReadAdmission.Lease _ = admission.acquire(ACME);
-                ReadAdmission.Lease _ = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease ignored1 = admission.acquire(ACME);
+                ReadAdmission.Lease ignored2 = admission.acquire(ACME)) {
 
             assertThatThrownBy(() -> admission.acquire(ACME))
                     .isInstanceOf(PravahaException.class)
@@ -138,7 +143,7 @@ class ReadAdmissionTest {
 
             // And the capacity acme could not have is still there for somebody else. Without this,
             // the symptom the other tenants report is "Pravaha is down".
-            try (ReadAdmission.Lease _ = admission.acquire(OTHER)) {
+            try (ReadAdmission.Lease ignored = admission.acquire(OTHER)) {
                 assertThat(admission.inFlight()).isEqualTo(3);
             }
         }
@@ -147,11 +152,12 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aTenantsPermitsComeBackWhenItsReadsFinish() {
         ReadAdmission admission = new ReadAdmission(4, 0, 0.5, Duration.ZERO);
 
         for (int i = 0; i < 10; i++) {
-            try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
+            try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
                 assertThat(admission.inFlight()).isEqualTo(1);
             }
         }
@@ -160,6 +166,7 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void closingTwiceDoesNotHandBackAPermitTwice() {
         ReadAdmission admission = new ReadAdmission(1, 0, 1.0, Duration.ZERO);
 
@@ -170,18 +177,19 @@ class ReadAdmissionTest {
         // If close were not idempotent, the node would now believe it has two permits and would run
         // two reads where it was configured for one -- quietly, and only under load.
         assertThat(admission.inFlight()).isZero();
-        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER)).isInstanceOf(PravahaException.class);
         }
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aShareThatRoundsToZeroDoesNotRefuseEveryRead() {
         // 1% of four permits is 0.04. Rounding that down would refuse every read from every tenant,
         // which is a configuration mistake that must not become an outage.
         ReadAdmission admission = new ReadAdmission(4, 0, 0.01, Duration.ZERO);
 
-        try (ReadAdmission.Lease _ = admission.acquire(ACME)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
             assertThat(admission.inFlight()).isEqualTo(1);
         }
     }
@@ -210,6 +218,7 @@ class ReadAdmissionTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aQueryPathUnderAdmissionRefusesWhenTheNodeIsFull() {
         StreamSchema schema = StreamSchema.builder("user_volume")
                 .field("user_id", Types.string())
@@ -228,7 +237,7 @@ class ReadAdmissionTest {
                 admission,
                 Duration.ZERO);
 
-        try (ReadAdmission.Lease _ = admission.acquire(OTHER)) {
+        try (ReadAdmission.Lease ignored = admission.acquire(OTHER)) {
             assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", ACME))
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-4026");

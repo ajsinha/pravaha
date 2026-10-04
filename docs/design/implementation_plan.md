@@ -15,7 +15,7 @@
 | Version | 1.4 |
 | Status | Proposed — for review |
 | Companion to | [`system_design.md`](./system_design.md) v3.1 |
-| Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested |
+| Platform | **Java 21 LTS** (baseline), Maven 3.9+ via wrapper, Java 25 also CI-tested; still the case after 2.0.0's Java 25-only interlude ([ADR-062](adr/062-java-21-or-later.md)) |
 | Coordinates | `com.ash.messaging:pravaha` — base package `com.ash.messaging.pravaha` |
 | Date | 2026-09-09 |
 | Horizon | 31 sprints / 62 weeks, team of **7.5** (revised from 6 — see §6.1) |

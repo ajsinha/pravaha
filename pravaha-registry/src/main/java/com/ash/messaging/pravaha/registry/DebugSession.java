@@ -77,6 +77,13 @@ import com.ash.messaging.pravaha.serving.ViewSink;
  */
 public final class DebugSession implements AutoCloseable {
 
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because a step drives the fork's lanes under it and waits for them, and on JDK 21 a virtual
+     * thread blocked inside a monitor pins its carrier (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
     /** How long a step waits for the lane to drain. Generous: a step is not on a hot path. */
     private static final Duration SETTLE = Duration.ofSeconds(30);
 
@@ -206,112 +213,117 @@ public final class DebugSession implements AutoCloseable {
      * <p>Synchronized, because a session is a resource two screens can hold at once and two
      * concurrent steps would interleave their rows and report each other's counters.
      */
-    public synchronized DebugStep step(DebugStep.Request request) {
-        requireOpen();
-        lastUsed = Instant.now();
-        byte[] before = view.snapshot();
-        // What each operator had done before this step, so the report is the step's own work
-        // rather than the session's running total. B6's counters are cumulative and published at
-        // each batch boundary; a step ends with the lane drained, so both reads are consistent.
-        Map<String, OperatorMetrics.Snapshot> beforeOperators = operatorsByNode();
-        List<DebugStep.InputRow> rowsIn = new ArrayList<>();
-        String stopped;
-        boolean exhausted = false;
+    public DebugStep step(DebugStep.Request request) {
+        lock.lock();
+        try {
+            requireOpen();
+            lastUsed = Instant.now();
+            byte[] before = view.snapshot();
+            // What each operator had done before this step, so the report is the step's own work
+            // rather than the session's running total. B6's counters are cumulative and published at
+            // each batch boundary; a step ends with the lane drained, so both reads are consistent.
+            Map<String, OperatorMetrics.Snapshot> beforeOperators = operatorsByNode();
+            List<DebugStep.InputRow> rowsIn = new ArrayList<>();
+            String stopped;
+            boolean exhausted = false;
 
-        switch (request.kind()) {
-            case ROW, ROWS -> {
-                long wanted = request.kind() == DebugStep.Kind.ROW ? 1 : request.count();
-                exhausted = !consume(wanted, rowsIn);
-                stopped = exhausted
-                        ? "the sources have no more rows"
-                        : rowsIn.size() + (rowsIn.size() == 1 ? " row" : " rows");
-            }
-            case WATERMARK -> {
-                if (request.watermarkNanos() < pushedWatermark) {
-                    throw new PravahaException(
-                            DebugErrors.BAD_STEP,
-                            "event time does not go backwards: this session is at " + pushedWatermark
-                                    + " and was asked to step to " + request.watermarkNanos()
-                                    + ". A watermark says no earlier record will arrive, and taking one back "
-                                    + "would mean a window that has fired could fire again. Fork again from "
-                                    + "the checkpoint to start over.");
+            switch (request.kind()) {
+                case ROW, ROWS -> {
+                    long wanted = request.kind() == DebugStep.Kind.ROW ? 1 : request.count();
+                    exhausted = !consume(wanted, rowsIn);
+                    stopped = exhausted
+                            ? "the sources have no more rows"
+                            : rowsIn.size() + (rowsIn.size() == 1 ? " row" : " rows");
                 }
-                execution.advanceWatermark(request.watermarkNanos());
-                pushedWatermark = request.watermarkNanos();
-                script.add(Action.watermark(request.watermarkNanos()));
-                stopped = "event time at " + request.watermarkNanos();
-            }
-            case COMMIT -> {
-                long taken = 0;
-                while (taken < searchCeiling) {
-                    if (!consume(1, rowsIn)) {
-                        exhausted = true;
-                        break;
+                case WATERMARK -> {
+                    if (request.watermarkNanos() < pushedWatermark) {
+                        throw new PravahaException(
+                                DebugErrors.BAD_STEP,
+                                "event time does not go backwards: this session is at " + pushedWatermark
+                                        + " and was asked to step to " + request.watermarkNanos()
+                                        + ". A watermark says no earlier record will arrive, and taking one back "
+                                        + "would mean a window that has fired could fire again. Fork again from "
+                                        + "the checkpoint to start over.");
                     }
-                    taken++;
+                    execution.advanceWatermark(request.watermarkNanos());
+                    pushedWatermark = request.watermarkNanos();
+                    script.add(Action.watermark(request.watermarkNanos()));
+                    stopped = "event time at " + request.watermarkNanos();
+                }
+                case COMMIT -> {
+                    long taken = 0;
+                    while (taken < searchCeiling) {
+                        if (!consume(1, rowsIn)) {
+                            exhausted = true;
+                            break;
+                        }
+                        taken++;
+                        settle();
+                        if (!view.changesSince(before, true).isEmpty()) {
+                            break;
+                        }
+                    }
+                    stopped = exhausted
+                            ? "the sources ran out before the view changed"
+                            : taken >= searchCeiling ? "the ceiling of " + searchCeiling + " rows" : "the view changed";
+                }
+                case UNTIL -> {
+                    ViewPredicate predicate = ViewPredicate.of(
+                            request.column(),
+                            java.util.Objects.requireNonNull(request.comparison(), "an until step has its comparison"),
+                            java.util.Objects.requireNonNull(request.value(), "an until step has its value"),
+                            outputSchema);
+                    long taken = 0;
                     settle();
-                    if (!view.changesSince(before, true).isEmpty()) {
-                        break;
+                    boolean held = predicate.firstMatch(view.scan()).isPresent();
+                    while (!held && taken < searchCeiling) {
+                        if (!consume(1, rowsIn)) {
+                            exhausted = true;
+                            break;
+                        }
+                        taken++;
+                        settle();
+                        held = predicate.firstMatch(view.scan()).isPresent();
                     }
+                    stopped = held
+                            ? "the view satisfies " + predicate
+                            : exhausted
+                                    ? "the sources ran out before " + predicate + " held"
+                                    : "the ceiling of " + searchCeiling + " rows, without " + predicate + " holding";
                 }
-                stopped = exhausted
-                        ? "the sources ran out before the view changed"
-                        : taken >= searchCeiling ? "the ceiling of " + searchCeiling + " rows" : "the view changed";
+                default -> throw new PravahaException(DebugErrors.BAD_STEP, "this session cannot step by " + request);
             }
-            case UNTIL -> {
-                ViewPredicate predicate = ViewPredicate.of(
-                        request.column(),
-                        java.util.Objects.requireNonNull(request.comparison(), "an until step has its comparison"),
-                        java.util.Objects.requireNonNull(request.value(), "an until step has its value"),
-                        outputSchema);
-                long taken = 0;
-                settle();
-                boolean held = predicate.firstMatch(view.scan()).isPresent();
-                while (!held && taken < searchCeiling) {
-                    if (!consume(1, rowsIn)) {
-                        exhausted = true;
-                        break;
-                    }
-                    taken++;
-                    settle();
-                    held = predicate.firstMatch(view.scan()).isPresent();
-                }
-                stopped = held
-                        ? "the view satisfies " + predicate
-                        : exhausted
-                                ? "the sources ran out before " + predicate + " held"
-                                : "the ceiling of " + searchCeiling + " rows, without " + predicate + " holding";
-            }
-            default -> throw new PravahaException(DebugErrors.BAD_STEP, "this session cannot step by " + request);
-        }
 
-        settle();
-        List<ViewChange> changes = view.changesSince(before, true);
-        List<DebugStep.Operator> operators = new ArrayList<>();
-        for (OperatorMetrics.Snapshot now : execution.operatorMetrics()) {
-            OperatorMetrics.Snapshot then = beforeOperators.get(now.nodeId());
-            operators.add(new DebugStep.Operator(
-                    now.nodeId(),
-                    now.operator(),
-                    now.detail(),
-                    now.rowsIn() - (then == null ? 0 : then.rowsIn()),
-                    now.rowsOut() - (then == null ? 0 : then.rowsOut())));
+            settle();
+            List<ViewChange> changes = view.changesSince(before, true);
+            List<DebugStep.Operator> operators = new ArrayList<>();
+            for (OperatorMetrics.Snapshot now : execution.operatorMetrics()) {
+                OperatorMetrics.Snapshot then = beforeOperators.get(now.nodeId());
+                operators.add(new DebugStep.Operator(
+                        now.nodeId(),
+                        now.operator(),
+                        now.detail(),
+                        now.rowsIn() - (then == null ? 0 : then.rowsIn()),
+                        now.rowsOut() - (then == null ? 0 : then.rowsOut())));
+            }
+            OptionalLong watermark = watermark();
+            last = new DebugStep(
+                    id,
+                    ++sequence,
+                    request.kind(),
+                    rowsIn,
+                    operators,
+                    changes,
+                    watermark,
+                    consumed.size(),
+                    view.size(),
+                    exhausted,
+                    stopped);
+            lastUsed = Instant.now();
+            return last;
+        } finally {
+            lock.unlock();
         }
-        OptionalLong watermark = watermark();
-        last = new DebugStep(
-                id,
-                ++sequence,
-                request.kind(),
-                rowsIn,
-                operators,
-                changes,
-                watermark,
-                consumed.size(),
-                view.size(),
-                exhausted,
-                stopped);
-        lastUsed = Instant.now();
-        return last;
     }
 
     /**
@@ -395,28 +407,38 @@ public final class DebugSession implements AutoCloseable {
      *
      * @param name what to call it; turned into a class name, and refused if it cannot be one
      */
-    synchronized FixtureExport export(String name, List<ViewChange> expected) {
-        requireOpen();
-        lastUsed = Instant.now();
-        return FixtureWriter.write(
-                FixtureExport.classNameFrom(name),
-                id,
-                com.ash.messaging.pravaha.security.ViewNames.localName(queryName), // registered anew by the test
-                sql,
-                keyColumns,
-                checkpointId,
-                inputSchemas(),
-                List.copyOf(script),
-                expected);
+    FixtureExport export(String name, List<ViewChange> expected) {
+        lock.lock();
+        try {
+            requireOpen();
+            lastUsed = Instant.now();
+            return FixtureWriter.write(
+                    FixtureExport.classNameFrom(name),
+                    id,
+                    com.ash.messaging.pravaha.security.ViewNames.localName(queryName), // registered anew by the test
+                    sql,
+                    keyColumns,
+                    checkpointId,
+                    inputSchemas(),
+                    List.copyOf(script),
+                    expected);
+        } finally {
+            lock.unlock();
+        }
     }
 
     // ------------------------------------------------------------------ inspecting
 
     /** What state this fork's operators hold, and how much of each. */
-    public synchronized List<OperatorState.Slot> state() {
-        requireOpen();
-        lastUsed = Instant.now();
-        return OperatorStateReader.slots(execution, SETTLE);
+    public List<OperatorState.Slot> state() {
+        lock.lock();
+        try {
+            requireOpen();
+            lastUsed = Instant.now();
+            return OperatorStateReader.slots(execution, SETTLE);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -425,29 +447,39 @@ public final class DebugSession implements AutoCloseable {
      * @param limit capped at {@link #MAX_PAGE}: an unbounded page of a join holding ten million
      *     rows is a request that takes the node down rather than a request that fails
      */
-    public synchronized OperatorState.Page inspect(String operatorId, @Nullable String key, int offset, int limit) {
-        requireOpen();
-        lastUsed = Instant.now();
-        if (offset < 0) {
-            throw new PravahaException(DebugErrors.BAD_STEP, "a page cannot start at " + offset);
-        }
-        if (limit < 1 || limit > MAX_PAGE) {
-            throw new PravahaException(
-                    DebugErrors.BAD_STEP,
-                    "a page of " + limit + " entries is not one this node will build; ask for between 1 and " + MAX_PAGE
-                            + " and page through the rest.");
-        }
+    public OperatorState.Page inspect(String operatorId, @Nullable String key, int offset, int limit) {
+        lock.lock();
         try {
-            return OperatorStateReader.page(execution, operatorId, key, offset, limit, SETTLE);
-        } catch (IllegalArgumentException e) {
-            throw new PravahaException(DebugErrors.BAD_STEP, String.valueOf(e.getMessage()), e);
+            requireOpen();
+            lastUsed = Instant.now();
+            if (offset < 0) {
+                throw new PravahaException(DebugErrors.BAD_STEP, "a page cannot start at " + offset);
+            }
+            if (limit < 1 || limit > MAX_PAGE) {
+                throw new PravahaException(
+                        DebugErrors.BAD_STEP,
+                        "a page of " + limit + " entries is not one this node will build; ask for between 1 and "
+                                + MAX_PAGE + " and page through the rest.");
+            }
+            try {
+                return OperatorStateReader.page(execution, operatorId, key, offset, limit, SETTLE);
+            } catch (IllegalArgumentException e) {
+                throw new PravahaException(DebugErrors.BAD_STEP, String.valueOf(e.getMessage()), e);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     /** The view this fork has built, as rows. Never the live query's: see the class comment. */
-    public synchronized List<ViewChange> viewRows() {
-        requireOpen();
-        return view.committedRows();
+    public List<ViewChange> viewRows() {
+        lock.lock();
+        try {
+            requireOpen();
+            return view.committedRows();
+        } finally {
+            lock.unlock();
+        }
     }
 
     // ------------------------------------------------------------------ state of the session
@@ -487,21 +519,26 @@ public final class DebugSession implements AutoCloseable {
         }
     }
 
-    public synchronized Status status() {
-        return new Status(
-                id,
-                queryName,
-                sql,
-                checkpointId,
-                owner,
-                startedAt,
-                lastUsed,
-                sequence,
-                consumed.size(),
-                view.size(),
-                execution.watermarkNanos(),
-                true,
-                execution.streams());
+    public Status status() {
+        lock.lock();
+        try {
+            return new Status(
+                    id,
+                    queryName,
+                    sql,
+                    checkpointId,
+                    owner,
+                    startedAt,
+                    lastUsed,
+                    sequence,
+                    consumed.size(),
+                    view.size(),
+                    execution.watermarkNanos(),
+                    true,
+                    execution.streams());
+        } finally {
+            lock.unlock();
+        }
     }
 
     public String id() {
@@ -541,23 +578,43 @@ public final class DebugSession implements AutoCloseable {
     }
 
     /** Every row this session has fed in, in the order it fed them: the fixture's input. */
-    synchronized List<ReplaySource.ReplayRow> consumedRows() {
-        return List.copyOf(consumed);
+    List<ReplaySource.ReplayRow> consumedRows() {
+        lock.lock();
+        try {
+            return List.copyOf(consumed);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** The schema each stream's rows were read with, which the fixture has to declare. */
-    synchronized Map<String, StreamSchema> inputSchemas() {
-        return feeder.schemas();
+    Map<String, StreamSchema> inputSchemas() {
+        lock.lock();
+        try {
+            return feeder.schemas();
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Everything this session did to the fork, in order: the fixture's script. */
-    synchronized List<Action> script() {
-        return List.copyOf(script);
+    List<Action> script() {
+        lock.lock();
+        try {
+            return List.copyOf(script);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** The last step's report, for a surface that reconnects. */
-    public synchronized java.util.Optional<DebugStep> lastStep() {
-        return java.util.Optional.ofNullable(last);
+    public java.util.Optional<DebugStep> lastStep() {
+        lock.lock();
+        try {
+            return java.util.Optional.ofNullable(last);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Whether this session's rows are still flowing into a fork nothing else can see. */
@@ -576,18 +633,23 @@ public final class DebugSession implements AutoCloseable {
     }
 
     @Override
-    public synchronized void close() {
-        if (closed) {
-            return;
-        }
-        closed = true;
+    public void close() {
+        lock.lock();
         try {
-            replay.close();
-        } catch (RuntimeException e) {
-            // A reader that will not close must not stop the execution being released; the
-            // execution is the expensive half.
+            if (closed) {
+                return;
+            }
+            closed = true;
+            try {
+                replay.close();
+            } catch (RuntimeException e) {
+                // A reader that will not close must not stop the execution being released; the
+                // execution is the expensive half.
+            }
+            execution.close();
+            feeder.close();
+        } finally {
+            lock.unlock();
         }
-        execution.close();
-        feeder.close();
     }
 }

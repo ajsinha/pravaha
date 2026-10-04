@@ -63,11 +63,11 @@ compiles and runs; set `requestTimeout` instead.
 | `com.ash.messaging:pravaha-api` | The public API types both share | nothing (JSpecify's `@Nullable` is compile-only) |
 | `pravaha-sdk-java-flight-<version>-all.jar` | The client and every runtime dependency in one jar, for a client with no build tool | (bundled) |
 
-All three artefacts, and so the `-all` jar, are Java 25 class files: **a client application needs
-Java 25** from Pravaha 2.0 (ADR-061). In 1.x `pravaha-api` and `pravaha-sdk-java` targeted Java 17
-and the Flight client Java 21. The wire is unchanged in 2.0, so an application that cannot move to
-25 yet can keep a 1.x client against a 2.0 node meanwhile; the tested pairing is still client and
-node of the same major.minor (docs/operations/COMPATIBILITY.md).
+All three artefacts, and so the `-all` jar, are Java 21 class files: **a client application needs
+Java 21 or later** ([ADR-062](../../docs/design/adr/062-java-21-or-later.md)). In 1.x `pravaha-api` and `pravaha-sdk-java` targeted Java 17
+and the Flight client Java 21; 2.0.0 made all three Java 25. The wire is unchanged, so an application that cannot move yet
+can keep a 1.x client against a 2.x node meanwhile; the tested pairing is still client and
+node of the same major.minor ([docs/operations/COMPATIBILITY.md](../../docs/operations/COMPATIBILITY.md#java-21-or-later)).
 
 ### With Maven or Gradle (the default)
 
@@ -111,9 +111,9 @@ It bundles `slf4j-api` but no binding, so the SDK logs nowhere until the applica
 
 Arrow, underneath Flight, reads direct buffers' addresses, so it needs
 `--add-opens=java.base/java.nio=ALL-UNNAMED` on the `java` command line (or in
-`JDK_JAVA_OPTIONS`), with either kind of jar. Java 25 also prints a warning that Netty calls a
+`JDK_JAVA_OPTIONS`), with either kind of jar. Java 23 and later also print a warning that Netty calls a
 deprecated `sun.misc.Unsafe` method; it is a warning, and `--sun-misc-unsafe-memory-access=allow`
-silences it. The client is tested on Java 25.
+silences it (older JVMs refuse that option, so add it only on 23 or later). The client is tested on Java 21 and 25.
 
 ## Building it
 

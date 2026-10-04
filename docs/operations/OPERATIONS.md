@@ -2375,7 +2375,7 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 |---|---|---|
 | Embedded | `pravaha-embedded` | Inside a Java application. A lifecycle seam only: it starts, stops and reports state, and cannot register or read a query. The CLI does **not** use it |
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
-| Container | `deploy/docker/` | The same server, packaged: a non-root image on a Java 25 glibc base, built from artefacts the reactor already produced ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
+| Container | `deploy/docker/` | The same server, packaged: a non-root image on a Java 21 glibc base, built from artefacts the reactor already produced ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
 | Kubernetes | `deploy/helm/pravaha/` | **One** node as a StatefulSet, because of the state claim below. More replicas are refused at render time |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 
@@ -2408,10 +2408,10 @@ Arrow allocates off-heap through `java.nio` internals the module system closes b
 ```
 
 Without them a Flight server fails *inside* `putNext` and cancels the stream; the client sees
-`RST_STREAM` and nothing explains why. Add `--sun-misc-unsafe-memory-access=allow
---enable-native-access=ALL-UNNAMED` too, or Java 25 warns about Arrow's, Netty's and the Parquet
-codecs' use of exactly what they permit; `bin/pravaha-server` always passes them from 2.0 (1.x passed
-them only on 24 and later, because 21 refuses the first).
+`RST_STREAM` and nothing explains why. Add `--enable-native-access=ALL-UNNAMED` too (valid from Java 21), or newer JVMs warn about Arrow's, Netty's and the Parquet
+codecs' use of exactly what it permits, and `--sun-misc-unsafe-memory-access=allow` on a JVM 23 or later (older JVMs refuse
+that option). `bin/pravaha-server` and `bin/pravaha-engine` pass the first always and the second only
+on 23 or later.
 
 ### Choosing the off-heap implementation
 

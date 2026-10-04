@@ -6,10 +6,11 @@
 # Build the engine node image from artefacts the reactor has already produced.
 #
 #   ./mvnw -o -pl pravaha-server -am package -DskipTests
-#   deploy/docker/build.sh                       # Java 25 JRE -> pravaha/pravaha-server:<project version>
+#   deploy/docker/build.sh                       # Java 21 JRE -> pravaha/pravaha-server:<project version>
 #   deploy/docker/build.sh --tag pravaha:local   # an explicit tag instead
 #
-# The image runs on Java 25 only (2.0, ADR-061); the 1.x `--java 21` option and its -jre21 tag are gone.
+# The image runs on a Java 21 JRE, the floor every newer JRE also runs (ADR-062); there is one image
+# and no --java option.
 #
 # It does NOT run Maven. A missing jar is an error naming the command that produces it, because a
 # script that quietly rebuilds turns "the image is stale" into "the image is a different build".
@@ -30,7 +31,7 @@ while [[ $# -gt 0 ]]; do
     --tag|-t) image="$2"; shift 2 ;;
     --push)   push=1; shift ;;
     --java)
-      echo "build.sh: --java was removed in 2.0: the image is Java 25 only (ADR-061; Pravaha 1.x was the line with a -jre21 image)" >&2
+      echo "build.sh: there is no --java option: the image is built on a Java 21 JRE, which every newer JRE also runs (ADR-062)" >&2
       exit 2 ;;
     -h|--help) sed -n '5,19p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
@@ -76,7 +77,7 @@ build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "build.sh: $image"
 echo "  jar      $(basename "$jar") ($(du -h "$jar" | cut -f1))"
 echo "  revision $vcs_ref"
-echo "  java     25 (eclipse-temurin:25-jre)"
+echo "  java     21 (eclipse-temurin:21-jre)"
 
 "$docker_bin" build \
   --tag "$image" \

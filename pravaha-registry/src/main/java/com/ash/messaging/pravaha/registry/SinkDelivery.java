@@ -107,12 +107,20 @@ import com.ash.messaging.pravaha.serving.ViewChangeListener;
  * computation carry on. The guarantee ends there too: re-attaching it starts it again from the
  * view's contents.
  *
- * <p>Every call into the plugin is made under this object's monitor. Writes arrive on the thread
+ * <p>Every call into the plugin is made under this object's lock. Writes arrive on the thread
  * that commits the view, a cut on the lane's thread, a commit on the checkpointing thread; the SPI
  * promises a sink one call at a time, and this is what keeps that promise. A slow sink is therefore
  * backpressure on the query that feeds it, and on nothing else.
  */
 final class SinkDelivery implements ViewChangeListener, AutoCloseable {
+
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because the sink is written to, prepared and committed under it, which is network I/O for
+     * most sinks, and on JDK 21 a virtual thread blocked inside a monitor pins its carrier
+     * (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
 
     private static final System.Logger LOG = System.getLogger(SinkDelivery.class.getName());
 
@@ -252,7 +260,8 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     void attachTo(RegisteredQuery query, boolean joining) {
         checkpointed = query.checkpointed();
         Optional<Restored> restored = query.claimRestoredSink(queryName);
-        synchronized (this) {
+        lock.lock();
+        try {
             try {
                 if (restored.isPresent()) {
                     recover(restored.get());
@@ -289,6 +298,8 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
                 fail(e);
                 return;
             }
+        } finally {
+            lock.unlock();
         }
         detach = query.attachSink(this);
     }
@@ -325,23 +336,28 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     }
 
     @Override
-    public synchronized void onCommit(List<ViewChange> changes, long frontier) {
-        if (closed || failure != null) {
-            return;
-        }
+    public void onCommit(List<ViewChange> changes, long frontier) {
+        lock.lock();
         try {
-            if (!writeSeed()) {
-                write(changes);
+            if (closed || failure != null) {
+                return;
             }
-            plugin.flush();
-            if (transactional && !checkpointed) {
-                // No checkpoint will ever prepare this transaction, so the commit is its boundary.
-                String handle = plugin.prepare(label);
-                plugin.commit(handle);
-                plugin.beginTransaction(++label);
+            try {
+                if (!writeSeed()) {
+                    write(changes);
+                }
+                plugin.flush();
+                if (transactional && !checkpointed) {
+                    // No checkpoint will ever prepare this transaction, so the commit is its boundary.
+                    String handle = plugin.prepare(label);
+                    plugin.commit(handle);
+                    plugin.beginTransaction(++label);
+                }
+            } catch (RuntimeException e) {
+                fail(e);
             }
-        } catch (RuntimeException e) {
-            fail(e);
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -375,23 +391,28 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      *     oldest first, since a checkpoint that failed after its cut left its handle to the next one
      *     -- or empty when this sink has failed and has no part in it
      */
-    synchronized Optional<byte[]> cut(long checkpointId) {
-        if (closed || failure != null) {
-            return Optional.empty();
-        }
+    Optional<byte[]> cut(long checkpointId) {
+        lock.lock();
         try {
-            if (writeSeed()) {
-                plugin.flush();
+            if (closed || failure != null) {
+                return Optional.empty();
             }
-            if (transactional) {
-                prepared.addLast(new Prepared(checkpointId, plugin.prepare(checkpointId)));
-                label = checkpointId + 1;
-                plugin.beginTransaction(label);
+            try {
+                if (writeSeed()) {
+                    plugin.flush();
+                }
+                if (transactional) {
+                    prepared.addLast(new Prepared(checkpointId, plugin.prepare(checkpointId)));
+                    label = checkpointId + 1;
+                    plugin.beginTransaction(label);
+                }
+                return Optional.of(encode(List.copyOf(prepared), null));
+            } catch (RuntimeException e) {
+                fail(e);
+                return Optional.empty();
             }
-            return Optional.of(encode(List.copyOf(prepared), null));
-        } catch (RuntimeException e) {
-            fail(e);
-            return Optional.empty();
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -401,17 +422,22 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * <p>Those are exactly the ones prepared at or before its cut. One prepared at a later cut is
      * left, since its checkpoint may yet fail.
      */
-    synchronized void durable(long checkpointId) {
-        if (closed || failure != null) {
-            return;
-        }
+    void durable(long checkpointId) {
+        lock.lock();
         try {
-            while (!prepared.isEmpty() && prepared.peekFirst().checkpointId() <= checkpointId) {
-                plugin.commit(prepared.peekFirst().handle());
-                prepared.removeFirst();
+            if (closed || failure != null) {
+                return;
             }
-        } catch (RuntimeException e) {
-            fail(e);
+            try {
+                while (!prepared.isEmpty() && prepared.peekFirst().checkpointId() <= checkpointId) {
+                    plugin.commit(prepared.peekFirst().handle());
+                    prepared.removeFirst();
+                }
+            } catch (RuntimeException e) {
+                fail(e);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -424,19 +450,24 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * is recovered at the next start and replays from its checkpoint, so committing here would
      * repeat that tail.
      */
-    synchronized void commitAndRelease() {
-        if (!closed && failure == null && transactional) {
-            try {
-                while (!prepared.isEmpty()) {
-                    plugin.commit(prepared.removeFirst().handle());
+    void commitAndRelease() {
+        lock.lock();
+        try {
+            if (!closed && failure == null && transactional) {
+                try {
+                    while (!prepared.isEmpty()) {
+                        plugin.commit(prepared.removeFirst().handle());
+                    }
+                    plugin.commit(plugin.prepare(label));
+                } catch (RuntimeException e) {
+                    fail(e);
+                    return;
                 }
-                plugin.commit(plugin.prepare(label));
-            } catch (RuntimeException e) {
-                fail(e);
-                return;
             }
+            close();
+        } finally {
+            lock.unlock();
         }
-        close();
     }
 
     /**
@@ -670,8 +701,13 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      * across restarts and across a change of computation, so the new one's checkpoint ids have to
      * continue above this.
      */
-    synchronized long label() {
-        return label;
+    long label() {
+        lock.lock();
+        try {
+            return label;
+        } finally {
+            lock.unlock();
+        }
     }
 
     long rowsWritten() {

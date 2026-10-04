@@ -103,12 +103,13 @@ class ViewSinkTest {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void aCommitThatChangedTheViewIsTimedThroughItsSlowestListenerAndAnEmptyOneIsNot() throws Exception {
         ServedView view = view();
         ViewSink sink = sink(view);
         // A listener that takes a known time: the commit is not over until every listener has its
         // batch, so the timing has to include this, or a slow sink would be invisible in it.
-        try (AutoCloseable _ = sink.onCommit((changes, frontier) -> {
+        try (AutoCloseable ignored = sink.onCommit((changes, frontier) -> {
             try {
                 Thread.sleep(20);
             } catch (InterruptedException e) {

@@ -23,15 +23,15 @@
 # --docker IMAGE starts a throwaway node from IMAGE on 127.0.0.1:39090 (HTTP 38080) with a small
 # CSV-fed stream `txn`, registers `by_user` over it from client 1, and removes the container on
 # exit. With --endpoint the view must already have rows, or client 1 registers `by_user` over a
-# stream `txn` (txn_id, user_id, amount, status) the node declares. Needs a JDK 25, Maven (`mvn`)
+# stream `txn` (txn_id, user_id, amount, status) the node declares. Needs a JDK 21 or later, Maven (`mvn`)
 # and Python with venv or uv; client 3 downloads pyarrow unless pip or uv has it cached. Not part
 # of any gate: it starts a server. On a machine where the daemon is reached through a group:
 #   sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
-source "$root/tools/jdk25.sh"
+# JDK 21 or later on JAVA_HOME, or a stop naming the requirement (ADR-062).
+source "$root/tools/jdk.sh"
 dist="$root/target/sdk-dist"
 work="${TMPDIR:-/tmp}/pravaha-sdk-standalone-check"
 endpoint=""
@@ -152,7 +152,7 @@ cat > "$work/java-client/pom.xml" <<EOF
   <artifactId>sdk-proof-java</artifactId>
   <version>1.0</version>
   <properties>
-    <maven.compiler.release>25</maven.compiler.release>
+    <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
   <dependencies>

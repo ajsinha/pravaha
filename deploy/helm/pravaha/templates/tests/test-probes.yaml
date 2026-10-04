@@ -14,7 +14,7 @@ Three checks, each of which has been wrong in this project before:
      no client could reach it, which is the bug EngineHealthIndicator exists for.
 
 It uses the node's own image, so it pulls nothing extra, and that image's bin/pravaha-health, which
-needs only bash: the JRE 25 base carries no wget, and no JRE base carries nc.
+needs only bash: the eclipse-temurin JRE base carries no wget, and no JRE base carries nc.
 */}}
 apiVersion: v1
 kind: Pod

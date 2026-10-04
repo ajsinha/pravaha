@@ -609,7 +609,7 @@ line. "No secret is ever serialised to the browser" is a test. See `tests/test_c
 ## Tests
 
 ```bash
-JAVA_HOME=/path/to/jdk25 make test
+JAVA_HOME=/path/to/jdk21-or-later make test
 ```
 
 Three kinds, and each skips with its reason when what it needs is missing:

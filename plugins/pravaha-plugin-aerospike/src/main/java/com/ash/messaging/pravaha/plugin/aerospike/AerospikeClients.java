@@ -77,7 +77,9 @@ final class AerospikeClients {
         }
     }
 
-    private static final Object LOCK = new Object();
+    // A ReentrantLock rather than a monitor: a client connects to its cluster under it, and on JDK 21
+    // a virtual thread blocked inside a monitor pins its carrier.
+    private static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
     private static final Map<Key, Shared> BY_KEY = new HashMap<>();
 
     /** Identity, not equality: two distinct clients could compare equal and must not be confused. */
@@ -99,7 +101,8 @@ final class AerospikeClients {
                 policy.password == null ? "" : policy.password,
                 policy.timeout,
                 policy.failIfNotConnected);
-        synchronized (LOCK) {
+        LOCK.lock();
+        try {
             Shared shared = BY_KEY.get(key);
             if (shared != null) {
                 shared.holders++;
@@ -110,6 +113,8 @@ final class AerospikeClients {
             BY_KEY.put(key, shared);
             KEY_OF.put(client, key);
             return client;
+        } finally {
+            LOCK.unlock();
         }
     }
 
@@ -125,7 +130,8 @@ final class AerospikeClients {
             return;
         }
         IAerospikeClient toClose = null;
-        synchronized (LOCK) {
+        LOCK.lock();
+        try {
             Key key = KEY_OF.get(client);
             Shared shared = key == null ? null : BY_KEY.get(key);
             if (shared == null) {
@@ -135,6 +141,8 @@ final class AerospikeClients {
                 KEY_OF.remove(client);
                 toClose = shared.client;
             }
+        } finally {
+            LOCK.unlock();
         }
         if (toClose != null) {
             closeQuietly(toClose);
@@ -147,17 +155,23 @@ final class AerospikeClients {
      * follow the query count.
      */
     static int openClusters() {
-        synchronized (LOCK) {
+        LOCK.lock();
+        try {
             return BY_KEY.size();
+        } finally {
+            LOCK.unlock();
         }
     }
 
     /** How many plugin instances hold a client for this cluster and credential. For tests. */
     static int holdersOf(IAerospikeClient client) {
-        synchronized (LOCK) {
+        LOCK.lock();
+        try {
             Key key = KEY_OF.get(client);
             Shared shared = key == null ? null : BY_KEY.get(key);
             return shared == null ? 0 : shared.holders;
+        } finally {
+            LOCK.unlock();
         }
     }
 

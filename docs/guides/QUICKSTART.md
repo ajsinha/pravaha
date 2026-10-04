@@ -12,15 +12,15 @@ cluster, no configuration file.
 
 | | Check | If missing |
 |---|---|---|
-| Java 25 | `java -version` | `sdk install java 25-tem`, or your distribution's OpenJDK 25. Pravaha 2.x needs 25; 21 is refused |
+| Java 21 or later | `java -version` | `sdk install java 21-tem`, or your distribution's OpenJDK 21 or later ([what is supported](../operations/COMPATIBILITY.md#java-21-or-later)); an older JVM is refused by name |
 | Maven wrapper | included | — |
 | Python 3.11+ | `python3 --version` | Only needed for the Python parts |
 
 > **Set `JAVA_HOME` explicitly.** Distributions that ship several JDKs often leave `java` and
 > `javac` on different versions, and the wrapper then picks the wrong one; the build refuses
-> anything before 25:
+> anything before 21:
 > ```bash
-> export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+> export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 > ```
 
 ## 1. Build

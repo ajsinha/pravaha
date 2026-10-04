@@ -202,12 +202,13 @@ class LifePauseTest extends LifecycleTestSupport {
     }
 
     @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
     void life051_aNewSubscriptionToAPausedQueryIsAccepted() {
         registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
         registry.pause("v1");
 
         java.util.List<Object> changes = new java.util.ArrayList<>();
-        try (var _ = registry.require("v1").subscribe(changes::addAll)) {
+        try (var ignored = registry.require("v1").subscribe(changes::addAll)) {
             assertThat(registry.require("v1").subscriberCount())
                     .as("subscriberCount moves 0 -> 1 on subscribe, so 'no changes' below is not 'no subscriber'")
                     .isEqualTo(1);

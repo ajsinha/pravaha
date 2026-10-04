@@ -10,11 +10,11 @@
 # already built (ADR-047). The two must produce the same layout; docs/operations/RUNNING_IN_DOCKER.md says which
 # to reach for. This one additionally carries bin/pravaha-engine, the offline Java CLI.
 
-# JDK 25, and only 25, as deploy/docker/Dockerfile: from 2.0 the classes are Java 25 class files
-# (ADR-061), built on 25 and run on 25.
+# JDK 21, as deploy/docker/Dockerfile: the classes are Java 21 class files (ADR-062), built on the
+# floor and run on it. Any JDK from 21 up builds the same classes; 21 keeps the two stages one family.
 
 # ---- build ------------------------------------------------------------------
-FROM maven:3.9-eclipse-temurin-25 AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 
 COPY . .
@@ -26,14 +26,14 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 # ---- run --------------------------------------------------------------------
 # Kept in step with deploy/docker/Dockerfile's runtime stage: same base, same uid, same layout.
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:21-jre
 
 LABEL org.opencontainers.image.title="Pravaha engine node (source build)" \
       org.opencontainers.image.description="Continuous-query engine node: HTTP on 18080, Flight SQL on 19090." \
       org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.source="https://github.com/ajsinha/pravaha" \
-      com.ash.messaging.pravaha.java="25"
+      com.ash.messaging.pravaha.java="21"
 
 WORKDIR /opt/pravaha
 
@@ -65,7 +65,7 @@ VOLUME ["/opt/pravaha/data", "/opt/pravaha/logs"]
 
 # Liveness only. Readiness is deliberately separate: conflating them makes an orchestrator restart
 # a node that is merely still restoring state.
-# bin/pravaha-health needs only bash: the 25 JRE base has no wget or curl.
+# bin/pravaha-health needs only bash: the JRE base has no wget or curl.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
   CMD ["bin/pravaha-health", "/actuator/health/liveness"]
 

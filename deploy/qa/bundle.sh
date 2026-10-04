@@ -68,8 +68,8 @@ jars_from_tag() {
   echo "bundle.sh: building the $version jars from v$version"
   git -C "$root" worktree remove --force "$src" >/dev/null 2>&1 || rm -rf "$src"
   git -C "$root" worktree add --detach "$src" "v$version" >/dev/null
-  # JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
-  source "$root/tools/jdk25.sh"
+  # JDK 21 or later on JAVA_HOME, or a stop naming the requirement (ADR-062).
+  source "$root/tools/jdk.sh"
   (cd "$src" && ./mvnw -o -q -pl pravaha-server,pravaha-cli -am package -DskipTests) \
     || { echo "bundle.sh: could not build the jars from v$version" >&2; exit 1; }
   server_jar="$src/pravaha-server/target/pravaha-server-$version-app.jar"

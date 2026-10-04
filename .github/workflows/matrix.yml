@@ -4,9 +4,9 @@ name: matrix
 # machine: the Spring Boot legs, 3.4 and 3.5, ran green on JDK 25 on 2026-10-01 (41 tests each). They are
 # written so that a leg CANNOT pass by testing something else -- see BootVersionTest, below.
 #
-# One JDK: 25 (ADR-061, 2.0). Pravaha 1.x crossed built-with x run-on {21, 25} here, four legs
-# with a check that the test run had not recompiled; with Java 25 class files there is no other JDK
-# to cross to, so the JDK legs are gone and the one JDK-25 run of the whole reactor is fast.yml's.
+# The JDK legs are fast.yml's: from 2.3 the classes target Java 21 (ADR-062) and the whole reactor
+# runs there on 21 and on 25. These jobs run on 21, the floor, which is the JDK a regression in
+# something only newer JDKs forgive would show on first.
 # What stays is what still varies: the flagged Agrona memory path and the Spring Boot lines.
 on:
   pull_request:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: temurin
           cache: maven
       # Agrona 2.x reaches jdk.internal.misc.Unsafe. It is never the default for exactly that
@@ -39,14 +39,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.4 is the floor from 2.0: Boot 3.2 and 3.3 (Spring Framework 6.0, 6.1) cannot read Java 25
-        # class files (ADR-061).
+        # 3.4 is the floor from 2.0 (ADR-061: Boot 3.2 and 3.3 could not read Java 25 class files).
+        # Java 21 class files would load there again, but those lines are out of open-source support
+        # and their legs are not brought back (ADR-062).
         boot: ['3.4', '3.5']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: temurin
           cache: maven
       # Each leg is a profile in pravaha-spring-boot-starter's pom, and BootVersionTest fails the leg

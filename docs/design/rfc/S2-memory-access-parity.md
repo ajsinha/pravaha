@@ -48,7 +48,7 @@ the Java 25 profile gains no new argument.**
   identical conditions so the comparison holds even if absolute values shift.
 - The FFM arm was not measured: it needs JDK 22+, and the question here was specifically about the
   Java 21 baseline. Worth revisiting if the baseline ever moves. *(It has: Java 25 from 2.0,
-  ADR-061. Not yet re-measured.)*
+  ADR-061; ADR-062 then relaxed it to 21 or later. Not yet re-measured.)*
 
 ## Bonus finding
 

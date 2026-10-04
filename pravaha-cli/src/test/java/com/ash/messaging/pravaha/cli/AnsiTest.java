@@ -34,7 +34,13 @@ class AnsiTest {
 
     @Test
     void underATestRunnerOutputIsNotATerminal() {
-        // Surefire captures stdout; before the fix System.console() was non-null here on JDK 25.
+        // Surefire captures stdout; before the fix System.console() was non-null here on JDK 22 and later.
         assertThat(Ansi.enabled()).isFalse();
+    }
+
+    @Test
+    void noConsoleIsNoTerminalOnEveryJdk() {
+        // JDK 21 has no Console.isTerminal(); there, and on 22+, a JVM without a console has no terminal.
+        assertThat(Ansi.isTerminal(null)).isFalse();
     }
 }

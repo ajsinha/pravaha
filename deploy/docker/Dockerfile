@@ -25,11 +25,11 @@
 # only, and failed to load on the Alpine image, so the commonest Parquet file could not be read in
 # the container (PORT-1). smoke.sh now loads both Parquet codecs on this image.
 #
-# The JRE: 25, and only 25. From 2.0 the classes are Java 25 class files (ADR-061), so there is no
-# other JRE to offer; the 1.x `--java 21` / `-jre21` image is gone with the 21 baseline.
-# bin/pravaha-server gives the JVM --sun-misc-unsafe-memory-access=allow and
-# --enable-native-access=ALL-UNNAMED, so the node starts without a warning.
-FROM eclipse-temurin:25-jre
+# The JRE: 21, the floor of the promise (ADR-062). The classes are Java 21 class files and run on
+# every JRE from 21 up; the image ships the lowest, so what is released is what the floor runs.
+# bin/pravaha-server gives the JVM --enable-native-access=ALL-UNNAMED, and on a JRE of 23 or later
+# --sun-misc-unsafe-memory-access=allow as well, so the node starts without a warning on either.
+FROM eclipse-temurin:21-jre
 
 # A deployment wants to know what it is running without starting it.
 ARG PRAVAHA_VERSION=0.0.0-unset
@@ -43,7 +43,7 @@ LABEL org.opencontainers.image.title="Pravaha engine node" \
       org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.source="https://github.com/ajsinha/pravaha" \
-      com.ash.messaging.pravaha.java="25"
+      com.ash.messaging.pravaha.java="21"
 
 WORKDIR /opt/pravaha
 
@@ -138,7 +138,7 @@ VOLUME ["/opt/pravaha/data", "/opt/pravaha/logs"]
 # Liveness only, deliberately. Docker has one health state, and pointing it at readiness would make
 # a node that is merely still restoring state look broken; Kubernetes gets both probes separately
 # (deploy/helm/pravaha). bin/pravaha-health, not wget: it needs bash and nothing else, and the
-# eclipse-temurin 25 JRE carries no wget (or curl) -- a wget probe there reports a serving node
+# eclipse-temurin JRE carries no wget (or curl) -- a wget probe there reports a serving node
 # unhealthy forever.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
   CMD ["bin/pravaha-health", "/actuator/health/liveness"]

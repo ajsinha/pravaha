@@ -70,6 +70,13 @@ import com.ash.messaging.pravaha.api.PravahaException;
  */
 final class CdcStream implements AutoCloseable {
 
+    /**
+     * Where this class used to synchronize on itself. A ReentrantLock rather than a monitor,
+     * because SQL runs on the control connection under it, and on JDK 21 a virtual thread blocked
+     * inside a monitor pins its carrier (ADR-062).
+     */
+    private final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+
     /** SQLSTATEs that another attempt cannot fix. */
     private static final Set<String> PERMANENT = Set.of("42704", "55000", "42501", "28000", "28P01", "3D000");
 
@@ -327,31 +334,36 @@ final class CdcStream implements AutoCloseable {
      * Why the slot can no longer give this reader the changes after where it stopped, or null when it
      * still can. Asked of {@code pg_replication_slots} on the control connection.
      */
-    private synchronized @Nullable String slotGone() throws SQLException {
-        if (control == null || control.isClosed()) {
-            control = PostgresCdcSourcePlugin.connect(options, false);
+    private @Nullable String slotGone() throws SQLException {
+        lock.lock();
+        try {
+            if (control == null || control.isClosed()) {
+                control = PostgresCdcSourcePlugin.connect(options, false);
+            }
+            java.util.Optional<PostgresCdcSourcePlugin.SlotStatus> status = Preflight.slotStatus(control, options);
+            long resume = assembler.resumeLsn();
+            if (status.isEmpty()) {
+                return "replication slot '" + options.slot() + "' was dropped while this reader was streaming from it; "
+                        + "the changes after " + CdcOffset.format(resume) + " are no longer in the log. Drop the "
+                        + "registration's checkpoints and register the query again (a new slot is created).";
+            }
+            PostgresCdcSourcePlugin.SlotStatus slot = status.get();
+            if ("lost".equals(slot.walStatus())) {
+                return "replication slot '" + options.slot() + "' was invalidated (wal_status = 'lost', usually "
+                        + "max_slot_wal_keep_size): the WAL after " + CdcOffset.format(resume) + " is gone. Drop the "
+                        + "registration's checkpoints and the slot, and register the query again.";
+            }
+            long confirmed = CdcOffset.parseLsn(slot.confirmedFlushLsn());
+            if (resume != 0L && confirmed > resume) {
+                return "replication slot '" + options.slot() + "' has confirmed " + slot.confirmedFlushLsn() + ", past "
+                        + CdcOffset.format(resume) + " where this reader stopped: it was recreated or advanced by "
+                        + "something else, and PostgreSQL would silently start after the changes in between. Drop the "
+                        + "registration's checkpoints and register the query again.";
+            }
+            return null;
+        } finally {
+            lock.unlock();
         }
-        java.util.Optional<PostgresCdcSourcePlugin.SlotStatus> status = Preflight.slotStatus(control, options);
-        long resume = assembler.resumeLsn();
-        if (status.isEmpty()) {
-            return "replication slot '" + options.slot() + "' was dropped while this reader was streaming from it; "
-                    + "the changes after " + CdcOffset.format(resume) + " are no longer in the log. Drop the "
-                    + "registration's checkpoints and register the query again (a new slot is created).";
-        }
-        PostgresCdcSourcePlugin.SlotStatus slot = status.get();
-        if ("lost".equals(slot.walStatus())) {
-            return "replication slot '" + options.slot() + "' was invalidated (wal_status = 'lost', usually "
-                    + "max_slot_wal_keep_size): the WAL after " + CdcOffset.format(resume) + " is gone. Drop the "
-                    + "registration's checkpoints and the slot, and register the query again.";
-        }
-        long confirmed = CdcOffset.parseLsn(slot.confirmedFlushLsn());
-        if (resume != 0L && confirmed > resume) {
-            return "replication slot '" + options.slot() + "' has confirmed " + slot.confirmedFlushLsn() + ", past "
-                    + CdcOffset.format(resume) + " where this reader stopped: it was recreated or advanced by "
-                    + "something else, and PostgreSQL would silently start after the changes in between. Drop the "
-                    + "registration's checkpoints and register the query again.";
-        }
-        return null;
     }
 
     private static boolean permanent(Exception e) {
@@ -391,14 +403,20 @@ final class CdcStream implements AutoCloseable {
     }
 
     /** Writes a logical message this stream will read back; synchronised with the heartbeat. */
-    private synchronized void emit(String content) throws SQLException {
-        if (control == null || control.isClosed()) {
-            control = PostgresCdcSourcePlugin.connect(options, false);
-        }
-        try (PreparedStatement statement = control.prepareStatement("SELECT pg_logical_emit_message(false, ?, ?)")) {
-            statement.setString(1, CdcOptions.MESSAGE_PREFIX);
-            statement.setString(2, content);
-            statement.execute();
+    private void emit(String content) throws SQLException {
+        lock.lock();
+        try {
+            if (control == null || control.isClosed()) {
+                control = PostgresCdcSourcePlugin.connect(options, false);
+            }
+            try (PreparedStatement statement =
+                    control.prepareStatement("SELECT pg_logical_emit_message(false, ?, ?)")) {
+                statement.setString(1, CdcOptions.MESSAGE_PREFIX);
+                statement.setString(2, content);
+                statement.execute();
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -481,14 +499,19 @@ final class CdcStream implements AutoCloseable {
         replication = null;
     }
 
-    private synchronized void closeControl() {
+    private void closeControl() {
+        lock.lock();
         try {
-            if (control != null) {
-                control.close();
+            try {
+                if (control != null) {
+                    control.close();
+                }
+            } catch (SQLException ignored) {
+                // A broken heartbeat connection is replaced on the next heartbeat.
             }
-        } catch (SQLException ignored) {
-            // A broken heartbeat connection is replaced on the next heartbeat.
+            control = null;
+        } finally {
+            lock.unlock();
         }
-        control = null;
     }
 }
