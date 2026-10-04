@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **552 findings carrying a
-status — 533 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **553 findings carrying a
+status — 533 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7693,4 +7693,11 @@ Smaller observations, recorded in the cases rather than registered: `PATCH /api/
 ### FEEDGONE-1 (LOW) — PRV-5064 named an object identity instead of the feed directory
 
 > **Status:** FIXED — the refusal printed `FeedDirectory@…`; it now prints the directory's path. ParquetFeedTest.
+
+## Found running the 2.1.0 gate (2026-10-03), 1 finding
+
+### SDKDEADLINE-1 (MEDIUM) — the Java SDK's blocking calls have no deadline, so a slow server holds a caller forever
+
+> **Status:** OPEN — `PravahaFlightClient.query` (and the other blocking calls) go through gRPC's blocking stub with no deadline. Under the full parallel build, with the container suites running beside it, `JavaSdkTlsTest#disablingHostnameVerificationInsecureAlsoAcceptsTheMismatch` sat in `getFlightInfo` until JUnit's 60 s timeout, twice; it passes alone, beside the new decimal test, and in its whole module in one JVM (68/68). Why the call stalls only under that load is not yet known; that a client cannot bound the wait is the defect either way. Fix: a configurable per-call deadline in `ClientOptions` with a sensible default, refused calls coded, and the hang reproduced and explained.
+> **Disposition:** POST-GA — a client-side robustness gap seen only under heavy load in a test; no wrong answer.
 

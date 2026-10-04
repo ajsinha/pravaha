@@ -391,7 +391,7 @@ PART11: list[dict[str, Any]] = [
     {
         "kind": "table",
         "kicker": "The findings register · docs/project/qa/FINDINGS.md",
-        "title": "552 findings, none open — and each found one step outside the last test",
+        "title": "553 findings, one open — and each found one step outside the last test",
         "rows": [
             ["Finding", "Found by", "What it was"],
             ["SINKKEYROWS-2", "A broker test that had not run since a fix",
@@ -407,9 +407,9 @@ PART11: list[dict[str, Any]] = [
         ],
         "col_w": [1.3, 2.2, 2.9],
         "size": 13.5,
-        "note": "533 fixed, 10 closed by design, 9 superseded, 0 open; a finding is fixed only when the "
+        "note": "533 fixed, 10 closed by design, 9 superseded, 1 open (SDKDEADLINE-1); a finding is fixed only when the "
         "case that found it has been re-run. The commonest defect: built, correct, connected to nothing.",
-        "source": "Source: docs/project/qa/FINDINGS.md (header counts: 552 — 533 FIXED, 0 OPEN, 10 BY DESIGN, "
+        "source": "Source: docs/project/qa/FINDINGS.md (header counts: 553 — 533 FIXED, 1 OPEN, 10 BY DESIGN, "
         "9 SUPERSEDED; SINKKEYROWS-2, PGWIRETX-1, SDKNETTYMIX-1, VIEWW-1, TESTNAME-1; 'The commonest defect'); "
         "docs/development/TESTING.md 'What this pass found'; docs/project/RELEASE_NOTES.md '1.0.0', 'Unreleased'.",
     },
@@ -528,7 +528,7 @@ PART11: list[dict[str, Any]] = [
             ("Wave 1", "The ten high: answers, recovery, heap, credentials"),
             ("Wave 2", "The seventeen medium: casts, checksums, grouping, hops, DLQ"),
             ("Wave 3", "The nineteen low and the four design notes"),
-            ("Register", "552 findings, 0 open; 3 more found while fixing, fixed"),
+            ("Register", "553 findings, 1 open; 3 more found while fixing, fixed"),
         ],
         "box_h": 1.95,
         "items": [

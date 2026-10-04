@@ -70,7 +70,7 @@ OPENING: list[dict[str, Any]] = [
             ("Java 25", "Every module, the API and the Java SDKs included, is Java 25 class files"),
             ("Boot 3.4+", "The Spring Boot starter: 3.2 and 3.3 cannot read Java 25 classes"),
             ("2 breaks", "The Java baseline, and legacy-read removed as 1.0 announced"),
-            ("0 open", "552 findings: 533 fixed, 10 by design, 9 superseded"),
+            ("1 open", "553 findings: 533 fixed, 10 by design, 9 superseded"),
         ],
         "items": [
             ("Who it breaks",
@@ -86,7 +86,7 @@ OPENING: list[dict[str, Any]] = [
         ],
         "size": 14,
         "source": "Source: docs/project/RELEASE_NOTES.md '2.0.0 — 2026-10-01' (who it breaks, Docker, proved "
-        "on 25) and 'Unreleased' (register line: 552 findings — 533 fixed, 0 open); "
+        "on 25) and 'Unreleased' (register line: 553 findings — 533 fixed, 1 open); "
         "docs/operations/COMPATIBILITY.md '2.0: what breaks'; docs/design/adr/061-jdk-25-is-the-baseline-from-2-0.md "
         "(Consequences: Boot 3.4 and 3.5 pass 41 tests on 25); docs/project/qa/FINDINGS.md header "
         "(10 BY DESIGN, 9 SUPERSEDED); docs/project/qa/SUMMARY.md 'Outcome'.",

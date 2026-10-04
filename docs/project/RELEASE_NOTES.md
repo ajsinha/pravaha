@@ -442,7 +442,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   failure the server gave no description reads "the server sent no description" rather than
   "null". See TESTING.md, *Static analysis*.
 
-Register: **552 findings — 533 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **553 findings — 533 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.0.0 — 2026-10-01
 
