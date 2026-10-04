@@ -59,7 +59,9 @@ class JavaSdkConnectTimeoutTest {
                     assertThat(e.getMessage()).contains("0.5 s");
                 });
             }
-            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
+            // Far short of the five-minute connectTimeout; loose enough for a loaded build machine,
+            // where connecting and closing alone took over ten seconds.
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(45));
         }
     }
 }
