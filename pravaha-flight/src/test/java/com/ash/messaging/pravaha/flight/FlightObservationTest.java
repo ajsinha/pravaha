@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
 
@@ -165,7 +166,13 @@ class FlightObservationTest {
     @Test
     void aSubscriptionIsOneCallAboutItsViewAndAWithdrawalIsReported() throws Exception {
         AtomicBoolean allowed = new AtomicBoolean(true);
-        start((principal, view) -> allowed.get() ? AccessDecision.allow() : AccessDecision.deny("withdrawn"));
+        AtomicInteger asked = new AtomicInteger();
+        start((principal, view) -> {
+            boolean allow = allowed.get();
+            asked.incrementAndGet();
+            return allow ? AccessDecision.allow() : AccessDecision.deny("withdrawn");
+        });
+        int askedBefore = asked.get();
         AtomicReference<String> ended = new AtomicReference<>();
         Thread.ofVirtual().start(() -> {
             try (FlightStream stream =
@@ -178,9 +185,11 @@ class FlightObservationTest {
                 ended.set(String.valueOf(e.getMessage()));
             }
         });
-        // Waited for, not slept for: on a loaded build the subscribe can begin well after 500 ms.
-        long begun = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-        while (!seen.contains("begin subscribe user_volume " + TRACEPARENT) && System.nanoTime() < begun) {
+        // Withdrawn only once the subscribe has been allowed: withdrawn before its opening check, it is
+        // refused at the door rather than ended. Waited for, not slept for, so a loaded build cannot
+        // reorder the two.
+        long opened = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (asked.get() <= askedBefore && System.nanoTime() < opened) {
             Thread.sleep(20);
         }
         assertThat(seen).contains("begin subscribe user_volume " + TRACEPARENT);
