@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.registry.DraftFingerprint;
@@ -33,7 +34,7 @@ import com.ash.messaging.pravaha.serving.Retention;
 final class DraftFingerprints {
 
     /** The fingerprint's short form, or why a registration would be refused; both null when not asked. */
-    record Answer(String value, ApiDtos.Diagnostic refusal) {
+    record Answer(@Nullable String value, ApiDtos.@Nullable Diagnostic refusal) {
 
         static final Answer NONE = new Answer(null, null);
     }
@@ -93,7 +94,7 @@ final class DraftFingerprints {
      * absent for the registration's default. Anything else is refused rather than defaulted, as
      * registration refuses it.
      */
-    static Retention retentionOf(String text) {
+    static @Nullable Retention retentionOf(@Nullable String text) {
         String value = text == null ? "" : text.strip();
         if (value.isEmpty()) {
             return null;

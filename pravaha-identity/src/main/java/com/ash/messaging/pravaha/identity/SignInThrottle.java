@@ -21,6 +21,8 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Failed sign-ins counted per account <em>and source</em>, so the source that fails is the one barred
  * (LOCKENUM-1).
@@ -47,7 +49,8 @@ final class SignInThrottle {
     /** At most this many (account, source) pairs are remembered. */
     static final int MAX_TRACKED = 10_000;
 
-    private record Failures(int count, Instant first, Instant barredUntil) {}
+    private record Failures(
+            int count, Instant first, @Nullable Instant barredUntil) {}
 
     private final Map<String, Failures> bySource = new LinkedHashMap<>();
     private final int failures;
@@ -60,12 +63,12 @@ final class SignInThrottle {
         this.barFor = barFor;
     }
 
-    private static String key(String username, String source) {
+    private static String key(String username, @Nullable String source) {
         return username + '\u0000' + (source == null ? "" : source);
     }
 
     /** Whether {@code source} is barred from signing in as {@code username} now. */
-    boolean barred(String username, String source, Instant now) {
+    boolean barred(String username, @Nullable String source, Instant now) {
         Failures f = bySource.get(key(username, source));
         return f != null && f.barredUntil() != null && now.isBefore(f.barredUntil());
     }
@@ -75,22 +78,22 @@ final class SignInThrottle {
      *
      * @return true when this failure bars the source
      */
-    boolean failed(String username, String source, Instant now) {
+    boolean failed(String username, @Nullable String source, Instant now) {
         String key = key(username, source);
         Failures f = bySource.get(key);
         if (f == null && !room(now)) {
             return false;
         }
         boolean fresh = f == null || f.first().plus(window).isBefore(now);
-        int count = fresh ? 1 : f.count() + 1;
-        Instant first = fresh ? now : f.first();
+        int count = f == null || fresh ? 1 : f.count() + 1;
+        Instant first = f == null || fresh ? now : f.first();
         Instant barred = count >= failures ? now.plus(barFor) : null;
         bySource.put(key, new Failures(barred == null ? count : 0, barred == null ? first : now, barred));
         return barred != null;
     }
 
     /** A sign-in from {@code source} succeeded: its count for {@code username} starts again. */
-    void succeeded(String username, String source) {
+    void succeeded(String username, @Nullable String source) {
         bySource.remove(key(username, source));
     }
 

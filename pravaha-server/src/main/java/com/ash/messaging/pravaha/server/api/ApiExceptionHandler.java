@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server.api;
 import java.time.Instant;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -168,7 +169,7 @@ public class ApiExceptionHandler {
      * sign-in is 401 and a locked account 423, where the range's default, 403, would say "you may not"
      * to somebody who has not been identified yet.
      */
-    private static HttpStatus identityStatus(String code) {
+    private static @Nullable HttpStatus identityStatus(String code) {
         return switch (code) {
             case "PRV-7010", "PRV-7013", "PRV-7014", "PRV-7016" -> HttpStatus.UNAUTHORIZED;
             case "PRV-7011" -> HttpStatus.LOCKED;

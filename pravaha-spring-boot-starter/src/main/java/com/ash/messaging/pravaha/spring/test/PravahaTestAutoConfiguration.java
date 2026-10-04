@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -72,8 +73,10 @@ public class PravahaTestAutoConfiguration {
 
         private static final Log LOG = LogFactory.getLog(TemporaryCheckpoints.class);
 
+        @SuppressWarnings("NullAway.Init") // EnvironmentAware: Spring sets it before post-processing
         private Environment environment;
-        private Path directory;
+
+        private @Nullable Path directory;
 
         @Override
         public void setEnvironment(Environment environment) {
@@ -85,17 +88,20 @@ public class PravahaTestAutoConfiguration {
             if (bean instanceof PravahaProperties properties
                     && environment.getProperty(PravahaTestContextBootstrapper.CHECKPOINTS, Boolean.class, false)
                     && isBlank(properties.getCheckpoint().getDirectory())) {
+                Path made;
                 try {
-                    directory = Files.createTempDirectory("pravaha-test-checkpoints-");
+                    made = Files.createTempDirectory("pravaha-test-checkpoints-");
                 } catch (IOException e) {
                     throw new UncheckedIOException("cannot create a temporary checkpoint directory", e);
                 }
-                properties.getCheckpoint().setDirectory(directory.toString());
+                directory = made;
+                properties.getCheckpoint().setDirectory(made.toString());
             }
             return bean;
         }
 
         /** The directory made, if one was. */
+        @Nullable
         Path directory() {
             return directory;
         }
@@ -113,7 +119,7 @@ public class PravahaTestAutoConfiguration {
             }
         }
 
-        private static boolean isBlank(String value) {
+        private static boolean isBlank(@Nullable String value) {
             return value == null || value.isBlank();
         }
     }

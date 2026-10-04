@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server.catalog;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -54,25 +55,25 @@ public class StreamDeclarationProperties {
     /** One stream's schema, as written in configuration. */
     public static class Declaration {
 
-        private String schema;
-        private String eventTime;
+        private @Nullable String schema;
+        private @Nullable String eventTime;
 
         // Seconds, not Spring's default of milliseconds. See getOutOfOrderness (TIME-3). The
         // annotation targets a field rather than a method, and the field is where Spring's
         // JavaBeanBinder reads it from.
         @org.springframework.boot.convert.DurationUnit(java.time.temporal.ChronoUnit.SECONDS)
-        private java.time.Duration outOfOrderness;
+        private java.time.@Nullable Duration outOfOrderness;
 
         // And its twin, for the same reason and in the same breath: `allowed-lateness: 30` bound as
         // thirty milliseconds, which is indistinguishable from none.
         @org.springframework.boot.convert.DurationUnit(java.time.temporal.ChronoUnit.SECONDS)
-        private java.time.Duration allowedLateness;
+        private java.time.@Nullable Duration allowedLateness;
 
-        public String getSchema() {
+        public @Nullable String getSchema() {
             return schema;
         }
 
-        public void setSchema(String schema) {
+        public void setSchema(@Nullable String schema) {
             this.schema = schema;
         }
 
@@ -85,11 +86,11 @@ public class StreamDeclarationProperties {
          * else on the server ever called {@code StreamSchema.Builder.eventTime} -- so windowing, the
          * feature the engine exists for, was unreachable from configuration.
          */
-        public String getEventTime() {
+        public @Nullable String getEventTime() {
             return eventTime;
         }
 
-        public void setEventTime(String eventTime) {
+        public void setEventTime(@Nullable String eventTime) {
             this.eventTime = eventTime;
         }
 
@@ -110,11 +111,11 @@ public class StreamDeclarationProperties {
          * stream at startup (TIME-6), which is the other half: a setting nothing states cannot be
          * checked.
          */
-        public java.time.Duration getOutOfOrderness() {
+        public java.time.@Nullable Duration getOutOfOrderness() {
             return outOfOrderness;
         }
 
-        public void setOutOfOrderness(java.time.Duration outOfOrderness) {
+        public void setOutOfOrderness(java.time.@Nullable Duration outOfOrderness) {
             this.outOfOrderness = outOfOrderness;
         }
 
@@ -132,11 +133,11 @@ public class StreamDeclarationProperties {
          * and for the same reason (TIME-3): {@code allowed-lateness: 30} used to bind as thirty
          * milliseconds, which is indistinguishable from the zero default.
          */
-        public java.time.Duration getAllowedLateness() {
+        public java.time.@Nullable Duration getAllowedLateness() {
             return allowedLateness;
         }
 
-        public void setAllowedLateness(java.time.Duration allowedLateness) {
+        public void setAllowedLateness(java.time.@Nullable Duration allowedLateness) {
             this.allowedLateness = allowedLateness;
         }
     }

@@ -430,7 +430,7 @@ public final class InterpretedPipeline implements AutoCloseable {
      * overflow, a cast with no answer -- to {@code failures} instead of stopping the query
      * (DLQPROJ-1); null stops the query again. See {@link RowGuard} for why only before state.
      */
-    public void deadLetterRowFailures(RowFailureSink failures) {
+    public void deadLetterRowFailures(@Nullable RowFailureSink failures) {
         rowGuard.sendTo(failures);
     }
 

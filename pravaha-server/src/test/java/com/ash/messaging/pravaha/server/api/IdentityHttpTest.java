@@ -21,6 +21,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -67,7 +68,7 @@ class IdentityHttpTest {
 
     private final ObjectMapper json = new ObjectMapper();
 
-    private ResultActions postJson(String path, String token, String body) throws Exception {
+    private ResultActions postJson(String path, @Nullable String token, String body) throws Exception {
         var request = post(path).contentType(MediaType.APPLICATION_JSON).content(body);
         if (token != null) {
             request.header("Authorization", "Bearer " + token);

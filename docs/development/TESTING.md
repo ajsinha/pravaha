@@ -5,8 +5,8 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 Every test tier the repository has, what each needs, how to run it with and without Docker, and how
 long it took on the development machine. This is the reference; for a numbered walkthrough from a
-fresh clone see [Build and test without Docker](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md), and for the
-container route [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
+fresh clone see [Build and test without Docker](setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md), and for the
+container route [Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
 
 **Where the numbers come from.** Every count and time below was taken on 2026-09-29 on the
 development machine (24 cores, 61 GiB RAM, NVMe, Docker Engine 29.8, OpenJDK 21.0.12, Python
@@ -108,6 +108,7 @@ holds it, with a `// reason` on the same line; never module-wide.
 | 2026-10-02, ERRORPRONE-1 | 2,833 | 600 (`StringSplitter` 100, `ArrayRecordComponent` 61, `NotJavadoc` 54, `MissingOverride` 42, `UnusedVariable` 39, …) | 207 (`try` 109, `dangling-doc-comments` 57, `deprecation` 31, …) | 3,642 |
 | 2026-10-03, ERRORPRONE-2 | 2,826, counted before `pravaha-api` and the SDKs were cleared (those three are 0 and held there by `failOnWarning`) | 0 | 0 | 2,826 at most |
 | 2026-10-04, the engine core, Flight and pgwire gated | 1,802 (2,698 the same day before the sweep), in 17 modules; 21 modules at 0 and held there | 0 | 0 | 1,802 |
+| 2026-10-04, the hosts and front ends gated | 1,051, in 10 modules (`pravaha-it` 276 and nine plugins); 28 modules at 0 and held there | 0 | 0 | 1,051 |
 
 The ERRORPRONE-1 run counted 3,570 because it compiled main and test code in separate passes. Of the
 roughly 800 cleared, most were fixed in place; the suppressions are mainly `ArrayRecordComponent` on
@@ -151,10 +152,22 @@ lifecycle sets before use (a row cursor's region, a lane's batch arrays, a plugi
 `configure()`), and 8 where the analysis cannot see the contract (an expression's `evaluateString`,
 read only when `isNull` is false; `ViewNames.localName`/`shown`, null only for a null name; a
 probe-only null principal; an unreachable sink factory; a record constructor that defaults a null).
-Test code adds 83 nulls-on-purpose and 55 `NullAway.Init` on fields a test's own setup assigns. Still
-at WARN: `pravaha-server`, `pravaha-it`, `pravaha-identity`, `pravaha-bindings`, `pravaha-embedded`,
-`pravaha-cli`, `pravaha-benchmarks`, `pravaha-spring-boot-starter` and nine plugins -- see the table
-above.
+Test code adds 83 nulls-on-purpose and 55 `NullAway.Init` on fields a test's own setup assigns.
+
+**The hosts and front ends are gated (2.1.1).** Seven more modules carry the `ep` profile:
+`pravaha-server`, `pravaha-identity`, `pravaha-bindings`, `pravaha-spring-boot-starter`,
+`pravaha-embedded`, `pravaha-cli` and `pravaha-benchmarks` (before: 424, 122, 91, 35, 26, 16 and 15).
+The same rules held: what a node or engine builds at start and drops at stop is `@Nullable` and read
+through an accessor that requires it; every `@RequestParam`/`@RequestBody(required = false)` is
+`@Nullable`, as are the API's DTO components that are absent until they exist and the optional
+settings of a `@ConfigurationProperties` bean (field, getter and setter); a few signatures below
+them (`QueryRegistry.checkpointingTo`, `PravahaFlightServer`/`PravahaPgWireServer.encryptedWith`,
+`IdentityService.changePassword`, `PolicyService.create`) now say they take the null they already
+handled. No bug was found. Suppressions in main code are 21: 15 `NullAway.Init` on JMH `@Param` and
+`@Setup` state, 3 on a shared reader's member and route (set by `join` before use), 2 on fields
+Spring sets through an `Aware` callback, and one `NullAway` where a builder hands a missing SQL to the
+constructor that refuses it. Tests add 6 nulls-on-purpose and 2 `NullAway.Init`. Still at WARN:
+`pravaha-it` and nine plugins -- see the table above.
 
 ### Which Maven to call: stale jars (MAVENRACE-1)
 
@@ -326,7 +339,7 @@ a couple of cores free for a Cassandra run.
 `tools/docker-test.sh unit|it|sdk|console|all|mvn [--docker]` — one runner image (Maven, JDK 25,
 Python 3), runs as the invoking user, caches in `~/.cache/pravaha-docker`, Testcontainers via the
 host socket with `TESTCONTAINERS_HOST_OVERRIDE=localhost`; walkthrough and measured results in
-[Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) step 8. (Added beside this
+[Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) step 8. (Added beside this
 document; the measurements on this page were taken on the host, not through it.)
 
 ### Your own containers are safe
@@ -478,7 +491,7 @@ none is marked now. The cases and logs are under [`../project/qa/cases`](../proj
 
 ### Outside Docker
 
-The walkthrough in [Build and test without Docker](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) does
+The walkthrough in [Build and test without Docker](setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) does
 this step by step with the output it printed. In short:
 
 1. `bin/pravaha-server --spring.profiles.active=dev,users --spring.config.additional-location=file:$PRAVAHA_HOME/conf/application.yaml`
@@ -495,7 +508,7 @@ this step by step with the output it printed. In short:
 ### In Docker
 
 The compose stack, its `PRAVAHA_HOME` layout and a seeded walkthrough are described in
-[Running in Docker](../operations/RUNNING_IN_DOCKER.md) and [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
+[Running in Docker](../operations/RUNNING_IN_DOCKER.md) and [Build and test with Docker](setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
 Point the CLI, the SDK and a PostgreSQL client at the ports that stack publishes, exactly as above;
 nothing in the steps differs except the URLs. `deploy/docker/smoke.sh --image <tag>` is the image's
 own check ([Deployment](../operations/DEPLOYMENT.md#tests)).

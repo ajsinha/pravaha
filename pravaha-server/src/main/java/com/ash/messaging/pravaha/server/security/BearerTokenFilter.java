@@ -22,6 +22,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.jspecify.annotations.Nullable;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -108,13 +109,13 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
      * @param apiDocs {@code springdoc.api-docs.path}, or null when the document is disabled
      * @param swaggerUi {@code springdoc.swagger-ui.path}, or null when the page is disabled
      */
-    public BearerTokenFilter(TokenVerifier verifier, String apiDocs, String swaggerUi) {
+    public BearerTokenFilter(TokenVerifier verifier, @Nullable String apiDocs, @Nullable String swaggerUi) {
         this.verifier = verifier;
         this.openPaths = openPaths(apiDocs, swaggerUi);
     }
 
     /** The open set for a pair of configured springdoc paths. */
-    static Set<String> openPaths(String apiDocs, String swaggerUi) {
+    static Set<String> openPaths(@Nullable String apiDocs, @Nullable String swaggerUi) {
         Set<String> paths = new java.util.LinkedHashSet<>(ALWAYS_OPEN);
         if (apiDocs != null && !apiDocs.isBlank()) {
             paths.add(normalise(apiDocs));

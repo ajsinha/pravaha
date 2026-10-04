@@ -76,9 +76,13 @@ class NodeIdentityTest {
         String session = users.login("admin", IdentityService.DEFAULT_ADMIN_PASSWORD, null)
                 .token();
 
-        assertThat(node.verifier().verify(session).id()).isEqualTo("admin");
+        assertThat(java.util.Objects.requireNonNull(node.verifier())
+                        .verify(session)
+                        .id())
+                .isEqualTo("admin");
         assertThat(node.verifier().verify("legacy-static-token").id()).isEqualTo("svc");
-        assertThatThrownBy(() -> node.verifier().verify("prv_s_forged"))
+        assertThatThrownBy(
+                        () -> java.util.Objects.requireNonNull(node.verifier()).verify("prv_s_forged"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-7001");
     }
@@ -86,7 +90,8 @@ class NodeIdentityTest {
     @Test
     void anEmptyTokenTableIsFineWhenIdentityIsOn() {
         PravahaNode node = node(tokens(Map.of()), identity(true));
-        assertThatThrownBy(() -> node.verifier().verify("anything"))
+        assertThatThrownBy(
+                        () -> java.util.Objects.requireNonNull(node.verifier()).verify("anything"))
                 .hasMessageContaining("PRV-7001")
                 .hasMessageContaining("the credential was rejected");
     }

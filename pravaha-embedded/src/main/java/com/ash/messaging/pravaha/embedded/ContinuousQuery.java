@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.serving.Retention;
 
 /**
@@ -90,16 +92,16 @@ public record ContinuousQuery(
     public static final class Builder {
 
         private final String name;
-        private String sql;
+        private @Nullable String sql;
         private List<String> keyColumns = List.of();
-        private Retention retention;
-        private String sink;
+        private @Nullable Retention retention;
+        private @Nullable String sink;
 
         private Builder(String name) {
             this.name = name;
         }
 
-        public Builder sql(String sql) {
+        public Builder sql(@Nullable String sql) {
             this.sql = sql;
             return this;
         }
@@ -131,6 +133,7 @@ public record ContinuousQuery(
             return this;
         }
 
+        @SuppressWarnings("NullAway") // a missing SQL is the constructor's to refuse, with PRV-2070
         public ContinuousQuery build() {
             return new ContinuousQuery(
                     name, sql, keyColumns, Optional.ofNullable(retention), Optional.ofNullable(sink));

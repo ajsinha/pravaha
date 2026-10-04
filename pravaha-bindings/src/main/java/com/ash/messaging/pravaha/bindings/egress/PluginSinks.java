@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
@@ -107,8 +109,8 @@ public final class PluginSinks implements SinkFactory, AutoCloseable {
      *     EgressErrors#SINK_BINDING_FAILED} when the plugin refuses its configuration or cannot open
      */
     @Override
-    public StreamSinkPlugin open(String sinkName) {
-        SinkBinding binding = bindings.get(sinkName);
+    public StreamSinkPlugin open(@Nullable String sinkName) {
+        SinkBinding binding = sinkName == null ? null : bindings.get(sinkName);
         if (binding == null) {
             throw new PravahaException(
                     EgressErrors.NO_SUCH_SINK_PLUGIN,
@@ -132,8 +134,8 @@ public final class PluginSinks implements SinkFactory, AutoCloseable {
      * have to throw away.
      */
     @Override
-    public SinkCapabilities capabilitiesOf(String sinkName) {
-        SinkBinding binding = bindings.get(sinkName);
+    public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
+        SinkBinding binding = sinkName == null ? null : bindings.get(sinkName);
         if (binding == null) {
             throw new PravahaException(
                     EgressErrors.NO_SUCH_SINK_PLUGIN,

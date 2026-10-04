@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +46,8 @@ final class NodeAlerts implements AutoCloseable {
 
     private AlertProperties properties = new AlertProperties();
     private NotifierBindingProperties notifiers = new NotifierBindingProperties();
-    private AlertService service;
-    private Notifiers opened;
+    private @Nullable AlertService service;
+    private @Nullable Notifiers opened;
 
     void configure(AlertProperties alerts, NotifierBindingProperties channels) {
         this.properties = alerts == null ? new AlertProperties() : alerts;

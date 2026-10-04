@@ -247,7 +247,8 @@ final class LaneEquivalence implements AutoCloseable {
     List<List<Object>> expected(String name) {
         List<long[]> store = List.copyOf(CountingScanPlugin.STORE);
         Integer paused = pausedAt.get(name);
-        return registered.get(name).expected(paused == null ? store : store.subList(0, paused));
+        return java.util.Objects.requireNonNull(registered.get(name))
+                .expected(paused == null ? store : store.subList(0, paused));
     }
 
     /**
@@ -263,20 +264,20 @@ final class LaneEquivalence implements AutoCloseable {
         sleep(150);
         for (String name : registered.keySet()) {
             for (Engine engine : engines()) {
-                RegisteredQuery query = engine.live.get(name);
+                RegisteredQuery query = java.util.Objects.requireNonNull(engine.live.get(name));
                 query.commit();
                 assertThat(rows(query))
                         .as("%s on %s, judged again after it had settled", name, engine.label)
                         .isEqualTo(expected(name));
             }
-            assertThat(rows(shared.live.get(name)))
+            assertThat(rows(java.util.Objects.requireNonNull(shared.live.get(name))))
                     .as("%s must answer on a shared lane exactly as on a lane of its own", name)
-                    .isEqualTo(rows(own.live.get(name)));
+                    .isEqualTo(rows(java.util.Objects.requireNonNull(own.live.get(name))));
         }
     }
 
     private void awaitAnswer(Engine engine, String name) {
-        RegisteredQuery query = engine.live.get(name);
+        RegisteredQuery query = java.util.Objects.requireNonNull(engine.live.get(name));
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         List<List<Object>> seen = List.of();
         while (System.nanoTime() < deadline) {

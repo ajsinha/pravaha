@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server.tenancy;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -66,22 +67,22 @@ public class TenancyProperties {
     /** One tenant's limits, or the defaults'. A null limit is none. */
     public static class Limit {
 
-        private Long maxQueries;
-        private Long maxStateKeys;
+        private @Nullable Long maxQueries;
+        private @Nullable Long maxStateKeys;
 
-        public Long getMaxQueries() {
+        public @Nullable Long getMaxQueries() {
             return maxQueries;
         }
 
-        public void setMaxQueries(Long maxQueries) {
+        public void setMaxQueries(@Nullable Long maxQueries) {
             this.maxQueries = maxQueries;
         }
 
-        public Long getMaxStateKeys() {
+        public @Nullable Long getMaxStateKeys() {
             return maxStateKeys;
         }
 
-        public void setMaxStateKeys(Long maxStateKeys) {
+        public void setMaxStateKeys(@Nullable Long maxStateKeys) {
             this.maxStateKeys = maxStateKeys;
         }
 

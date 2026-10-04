@@ -145,6 +145,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   the destination holds: whole batches, keys, retractions, upserts, idempotent replay, and for a
   transactional sink invisibility before commit, idempotent commit, abort, and commit-or-discard after a
   restart. The JDBC sink runs it in both of its shapes. There is no lookup TCK yet.
+- **NullAway gates the hosts and front ends; the starter carries read admission** (STARTERREAD-1).
+  `pravaha-server`, `pravaha-identity`, `pravaha-bindings`, `pravaha-spring-boot-starter`,
+  `pravaha-embedded`, `pravaha-cli` and `pravaha-benchmarks` are at zero NullAway findings and held there
+  under `-Pep`, as the engine core already was; the reactor's count fell from 1,802 to 1,051, all in
+  `pravaha-it` and nine plugins. Optional request parameters, DTO fields and configuration settings now
+  say so with `@Nullable`; no behaviour changed and no bug was found. The Spring Boot starter maps
+  `pravaha.serving.read.{max-concurrent, max-queued, queue-timeout, tenant-share, deadline}` to its
+  embedded engine, which it did not before, so an application on the starter can limit reads as a node
+  does. The IDE and build-and-test guides moved to `docs/development/setup/`.
 
 Register: **573 findings — 553 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

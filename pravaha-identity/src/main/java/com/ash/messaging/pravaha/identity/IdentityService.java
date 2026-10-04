@@ -29,6 +29,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -69,9 +71,9 @@ public final class IdentityService {
     private final Map<String, String> sessionByTokenHash = new HashMap<>();
     private final Map<String, Instant> lastSeen = new HashMap<>();
     private final Map<String, Instant> verifiedKeys = new ConcurrentHashMap<>();
-    private final java.util.function.Supplier<String> initialAdminPassword;
+    private final java.util.function.@Nullable Supplier<@Nullable String> initialAdminPassword;
 
-    IdentityService(IdentityStore store, IdentitySettings settings, AuditSink audit, Clock clock) {
+    IdentityService(IdentityStore store, IdentitySettings settings, @Nullable AuditSink audit, Clock clock) {
         this(store, settings, audit, clock, null);
     }
 
@@ -82,9 +84,9 @@ public final class IdentityService {
     IdentityService(
             IdentityStore store,
             IdentitySettings settings,
-            AuditSink audit,
+            @Nullable AuditSink audit,
             Clock clock,
-            java.util.function.Supplier<String> initialAdminPassword) {
+            java.util.function.@Nullable Supplier<@Nullable String> initialAdminPassword) {
         this.initialAdminPassword = initialAdminPassword;
         this.store = store;
         this.settings = settings;
@@ -103,7 +105,7 @@ public final class IdentityService {
     }
 
     /** A service over the journal at {@code file}, created on first use. */
-    public static IdentityService open(Path file, IdentitySettings settings, AuditSink audit) {
+    public static IdentityService open(Path file, IdentitySettings settings, @Nullable AuditSink audit) {
         return new IdentityService(IdentityStore.open(file), settings, audit, Clock.systemUTC());
     }
 
@@ -115,13 +117,13 @@ public final class IdentityService {
     public static IdentityService open(
             Path file,
             IdentitySettings settings,
-            AuditSink audit,
-            java.util.function.Supplier<String> initialAdminPassword) {
+            @Nullable AuditSink audit,
+            java.util.function.@Nullable Supplier<@Nullable String> initialAdminPassword) {
         return new IdentityService(IdentityStore.open(file), settings, audit, Clock.systemUTC(), initialAdminPassword);
     }
 
     /** A service that keeps nothing on disk: for an embedded engine and tests. */
-    public static IdentityService inMemory(IdentitySettings settings, AuditSink audit, Clock clock) {
+    public static IdentityService inMemory(IdentitySettings settings, @Nullable AuditSink audit, Clock clock) {
         return new IdentityService(IdentityStore.inMemory(), settings, audit, clock);
     }
 
@@ -211,7 +213,7 @@ public final class IdentityService {
      *
      * @param from the caller's address, which failures are counted against; null counts as one source
      */
-    public Login login(String username, String password, String from) {
+    public Login login(@Nullable String username, @Nullable String password, @Nullable String from) {
         Identities.User user;
         boolean barred;
         synchronized (this) {
@@ -246,12 +248,15 @@ public final class IdentityService {
             boolean expired = !settings.maxAge().isZero()
                     && current.passwordChangedAt() != null
                     && current.passwordChangedAt().plus(settings.maxAge()).isBefore(now);
-            String hash = Kdf.needsRehash(current.passwordHash()) ? Kdf.hash(password) : current.passwordHash();
+            String hash = Kdf.needsRehash(current.passwordHash())
+                    ? Kdf.hash(password == null ? "" : password)
+                    : current.passwordHash();
             Identities.User signedIn = current.withLogin(now, hash, current.mustChangePassword() || expired);
             store.putUser(signedIn);
-            throttle.succeeded(username, from);
+            String name = current.username(); // the name it was found by
+            throttle.succeeded(name, from);
             Login login = openSession(signedIn, now);
-            record(named(username), "auth.login", username, true, expired ? "password expired" : "ok", from);
+            record(named(name), "auth.login", name, true, expired ? "password expired" : "ok", from);
             return login;
         }
     }
@@ -261,7 +266,7 @@ public final class IdentityService {
         static final String HASH = Kdf.hash("pravaha-timing-equaliser");
     }
 
-    private void recordFailure(Identities.User user, Instant now, String from) {
+    private void recordFailure(Identities.User user, Instant now, @Nullable String from) {
         boolean sourceBarred = throttle.failed(user.username(), from, now);
         boolean freshWindow = user.firstFailedAt() == null
                 || user.firstFailedAt().plus(settings.lockoutWindow()).isBefore(now);
@@ -372,7 +377,7 @@ public final class IdentityService {
         Instant now = clock.instant();
         String id = sessionByTokenHash.get(Kdf.sha256Hex(token));
         Identities.Session s = id == null ? null : store.sessions.get(id);
-        if (s == null) {
+        if (id == null || s == null) {
             throw new PravahaException(IdentityErrors.SESSION_EXPIRED, "this session has ended; sign in again");
         }
         Instant seen = lastSeen.getOrDefault(id, s.createdAt());
@@ -462,16 +467,16 @@ public final class IdentityService {
     // ------------------------------------------------------------------ passwords
 
     /** A signed-in person changing their own password. Ends every other session of theirs. */
-    public synchronized void changePassword(Principal who, String current, String replacement) {
+    public synchronized void changePassword(Principal who, @Nullable String current, @Nullable String replacement) {
         Identities.User user = requireUser(who.id());
         if (!Kdf.verify(current == null ? "" : current, user.passwordHash())) {
             recordFailure(user, clock.instant(), null);
             throw refused();
         }
-        if (current.equals(replacement)) {
+        if (java.util.Objects.equals(current, replacement)) {
             throw new PravahaException(IdentityErrors.PASSWORD_POLICY, "the new password must differ from the old one");
         }
-        accept(store.users.get(who.id()), replacement, false);
+        accept(requireUser(who.id()), replacement, false);
         String keep = who.claims().get("session");
         for (Identities.Session s : List.copyOf(store.sessions.values())) {
             if (s.username().equals(who.id()) && !s.id().equals(keep)) {
@@ -482,7 +487,7 @@ public final class IdentityService {
     }
 
     /** The one place a new password is accepted: the policy, then the history, then the hash. */
-    private void accept(Identities.User user, String password, boolean mustChange) {
+    private void accept(Identities.User user, @Nullable String password, boolean mustChange) {
         List<String> previous = new ArrayList<>();
         if (user.passwordHash() != null) {
             previous.add(user.passwordHash());
@@ -492,8 +497,9 @@ public final class IdentityService {
         if (refusal.isPresent()) {
             throw new PravahaException(IdentityErrors.PASSWORD_POLICY, refusal.get());
         }
+        String accepted = java.util.Objects.requireNonNull(password, "the policy refuses a missing password");
         List<String> kept = previous.subList(0, Math.min(previous.size(), Math.max(0, settings.history() - 1)));
-        store.putUser(user.withPassword(Kdf.hash(password), kept, mustChange, clock.instant()));
+        store.putUser(user.withPassword(Kdf.hash(accepted), kept, mustChange, clock.instant()));
         throttle.forget(user.username()); // a new password starts every address afresh (LOCKENUM-1)
     }
 
@@ -531,16 +537,16 @@ public final class IdentityService {
     /** What an administrator sees of a user: never a hash. */
     public record UserView(
             String username,
-            String displayName,
-            String email,
-            String tenant,
+            @Nullable String displayName,
+            @Nullable String email,
+            @Nullable String tenant,
             Set<String> roles,
             String status,
             boolean service,
             boolean mustChangePassword,
-            Instant passwordChangedAt,
-            Instant lockedUntil,
-            Instant lastLoginAt,
+            @Nullable Instant passwordChangedAt,
+            @Nullable Instant lockedUntil,
+            @Nullable Instant lastLoginAt,
             Instant createdAt,
             Map<String, String> attributes) {}
 
@@ -572,7 +578,7 @@ public final class IdentityService {
      * behalf when they are not the caller: a registration restored at restart, an alert. Empty for no such
      * user.
      */
-    public synchronized Optional<Principal> principalOfUser(String username) {
+    public synchronized Optional<Principal> principalOfUser(@Nullable String username) {
         Identities.User user = username == null ? null : store.users.get(username);
         return user == null
                 ? Optional.empty()
@@ -585,12 +591,12 @@ public final class IdentityService {
 
     public synchronized UserView createUser(
             Principal admin,
-            String username,
-            String displayName,
-            String email,
-            String tenant,
+            @Nullable String username,
+            @Nullable String displayName,
+            @Nullable String email,
+            @Nullable String tenant,
             Set<String> roles,
-            String password,
+            @Nullable String password,
             boolean service) {
         requireAdmin(admin);
         if (username == null || !username.matches("[a-z][a-z0-9._-]{1,63}")) {
@@ -634,7 +640,12 @@ public final class IdentityService {
     }
 
     public synchronized UserView updateUser(
-            Principal admin, String username, String displayName, String email, String tenant, String status) {
+            Principal admin,
+            String username,
+            @Nullable String displayName,
+            @Nullable String email,
+            @Nullable String tenant,
+            @Nullable String status) {
         requireAdmin(admin);
         Identities.User user = requireUser(username);
         if (status != null && !status.equals("active") && !status.equals("disabled")) {
@@ -663,7 +674,7 @@ public final class IdentityService {
         }
         store.putUser(user.withRoles(roles));
         record(admin, "user.roles_changed", username, true, user.roles() + " -> " + roles, null);
-        return view(store.users.get(username));
+        return view(requireUser(username));
     }
 
     /** Names the engine gives a credential's own claims; an attribute may not take one. */
@@ -702,7 +713,7 @@ public final class IdentityService {
         // Names only: a value is a fact about a person, and the audit trail does not need it to say what
         // changed.
         record(admin, "user.attributes_changed", username, true, "set " + set + ", removed " + removed, null);
-        return view(store.users.get(username));
+        return view(requireUser(username));
     }
 
     private static void requireAttribute(String name, String value) {
@@ -746,15 +757,15 @@ public final class IdentityService {
     /** What anyone sees of a key: never its secret or its hash. */
     public record KeyView(
             String keyId,
-            String name,
+            @Nullable String name,
             String holder,
             Set<String> roles,
             Instant createdAt,
-            String createdBy,
+            @Nullable String createdBy,
             Instant expiresAt,
-            Instant revokedAt,
-            String rotatedTo,
-            Instant lastUsedAt) {}
+            @Nullable Instant revokedAt,
+            @Nullable String rotatedTo,
+            @Nullable Instant lastUsedAt) {}
 
     private static KeyView view(Identities.ApiKey k) {
         return new KeyView(
@@ -771,7 +782,7 @@ public final class IdentityService {
     }
 
     public synchronized IssuedKey createKey(
-            Principal who, String name, Set<String> roles, Integer days, String forUser) {
+            Principal who, String name, @Nullable Set<String> roles, @Nullable Integer days, @Nullable String forUser) {
         String holderName = forUser == null || forUser.isBlank() ? who.id() : forUser;
         Identities.User holder = requireUser(holderName);
         if (!holderName.equals(who.id())) {
@@ -798,7 +809,7 @@ public final class IdentityService {
         return issue(who, name, holderName, scope, Duration.ofDays(life));
     }
 
-    private IssuedKey issue(Principal who, String name, String holder, Set<String> scope, Duration life) {
+    private IssuedKey issue(Principal who, @Nullable String name, String holder, Set<String> scope, Duration life) {
         Instant now = clock.instant();
         String keyId = Kdf.randomHex(6);
         String secret = Kdf.randomToken(24).replace('_', '-');
@@ -878,7 +889,12 @@ public final class IdentityService {
 
     // ------------------------------------------------------------------ sessions, as data
 
-    public record SessionView(String id, String username, Instant createdAt, Instant expiresAt, Instant lastSeen) {}
+    public record SessionView(
+            String id,
+            String username,
+            Instant createdAt,
+            Instant expiresAt,
+            @Nullable Instant lastSeen) {}
 
     public synchronized List<SessionView> sessions(Principal who, boolean all) {
         if (all) {
@@ -902,7 +918,7 @@ public final class IdentityService {
 
     // ------------------------------------------------------------------ helpers
 
-    private Identities.User requireUser(String username) {
+    private Identities.User requireUser(@Nullable String username) {
         Identities.User user = username == null ? null : store.users.get(username);
         if (user == null) {
             throw new PravahaException(IdentityErrors.NOT_FOUND, "no user named '" + username + "'");
@@ -910,7 +926,7 @@ public final class IdentityService {
         return user;
     }
 
-    private static void requireAdmin(Principal who) {
+    private static void requireAdmin(@Nullable Principal who) {
         if (who == null || !who.roles().contains(ADMIN_ROLE)) {
             throw new PravahaException(
                     SecurityErrors.FORBIDDEN, "administering users and keys needs the '" + ADMIN_ROLE + "' role");
@@ -921,7 +937,7 @@ public final class IdentityService {
         return new PravahaException(IdentityErrors.CREDENTIALS_REFUSED, "that user name and password do not match");
     }
 
-    private static Principal named(String username) {
+    private static Principal named(@Nullable String username) {
         return new Principal(username == null ? "?" : username, "public", Set.of(), Map.of());
     }
 
@@ -929,7 +945,8 @@ public final class IdentityService {
         return new Principal("system", "public", Set.of(), Map.of());
     }
 
-    private void record(Principal who, String action, String target, boolean allowed, String reason, String from) {
+    private void record(
+            Principal who, String action, String target, boolean allowed, String reason, @Nullable String from) {
         audit.record(new AuditEvent(clock.instant(), who, action, target, allowed, reason, Optional.ofNullable(from)));
     }
 }

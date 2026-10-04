@@ -7,7 +7,7 @@ How to change the console: add or change a screen, add an engine call, add a hel
 it. **The console's own [`README.md`](../../../console/README.md) is the canonical description** of its
 layout, its design rules (MAYA), its vendored libraries, its help system and its test tiers; this guide is
 the task-by-task path through it and does not repeat it. Running it from PyCharm is
-[`DEVELOPING_IN_AN_IDE.md`](../DEVELOPING_IN_AN_IDE.md#the-console-in-pycharm); where it sits in the system
+[`DEVELOPING_IN_AN_IDE.md`](../setup/DEVELOPING_IN_AN_IDE.md#the-console-in-pycharm); where it sits in the system
 is [clients and console](../../design/architecture/clients-and-console.md#the-console). Conventions:
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

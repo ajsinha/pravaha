@@ -82,7 +82,7 @@ class CheckpointFailureVisibleTest {
                     DANA);
 
             ApiDtos.QueryCheckpoint healthy = queries.get("totals", as(DANA)).checkpoint();
-            assertThat(healthy.enabled()).isTrue();
+            assertThat(java.util.Objects.requireNonNull(healthy).enabled()).isTrue();
             assertThat(healthy.lastFailure()).isNull();
 
             Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("r--------"));
@@ -96,7 +96,7 @@ class CheckpointFailureVisibleTest {
             }
 
             ApiDtos.QueryCheckpoint failing = queries.get("totals", as(DANA)).checkpoint();
-            assertThat(failing.failures()).isPositive();
+            assertThat(java.util.Objects.requireNonNull(failing).failures()).isPositive();
             assertThat(failing.lastFailure()).contains("checkpoint failed (");
         }
     }

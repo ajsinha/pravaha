@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.cli;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Terminal colour, applied only when a person will actually read it.
  *
@@ -45,7 +47,7 @@ public final class Ansi {
      * {@code System.console()} was null, which it was when output was redirected -- until JDK 22, after
      * which it never is, so a redirected {@code pravaha} wrote escape codes into files and pipes.
      */
-    static boolean detect(String term, boolean terminal) {
+    static boolean detect(@Nullable String term, boolean terminal) {
         if (term == null || "dumb".equals(term)) {
             return false;
         }

@@ -23,6 +23,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -121,11 +123,11 @@ public final class OrderedLogPlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public OrderedPositions orderedPositions() {
+    public @Nullable OrderedPositions orderedPositions() {
         return declareOrder ? (a, b) -> Long.compare(indexOf(a), indexOf(b)) : null;
     }
 
-    static long indexOf(SourceOffset offset) {
+    static long indexOf(@Nullable SourceOffset offset) {
         return offset == null || offset.isBeginning() ? 0 : Long.parseLong(offset.token());
     }
 
@@ -140,7 +142,7 @@ public final class OrderedLogPlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         OPEN.incrementAndGet();
         int ordinal = CREATED.incrementAndGet();
         return new Reader(indexOf(resumeFrom), slowEvery > 0 ? slowEvery : ordinal > 1 ? slowAfterFirst : 0);

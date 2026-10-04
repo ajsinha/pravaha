@@ -24,6 +24,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -136,7 +138,7 @@ public record AlertOptions(
      * {@code '10m'}, {@code '90s'}, {@code '2h'}, {@code '1d'}, {@code '250ms'}, ISO-8601 ({@code PT10M}),
      * or {@code 0}. Never negative.
      */
-    public static Duration duration(String name, String text) {
+    public static Duration duration(String name, @Nullable String text) {
         String value = text == null ? "" : text.strip().toLowerCase(Locale.ROOT);
         if (value.equals("0")) {
             return Duration.ZERO;

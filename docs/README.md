@@ -23,8 +23,8 @@ The documents are in six folders, by who reads them and when:
 | [Architecture](design/ARCHITECTURE.md) | How every component fits together: the module graph, a row and a registration traced end to end through the real classes, with a page per component | Third, before you change anything |
 | [Developer guides](development/guides/README.md) | One per extension surface: connectors, the engine, clients, the console, security — and the conventions they share | When you change or extend a component |
 | [User guide](guides/USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
-| [Building and testing with Docker](development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker: images, the compose stack, a query end to end, every test suite in containers | When you want it running without installing a JDK or Python |
-| [Running from an IDE](development/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests | When you change the code |
+| [Building and testing with Docker](development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker: images, the compose stack, a query end to end, every test suite in containers | When you want it running without installing a JDK or Python |
+| [Running from an IDE](development/setup/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests | When you change the code |
 | [Python integration guide](guides/PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each | When you connect an application |
 | [The assistant](guides/ASSIST.md) | Plain English to and from continuous SQL through any model, with the engine as the judge: configuration, providers, runtime switching, plugins, security | When you want a query or a refusal explained |
 | [Case studies](../examples/case-studies/) | Worked systems with stores, data and code to copy | When you want a template |
@@ -60,9 +60,9 @@ The documents are in six folders, by who reads them and when:
 
 | | |
 |---|---|
-| [Building and testing with Docker](development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker |
-| [Building and testing without Docker](development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) | The same walkthrough with a local JDK and Python |
-| [Running from an IDE](development/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests |
+| [Building and testing with Docker](development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker |
+| [Building and testing without Docker](development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) | The same walkthrough with a local JDK and Python |
+| [Running from an IDE](development/setup/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests |
 | [Testing](development/TESTING.md) | Every test tier — unit, in-process, container-backed plugins, SDK, console, deck, performance, the opt-in adversarial suites — with and without Docker, what skips, measured times, and CI guidance |
 | [Developer guides](development/guides/README.md) | One per extension surface, with diagrams, real signatures and examples that were run: [conventions](development/guides/CONTRIBUTING.md) · [connectors](development/guides/CONNECTOR_DEVELOPMENT.md) · [engine](development/guides/ENGINE_DEVELOPMENT.md) · [clients](development/guides/CLIENT_DEVELOPMENT.md) · [console](development/guides/CONSOLE_DEVELOPMENT.md) · [security](development/guides/SECURITY_EXTENSIONS.md) |
 | [Handover](development/HANDOVER.md) | State of the work, what is done, what is not, what a fresh session will not guess |

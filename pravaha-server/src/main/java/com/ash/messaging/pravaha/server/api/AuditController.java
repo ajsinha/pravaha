@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -83,14 +84,14 @@ public class AuditController {
     @GetMapping
     @Operation(summary = "Read recorded authorization decisions, newest first, one page at a time")
     public AdminDtos.AuditPage read(
-            @RequestParam(required = false) String since,
-            @RequestParam(required = false) String until,
-            @RequestParam(required = false) String principal,
-            @RequestParam(required = false) String view,
-            @RequestParam(required = false) String action,
-            @RequestParam(required = false) String decision,
-            @RequestParam(required = false) Integer limit,
-            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) @Nullable String since,
+            @RequestParam(required = false) @Nullable String until,
+            @RequestParam(required = false) @Nullable String principal,
+            @RequestParam(required = false) @Nullable String view,
+            @RequestParam(required = false) @Nullable String action,
+            @RequestParam(required = false) @Nullable String decision,
+            @RequestParam(required = false) @Nullable Integer limit,
+            @RequestParam(required = false) @Nullable String cursor,
             HttpServletRequest http) {
         // Parsed before the permission is checked so a malformed request is a 400 for everyone --
         // but recorded and refused before anything is read.
@@ -156,7 +157,7 @@ public class AuditController {
                         : " and are not readable anywhere, because this node does not audit to a file.");
     }
 
-    private static Instant instant(String name, String text) {
+    private static @Nullable Instant instant(String name, @Nullable String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
@@ -169,7 +170,7 @@ public class AuditController {
         }
     }
 
-    private static Boolean decision(String text) {
+    private static @Nullable Boolean decision(@Nullable String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
@@ -182,7 +183,7 @@ public class AuditController {
         };
     }
 
-    private static long cursor(String text) {
+    private static long cursor(@Nullable String text) {
         if (text == null || text.isBlank()) {
             return 0;
         }
@@ -211,7 +212,7 @@ public class AuditController {
         return text.toString();
     }
 
-    private static void append(StringBuilder text, String name, Object value) {
+    private static void append(StringBuilder text, String name, @Nullable Object value) {
         if (value != null) {
             text.append(text.isEmpty() ? "" : "&").append(name).append('=').append(value);
         }

@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
@@ -91,8 +93,9 @@ final class PluginReplaySource implements ReplaySource {
      * Throwing the rest away would skip them; asking for one at a time would be a poll per row
      * against sources that cannot do that cheaply. So the whole poll is kept and drained.
      */
-    private ReplayRow take(int index) {
-        java.util.ArrayDeque<ReplayRow> queue = buffered.get(index);
+    private @Nullable ReplayRow take(int index) {
+        java.util.ArrayDeque<ReplayRow> queue =
+                java.util.Objects.requireNonNull(buffered.get(index), "every partition has a buffer");
         if (!queue.isEmpty()) {
             return queue.poll();
         }

@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -62,12 +63,16 @@ public class RegistryAccess {
     }
 
     /** For a test, or anything else holding a registry directly. */
-    public RegistryAccess(QueryRegistry registry, PluginSinks sinks, AuditSink audit) {
+    public RegistryAccess(@Nullable QueryRegistry registry, @Nullable PluginSinks sinks, @Nullable AuditSink audit) {
         this(registry, sinks, null, audit);
     }
 
     /** As {@link #RegistryAccess(QueryRegistry, PluginSinks, AuditSink)}, with the source bindings too. */
-    public RegistryAccess(QueryRegistry registry, PluginSinks sinks, PluginSourceFeeds sources, AuditSink audit) {
+    public RegistryAccess(
+            @Nullable QueryRegistry registry,
+            @Nullable PluginSinks sinks,
+            @Nullable PluginSourceFeeds sources,
+            @Nullable AuditSink audit) {
         this(
                 () -> Optional.ofNullable(registry),
                 () -> Optional.ofNullable(sinks),
@@ -81,7 +86,7 @@ public class RegistryAccess {
             Supplier<Optional<PluginSinks>> sinks,
             Supplier<Optional<PluginSourceFeeds>> sources,
             Supplier<Optional<String>> flightAddress,
-            AuditSink audit) {
+            @Nullable AuditSink audit) {
         this.registry = registry;
         this.sinks = sinks;
         this.sources = sources;

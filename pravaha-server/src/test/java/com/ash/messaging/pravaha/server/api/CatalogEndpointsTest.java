@@ -119,7 +119,7 @@ class CatalogEndpointsTest {
         assertThat(detail.grants())
                 .extracting(CatalogController.GrantDto::privilege)
                 .containsExactly("SELECT", "SUBSCRIBE");
-        assertThat(detail.access().privileges())
+        assertThat(java.util.Objects.requireNonNull(detail.access()).privileges())
                 .filteredOn(CatalogController.AccessLineDto::allowed)
                 .extracting(CatalogController.AccessLineDto::privilege)
                 .containsExactlyInAnyOrder("SELECT", "SUBSCRIBE");

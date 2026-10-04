@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server.alerts;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -57,20 +58,21 @@ public class NotifierBindingProperties {
     /** The bindings, unopened. */
     public Notifiers toNotifiers() {
         Notifiers bound = Notifiers.none();
-        notifiers.forEach((channel, spec) -> bound.bind(new Notifiers.Binding(channel, spec.plugin, spec.options)));
+        notifiers.forEach((channel, spec) ->
+                bound.bind(new Notifiers.Binding(channel, spec.plugin == null ? "" : spec.plugin, spec.options)));
         return bound;
     }
 
     public static class Spec {
 
-        private String plugin;
+        private @Nullable String plugin;
         private Map<String, String> options = new LinkedHashMap<>();
 
-        public String getPlugin() {
+        public @Nullable String getPlugin() {
             return plugin;
         }
 
-        public void setPlugin(String plugin) {
+        public void setPlugin(@Nullable String plugin) {
             this.plugin = plugin;
         }
 

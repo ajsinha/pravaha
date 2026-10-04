@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -79,7 +80,7 @@ public class PluginController {
     private final SinkBindingProperties sinks;
     private final HttpAuthorizer authorizer;
     private final Supplier<List<Declared>> discovery;
-    private volatile List<Declared> discovered;
+    private volatile @Nullable List<Declared> discovered;
 
     @Autowired
     public PluginController(
@@ -129,7 +130,8 @@ public class PluginController {
         return byName.values().stream().map(Merged::toDto).toList();
     }
 
-    private void bind(Map<String, Merged> byName, HttpServletRequest http, String kind, String name, String plugin) {
+    private void bind(
+            Map<String, Merged> byName, HttpServletRequest http, String kind, String name, @Nullable String plugin) {
         if (plugin == null || plugin.isBlank() || !authorizer.mayRead(http, name)) {
             return;
         }
@@ -159,9 +161,9 @@ public class PluginController {
             String version,
             String requiredApiVersion,
             String kind,
-            AdminDtos.SourceCapabilities source,
-            AdminDtos.SinkCapabilities sink,
-            String problem) {}
+            AdminDtos.@Nullable SourceCapabilities source,
+            AdminDtos.@Nullable SinkCapabilities sink,
+            @Nullable String problem) {}
 
     /** Every plugin {@code ServiceLoader} finds for the three roles a binding can give one. */
     static List<Declared> discover() {
@@ -253,15 +255,15 @@ public class PluginController {
     private static final class Merged {
 
         private final String name;
-        private String version;
-        private String requiredApiVersion;
+        private @Nullable String version;
+        private @Nullable String requiredApiVersion;
         private boolean loaded;
         private final TreeSet<String> kinds = new TreeSet<>();
-        private AdminDtos.SourceCapabilities source;
-        private AdminDtos.SinkCapabilities sink;
+        private AdminDtos.@Nullable SourceCapabilities source;
+        private AdminDtos.@Nullable SinkCapabilities sink;
         private final List<String> problems = new ArrayList<>();
         private final List<String> settings = new ArrayList<>();
-        private AdminDtos.PluginHealth health;
+        private AdminDtos.@Nullable PluginHealth health;
         private final List<AdminDtos.PluginBinding> bindings = new ArrayList<>();
 
         Merged(String name) {

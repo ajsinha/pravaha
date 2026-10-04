@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.embedded;
 import java.util.Map;
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.serving.ViewChange;
 
@@ -34,7 +36,7 @@ public final class RowChange {
 
     private final StreamSchema schema;
     private final ViewChange change;
-    private Map<String, Object> values;
+    private @Nullable Map<String, Object> values;
 
     public RowChange(StreamSchema schema, ViewChange change) {
         this.schema = Objects.requireNonNull(schema, "schema");

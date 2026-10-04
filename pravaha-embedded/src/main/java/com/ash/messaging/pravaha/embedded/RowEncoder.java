@@ -23,6 +23,8 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.Field;
@@ -136,11 +138,13 @@ final class RowEncoder {
      * Writes validated values into {@code arena} and returns a view over them, or null if the arena
      * is full. The view is valid until the arena is reset.
      */
+    @Nullable
     BinaryRowView write(Object[] values, RowArena arena, long sequence) {
         return write(values, arena, sequence, 1L);
     }
 
     /** {@link #write(Object[], RowArena, long)} at {@code weight}: {@code -1} is a retraction. */
+    @Nullable
     BinaryRowView write(Object[] values, RowArena arena, long sequence, long weight) {
         int size = sizeOf(values);
         long handle = arena.allocate(size);

@@ -310,8 +310,9 @@ class ErrcFlightTest extends ErrcServerSupport {
                 .hasMessageContaining("PRV-6104")
                 .hasMessageContaining(absentCert.toAbsolutePath().toString());
 
-        Files.writeString(absentCert.getParent().resolve("real-cert.pem"), "not really a cert but a readable file");
-        Path realCert = absentCert.getParent().resolve("real-cert.pem");
+        Path certDirectory = java.util.Objects.requireNonNull(absentCert.getParent());
+        Files.writeString(certDirectory.resolve("real-cert.pem"), "not really a cert but a readable file");
+        Path realCert = certDirectory.resolve("real-cert.pem");
         assertThatThrownBy(() -> new PravahaFlightServer(v).encryptedWith(realCert.toFile(), absentKey.toFile()))
                 .hasMessageContaining("PRV-6104")
                 .hasMessageContaining(absentKey.toAbsolutePath().toString());

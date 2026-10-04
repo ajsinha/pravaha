@@ -22,6 +22,8 @@ import java.util.Objects;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
 import com.ash.messaging.pravaha.embedded.RowChange;
 import com.ash.messaging.pravaha.embedded.RowChangeListener;
@@ -58,7 +60,7 @@ public class PravahaTester {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
 
     private final PravahaEngine engine;
-    private final PravahaListenerProcessor listeners;
+    private final @Nullable PravahaListenerProcessor listeners;
     private final Duration timeout;
 
     /**
@@ -66,11 +68,11 @@ public class PravahaTester {
      * @param listeners where the application's {@code @PravahaListener} methods are, or null when it
      *     has none
      */
-    public PravahaTester(PravahaEngine engine, PravahaListenerProcessor listeners) {
+    public PravahaTester(PravahaEngine engine, @Nullable PravahaListenerProcessor listeners) {
         this(engine, listeners, DEFAULT_TIMEOUT);
     }
 
-    private PravahaTester(PravahaEngine engine, PravahaListenerProcessor listeners, Duration timeout) {
+    private PravahaTester(PravahaEngine engine, @Nullable PravahaListenerProcessor listeners, Duration timeout) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.listeners = listeners;
         this.timeout = Objects.requireNonNull(timeout, "timeout");

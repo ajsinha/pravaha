@@ -102,7 +102,7 @@ instances need sticky sessions.
 
 | Surface | What stays compatible | Where it is defined |
 |---|---|---|
-| Java | JDK 25 is the minimum through 2.x, for building, running, embedding and the Java SDKs; every module's classes target Java 25. The container images run on `eclipse-temurin:25-jre`. (1.x: JDK 21 minimum, 25 supported.) | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
+| Java | JDK 25 is the minimum through 2.x, for building, running, embedding and the Java SDKs; every module's classes target Java 25. The container images run on `eclipse-temurin:25-jre`. (1.x: JDK 21 minimum, 25 supported.) | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
 | The SQL dialect | Every statement, function and clause [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) documents keeps its meaning; a statement accepted by 1.0 is accepted by every 1.x and 2.x and answers the same, except where the answer was a defect — 2.0.1's are listed above. New syntax and functions may be added. | [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) |
 | The Java SDK | Public types and methods of `pravaha-api`, `pravaha-sdk-java` and `pravaha-sdk-java-flight` are not removed or changed incompatibly; methods may be added. | the javadoc jars; `sdk/pravaha-sdk-java/README.md` |
 | The Python SDK | The public names in `pravaha` (everything not starting with `_`), excluding `pravaha.assist` — see below. | [../guides/PYTHON_API_GUIDE.md](../guides/PYTHON_API_GUIDE.md) |

@@ -779,7 +779,8 @@ pravaha:
     order_stats:
       sql: "SELECT COUNT(*) AS orders, SUM(amount) AS revenue FROM orders"
       keys: [orders]
-  # optional: registry.journal, checkpoint.directory, sources.*, sinks.*, lookups.*, watermark.*
+  # optional: registry.journal, checkpoint.directory, sources.*, sinks.*, lookups.*, watermark.*,
+  #           serving.read.* (read admission and deadline, as on a node)
 ```
 
 ```java

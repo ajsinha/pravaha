@@ -41,6 +41,8 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -101,7 +103,7 @@ final class PgTls {
      * @throws PravahaException if either file is missing, unreadable, or not in a shape this server
      *     understands
      */
-    static PgTls load(File certificateChain, File privateKey) {
+    static PgTls load(@Nullable File certificateChain, @Nullable File privateKey) {
         // CFG-6(b): null-checked before either readability branch, because both of those
         // dereference. See this class's own javadoc.
         if (certificateChain == null || privateKey == null) {

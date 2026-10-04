@@ -99,7 +99,8 @@ class AccessPathsVisibleTest {
         txn(latest, "u2", "us", 20);
         latest.commit();
 
-        ApiDtos.AccessPaths before = queries.get("latest", as(DANA)).accessPaths();
+        ApiDtos.AccessPaths before =
+                java.util.Objects.requireNonNull(queries.get("latest", as(DANA)).accessPaths());
         assertThat(before.point() + before.index()).isZero();
 
         ViewQuery reads = new ViewQuery(views);
@@ -109,7 +110,9 @@ class AccessPathsVisibleTest {
         reads.execute("SELECT user_id FROM latest WHERE amount > 5");
 
         ApiDtos.AccessPaths after = queries.get("latest", as(DANA)).accessPaths();
-        assertThat(after.point() - before.point()).as("by the whole key").isEqualTo(1);
+        assertThat(java.util.Objects.requireNonNull(after).point() - before.point())
+                .as("by the whole key")
+                .isEqualTo(1);
         assertThat(after.index() - before.index()).as("by the equality index").isEqualTo(2);
         assertThat(after.scan() - before.scan()).as("a column nobody indexed").isEqualTo(1);
         assertThat(after.range()).isZero();

@@ -78,7 +78,9 @@ final class StandbyWatchTest {
                     .isTrue();
         }
 
-        assertThat(seen.get().previousOwner()).contains("node-a").contains("10.0.0.1:19090");
+        assertThat(java.util.Objects.requireNonNull(seen.get()).previousOwner())
+                .contains("node-a")
+                .contains("10.0.0.1:19090");
         assertThat(seen.get().describe())
                 .as("a takeover buys recovery time, not continuity, and has to say so at the moment it happens")
                 .contains("promoted from standby")

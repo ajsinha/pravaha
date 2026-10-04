@@ -28,6 +28,7 @@ import javax.crypto.spec.PBEKeySpec;
 
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.params.Argon2Parameters;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The slow hash for secrets a person chooses or a program keeps: passwords and API-key secrets.
@@ -73,7 +74,7 @@ public final class Kdf {
     }
 
     /** Whether {@code secret} is what {@code stored} was made from. Constant time in the comparison. */
-    public static boolean verify(String secret, String stored) {
+    public static boolean verify(@Nullable String secret, @Nullable String stored) {
         if (secret == null || stored == null) {
             return false;
         }
@@ -106,7 +107,7 @@ public final class Kdf {
     }
 
     /** True when {@code stored} is weaker than what {@link #hash} makes today, so a login re-hashes it. */
-    public static boolean needsRehash(String stored) {
+    public static boolean needsRehash(@Nullable String stored) {
         return stored == null
                 || !stored.startsWith("argon2id$m=" + ARGON2_MEMORY_KIB + ",t=" + ARGON2_ITERATIONS + ",p="
                         + ARGON2_PARALLELISM + "$");

@@ -85,13 +85,16 @@ public class LaneScalingBenchmark {
     public int lanes;
 
     @Param({"SPIN_THEN_YIELD"})
+    @SuppressWarnings("NullAway.Init") // JMH injects each @Param before the trial
     public String waitStrategy;
 
+    @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
     private LaneGroup group;
 
     /** One scratch row per producer thread, so no two threads share the source buffer either. */
     @State(Scope.Thread)
     public static class Producer {
+        @SuppressWarnings("NullAway.Init") // built by the @Setup that runs before every measurement
         MemoryRegion scratch;
 
         @Setup(Level.Trial)

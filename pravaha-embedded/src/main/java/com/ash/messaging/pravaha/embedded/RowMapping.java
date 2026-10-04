@@ -31,6 +31,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
@@ -138,8 +140,8 @@ public final class RowMapping {
         return name.replace("_", "").toLowerCase(Locale.ROOT);
     }
 
-    private static Object convert(
-            Object value, Class<?> target, String column, RecordComponent component, Class<?> type) {
+    private static @Nullable Object convert(
+            @Nullable Object value, Class<?> target, String column, RecordComponent component, Class<?> type) {
         if (value == null) {
             if (target.isPrimitive()) {
                 throw new IllegalArgumentException("column '" + column + "' is null and " + type.getSimpleName() + "."
@@ -164,7 +166,7 @@ public final class RowMapping {
                 + "; declare the component as " + value.getClass().getSimpleName() + " or a type it converts to");
     }
 
-    private static Object fromNumber(Number number, Class<?> target) {
+    private static @Nullable Object fromNumber(Number number, Class<?> target) {
         boolean integral = number instanceof Long
                 || number instanceof Integer
                 || number instanceof Short

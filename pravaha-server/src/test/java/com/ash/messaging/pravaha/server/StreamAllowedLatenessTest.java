@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
@@ -66,7 +67,9 @@ class StreamAllowedLatenessTest {
                         "pravaha.streams.txn.allowed-lateness", "30s")))
                 .bind("pravaha", StreamDeclarationProperties.class)
                 .get();
-        assertThat(declared.getStreams().get("txn").getAllowedLateness()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(java.util.Objects.requireNonNull(declared.getStreams().get("txn"))
+                        .getAllowedLateness())
+                .isEqualTo(Duration.ofSeconds(30));
 
         SecurityProperties security = new SecurityProperties();
         security.setAllowAnonymous(true);
@@ -88,7 +91,7 @@ class StreamAllowedLatenessTest {
                             WINDOWED,
                             List.of(0),
                             new Principal("dana", "acme", Set.of("analyst"), Map.of()));
-            assertThat(windowed(query.plan()).allowedLatenessNanos())
+            assertThat(java.util.Objects.requireNonNull(windowed(query.plan())).allowedLatenessNanos())
                     .as("the window stays open to a correction for the declared 30 s")
                     .isEqualTo(Duration.ofSeconds(30).toNanos());
         } finally {
@@ -96,7 +99,7 @@ class StreamAllowedLatenessTest {
         }
     }
 
-    private static WindowedAggregateOperator windowed(PhysicalOperator plan) {
+    private static @Nullable WindowedAggregateOperator windowed(PhysicalOperator plan) {
         if (plan instanceof WindowedAggregateOperator windowed) {
             return windowed;
         }

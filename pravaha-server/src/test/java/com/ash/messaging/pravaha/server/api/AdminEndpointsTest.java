@@ -23,6 +23,7 @@ import java.util.Set;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -103,7 +104,12 @@ class AdminEndpointsTest {
         return request;
     }
 
-    private AdminDtos.AuditPage read(Principal who, String principal, String decision, Integer limit, String cursor) {
+    private AdminDtos.AuditPage read(
+            Principal who,
+            @Nullable String principal,
+            @Nullable String decision,
+            @Nullable Integer limit,
+            @Nullable String cursor) {
         return new AuditController(authorizer, trail)
                 .read(null, null, principal, null, null, decision, limit, cursor, as(who));
     }
@@ -205,6 +211,7 @@ class AdminEndpointsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // no audit trail at all, on purpose
     void aNodeThatDoesNotAuditSaysSoRatherThanShowingAnEmptyTrail() {
         AdminDtos.AuditPage page = new AuditController(
                         new HttpAuthorizer(AUTHENTICATED, AuditSink.NONE), (AuditTrail) null)
@@ -230,7 +237,7 @@ class AdminEndpointsTest {
 
     // ------------------------------------------------------------------ plugins
 
-    private PluginController plugins(SecurityPolicy policy, PluginRegistry registered) {
+    private PluginController plugins(SecurityPolicy policy, @Nullable PluginRegistry registered) {
         SourceBindingProperties sources = new SourceBindingProperties();
         SourceBindingProperties.Spec orders = new SourceBindingProperties.Spec();
         orders.setPlugin("filesystem");
@@ -281,8 +288,13 @@ class AdminEndpointsTest {
         assertThat(filesystem.kinds())
                 .as("what its code can be, from the SPIs it implements")
                 .contains("source", "sink");
-        assertThat(filesystem.capabilities().source().guarantee()).isEqualTo("EXACTLY_ONCE");
-        assertThat(filesystem.capabilities().sink().emitModes()).containsExactly("APPEND");
+        assertThat(java.util.Objects.requireNonNull(java.util.Objects.requireNonNull(filesystem.capabilities())
+                                .source())
+                        .guarantee())
+                .isEqualTo("EXACTLY_ONCE");
+        assertThat(java.util.Objects.requireNonNull(filesystem.capabilities().sink())
+                        .emitModes())
+                .containsExactly("APPEND");
         assertThat(filesystem.health().reported())
                 .as("no instance the node holds reports for it, and the answer says so")
                 .isFalse();

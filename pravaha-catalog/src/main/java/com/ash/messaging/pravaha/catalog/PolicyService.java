@@ -27,6 +27,8 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
@@ -115,10 +117,10 @@ public final class PolicyService {
             Principal caller,
             PolicyDefinition.Type type,
             List<String> parts,
-            String column,
+            @Nullable String column,
             String expression,
-            Collection<String> exceptRoles,
-            String description) {
+            @Nullable Collection<String> exceptRoles,
+            @Nullable String description) {
         String fullName = nameOf(caller, parts);
         String namespace = java.util.Objects.requireNonNull(CatalogNames.parentOf(fullName), fullName);
         if (catalog.object(namespace).isEmpty()) {
@@ -471,7 +473,7 @@ public final class PolicyService {
         return new String[] {key, value};
     }
 
-    private static String requireColumn(String column) {
+    private static String requireColumn(@Nullable String column) {
         if (column == null || column.isBlank()) {
             throw new PravahaException(
                     CatalogErrors.POLICY_INVALID, "a mask names the column it masks: ON COLUMN <name>");

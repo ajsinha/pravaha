@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.EngineState;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.Field;
@@ -118,20 +120,20 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private final Map<String, long[]> eventTimeTracking = new java.util.HashMap<>();
 
     // What start() built. Null before it and after stop().
-    private volatile QueryRegistry registry;
-    private volatile ViewQuery reads;
+    private volatile @Nullable QueryRegistry registry;
+    private volatile @Nullable ViewQuery reads;
     private volatile Map<String, RowEncoder> encoders = Map.of();
-    private PluginLookupSources lookups;
-    private PluginSinks sinks;
+    private @Nullable PluginLookupSources lookups;
+    private @Nullable PluginSinks sinks;
 
     /** The source bindings, kept so the engine can answer for the dead letters they wrote (B5). */
-    private PluginSourceFeeds sourceFeeds;
+    private @Nullable PluginSourceFeeds sourceFeeds;
 
     private final List<StateOwnership> claims = new ArrayList<>();
 
     private final Object pushLock = new Object();
     private final AtomicLong sequence = new AtomicLong();
-    private RowArena pushArena;
+    private @Nullable RowArena pushArena;
 
     DefaultPravahaEngine(Configuration configuration) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
@@ -143,8 +145,9 @@ final class DefaultPravahaEngine implements PravahaEngine {
         // at construction, before anything can fail -- so a bad value is refused while the host is
         // still building the engine rather than inside the first error it tries to report. Unset
         // is supported and is the default: no base means no URL, anywhere.
-        com.ash.messaging.pravaha.api.HelpUrls.configureOrFromEnvironment(
-                configuration.getString(com.ash.messaging.pravaha.api.HelpUrls.KEY, null));
+        com.ash.messaging.pravaha.api.HelpUrls.configureOrFromEnvironment(configuration
+                .getString(com.ash.messaging.pravaha.api.HelpUrls.KEY)
+                .orElse(null));
     }
 
     // ------------------------------------------------------------------ declarations
@@ -173,7 +176,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
     }
 
     @Override
-    public PravahaEngine declareStream(String name, String schemaSpec, String eventTimeColumn) {
+    public PravahaEngine declareStream(String name, String schemaSpec, @Nullable String eventTimeColumn) {
         return declareStream(parse(name, schemaSpec, eventTimeColumn, null));
     }
 
@@ -238,8 +241,8 @@ final class DefaultPravahaEngine implements PravahaEngine {
     }
 
     private void requireDeclaring(String what) {
-        if (state.get() != EngineState.CREATED) {
-            throw new IllegalStateException("cannot " + what + " on an engine that is " + state.get()
+        if (currentState() != EngineState.CREATED) {
+            throw new IllegalStateException("cannot " + what + " on an engine that is " + currentState()
                     + ": streams and bindings are fixed at start, because the registry plans every query "
                     + "against the streams it was built with. Declare before start(), or in the "
                     + "configuration under pravaha.streams / pravaha.sources / pravaha.sinks.");
@@ -251,7 +254,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
     @Override
     public void start() {
         if (!state.compareAndSet(EngineState.CREATED, EngineState.STARTING)) {
-            EngineState current = state.get();
+            EngineState current = currentState();
             throw new IllegalStateException("cannot start an engine that is " + current
                     + "; create a new one rather than restarting this instance");
         }
@@ -414,11 +417,11 @@ final class DefaultPravahaEngine implements PravahaEngine {
             declareConfigured(parse(name, spec.schema(), spec.eventTime(), spec.outOfOrderness()));
         });
         configured.sources.forEach((name, spec) ->
-                putOnce(declaredSources, name, new SourceBinding(name, spec.plugin(), spec.options()), "source"));
+                putOnce(declaredSources, name, new SourceBinding(name, pluginOf(spec), spec.options()), "source"));
         configured.lookups.forEach((name, spec) ->
-                putOnce(declaredLookups, name, new SourceBinding(name, spec.plugin(), spec.options()), "lookup"));
+                putOnce(declaredLookups, name, new SourceBinding(name, pluginOf(spec), spec.options()), "lookup"));
         configured.sinks.forEach((name, spec) ->
-                putOnce(declaredSinks, name, new SinkBinding(name, spec.plugin(), spec.options()), "sink"));
+                putOnce(declaredSinks, name, new SinkBinding(name, pluginOf(spec), spec.options()), "sink"));
         declaredQueries.addAll(configured.queries);
     }
 
@@ -471,7 +474,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     @Override
     public void stop() {
-        EngineState current = state.get();
+        EngineState current = currentState();
         if (current.isTerminal() || current == EngineState.CREATED) {
             state.compareAndSet(EngineState.CREATED, EngineState.STOPPED);
             return;
@@ -551,7 +554,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
         claims.clear();
     }
 
-    private static void closeQuietly(String what, AutoCloseable closeable) {
+    private static void closeQuietly(String what, @Nullable AutoCloseable closeable) {
         if (closeable == null) {
             return;
         }
@@ -563,9 +566,14 @@ final class DefaultPravahaEngine implements PravahaEngine {
         }
     }
 
+    /** The engine's state, which is never unset: it starts CREATED. */
+    private EngineState currentState() {
+        return Objects.requireNonNull(state.get(), "an engine always has a state");
+    }
+
     @Override
     public EngineState state() {
-        return state.get();
+        return currentState();
     }
 
     @Override
@@ -599,8 +607,8 @@ final class DefaultPravahaEngine implements PravahaEngine {
     @Override
     public QueryRegistry registry() {
         QueryRegistry current = registry;
-        if (current == null || state.get() != EngineState.RUNNING) {
-            throw new IllegalStateException("engine " + instanceId + " is " + state.get()
+        if (current == null || currentState() != EngineState.RUNNING) {
+            throw new IllegalStateException("engine " + instanceId + " is " + currentState()
                     + "; queries can be registered, read and fed only while it is RUNNING");
         }
         return current;
@@ -687,7 +695,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
             }
             return new ContinuousQueryStatements(target, target.policy(), audit).execute(statement.get(), CALLER);
         }
-        ViewQuery current = reads;
+        ViewQuery current = Objects.requireNonNull(reads, "set with the registry, which is running");
         if (parameters == null || parameters.length == 0) {
             return current.execute(sql, CALLER);
         }
@@ -909,21 +917,30 @@ final class DefaultPravahaEngine implements PravahaEngine {
         return targets;
     }
 
+    /** A binding's plugin name, blank when unset: the binding refuses either, naming what it needs. */
+    private static String pluginOf(Declarations.BindingSpec spec) {
+        String plugin = spec.plugin();
+        return plugin == null ? "" : plugin;
+    }
+
     /** Writes one row into the push arena; the lane copies it on offer, so the arena is reused per row. */
     private BinaryRowView write(RowEncoder encoder, Object[] values, long weight) {
         int size = encoder.sizeOf(values);
-        if (pushArena == null) {
-            pushArena = new RowArena(MemoryAccess.best(), Math.max(RowArena.DEFAULT_SLAB_BYTES, size), 1);
+        RowArena arena = pushArena;
+        if (arena == null) {
+            arena = new RowArena(MemoryAccess.best(), Math.max(RowArena.DEFAULT_SLAB_BYTES, size), 1);
+            pushArena = arena;
         }
-        pushArena.reset();
-        BinaryRowView row = encoder.write(values, pushArena, sequence.incrementAndGet(), weight);
+        arena.reset();
+        BinaryRowView row = encoder.write(values, arena, sequence.incrementAndGet(), weight);
         if (row == null) {
             // Larger than the slab: a one-off arena of its own size, kept for the next large row.
-            pushArena.close();
-            pushArena = new RowArena(MemoryAccess.best(), size, 1);
-            row = encoder.write(values, pushArena, sequence.get(), weight);
+            arena.close();
+            arena = new RowArena(MemoryAccess.best(), size, 1);
+            pushArena = arena;
+            row = encoder.write(values, arena, sequence.get(), weight);
         }
-        return row;
+        return Objects.requireNonNull(row, "an arena of the row's own size holds it");
     }
 
     private void offer(Target target, BinaryRowView row) {
@@ -1009,7 +1026,8 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     // ------------------------------------------------------------------ helpers
 
-    private static StreamSchema parse(String name, String spec, String eventTime, Duration outOfOrderness) {
+    private static StreamSchema parse(
+            String name, @Nullable String spec, @Nullable String eventTime, @Nullable Duration outOfOrderness) {
         if (spec == null || spec.isBlank()) {
             throw new PravahaException(
                     EmbeddedErrors.MISCONFIGURED, "stream '" + name + "' has no schema; write it as name:TYPE,...");
@@ -1043,6 +1061,6 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     @Override
     public String toString() {
-        return "PravahaEngine[" + instanceId + ", " + state.get() + ", " + plugins.size() + " plugins]";
+        return "PravahaEngine[" + instanceId + ", " + currentState() + ", " + plugins.size() + " plugins]";
     }
 }

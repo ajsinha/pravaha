@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -434,7 +435,7 @@ public class SecurityProperties {
      * deployment that needs real identity implements {@link TokenVerifier} against whatever issues
      * its credentials; this is the rung that makes the authenticated path reachable without one.
      */
-    public TokenVerifier verifier() {
+    public @Nullable TokenVerifier verifier() {
         if (!authenticates()) {
             return null;
         }
@@ -499,16 +500,16 @@ public class SecurityProperties {
          * with it wrote the secret into the registry journal as its owner, where it survives
          * restarts and backups.
          */
-        private String id;
+        private @Nullable String id;
 
         private String tenant = "public";
         private Set<String> roles = new LinkedHashSet<>();
 
-        public String getId() {
+        public @Nullable String getId() {
             return id;
         }
 
-        public void setId(String id) {
+        public void setId(@Nullable String id) {
             this.id = id;
         }
 

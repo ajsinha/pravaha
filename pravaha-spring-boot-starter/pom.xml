@@ -183,5 +183,22 @@
         <spring.boot.version>3.5.16</spring.boot.version>
       </properties>
     </profile>
+    <profile>
+      <id>ep</id>
+      <properties>
+        <ep.nullaway.level>ERROR</ep.nullaway.level>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 </project>

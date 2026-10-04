@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.server.identity;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.identity.IdentityErrors;
 import com.ash.messaging.pravaha.identity.IdentityService;
@@ -36,13 +38,14 @@ import com.ash.messaging.pravaha.server.security.SecurityProperties;
 public final class NodeCredentials {
 
     private final SecurityProperties security;
-    private final IdentityProperties identity;
+    private final @Nullable IdentityProperties identity;
     private final Supplier<AuditSink> audit;
     private final Optional<TokenVerifier> custom;
-    private TokenVerifier verifier;
+    private @Nullable TokenVerifier verifier;
     private boolean built;
 
-    public NodeCredentials(SecurityProperties security, IdentityProperties identity, Supplier<AuditSink> audit) {
+    public NodeCredentials(
+            SecurityProperties security, @Nullable IdentityProperties identity, Supplier<AuditSink> audit) {
         this(security, identity, audit, Optional.empty());
     }
 
@@ -52,7 +55,7 @@ public final class NodeCredentials {
      */
     public NodeCredentials(
             SecurityProperties security,
-            IdentityProperties identity,
+            @Nullable IdentityProperties identity,
             Supplier<AuditSink> audit,
             Optional<TokenVerifier> custom) {
         this.security = security;
@@ -71,7 +74,7 @@ public final class NodeCredentials {
      * identity on, a session or API key resolves through the identity service and a static token is still
      * accepted, logged as deprecated.
      */
-    public synchronized TokenVerifier verifier() {
+    public synchronized @Nullable TokenVerifier verifier() {
         if (built) {
             return verifier;
         }
@@ -121,7 +124,7 @@ public final class NodeCredentials {
      * change its password first (PRV-7018): those transports have no call for changing it, so the only
      * right answer there is no.
      */
-    public TokenVerifier transportVerifier() {
+    public @Nullable TokenVerifier transportVerifier() {
         TokenVerifier base = verifier();
         if (base == null || identity == null || !identity.isEnabled()) {
             return base;

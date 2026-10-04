@@ -22,6 +22,7 @@ import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -199,7 +200,7 @@ class RowConversionTest {
                 .hasMessageContaining("for ever");
     }
 
-    private static Object[] with(Object[] row, int ordinal, Object value) {
+    private static Object[] with(Object[] row, int ordinal, @Nullable Object value) {
         Object[] copy = row.clone();
         copy[ordinal] = value;
         return copy;

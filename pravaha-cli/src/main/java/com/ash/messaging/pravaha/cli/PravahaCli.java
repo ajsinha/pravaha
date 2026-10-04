@@ -154,7 +154,7 @@ public final class PravahaCli {
             };
         } catch (Args.UsageException e) {
             // A command-line mistake, not a query problem. Scripts distinguish these.
-            err.println(Ansi.bad(e.getMessage()));
+            err.println(Ansi.bad(String.valueOf(e.getMessage())));
             return EXIT_USAGE;
         } catch (PravahaException e) {
             // Engine errors already carry a PRV code and an actionable message; a stack trace here

@@ -86,4 +86,23 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>ep</id>
+      <properties>
+        <ep.nullaway.level>ERROR</ep.nullaway.level>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

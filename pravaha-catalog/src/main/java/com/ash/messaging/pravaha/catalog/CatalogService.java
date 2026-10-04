@@ -25,6 +25,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
@@ -260,7 +262,7 @@ public final class CatalogService {
     // ---------------------------------------------------------------------------------- reads
 
     /** Every object {@code caller} may see, optionally within one namespace or of one kind. */
-    public List<CatalogObject> objects(Principal caller, String namespace, String kind) {
+    public List<CatalogObject> objects(Principal caller, @Nullable String namespace, @Nullable String kind) {
         ObjectKind wanted = kind == null || kind.isBlank() ? null : ObjectKind.named(kind);
         return catalog.objects().stream()
                 .filter(o -> namespace == null || namespace.isBlank() || namespace.equals(o.parent()))

@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
 
@@ -44,7 +46,7 @@ import com.ash.messaging.pravaha.common.io.SensitiveFiles;
  */
 final class IdentityStore {
 
-    private final Path file;
+    private final @Nullable Path file;
     final Map<String, Identities.User> users = new LinkedHashMap<>();
     final Map<String, Identities.ApiKey> keys = new LinkedHashMap<>();
     final Map<String, Identities.Session> sessions = new LinkedHashMap<>();
@@ -57,11 +59,11 @@ final class IdentityStore {
 
     static IdentityStore open(Path file) {
         IdentityStore store = new IdentityStore(file);
-        store.replay();
+        store.replay(file);
         return store;
     }
 
-    private IdentityStore(Path file) {
+    private IdentityStore(@Nullable Path file) {
         this.file = file;
     }
 
@@ -131,7 +133,7 @@ final class IdentityStore {
         resets.remove(tokenHash);
     }
 
-    private void replay() {
+    private void replay(Path file) {
         if (!Files.exists(file)) {
             return;
         }
@@ -174,7 +176,7 @@ final class IdentityStore {
                                 i(f.get(13)),
                                 i(f.get(14)),
                                 i(f.get(15)),
-                                i(f.get(16)),
+                                at(f.get(16)),
                                 pairs(f, 17)));
             case "key" ->
                 keys.put(
@@ -185,17 +187,18 @@ final class IdentityStore {
                                 f.get(3),
                                 set(f.get(4)),
                                 f.get(5),
-                                i(f.get(6)),
+                                at(f.get(6)),
                                 v(f.get(7)),
-                                i(f.get(8)),
+                                at(f.get(8)),
                                 i(f.get(9)),
                                 v(f.get(10)),
                                 i(f.get(11))));
             case "session" ->
-                sessions.put(f.get(1), new Identities.Session(f.get(1), f.get(2), f.get(3), i(f.get(4)), i(f.get(5))));
+                sessions.put(
+                        f.get(1), new Identities.Session(f.get(1), f.get(2), f.get(3), at(f.get(4)), at(f.get(5))));
             case "session-end" -> sessions.remove(f.get(1));
             case "reset" ->
-                resets.put(f.get(1), new Identities.ResetToken(f.get(1), f.get(2), i(f.get(3)), v(f.get(4))));
+                resets.put(f.get(1), new Identities.ResetToken(f.get(1), f.get(2), at(f.get(3)), v(f.get(4))));
             case "reset-used" -> resets.remove(f.get(1));
             default ->
                 throw new IllegalStateException("the identity store at " + file + " has a record of kind '" + f.get(0)
@@ -234,19 +237,24 @@ final class IdentityStore {
         }
     }
 
-    private static String n(String s) {
+    private static String n(@Nullable String s) {
         return s == null ? "" : s;
     }
 
-    private static String v(String s) {
+    private static @Nullable String v(String s) {
         return s.isEmpty() ? null : s;
     }
 
-    private static String t(Instant at) {
+    private static String t(@Nullable Instant at) {
         return at == null ? "" : at.toString();
     }
 
-    private static Instant i(String s) {
+    /** An instant the writer always records: a creation time or an expiry. */
+    private static Instant at(String s) {
+        return Instant.parse(s);
+    }
+
+    private static @Nullable Instant i(String s) {
         return s.isEmpty() ? null : Instant.parse(s);
     }
 

@@ -20,6 +20,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -114,7 +115,9 @@ public class AlertController {
     @PostMapping("/{name}/ack")
     @Operation(summary = "Acknowledge firing keys, which stops their reminders until they fire again (MODIFY)")
     public AckResult ack(
-            HttpServletRequest http, @PathVariable String name, @RequestBody(required = false) AckRequest body) {
+            HttpServletRequest http,
+            @PathVariable String name,
+            @RequestBody(required = false) @Nullable AckRequest body) {
         return new AckResult(name, service().acknowledge(caller(http), name, body == null ? null : body.key()));
     }
 

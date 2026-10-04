@@ -453,7 +453,8 @@ public final class QueryRegistry implements AutoCloseable {
      * of each query, so a busy query would evict a quiet one's only fallback.
      */
     public QueryRegistry checkpointingTo(
-            java.nio.file.Path root, com.ash.messaging.pravaha.common.config.Configuration configuration) {
+            java.nio.file.@Nullable Path root,
+            com.ash.messaging.pravaha.common.config.@Nullable Configuration configuration) {
         this.checkpoints = root == null ? QueryCheckpoints.NONE : new QueryCheckpoints(root, configuration);
         return this;
     }

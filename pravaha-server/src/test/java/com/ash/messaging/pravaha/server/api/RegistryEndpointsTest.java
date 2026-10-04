@@ -271,7 +271,7 @@ class RegistryEndpointsTest {
                 .isEqualTo(registry.require("orders_view").fingerprint().shortForm());
         assertThat(detail.keyColumns()).containsExactly(new ApiDtos.KeyColumn("order_id", 0));
         assertThat(detail.retention()).isEqualTo("PT2H");
-        assertThat(detail.sink().name()).isEqualTo("orders_out");
+        assertThat(java.util.Objects.requireNonNull(detail.sink()).name()).isEqualTo("orders_out");
         assertThat(detail.sink().attached()).isTrue();
         assertThat(detail.sink().failure()).isNull();
         assertThat(detail.sink().rowsWritten()).isZero();
@@ -298,10 +298,11 @@ class RegistryEndpointsTest {
 
         assertThat(detail.countsWithheld()).isTrue();
         assertThat(detail.rowsIn()).isEqualTo(-1);
-        assertThat(detail.sink().rowsWritten()).isEqualTo(-1);
+        assertThat(java.util.Objects.requireNonNull(detail.sink()).rowsWritten())
+                .isEqualTo(-1);
 
         ApiDtos.PlanGraph plan = queries.plan("orders_view", as(SLICED));
-        assertThat(plan.query().rowsIn()).isEqualTo(-1);
+        assertThat(java.util.Objects.requireNonNull(plan.query()).rowsIn()).isEqualTo(-1);
         assertThat(plan.query().viewSize()).isEqualTo(-1);
         assertThat(plan.query().stateHeld()).isEqualTo(-1);
     }
@@ -324,7 +325,7 @@ class RegistryEndpointsTest {
         assertThat(plan.bottleneck()).isNull();
         assertThat(plan.metricsNote()).contains("not published").contains("pravaha.metrics.operators is off");
         assertThat(plan.query()).isNotNull();
-        assertThat(plan.query().rowsIn()).isZero();
+        assertThat(java.util.Objects.requireNonNull(plan.query()).rowsIn()).isZero();
         assertThat(plan.query().backpressureWaits())
                 .as("backpressure is measured whether or not per-operator detail is on")
                 .isZero();
@@ -340,7 +341,7 @@ class RegistryEndpointsTest {
                 as(ANALYST));
 
         assertThat(explained.plan()).contains("Scan");
-        assertThat(explained.graph().nodes())
+        assertThat(java.util.Objects.requireNonNull(explained.graph()).nodes())
                 .extracting(ApiDtos.PlanNode::operator)
                 .contains("Scan", "Filter");
         assertThat(explained.graph().query())
@@ -380,7 +381,7 @@ class RegistryEndpointsTest {
                 .filter(sink -> sink.name().equals("broken_out"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(broken.problem().code()).isEqualTo("PRV-5093");
+        assertThat(java.util.Objects.requireNonNull(broken.problem()).code()).isEqualTo("PRV-5093");
         assertThat(broken.problem().message()).doesNotContain(PASSWORD);
     }
 

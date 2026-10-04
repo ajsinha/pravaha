@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A self-signed certificate and its key, generated fresh per test run rather than committed.
  *
@@ -54,8 +56,8 @@ final class SelfSignedTestCertificate implements AutoCloseable {
     private final String password;
     private final String alias = "pravaha-test";
 
-    private Path pemCertificatePath;
-    private Path pemKeyPath;
+    private @Nullable Path pemCertificatePath;
+    private @Nullable Path pemKeyPath;
 
     private SelfSignedTestCertificate(Path directory, Path keystorePath, String password) {
         this.directory = directory;

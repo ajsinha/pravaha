@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.bindings.ingest;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.registry.FeedStatus;
 import com.ash.messaging.pravaha.registry.SourceFeed;
@@ -40,7 +42,7 @@ final class SharedFeed implements SourceFeed {
     private final List<SharedPartitionFeed.Member> members;
     private final List<SharedSourceGroup> groups;
     private final Runnable releaseGroups;
-    private final PumpingFeed unshared;
+    private final @Nullable PumpingFeed unshared;
     private final List<AutoCloseable> resources;
     private final String description;
 
@@ -51,7 +53,7 @@ final class SharedFeed implements SourceFeed {
             List<SharedPartitionFeed.Member> members,
             List<SharedSourceGroup> groups,
             Runnable releaseGroups,
-            PumpingFeed unshared,
+            @Nullable PumpingFeed unshared,
             List<AutoCloseable> resources,
             String description) {
         this.members = List.copyOf(members);

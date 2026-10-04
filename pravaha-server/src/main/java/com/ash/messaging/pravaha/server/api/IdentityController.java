@@ -25,6 +25,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -73,10 +74,10 @@ public class IdentityController {
             String tenant,
             Set<String> roles,
             String via,
-            String displayName,
-            String email,
+            @Nullable String displayName,
+            @Nullable String email,
             boolean mustChangePassword,
-            Instant passwordExpiresAt) {}
+            @Nullable Instant passwordExpiresAt) {}
 
     public record NewUser(
             String username,
@@ -98,25 +99,34 @@ public class IdentityController {
 
     public record NewKey(String name, List<String> roles, Integer expiresDays, String forUser) {}
 
-    public record IssuedKey(String key, String keyId, Instant expiresAt, Instant oldExpiresAt) {}
+    public record IssuedKey(
+            String key,
+            String keyId,
+            Instant expiresAt,
+            @Nullable Instant oldExpiresAt) {}
 
     public record Key(
             String keyId,
-            String name,
+            @Nullable String name,
             String holder,
             Set<String> roles,
             String status,
             Instant createdAt,
-            String createdBy,
+            @Nullable String createdBy,
             Instant expiresAt,
-            Instant revokedAt,
-            String supersededBy,
-            Instant lastUsedAt) {}
+            @Nullable Instant revokedAt,
+            @Nullable String supersededBy,
+            @Nullable Instant lastUsedAt) {}
 
     public record KeyReport(List<Key> unused, List<Key> expiring, List<Key> superseded) {}
 
     public record Session(
-            String id, String username, Instant createdAt, Instant lastSeenAt, Instant expiresAt, boolean current) {}
+            String id,
+            String username,
+            Instant createdAt,
+            @Nullable Instant lastSeenAt,
+            Instant expiresAt,
+            boolean current) {}
 
     private final PravahaNode node;
     private final HttpAuthorizer authorizer;

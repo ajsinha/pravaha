@@ -143,7 +143,8 @@ class FeedStatusSurfacesTest {
         assertThat(detail.state()).as("the state keeps its meaning").isEqualTo("RUNNING");
         assertThat(detail.feed().state()).isEqualTo("STOPPED");
         assertThat(detail.feed().stoppedSources()).isEqualTo(1);
-        assertThat(detail.feed().failure().code()).isEqualTo("PRV-5040");
+        assertThat(java.util.Objects.requireNonNull(detail.feed().failure()).code())
+                .isEqualTo("PRV-5040");
         // DOCX-21. Nothing here configures pravaha.docs.base-url, so the field is present and
         // empty rather than a link to a host that does not resolve. With a base it is that base
         // plus the code as rendered -- this surface used to lower-case it, so it alone published
@@ -151,7 +152,9 @@ class FeedStatusSurfacesTest {
         assertThat(detail.feed().failure().helpUrl()).isEmpty();
         com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
         try {
-            assertThat(api.get("stalled", as(DANA)).feed().failure().helpUrl())
+            assertThat(java.util.Objects.requireNonNull(
+                                    api.get("stalled", as(DANA)).feed().failure())
+                            .helpUrl())
                     .isEqualTo("https://help.example.test/errors/PRV-5040");
         } finally {
             com.ash.messaging.pravaha.api.HelpUrls.configure(null);
@@ -162,7 +165,8 @@ class FeedStatusSurfacesTest {
             assertThat(source.state()).isEqualTo("STOPPED");
             assertThat(source.origin()).isTrue();
             assertThat(source.stoppedAt()).isNotNull();
-            assertThat(source.failure().code()).isEqualTo("PRV-5040");
+            assertThat(java.util.Objects.requireNonNull(source.failure()).code())
+                    .isEqualTo("PRV-5040");
         });
         ApiDtos.QueryDetail control = api.get("healthy", as(DANA));
         assertThat(control.feed().state()).isEqualTo("RUNNING");
@@ -257,14 +261,18 @@ class FeedStatusSurfacesTest {
                     new HttpAuthorizer(policy, AuditSink.NONE),
                     new RegistryAccess(registry, null, feeds, AuditSink.NONE));
             ApiDtos.QueryFeed full = api.get("txn_view", as(DANA)).feed();
-            assertThat(full.failure().code()).isEqualTo("PRV-5040");
+            assertThat(java.util.Objects.requireNonNull(full.failure()).code()).isEqualTo("PRV-5040");
             assertThat(full.failure().message()).doesNotContain(password);
 
             ApiDtos.QueryFeed withheld = api.get("txn_view", as(sliced)).feed();
             assertThat(withheld.state()).isEqualTo("STOPPED");
-            assertThat(withheld.failure().code()).isEqualTo("PRV-5040");
+            assertThat(java.util.Objects.requireNonNull(withheld.failure()).code())
+                    .isEqualTo("PRV-5040");
             assertThat(withheld.failure().message()).startsWith("the message is withheld");
-            assertThat(withheld.sources().get(0).failure().message()).startsWith("the message is withheld");
+            assertThat(java.util.Objects.requireNonNull(
+                                    withheld.sources().get(0).failure())
+                            .message())
+                    .startsWith("the message is withheld");
         }
     }
 

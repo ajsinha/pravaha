@@ -28,6 +28,7 @@ import java.util.TreeMap;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.jspecify.annotations.Nullable;
 
 /**
  * What {@code api/openapi.lock.json} records, and which differences from it break a client.
@@ -120,7 +121,7 @@ final class OpenApiLock {
         }
 
         /** One shape for a body's content; media types that disagree are each named. */
-        private String bodyShape(JsonNode content, String inlineName) {
+        private @Nullable String bodyShape(JsonNode content, String inlineName) {
             Map<String, String> byType = new TreeMap<>();
             for (Iterator<Map.Entry<String, JsonNode>> it = content.properties().iterator(); it.hasNext(); ) {
                 Map.Entry<String, JsonNode> media = it.next();
@@ -266,7 +267,7 @@ final class OpenApiLock {
                     && (merge(schema).has("properties") || "object".equals(type(schema)));
         }
 
-        private static String type(JsonNode schema) {
+        private static @Nullable String type(JsonNode schema) {
             JsonNode type = schema.path("type");
             if (type.isArray()) {
                 List<String> each = new ArrayList<>();

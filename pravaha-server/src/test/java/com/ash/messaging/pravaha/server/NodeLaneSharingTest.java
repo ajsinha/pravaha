@@ -201,7 +201,8 @@ class NodeLaneSharingTest {
                     .containsKey(0);
             assertThat(metrics.laneRepresentatives().get(0)).isIn("txn_totals", "order_totals", "txn_big");
             assertThat(laneBlocked)
-                    .isEqualTo(registry.find(metrics.laneRepresentatives().get(0))
+                    .isEqualTo(registry.find(java.util.Objects.requireNonNull(
+                                    metrics.laneRepresentatives().get(0)))
                             .orElseThrow()
                             .backpressure()
                             .blockedFraction());

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.boot.actuate.endpoint.annotation.Selector;
@@ -51,9 +52,9 @@ import com.ash.messaging.pravaha.spring.PravahaListenerProcessor;
 public class PravahaEndpoint {
 
     private final PravahaEngine engine;
-    private final PravahaListenerProcessor listeners;
+    private final @Nullable PravahaListenerProcessor listeners;
 
-    public PravahaEndpoint(PravahaEngine engine, PravahaListenerProcessor listeners) {
+    public PravahaEndpoint(PravahaEngine engine, @Nullable PravahaListenerProcessor listeners) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.listeners = listeners;
     }
@@ -70,7 +71,7 @@ public class PravahaEndpoint {
 
     /** One query, or a 404 when none has that name. */
     @ReadOperation
-    public QueryDescriptor query(@Selector String name) {
+    public @Nullable QueryDescriptor query(@Selector String name) {
         return engine.find(name).map(query -> describe(name, query)).orElse(null);
     }
 
@@ -141,10 +142,25 @@ public class PravahaEndpoint {
                                 source.partition(),
                                 source.state().name(),
                                 source.shared(),
-                                source.stop() == null ? null : source.stop().code(),
-                                source.stop() == null ? null : source.stop().message(),
-                                source.stop() == null ? null : source.stop().at()))
+                                stopCode(source),
+                                stopMessage(source),
+                                stopAt(source)))
                         .toList());
+    }
+
+    private static @Nullable String stopCode(FeedStatus.Source source) {
+        FeedStatus.Stop stop = source.stop();
+        return stop == null ? null : stop.code();
+    }
+
+    private static @Nullable String stopMessage(FeedStatus.Source source) {
+        FeedStatus.Stop stop = source.stop();
+        return stop == null ? null : stop.message();
+    }
+
+    private static @Nullable Instant stopAt(FeedStatus.Source source) {
+        FeedStatus.Stop stop = source.stop();
+        return stop == null ? null : stop.at();
     }
 
     private static ListenerDescriptor describe(ListenerContainer container) {
@@ -181,12 +197,12 @@ public class PravahaEndpoint {
             String lane,
             long rowsIn,
             int subscribers,
-            Instant watermark,
-            Double watermarkLagSeconds,
-            Instant lastCheckpoint,
-            SinkDescriptor sink,
+            @Nullable Instant watermark,
+            @Nullable Double watermarkLagSeconds,
+            @Nullable Instant lastCheckpoint,
+            @Nullable SinkDescriptor sink,
             List<ListenerDescriptor> listeners,
-            String failure,
+            @Nullable String failure,
             FeedDescriptor feed,
             DeadLetterDescriptor deadLetters) {}
 
@@ -208,8 +224,8 @@ public class PravahaEndpoint {
             long evictedBytes,
             long replayed,
             long failedAgain,
-            Instant oldest,
-            Instant newest,
+            @Nullable Instant oldest,
+            @Nullable Instant newest,
             String retention) {}
 
     /**
@@ -218,7 +234,7 @@ public class PravahaEndpoint {
      * @param state {@code RUNNING}, {@code PAUSED}, {@code STOPPED} (a source has stopped) or {@code
      *     NONE} (nothing is bound: the application pushes rows itself)
      */
-    public record FeedDescriptor(String state, String description, List<SourceDescriptor> sources) {}
+    public record FeedDescriptor(String state, @Nullable String description, List<SourceDescriptor> sources) {}
 
     /** One partition of one bound stream; {@code code}, {@code failure} and {@code stoppedAt} once it stopped. */
     public record SourceDescriptor(
@@ -226,12 +242,16 @@ public class PravahaEndpoint {
             int partition,
             String state,
             boolean shared,
-            String code,
-            String failure,
-            Instant stoppedAt) {}
+            @Nullable String code,
+            @Nullable String failure,
+            @Nullable Instant stoppedAt) {}
 
     /** The sink a query writes to, what its delivery is promised, and why it stopped if it did. */
-    public record SinkDescriptor(String name, String guarantee, long rowsWritten, String failure) {}
+    public record SinkDescriptor(
+            String name,
+            @Nullable String guarantee,
+            long rowsWritten,
+            @Nullable String failure) {}
 
     /** One {@code @PravahaListener} method; {@code pending} is its lag in commits. */
     public record ListenerDescriptor(
@@ -242,5 +262,5 @@ public class PravahaEndpoint {
             long delivered,
             long failures,
             int pending,
-            String lastFailure) {}
+            @Nullable String lastFailure) {}
 }

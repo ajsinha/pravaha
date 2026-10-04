@@ -19,6 +19,7 @@ import java.util.List;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -135,7 +136,7 @@ public class StreamController {
         return ResponseEntity.status(HttpStatus.CREATED).body(summaryOf(catalog.register(schema)));
     }
 
-    private static java.time.Duration durationOf(String setting, String text) {
+    private static java.time.@Nullable Duration durationOf(String setting, @Nullable String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
@@ -159,13 +160,18 @@ public class StreamController {
      *     ISO-8601; optional, zero when absent, and refused without an event time (HLP-7)
      */
     public record RegisterStreamRequest(
-            String name, String schema, String eventTime, String outOfOrderness, String allowedLateness) {
+            String name,
+            String schema,
+            @Nullable String eventTime,
+            @Nullable String outOfOrderness,
+            @Nullable String allowedLateness) {
 
         public RegisterStreamRequest(String name, String schema) {
             this(name, schema, null, null, null);
         }
 
-        public RegisterStreamRequest(String name, String schema, String eventTime, String outOfOrderness) {
+        public RegisterStreamRequest(
+                String name, String schema, @Nullable String eventTime, @Nullable String outOfOrderness) {
             this(name, schema, eventTime, outOfOrderness, null);
         }
     }

@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -71,21 +72,22 @@ public class SinkBindingProperties {
     /** The configured sink bindings, validated. */
     public List<SinkBinding> toBindings() {
         List<SinkBinding> configured = new ArrayList<>();
-        sinks.forEach((name, spec) -> configured.add(new SinkBinding(name, spec.plugin, spec.options)));
+        sinks.forEach((name, spec) ->
+                configured.add(new SinkBinding(name, spec.plugin == null ? "" : spec.plugin, spec.options)));
         return configured;
     }
 
     /** One sink's binding, as written in configuration. */
     public static class Spec {
 
-        private String plugin;
+        private @Nullable String plugin;
         private Map<String, String> options = new LinkedHashMap<>();
 
-        public String getPlugin() {
+        public @Nullable String getPlugin() {
             return plugin;
         }
 
-        public void setPlugin(String plugin) {
+        public void setPlugin(@Nullable String plugin) {
             this.plugin = plugin;
         }
 

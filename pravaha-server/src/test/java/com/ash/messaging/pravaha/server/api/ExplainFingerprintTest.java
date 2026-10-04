@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -161,7 +162,9 @@ class ExplainFingerprintTest {
         ApiDtos.ExplainResult refused = explain(INTERN, List.of(0), null, null);
         assertThat(refused.plan()).as("the plan is still explained").contains("Scan");
         assertThat(refused.fingerprint()).isNull();
-        assertThat(refused.fingerprintRefusal().code()).isEqualTo("PRV-7002");
+        assertThat(java.util.Objects.requireNonNull(refused.fingerprintRefusal())
+                        .code())
+                .isEqualTo("PRV-7002");
         assertThat(refused.fingerprintRefusal().message()).contains("interns do not register");
 
         assertThat(explain(ANN, List.of(0), null, "no_such_sink").fingerprintRefusal())
@@ -192,7 +195,8 @@ class ExplainFingerprintTest {
                 .isEqualTo(new QueryController.ValidateRequest("SELECT 1"));
     }
 
-    private ApiDtos.ExplainResult explain(Principal who, List<Integer> keys, String retention, String sink) {
+    private ApiDtos.ExplainResult explain(
+            Principal who, @Nullable List<Integer> keys, @Nullable String retention, @Nullable String sink) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(BearerTokenFilter.PRINCIPAL_ATTRIBUTE, who);
         return queries.explain(

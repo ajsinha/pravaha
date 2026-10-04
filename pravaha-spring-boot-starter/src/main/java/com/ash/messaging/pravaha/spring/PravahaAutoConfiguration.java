@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.spring;
 
 import java.time.Duration;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.autoconfigure.endpoint.condition.ConditionalOnAvailableEndpoint;
 import org.springframework.boot.actuate.autoconfigure.health.ConditionalOnEnabledHealthIndicator;
@@ -161,6 +162,13 @@ public class PravahaAutoConfiguration {
                 builder,
                 "pravaha.watermark.tick",
                 nanos(properties.getWatermark().getTick()));
+        PravahaProperties.Read read = properties.getServing().getRead();
+        String reads = "pravaha.serving.read.";
+        setIfPresent(builder, reads + "max-concurrent", stringOf(read.getMaxConcurrent()));
+        setIfPresent(builder, reads + "max-queued", stringOf(read.getMaxQueued()));
+        setIfPresent(builder, reads + "queue-timeout", nanos(read.getQueueTimeout()));
+        setIfPresent(builder, reads + "tenant-share", stringOf(read.getTenantShare()));
+        setIfPresent(builder, reads + "deadline", nanos(read.getDeadline()));
         return builder.build();
     }
 
@@ -172,13 +180,17 @@ public class PravahaAutoConfiguration {
         });
     }
 
-    private static void setIfPresent(ConfigurationBuilder builder, String key, String value) {
+    private static void setIfPresent(ConfigurationBuilder builder, String key, @Nullable String value) {
         if (value != null && !value.isBlank()) {
             builder.set(key, value);
         }
     }
 
-    private static String nanos(Duration duration) {
+    private static @Nullable String stringOf(@Nullable Object value) {
+        return value == null ? null : value.toString();
+    }
+
+    private static @Nullable String nanos(@Nullable Duration duration) {
         return duration == null ? null : duration.toNanos() + "ns";
     }
 }

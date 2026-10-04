@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -88,28 +89,30 @@ public class SourceBindingProperties {
     /** The configured lookup bindings, keyed by the name a query joins against. */
     public List<SourceBinding> toLookupBindings() {
         List<SourceBinding> configured = new ArrayList<>();
-        lookups.forEach((table, spec) -> configured.add(new SourceBinding(table, spec.plugin, spec.options)));
+        lookups.forEach((table, spec) ->
+                configured.add(new SourceBinding(table, spec.plugin == null ? "" : spec.plugin, spec.options)));
         return configured;
     }
 
     /** The configured bindings, validated. */
     public List<SourceBinding> toBindings() {
         List<SourceBinding> configured = new ArrayList<>();
-        sources.forEach((stream, spec) -> configured.add(new SourceBinding(stream, spec.plugin, spec.options)));
+        sources.forEach((stream, spec) ->
+                configured.add(new SourceBinding(stream, spec.plugin == null ? "" : spec.plugin, spec.options)));
         return configured;
     }
 
     /** One stream's binding, as written in configuration. */
     public static class Spec {
 
-        private String plugin;
+        private @Nullable String plugin;
         private Map<String, String> options = new LinkedHashMap<>();
 
-        public String getPlugin() {
+        public @Nullable String getPlugin() {
             return plugin;
         }
 
-        public void setPlugin(String plugin) {
+        public void setPlugin(@Nullable String plugin) {
             this.plugin = plugin;
         }
 

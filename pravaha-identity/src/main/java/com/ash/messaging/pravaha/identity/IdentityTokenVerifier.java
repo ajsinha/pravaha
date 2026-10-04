@@ -19,6 +19,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
@@ -40,7 +42,7 @@ public final class IdentityTokenVerifier implements TokenVerifier {
     private final TokenVerifier legacy;
     private final Set<String> warned = ConcurrentHashMap.newKeySet();
 
-    public IdentityTokenVerifier(IdentityService identity, TokenVerifier legacy) {
+    public IdentityTokenVerifier(IdentityService identity, @Nullable TokenVerifier legacy) {
         this.identity = identity;
         this.legacy = legacy == null ? TokenVerifier.rejectAll() : legacy;
     }

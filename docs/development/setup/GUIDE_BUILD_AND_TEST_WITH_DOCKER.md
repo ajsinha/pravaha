@@ -1,7 +1,7 @@
 # Building and testing Pravaha with Docker, step by step
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../../LICENSE).
 
 From a fresh clone on a machine with **only Docker and git**, to the engine, the console and Kafka
 running, a continuous query answering, every test suite run in containers, and everything cleaned up
@@ -11,11 +11,11 @@ checks re-run throughout), trimmed only where marked `...`.
 
 **Java 25 throughout, and only 25.** Every image here is built on JDK 25 — the engine's JRE, the
 root `Dockerfile`'s Maven stage, the test runner — and from 2.0 the classes are Java 25 class files
-too ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). The 1.x `--java 21` option
-and its `-jre21` tag are gone; see [Running in Docker: the images](../operations/RUNNING_IN_DOCKER.md#the-images).
+too ([ADR-061](../../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). The 1.x `--java 21` option
+and its `-jre21` tag are gone; see [Running in Docker: the images](../../operations/RUNNING_IN_DOCKER.md#the-images).
 
 This is the walkthrough. The reference — every path, variable, port and profile — is
-[`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md). The same journey without Docker is
+[`../operations/RUNNING_IN_DOCKER.md`](../../operations/RUNNING_IN_DOCKER.md). The same journey without Docker is
 [`GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
 
 **One rule runs through it:** everything the engine and the console create lives under one directory,
@@ -71,7 +71,7 @@ Everything after this runs from the repository root.
 Two images: the **engine** and the **console**. The console image is always built from source, inside
 Docker. The engine has two routes; pick by what your machine has.
 
-**Route A — nothing but Docker.** The root [`Dockerfile`](../../Dockerfile) builds `pravaha-server` and
+**Route A — nothing but Docker.** The root [`Dockerfile`](../../../Dockerfile) builds `pravaha-server` and
 `pravaha-cli` inside a `maven:3.9-eclipse-temurin-25` stage, with no JDK on the host, and runs them on
 `eclipse-temurin:25-jre`:
 
@@ -97,7 +97,7 @@ pravaha-engine 2.0.1-SNAPSHOT
 ```
 
 **Route B — a JDK 25 on the host too.** Build the jar yourself and put the release image over it
-([`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), [ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
+([`deploy/docker/Dockerfile`](../../../deploy/docker/Dockerfile), [ADR-047](../../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
 
 ```text
 $ ./mvnw -pl pravaha-server -am package -DskipTests
@@ -306,7 +306,7 @@ $C run --rm cli query --sql "SELECT window_start, customer, spend FROM spend_per
 
 ## 8. Run the test suites in Docker
 
-[`tools/docker-test.sh`](../../tools/docker-test.sh) runs each suite in a throwaway container **as you**,
+[`tools/docker-test.sh`](../../../tools/docker-test.sh) runs each suite in a throwaway container **as you**,
 from one image it builds on first use (`pravaha/test-runner:local`: Maven 3.9, JDK 25 and Python 3.12;
 747 MB), with
 its caches in `~/.cache/pravaha-docker` (yours too):
@@ -325,7 +325,7 @@ puts the Java SDK's jars and the Python wheel in `target/sdk-dist/`, and `sg doc
 "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` starts a throwaway node from
 the image built in step 3 on 127.0.0.1:39090 and reads a view from it with four clients outside the
 repository, each using only those artefacts; the container is removed afterwards. See
-[Testing: the SDKs on their own](TESTING.md#the-sdks-on-their-own).
+[Testing: the SDKs on their own](../TESTING.md#the-sdks-on-their-own).
 
 What each printed here:
 
@@ -466,7 +466,7 @@ shipped rules loaded (3 groups, 15 rules here). Grafana (<http://localhost:23030
 `orders_live` and `spend_per_minute` queries are on it.
 
 The `cdc` and `stores` profiles, the `plugins/` directory and backup and restore are walked through in
-[`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md).
+[`../operations/RUNNING_IN_DOCKER.md`](../../operations/RUNNING_IN_DOCKER.md).
 
 ## 11. Tear down — only what this made
 
@@ -495,4 +495,4 @@ pravaha/test-runner:local`; the test caches are `~/.cache/pravaha-docker`.
 | `PRV-1031` from the host CLI | set `PRAVAHA_INSECURE_TOKEN=true` (plaintext Flight on loopback) |
 | `docker-test.sh` fails at *Can not write to /root/.m2* | harmless on an old test-runner image; `docker rmi pravaha/test-runner:local` and run again |
 
-More, with causes: [`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md), "Troubleshooting".
+More, with causes: [`../operations/RUNNING_IN_DOCKER.md`](../../operations/RUNNING_IN_DOCKER.md), "Troubleshooting".

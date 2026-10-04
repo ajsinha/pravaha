@@ -79,8 +79,11 @@ public class EngineHealthIndicator implements HealthIndicator {
             stopped.stream()
                     .flatMap(status -> status.firstStopped().stream())
                     .findFirst()
-                    .ifPresent(source ->
-                            detail.put("firstStoppedFeed", source.stop().code() + " reading " + source.where()));
+                    .ifPresent(source -> detail.put(
+                            "firstStoppedFeed",
+                            java.util.Objects.requireNonNull(source.stop(), "a stopped source says why")
+                                            .code()
+                                    + " reading " + source.where()));
             degraded[0] = !stopped.isEmpty();
             // RECOVERYHEALTH-1. A journalled registration the restart refused is a view some client
             // expects and will not find; it used to leave one WARN line and the node UP. The code

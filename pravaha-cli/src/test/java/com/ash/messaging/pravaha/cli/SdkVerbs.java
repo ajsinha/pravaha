@@ -48,6 +48,7 @@ public final class SdkVerbs {
         }
     }
 
+    @SuppressWarnings("NullAway") // options pass through as given, a missing one as null, as a script's would
     public static Result run(String... args) {
         String verb = args[0];
         Map<String, String> options = options(args);

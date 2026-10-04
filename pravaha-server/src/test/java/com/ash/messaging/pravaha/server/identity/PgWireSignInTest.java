@@ -85,7 +85,7 @@ class PgWireSignInTest {
         node.setIdentity(identity);
         node.start();
         users = node.identity().orElseThrow();
-        Principal admin = node.verifier()
+        Principal admin = java.util.Objects.requireNonNull(node.verifier())
                 .verify(users.login("admin", IdentityService.DEFAULT_ADMIN_PASSWORD, null)
                         .token());
         users.createUser(admin, "bea", "Bea", null, null, Set.of("analyst"), "Bea-initial-9Qa", false);
@@ -165,7 +165,7 @@ class PgWireSignInTest {
     @Test
     void disablingTheUserEndsTheConnectionsTheirKeyOpened() throws SQLException {
         String key = users.createKey(bea, "grafana", null, null, null).key();
-        Principal admin = node.verifier()
+        Principal admin = java.util.Objects.requireNonNull(node.verifier())
                 .verify(users.login("admin", IdentityService.DEFAULT_ADMIN_PASSWORD, null)
                         .token());
         try (Connection connection = connect("bea", key)) {

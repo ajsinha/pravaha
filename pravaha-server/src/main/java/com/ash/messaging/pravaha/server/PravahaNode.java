@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -93,8 +94,8 @@ public class PravahaNode implements SmartLifecycle {
     private final boolean pgwireEnabled;
     private final String pgwireHost;
     private final int pgwirePort;
-    private final File pgwireTlsCertificate;
-    private final File pgwireTlsKey;
+    private final @Nullable File pgwireTlsCertificate;
+    private final @Nullable File pgwireTlsKey;
 
     private final boolean flightEnabled;
     private final String flightHost;
@@ -122,13 +123,13 @@ public class PravahaNode implements SmartLifecycle {
     private final boolean allowSharedState;
     private final boolean standby;
     private final com.ash.messaging.pravaha.server.ingest.LaneProperties lanes;
-    private com.ash.messaging.pravaha.server.state.StandbyWatch standbyWatch;
+    private com.ash.messaging.pravaha.server.state.@Nullable StandbyWatch standbyWatch;
 
-    private volatile ViewCatalog views;
-    private volatile QueryRegistry registry;
-    private volatile PravahaFlightServer flight;
+    private volatile @Nullable ViewCatalog views;
+    private volatile @Nullable QueryRegistry registry;
+    private volatile @Nullable PravahaFlightServer flight;
 
-    private volatile com.ash.messaging.pravaha.pgwire.PravahaPgWireServer pgwire;
+    private volatile com.ash.messaging.pravaha.pgwire.@Nullable PravahaPgWireServer pgwire;
     private final SourceBindingProperties sources;
     private final SinkBindingProperties sinks;
 
@@ -170,9 +171,9 @@ public class PravahaNode implements SmartLifecycle {
      */
     private final Duration defaultOutOfOrderness;
 
-    private volatile com.ash.messaging.pravaha.bindings.egress.PluginSinks pluginSinks;
+    private volatile com.ash.messaging.pravaha.bindings.egress.@Nullable PluginSinks pluginSinks;
 
-    private PluginLookupSources lookupSources;
+    private @Nullable PluginLookupSources lookupSources;
 
     /** The dimension tables' schemas, for anything that has to plan SQL outside the registry. */
     private List<StreamSchema> lookupSchemas = List.of();
@@ -196,11 +197,11 @@ public class PravahaNode implements SmartLifecycle {
         this.credentials = null;
     }
 
-    private final File tlsCertificate;
-    private final File tlsKey;
+    private final @Nullable File tlsCertificate;
+    private final @Nullable File tlsKey;
     private final Duration watermarkIdleAfter;
     private final Duration watermarkTick;
-    private volatile PluginSourceFeeds feeds;
+    private volatile @Nullable PluginSourceFeeds feeds;
     private final Optional<Path> checkpointPath;
     private final Configuration checkpointConfiguration;
 
@@ -221,9 +222,9 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     /** pravaha.identity.* (ADR-052); none until Spring sets it, which is identity off. */
-    private com.ash.messaging.pravaha.server.identity.IdentityProperties identity;
+    private com.ash.messaging.pravaha.server.identity.@Nullable IdentityProperties identity;
 
-    private com.ash.messaging.pravaha.server.identity.NodeCredentials credentials;
+    private com.ash.messaging.pravaha.server.identity.@Nullable NodeCredentials credentials;
 
     /** Users, keys and sessions. A setter for the same reason as {@link #setTenancy}. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -307,11 +308,11 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     /** The one verifier every transport authenticates with, or null when authentication is off. */
-    public TokenVerifier verifier() {
+    public @Nullable TokenVerifier verifier() {
         return credentials().verifier();
     }
 
-    private TokenVerifier transportVerifier() {
+    private @Nullable TokenVerifier transportVerifier() {
         return credentials().transportVerifier();
     }
 
@@ -322,7 +323,7 @@ public class PravahaNode implements SmartLifecycle {
      */
     private final PersistenceProperties persistence;
 
-    private volatile ClusterCoordinator coordinator;
+    private volatile @Nullable ClusterCoordinator coordinator;
     private volatile boolean running;
 
     /**
@@ -350,8 +351,8 @@ public class PravahaNode implements SmartLifecycle {
         private SourceBindingProperties sources = new SourceBindingProperties();
         private StreamDeclarationProperties declaredStreams = new StreamDeclarationProperties();
         private SecurityProperties security = new SecurityProperties();
-        private String tlsCertificate;
-        private String tlsKey;
+        private @Nullable String tlsCertificate;
+        private @Nullable String tlsKey;
         private Duration watermarkIdleAfter = Duration.ofSeconds(30);
         private Duration watermarkTick = Duration.ofSeconds(1);
         private boolean flightEnabled;
@@ -363,16 +364,16 @@ public class PravahaNode implements SmartLifecycle {
         private String nodeId = "pravaha-node-01";
         private boolean allowSharedState = true;
         private boolean standby;
-        private com.ash.messaging.pravaha.server.ingest.LaneProperties lanes;
-        private SinkBindingProperties sinks;
-        private com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
+        private com.ash.messaging.pravaha.server.ingest.@Nullable LaneProperties lanes;
+        private @Nullable SinkBindingProperties sinks;
+        private com.ash.messaging.pravaha.server.state.@Nullable StateSpillProperties stateSpill;
         private boolean measureOperators;
-        private Boolean codegenEnabled;
+        private @Nullable Boolean codegenEnabled;
         private boolean pgwireEnabled;
         private String pgwireHost = "127.0.0.1";
         private int pgwirePort;
-        private String pgwireTlsCertificate;
-        private String pgwireTlsKey;
+        private @Nullable String pgwireTlsCertificate;
+        private @Nullable String pgwireTlsKey;
 
         public Builder withCatalog(StreamCatalog streams) {
             this.streams = streams;
@@ -536,8 +537,8 @@ public class PravahaNode implements SmartLifecycle {
             SourceBindingProperties sources,
             StreamDeclarationProperties declaredStreams,
             SecurityProperties security,
-            @Value("${pravaha.flight.tls.certificate:}") String tlsCertificate,
-            @Value("${pravaha.flight.tls.key:}") String tlsKey,
+            @Value("${pravaha.flight.tls.certificate:}") @Nullable String tlsCertificate,
+            @Value("${pravaha.flight.tls.key:}") @Nullable String tlsKey,
             @Value("${pravaha.watermark.idle-after:30s}") Duration watermarkIdleAfter,
             @Value("${pravaha.watermark.tick:1s}") Duration watermarkTick,
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
@@ -549,14 +550,14 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.node.id:pravaha-node-01}") String nodeId,
             @Value("${pravaha.state.allow-shared:false}") boolean allowSharedState,
             @Value("${pravaha.standby.enabled:false}") boolean standby,
-            com.ash.messaging.pravaha.server.ingest.LaneProperties lanes,
-            SinkBindingProperties sinks,
-            com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill,
+            com.ash.messaging.pravaha.server.ingest.@Nullable LaneProperties lanes,
+            @Nullable SinkBindingProperties sinks,
+            com.ash.messaging.pravaha.server.state.@Nullable StateSpillProperties stateSpill,
             @Value("${pravaha.pgwire.enabled:false}") boolean pgwireEnabled,
             @Value("${pravaha.pgwire.host:0.0.0.0}") String pgwireHost,
             @Value("${pravaha.pgwire.port:5432}") int pgwirePort,
-            @Value("${pravaha.pgwire.tls.certificate:}") String pgwireTlsCertificate,
-            @Value("${pravaha.pgwire.tls.key:}") String pgwireTlsKey,
+            @Value("${pravaha.pgwire.tls.certificate:}") @Nullable String pgwireTlsCertificate,
+            @Value("${pravaha.pgwire.tls.key:}") @Nullable String pgwireTlsKey,
             @Value("${pravaha.metrics.operators:false}") boolean measureOperators,
             @Value("${pravaha.watermark.out-of-orderness:10s}") Duration defaultOutOfOrderness,
             @Value("${pravaha.codegen.enabled:true}") boolean codegenEnabled) {
@@ -943,10 +944,12 @@ public class PravahaNode implements SmartLifecycle {
         refuseAccidentalOpenServer();
         registerDeclaredStreams();
 
-        views = new ViewCatalog();
+        ViewCatalog viewCatalog = new ViewCatalog();
+        views = viewCatalog;
         SecurityPolicy policy = securityPolicy();
         AuditSink audit = auditSink();
-        registry = streams.registryOver(declared -> new QueryRegistry(views, policy, audit, declared)); // DECLSTREAM-1
+        registry = streams.registryOver(
+                declared -> new QueryRegistry(viewCatalog, policy, audit, declared)); // DECLSTREAM-1
         registry.owners().administering(security.administerRule()); // owner, grant or admin
         // The knobs eleven error messages have been telling operators to turn (PF-3). Nothing on this
         // path ever called executingWith, so every query on every node ran with the library's sizes
@@ -1014,7 +1017,7 @@ public class PravahaNode implements SmartLifecycle {
         NativeCodecs.warning().ifPresent(log::warn);
         Optional<com.ash.messaging.pravaha.identity.IdentityService> users = identity();
         if (users.isPresent()) {
-            identity.announce(users.get(), log);
+            java.util.Objects.requireNonNull(identity, "identity on").announce(users.get(), log);
         } else {
             security.unusableTokenTable()
                     .filter(warning -> securityExtensions.verifier().isEmpty())
@@ -1030,7 +1033,7 @@ public class PravahaNode implements SmartLifecycle {
         checkpointPath.ifPresentOrElse(
                 path -> {
                     claimState(path, "checkpoint directory");
-                    registry.checkpointingTo(path, checkpointConfiguration);
+                    live().checkpointingTo(path, checkpointConfiguration);
                     // CFG-15. The interval in force, said once, at startup. PeriodicCheckpointer's
                     // own "checkpointing every {}ms" line did not appear in any of six measured
                     // runs, so a node checkpointing every two MILLISECONDS -- which is what a bare
@@ -1091,13 +1094,15 @@ public class PravahaNode implements SmartLifecycle {
         // The watermarks a source is paused and resumed at. Bound from pravaha.lane.backpressure.*
         // rather than left at the library defaults: BackpressurePolicy has always said the gap is
         // configuration, TROUBLESHOOTING told operators to set it, and no key reached here.
-        feeds = new PluginSourceFeeds(lanes.getBackpressure().policy());
+        PluginSourceFeeds sourceFeeds =
+                new PluginSourceFeeds(lanes.getBackpressure().policy());
+        feeds = sourceFeeds;
         // TIME-4/W8-11. Without this the server has no way to switch the dead-letter path on, so
         // every node ran the unguarded one: a single undecodable field ended the poll and stopped
         // the source, taking every other row in the file with it, with the query still RUNNING and
         // nothing in any log. `pravaha run --dlq` had this and a deployment did not.
         dlqPath.ifPresent(directory -> {
-            feeds.deadLetteringTo(directory).retainingDeadLetters(dlqRetention);
+            sourceFeeds.deadLetteringTo(directory).retainingDeadLetters(dlqRetention);
             log.info(
                     "dead-lettering undecodable records to {} (pravaha.dlq.directory), keeping {}",
                     directory,
@@ -1191,9 +1196,9 @@ public class PravahaNode implements SmartLifecycle {
             if (journalDirectory != null) {
                 claimState(journalDirectory, "registry journal directory");
             }
-            registry.journalTo(new RegistryJournal(path));
+            live().journalTo(new RegistryJournal(path));
             // RECOVERYOWNER-1: the identity store's users first, then the token table.
-            QueryRegistry.Recovery recovery = registry.recover(new RecoveryOwners(security, this::identity));
+            QueryRegistry.Recovery recovery = live().recover(new RecoveryOwners(security, this::identity));
             log.info(
                     "registry recovered {} of {} queries from {}",
                     recovery.recovered().size(),
@@ -1345,7 +1350,12 @@ public class PravahaNode implements SmartLifecycle {
         log.info("claimed the {} {} for node '{}'", what, directory, nodeId);
     }
 
-    private void closeQuietly(String what, AutoCloseable closeable) {
+    /** The registry, from start until stop. */
+    private QueryRegistry live() {
+        return java.util.Objects.requireNonNull(registry, "the node has started");
+    }
+
+    private void closeQuietly(String what, @Nullable AutoCloseable closeable) {
         if (closeable == null) {
             return;
         }

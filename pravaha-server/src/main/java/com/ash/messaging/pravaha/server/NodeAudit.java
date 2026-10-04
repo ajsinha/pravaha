@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.server;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +49,7 @@ final class NodeAudit {
 
     private final SecurityProperties security;
     private final Supplier<SecurityExtensions> extensions;
-    private AuditSink audit;
+    private @Nullable AuditSink audit;
 
     NodeAudit(SecurityProperties security, Supplier<SecurityExtensions> extensions) {
         this.security = security;

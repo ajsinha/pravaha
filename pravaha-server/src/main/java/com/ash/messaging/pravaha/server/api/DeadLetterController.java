@@ -22,6 +22,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -71,8 +72,8 @@ public class DeadLetterController {
     @Operation(summary = "A page of a query's dead letters, newest first")
     public DeadLetterDtos.Page list(
             @PathVariable String name,
-            @RequestParam(required = false) String offset,
-            @RequestParam(required = false) String limit,
+            @RequestParam(required = false) @Nullable String offset,
+            @RequestParam(required = false) @Nullable String limit,
             HttpServletRequest http) {
         // Read before anything is looked up: a malformed request is refused as one whatever it names.
         int from = PageParameters.intOrDefault("offset", offset, 0);

@@ -88,7 +88,10 @@ class SecurityExtensionNodeTest {
                     .as("the engine decides with it, not only the HTTP surface")
                     .isSameAs(READS_NOTHING);
             assertThat(node.verifier()).isSameAs(OWN_TOKENS);
-            assertThat(node.verifier().verify("letmein").id()).isEqualTo("own");
+            assertThat(java.util.Objects.requireNonNull(node.verifier())
+                            .verify("letmein")
+                            .id())
+                    .isEqualTo("own");
 
             node.auditSink().record(AuditEvent.of(Principal.of("carol"), "query", "x", AccessDecision.allow(), "q"));
             assertThat(own.events()).hasSize(1);

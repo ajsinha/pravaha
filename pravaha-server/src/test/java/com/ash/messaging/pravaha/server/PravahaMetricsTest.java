@@ -160,7 +160,7 @@ class PravahaMetricsTest {
         node.registry().orElseThrow().register("stable", "SELECT user_id, amount FROM txn", List.of(0), DANA);
 
         metrics.sync();
-        int afterFirst = metrics.published().get("acme.default.stable");
+        int afterFirst = java.util.Objects.requireNonNull(metrics.published().get("acme.default.stable"));
         metrics.sync();
 
         assertThat(metrics.published().get("acme.default.stable")).isEqualTo(afterFirst);

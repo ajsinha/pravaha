@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,7 +117,7 @@ class BrokenPluginDiscoveryTest {
         }
 
         @Override
-        public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+        public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
             throw new AssertionError();
         }
     }

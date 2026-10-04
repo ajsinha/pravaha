@@ -19,6 +19,7 @@ import java.util.Map;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -40,7 +41,7 @@ public class EngineTracing implements DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(EngineTracing.class);
 
-    private final EngineSpans.Backend backend;
+    private final EngineSpans.@Nullable Backend backend;
 
     @SuppressWarnings("ReferenceEquality") // identity is the question here: a sentinel, a thread or the very object
     public EngineTracing(ObjectProvider<Tracer> tracers) {
