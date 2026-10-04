@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **567 findings carrying a
-status — 547 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **570 findings carrying a
+status — 547 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7765,4 +7765,21 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 
 > **Status:** OPEN — `tools/worktree-build.sh -o install -DskipTests -Pbench` still ran pravaha-it's `*IT` classes in failsafe's phase, including the Aerospike ITs that start their own Testcontainers; a build asked to skip tests started containers and spent minutes. Failsafe honours `skipITs`/`skipTests` unless a profile overrides it — find what binds it under `-Pbench` and make `-DskipTests` skip every test, as the docs say.
 > **Disposition:** POST-GA — build tooling; no product behaviour.
+
+## Found writing the architecture reference and developer guides (2026-10-04), 3 findings
+
+### POLICYPLUG-1 (LOW) — a node offers no way to plug in a custom SecurityPolicy, TokenVerifier or AuditSink
+
+> **Status:** OPEN — `pravaha-server` and the embedded engine construct their policy, verifier and audit sink from settings only, yet the node's PRV-7004 message says "or implement SecurityPolicy for rules of your own"; a custom one is possible only in a host that assembles the registry itself (as docs/development/guides/SECURITY_EXTENSIONS.md now explains). Either add a supported extension point (a Spring bean / ServiceLoader in the server, a builder hook in the embedded engine) or change the message.
+> **Disposition:** POST-GA — an extension the message promises and the hosts do not offer; nothing is wrong at runtime.
+
+### READADMIT-1 (LOW) — read admission is never configured on a node, so PRV-4026 to PRV-4029 cannot occur
+
+> **Status:** OPEN — the node's Flight and pgwire gateways use `ReadAdmission.UNLIMITED` with no read deadline and no setting for either, so the read-admission refusals the code and the docs describe never happen on a node; help topics and OPERATIONS said otherwise and were corrected. Add the settings (concurrent reads, read deadline) and wire them, or document admission as host-assembly-only.
+> **Disposition:** POST-GA — reads are bounded by the client deadline and the row ceiling; this is a missing control, not a wrong answer.
+
+### TCKCOLLECT-1 (LOW) — the source TCK has no shared row collector, and there is no TCK for sinks or lookups
+
+> **Status:** OPEN — each plugin's TCK test copies about 175 lines of row-collecting scaffolding, and sinks and lookups have no conformance kit at all; a new connector author (docs/development/guides/CONNECTOR_DEVELOPMENT.md) gets the source half of the contract tested and nothing for the rest.
+> **Disposition:** POST-GA — test tooling for connector authors.
 
