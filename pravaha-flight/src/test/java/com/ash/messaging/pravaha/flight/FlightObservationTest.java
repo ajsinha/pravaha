@@ -178,7 +178,11 @@ class FlightObservationTest {
                 ended.set(String.valueOf(e.getMessage()));
             }
         });
-        Thread.sleep(500);
+        // Waited for, not slept for: on a loaded build the subscribe can begin well after 500 ms.
+        long begun = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (!seen.contains("begin subscribe user_volume " + TRACEPARENT) && System.nanoTime() < begun) {
+            Thread.sleep(20);
+        }
         assertThat(seen).contains("begin subscribe user_volume " + TRACEPARENT);
         allowed.set(false);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
