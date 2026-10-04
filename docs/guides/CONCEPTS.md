@@ -6,7 +6,11 @@
 > **These ideas applied end to end — declaring a stream, registering a query, reading the view,
 > and which SQL runs:** [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md).
 >
-> **Where the data comes from, and how to add a source:** [`CONNECTORS.md`](CONNECTORS.md).
+> **Where the data comes from:** [`CONNECTORS.md`](CONNECTORS.md); **how to add a source:**
+> [`../development/guides/CONNECTOR_DEVELOPMENT.md`](../development/guides/CONNECTOR_DEVELOPMENT.md).
+>
+> **How the components fit together, traced through the real classes:**
+> [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md).
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).

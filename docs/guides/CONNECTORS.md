@@ -1,284 +1,63 @@
-# The connector framework
+# Connectors
 
 Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
-> **The single source of truth for writing a connector.** [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) and
-> [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) link here rather than repeating it. If they and this
-> disagree, this one wins — it is the one kept beside the SPI.
-
-Read this if you are adding a source, a sink or a lookup, or deciding whether a store can be one.
-
-> **Using a connector, or building one?** The line between this document and
-> [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) is not connectors-versus-queries; it is
-> **using versus building**. Configuring a source that already ships — its YAML, its required and
-> optional keys — is [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1, because you cannot run
-> your first query without it. Everything about writing a *new* one is here: the SPI, the TCK, what
-> a connector may honestly claim, and why change-data-capture is the shape the engine was built for.
-> Neither repeats the other.
+> **What ships, and why each connector is shaped the way it is.** The connectors this project builds,
+> what each can honestly promise, joining streams from different connectors, change-data-capture and its
+> fine print, and the designs of the transactional sinks.
+>
+> - **Writing a connector** — the SPI with its signatures, the lifecycle, capabilities, offsets and
+>   exactly-once, dead letters, TLS, packaging and the TCK, with a complete example — is
+>   [`../development/guides/CONNECTOR_DEVELOPMENT.md`](../development/guides/CONNECTOR_DEVELOPMENT.md), the
+>   single source of truth for it.
+> - **Configuring** a source that ships — its YAML, its required and optional keys — is
+>   [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1, because you cannot run a first query without it.
+> - **How the engine runs a connector** — discovery, feeds, shared readers, sinks — is
+>   [`../design/architecture/ingest-and-egress.md`](../design/architecture/ingest-and-egress.md).
+>
+> Sections 2, 3 and 8 below are kept, as pointers, so that references to them by number still land.
 
 ---
 
 ## 1. The shape of it
 
-A connector is a **jar with a service declaration**. Nothing in the engine is edited, nothing is
-rebuilt, and the engine never learns the connector's name at compile time.
+A connector is **a jar with a service declaration**: a `StreamSourcePlugin`, `StreamSinkPlugin`,
+`LookupSourcePlugin` or `NotifierPlugin` named in `META-INF/services`, found by `ServiceLoader` under the
+name its `name()` reports. Nothing in the engine is edited or rebuilt.
 
-```
-your-connector.jar
-├── com/example/CassandraSourcePlugin.class
-└── META-INF/services/
-    └── com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin   ← one line: com.example.CassandraSourcePlugin
-```
-
-Drop it on the classpath, name it in configuration, and a query can read from it.
-
-**"On the classpath" means on the running process's classpath, and the shipped `pravaha-server`
-executable jar carries every plugin module the project builds**: the sources `filesystem`, `feedfile`,
-`jdbc`, `delta`, `kafka`, `postgres-cdc`, `mysql-cdc`, `aerospike` and `cassandra`, with their sink and
-lookup counterparts. A source naming a plugin nothing on the classpath answers to is refused when the
-node starts, with `PRV-5090` listing every source plugin the process does carry — so the list is the
-answer: a misspelt name is in it under its right spelling, and a plugin from outside the project has to
-be put on the classpath first. Until PLUGINLATE-1 the node started `UP` and only the first registration
-was refused, with a message that said the jar carried `filesystem` alone right after listing the nine it
-carries. There is **no drop-a-jar-in directory** yet: see
-[section 8](#8-what-is-missing-from-this-framework-today).
-
-Three kinds, and a connector may be more than one:
+**The shipped `pravaha-server` jar carries every plugin module the project builds**: the sources
+`filesystem`, `feedfile`, `jdbc`, `delta`, `kafka`, `postgres-cdc`, `mysql-cdc`, `aerospike` and
+`cassandra`, with their sink and lookup counterparts. **A plugin from outside the project goes in
+`$PRAVAHA_HOME/plugins/`** (`/opt/pravaha/plugins` in the image): `bin/pravaha-server` puts that directory
+on the classpath (`-Dloader.path`, read by Spring Boot's `PropertiesLauncher`), so a jar dropped there is
+found at the next start like a bundled one. A source naming a plugin nothing on the classpath answers to
+is refused when the node starts, with `PRV-5090` listing every source plugin the process does carry — so
+the list is the answer: a misspelt name is in it under its right spelling. Until PLUGINLATE-1 the node
+started `UP` and only the first registration was refused.
 
 | Interface | What it does | Shipped examples |
 |---|---|---|
-| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](../design/adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed upserts with a tombstone for a retraction, the value JSON, Avro or Protobuf, or an explicit JSON changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
+| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `mysql-cdc`, `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](../design/adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed upserts with a tombstone for a retraction, the value JSON, Avro or Protobuf, or an explicit JSON changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node), `iceberg-sink` (an Apache Iceberg table, upsert by key through equality deletes or a changelog; one snapshot per checkpoint) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | `aerospike-lookup`, `jdbc-lookup` — **with the suffix**: a plugin answers to the name it reports for itself, and these two report `aerospike-lookup` and `jdbc-lookup`. This row said "aerospike, jdbc" until CFG-4, so `pravaha.lookups.<n>.plugin: jdbc` copied from it was refused at startup with `PRV-5090` |
+| `NotifierPlugin` | Where an alert's notifications go ([ADR-057](../design/adr/057-alerts.md)) | `webhook`, `log` |
 
 ---
 
 ## 2. The contract, in full
 
-### `PravahaPlugin` — every plugin
-
-```java
-String  name();                  // what configuration calls it
-Version version();               // yours
-Version requiredApiVersion();    // defaults to the API you compiled against
-void    configure(PluginContext context) throws ConfigurationException;
-void    open();
-void    close();
-```
-
-`configure` is given the settings and **must validate them there**. A setting that is wrong should
-fail at `configure`, not at the first row — a node that starts and then fails per-record is much
-harder to diagnose than one that refuses to start.
-
-### `StreamSourcePlugin`
-
-```java
-SourceCapabilities   capabilities();
-List<StreamSchema>   discoverSchemas();
-List<SourcePartition> partitions(String streamName);
-PartitionReader      createReader(SourcePartition partition, SourceOffset resumeFrom);
-```
-
-**Partitions are the unit of parallelism.** One reader per partition, and a partition's rows are
-delivered to the lane that owns its key range. A source with no natural split returns one partition;
-Kafka returns one per topic-partition.
-
-**A source can gain partitions.** `partitionRefreshInterval()` defaults to zero: the list read at
-registration is the list for as long as the query runs. A source answering more (Kafka, every
-`partitions.refresh`) is asked for `partitions()` again that often, on the query's feed thread, and a
-partition not seen before is opened with `createReaderForNewPartition()`, which reads it from its
-first record because it has no history the query chose to skip. Its pump joins the running query and
-its offset enters the next checkpoint. Each checkpoint records, beside every `partition-N` offset, the
-partition it belongs to (`source-of-partition-N`), so a restore matches offsets by partition rather
-than by the order the pumps were created in; a restore with no offset for a partition treats it as
-one gained after the checkpoint and opens it the same way.
-
-### `PartitionReader`
-
-```java
-int         poll(RecordSink sink, int maxRecords);   // rows written, 0 when nothing is ready
-SourceOffset position();                              // resume point, checkpointed
-default void checkpointed(SourceOffset offset) {}     // a checkpoint holding this offset is durable
-void        close();
-```
-
-`poll` returning `0` means *nothing right now*, not *nothing ever*. The engine will ask again. Write
-rows through `sink.beginRow()` and `commit()`; never buffer a batch of your own, because the row you
-are given is a cell in the lane's inbox and copying defeats the whole memory design
-([`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) §4).
-
-`checkpointed` is for a source that holds something on the store's side until told it may let go.
-The engine calls it, from the checkpointing thread, once the checkpoint recording that offset is
-durable (`PeriodicCheckpointer`, after `CheckpointStore.store` returns) — the only moment it is safe
-to release history, because a restart can only resume from a durable checkpoint. `postgres-cdc`
-confirms its replication slot here and nowhere else; `kafka`, which keeps its position in the
-checkpoint alone, uses it only to report that position to a consumer group for lag monitoring when
-`monitoring.group` is set; every other shipped source leaves the default no-op. A reader shared
-between queries is not told.
-
-### `SourceCapabilities` — the part that is load-bearing
-
-```java
-record SourceCapabilities(
-        boolean replayableOffsets,
-        boolean orderedWithinPartition,
-        boolean emitsDeletes,
-        boolean emitsBeforeImage,
-        DeliveryGuarantee guarantee,      // AT_MOST_ONCE | AT_LEAST_ONCE | EXACTLY_ONCE
-        Set<PushdownKind> pushdown,       // FILTER | PROJECT | PARTIAL_AGGREGATE
-        Duration typicalLatency,
-        boolean repeatsRows)              // the seven-argument constructor means false
-```
-
-**These are promises the engine acts on, not documentation.** `SharedSourceGroup` refuses to share
-one reader between queries when a source claims `EXACTLY_ONCE`, non-replayable offsets, or ordering
-within a partition — because the catch-up handover for a late joiner duplicates its overlap, and
-that is unacceptable for a source promising exactly-once (SRC-3).
-
-**`repeatsRows` is whether the feed is a changelog at all** (SCAN-1). Say `true` when, in normal
-running and not only after a failure, the source can deliver a row it already delivered without
-retracting the earlier copy — a periodic scan re-reading an unchanged row, a poll re-reading an
-updated one, a watermark filter that re-reads its boundary. Every copy arrives at `+1`, so the
-registry refuses, with `PRV-2042`, anything whose answer depends on how many times a row arrived:
-an aggregate, a join, a sink that cannot upsert by key. A keyed view of the rows stays admitted,
-because a copy only overwrites its own key. Answer per configuration: `cassandra` and `aerospike`
-say `true` under `deletes: ignore` and `false` under `deletes: detect`; `jdbc` says `false` only
-with `key.column` and `watermark.moves.on.update: false`. A source that repeats cannot claim
-`EXACTLY_ONCE` — the record refuses the pair. Re-delivery after a crash is the guarantee's to
-describe, not this flag's. Omitting the argument (the seven-argument constructor every plugin used
-before the flag existed) means `false`, so **a scan-shaped connector must pass it**, or its
-aggregates are silently wrong in exactly the way SCAN-1 was.
-
-So **a connector that overstates its guarantee gets different engine behaviour, and the failure is
-silent duplication.** Claim the weakest thing that is true. `SourceCapabilities.minimal()` is
-at-least-once with no pushdown and is the right starting point.
-
-### Ordered positions: one reader for many queries, even exactly-once ([ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md))
-
-By default a source that promises exactly-once or order gets **a reader per query**. Sharing one
-reader means a query joining late must be caught up, and without more information the catch-up
-overlaps the shared reader. Declare two more things and the engine shares the reader exactly:
-
-```java
-@Override
-public OrderedPositions orderedPositions() {          // null (the default): not ordered
-    return (a, b) -> Long.compare(offsetOf(a), offsetOf(b));
-}
-// ...and every reader createReader returns implements BoundedPartitionReader:
-int pollBefore(RecordSink sink, int maxRecords, SourceOffset bound);   // stop exactly at bound
-```
-
-- **`compare`** orders any two positions your readers hand out for one partition. `BEGINNING` comes
-  first. Return `null` from `orderedPositions()` for a configuration where that is not true. The
-  filesystem source returns `null` for a followed file, because a rotated file restarts its line count.
-- **`pollBefore`** reads only records before `bound`, and once none remain, `position()` must *equal*
-  `bound`. That equality is how the engine knows a catching-up query has arrived. Stop on the position
-  itself, not on a record count: positions with gaps (Kafka's transaction markers, a file's blank
-  lines) make "read the difference" overshoot.
-
-With both, a query that joins, resumes or restores behind the shared reader reads only the gap, up to
-exactly where the shared reader stands, and then joins the fan-out. One that restores ahead of it
-waits until the shared reader lands on its position. Each record reaches each query once, in order.
-Implemented by `kafka` and by `filesystem` for a file read once through. A shared Kafka reader also picks up partitions the topic gains while it runs, and every query on it joins them.
+Moved to the [connector developer guide, §3 and §4](../development/guides/CONNECTOR_DEVELOPMENT.md#3-the-source-contract-in-full):
+`PravahaPlugin`, `StreamSourcePlugin`, `PartitionReader` and its `RecordSink`, `SourceCapabilities` and
+what each flag makes the engine do, and ordered positions (one reader for many queries, even
+exactly-once, [ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)).
 
 ---
 
 ## 3. Writing one: a worked example
 
-A minimal source over an imaginary store.
-
-```java
-public final class ExampleSourcePlugin implements StreamSourcePlugin {
-
-    private String endpoint;
-    private StreamSchema schema;
-    private ExampleClient client;
-
-    @Override public String name() { return "example"; }
-    @Override public Version version() { return Version.of(1, 0, 0); }
-
-    @Override
-    public void configure(PluginContext context) {
-        // Validate here. A bad setting must not survive to the first row.
-        this.endpoint = context.get("endpoint", "");
-        if (endpoint.isBlank()) {
-            throw new ConfigurationException(
-                    ExampleErrors.BAD_CONFIGURATION,
-                    "example.endpoint is required; it is the host:port this connector reads from");
-        }
-        this.schema = FilesystemSourcePlugin.parseSchema("example", context.get("schema", ""));
-    }
-
-    @Override public void open()  { this.client = ExampleClient.connect(endpoint); }
-    @Override public void close() { if (client != null) client.close(); }
-
-    @Override
-    public SourceCapabilities capabilities() {
-        return new SourceCapabilities(
-                true,                       // replayableOffsets: we can resume from a token
-                true,                       // orderedWithinPartition
-                false,                      // emitsDeletes: this store only appends
-                false,                      // emitsBeforeImage
-                DeliveryGuarantee.AT_LEAST_ONCE,
-                Set.of(PushdownKind.FILTER),
-                Duration.ofMillis(50));
-    }
-
-    @Override public List<StreamSchema> discoverSchemas() { return List.of(schema); }
-
-    @Override
-    public List<SourcePartition> partitions(String streamName) {
-        return client.shards().stream()
-                .map(shard -> new SourcePartition(streamName, shard.id()))
-                .toList();
-    }
-
-    @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
-        return new ExampleReader(client, partition, resumeFrom, schema);
-    }
-}
-```
-
-And the reader's `poll`:
-
-```java
-@Override
-public int poll(RecordSink sink, int maxRecords) {
-    int produced = 0;
-    for (ExampleRecord record : client.read(partition, cursor, maxRecords)) {
-        RowWriter row = sink.beginRow();           // a cell in the lane's inbox
-        row.setLong(0, record.id());
-        row.setString(1, record.name());
-        row.eventTimestampNanos(record.timestamp())
-           .weight(1L)                             // +1 = insert. See §5
-           .sequence(record.offset())
-           .commit();
-        cursor = record.offset();
-        produced++;
-    }
-    return produced;                                // 0 means "not now", never "never"
-}
-```
-
-### Then run the TCK
-
-```java
-class ExampleSourceTckTest extends SourcePluginTck {
-    @Override protected StreamSourcePlugin createPlugin() { return configured(); }
-    @Override protected String streamName()               { return "example"; }
-    @Override protected int expectedRecordCount()         { return 100; }
-    @Override protected RowCollector newCollector(StreamSourcePlugin p) { return new Collector(p.schema()); }
-}
-```
-
-`SourcePluginTck` is the conformance suite the four shipped source connectors run against. It checks
-the things that are easy to get subtly wrong: that `poll` respects `maxRecords`, that an offset
-round-trips, that resuming delivers exactly the remainder, that `close` is idempotent, that `poll`
-after exhaustion returns zero rather than throwing.
-
-**Run it before you believe your connector works.** Four of this project's own connectors have had
-defects it would have caught.
+Moved to the [connector developer guide, §8](../development/guides/CONNECTOR_DEVELOPMENT.md#8-a-complete-example-the-sequence-source)
+— a complete source that compiles against `pravaha-api`, passes the source TCK and runs in the engine —
+and [§10](../development/guides/CONNECTOR_DEVELOPMENT.md#10-test-it-the-tck-and-real-stores) for the TCK.
 
 ---
 
@@ -889,32 +668,11 @@ the row — are in [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1.
 
 ## 6. What a connector should refuse to claim
 
-Honesty here is not politeness — the engine changes its behaviour based on these.
-
-- **`EXACTLY_ONCE`** — only if a reader resumed from a checkpointed offset delivers exactly the
-  remainder, no more and no less. If you cannot replay, you are at-least-once.
-- **`orderedWithinPartition`** — only if two rows for one key always arrive in their true order.
-- **`emitsDeletes`** — only if a removal in the store produces a `−1`. Inferring deletion by absence
-  in a scan is not this *unless* the absence is judged against a complete pass and the `−1` is the
-  whole row the source itself emitted — which is what `deletes: detect` does, and why it may declare
-  it. A scan that merely stops returning a row has retracted nothing.
-- **Pushdown** — `FILTER` means you *applied* the filter, not that you accepted it. The engine
-  re-applies filters it keeps, but a filter you claim and drop silently returns too many rows.
-  A `ReadRequest` may also carry `alternatives` — the OR a reader shared by several queries asks for.
-  Dropping a filter from inside one alternative widens it (safe); dropping a whole alternative
-  narrows the OR (never). An alternative you can express nothing of makes the OR true.
-  `PROJECT` means every column in `ReadRequest.columns()` arrives; any other column may be written
-  with `RowWriter.setUnread` — the engine never reads it.
-  `PARTIAL_AGGREGATE` is stricter still: a source that claims it returns pre-combined `COUNT`/`SUM`
-  values instead of rows, so there are no rows left for the engine's filter to run against — the
-  partial must already honour every filter, or the answer is wrong with nothing downstream placed to
-  notice. The planner asks for one only when every predicate below the aggregate is pushable and the
-  source declares `FILTER` too; a reader that still cannot express one declines — answers `false`
-  from `PartitionReader.deliversPartialAggregate()` and returns rows — and one that honours it writes
-  each partial in the aggregate's output layout (group keys, then one `BIGINT` per call) and never
-  writes a group of zero rows. What "the same data" means for a partial is the source's own
-  delivery: a partial must equal the sum of exactly the rows the source would otherwise have sent,
-  retractions included.
+The rules — what `EXACTLY_ONCE`, `orderedWithinPartition`, `emitsDeletes`, `repeatsRows` and each
+`PushdownKind` oblige a connector to have done — are in the
+[connector developer guide, §4](../development/guides/CONNECTOR_DEVELOPMENT.md#4-capabilities-claim-the-weakest-thing-that-is-true).
+Honesty there is not politeness: the engine changes its behaviour on these claims, and an overstated one
+is silent duplication or a wrong total.
 
 What the shipped plugins claim, and why not more (ADR-039 item 6):
 
@@ -1270,15 +1028,10 @@ it is opened — is [ADR-040](../design/adr/040-the-remote-connector.md). Schedu
 
 ## 8. What is missing from this framework today
 
-Stated so nobody discovers it mid-build:
-
-| | |
-|---|---|
-| A sink TCK and a lookup TCK | Only sources have one. The transactional sink protocol is tested per sink — `TransactionalSinkDeliveryTest` against a model, `JdbcSinkPluginTest` and `JdbcSinkRegistrationTest` against H2, `KafkaSinkBrokerTest` and `KafkaSinkRegistrationTest` against a real broker, `DeltaSinkPluginTest` and `DeltaSinkRegistrationTest` against Delta tables on the local filesystem — not by a kit a new sink can run |
-| Capability verification in the TCK | Replay and exactly-once are tested; ordering, deletes and pushdown claims are believed, not tested |
-| An SPI stability statement | `Version` exists; nothing says what change breaks a plugin |
-| Plugin isolation | A connector shares the engine's classpath; a dependency clash is yours to resolve |
-| A way to add one to a shipped node | The server jar carries `filesystem` and nothing else, and there is no directory a jar can be dropped into and no documented launcher that would read one. Adding a connector to a deployment today means building a jar that depends on both, so every name in this document except one is reachable from source and not from a release (`I-7`, reconfirmed from the configuration surface by CFG-4) |
+Moved, and corrected, to the [connector developer guide, §11](../development/guides/CONNECTOR_DEVELOPMENT.md#11-what-the-framework-does-not-do-yet).
+The row that said the server jar carries `filesystem` alone and that no directory takes a dropped-in jar
+was out of date: the server carries every shipped plugin, and `$PRAVAHA_HOME/plugins/` is on its
+classpath (§1).
 
 ---
 
@@ -1286,8 +1039,9 @@ Stated so nobody discovers it mid-build:
 
 | You want | Read |
 |---|---|
+| Writing a connector | [`../development/guides/CONNECTOR_DEVELOPMENT.md`](../development/guides/CONNECTOR_DEVELOPMENT.md) |
 | How a lane consumes what you produce | [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) |
-| Where connectors sit in the whole | [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) |
+| Where connectors sit in the whole | [`../design/architecture/ingest-and-egress.md`](../design/architecture/ingest-and-egress.md) |
 | Configuring a source on a node | [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
 | Z-sets and incremental computation | [`CONCEPTS.md`](CONCEPTS.md) |
 | The snapshot/CDC splice as built | `pravaha-backfill`, [ADR-036](../design/adr/036-one-node-thousands-of-queries.md) §3 |

@@ -664,7 +664,8 @@ cd console && make install && make run
 
 Then <http://127.0.0.1:17070>. (Not 18080 — that is the engine's own actuator port, and
 following this line to 18080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
-[its README](../../console/README.md) for what that means and what it does not do.
+[its README](../../console/README.md) for what that means and what it does not do. What its screens look
+like is [the console's screens](../design/architecture/console-screens.md).
 
 ## 9. Embed the engine in your application
 

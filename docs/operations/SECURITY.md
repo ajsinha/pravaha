@@ -41,9 +41,13 @@ they protect the connection, not the query.
 Kept apart so a deployment can adopt an external identity provider without rewriting its rules, or
 tighten its rules without touching authentication.
 
-**Pravaha stores no passwords and runs no identity provider.** `TokenVerifier` is where you plug in
-the one you already have. `StaticTokenVerifier` exists for tests and single-tenant installs and says
-so in its name.
+**Who keeps the credentials is a choice.** With `pravaha.identity.enabled` the engine keeps users,
+passwords (Argon2id), API keys and sessions itself ([below](#users-passwords-api-keys-and-sessions-adr-052),
+ADR-052); without it a node verifies a static token table, and stores no passwords at all.
+`StaticTokenVerifier` exists for tests and single-tenant installs and says so in its name. A verifier
+of your own — your identity provider — plugs into a host you assemble from the library modules, as in
+*Setting it up* below; a node offers no plug-in point for one
+([security extension guide](../development/guides/SECURITY_EXTENSIONS.md)).
 
 **The HTTP API decides with the same policy.** `pravaha-server`'s REST controllers authenticate a
 bearer token through `BearerTokenFilter`, and since SX-3 authorize through `HttpAuthorizer`, which asks
@@ -67,6 +71,10 @@ Proven in `pravaha-server`'s `RegistryEndpointsTest`, `HttpAuthorizationTest`, `
 and `AdminHttpTest`.
 
 ## Setting it up
+
+On a node, the policy is chosen by configuration — `pravaha.security.policy` (`permissive` or
+`authenticated`), or the catalogue with `pravaha.catalog.enabled` — and the verifier is the token table or
+the identity store. The three seams as code are for a host you assemble yourself from the library modules:
 
 ```java
 PravahaFlightServer server = new PravahaFlightServer(views)

@@ -9,8 +9,8 @@ The documents are in six folders, by who reads them and when:
 |---|---|
 | [`guides/`](guides/) | Using Pravaha: the quickstart, concepts, the user guide, SQL, the CLI, the SDK, connectors, the tutorials |
 | [`operations/`](operations/) | Running it: deployment, Docker, operations, security, compatibility |
-| [`development/`](development/) | Changing it: building, testing, the IDE, the handover and what is left |
-| [`design/`](design/) | Why it is the way it is: architecture, the execution model, the specification, the decisions (ADRs) |
+| [`development/`](development/) | Changing it: building, testing, the IDE, the [developer guides](development/guides/README.md) for each extension surface, the handover and what is left |
+| [`design/`](design/) | How it fits together and why: the architecture and its [component pages](design/architecture/README.md), the execution model, the specification, the decisions (ADRs) |
 | [`publications/`](publications/) | Written about it: the research paper, the deck, the Medium post, the competitive landscape |
 | [`project/`](project/) | Its record: release notes, the QA record and findings register, the gate evidence packs |
 
@@ -20,6 +20,8 @@ The documents are in six folders, by who reads them and when:
 |---|---|---|
 | [Quickstart](guides/QUICKSTART.md) | Clone to a running continuous query | First |
 | [Concepts](guides/CONCEPTS.md) | The ten ideas everything follows from | Second, and it is the highest-value page here |
+| [Architecture](design/ARCHITECTURE.md) | How every component fits together: the module graph, a row and a registration traced end to end through the real classes, with a page per component | Third, before you change anything |
+| [Developer guides](development/guides/README.md) | One per extension surface: connectors, the engine, clients, the console, security — and the conventions they share | When you change or extend a component |
 | [User guide](guides/USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
 | [Building and testing with Docker](development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker: images, the compose stack, a query end to end, every test suite in containers | When you want it running without installing a JDK or Python |
 | [Running from an IDE](development/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests | When you change the code |
@@ -38,7 +40,7 @@ The documents are in six folders, by who reads them and when:
 | [The command line](guides/CLI.md) | `pravaha` for a running engine, `pravaha-engine` for SQL with no server |
 | [Python integration guide](guides/PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each |
 | [The assistant](guides/ASSIST.md) | Plain English to and from continuous SQL through any model |
-| [Connectors](guides/CONNECTORS.md) | The plugin SPI, a worked example, the TCK, cross-source joins, and change-data-capture. The single source of truth for writing a connector |
+| [Connectors](guides/CONNECTORS.md) | The connectors that ship and what each can honestly promise, cross-source joins, and change-data-capture. Writing one is the [connector developer guide](development/guides/CONNECTOR_DEVELOPMENT.md) |
 | [TLS](guides/CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts — connector, server and SDK — and the configuration that turns each one on. The single source of truth for TLS |
 | [Troubleshooting](guides/TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
 | [Known limits](guides/LIMITS.md) | Everything not built, sorted into deferred, buildable and boundary |
@@ -62,6 +64,7 @@ The documents are in six folders, by who reads them and when:
 | [Building and testing without Docker](development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) | The same walkthrough with a local JDK and Python |
 | [Running from an IDE](development/DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests |
 | [Testing](development/TESTING.md) | Every test tier — unit, in-process, container-backed plugins, SDK, console, deck, performance, the opt-in adversarial suites — with and without Docker, what skips, measured times, and CI guidance |
+| [Developer guides](development/guides/README.md) | One per extension surface, with diagrams, real signatures and examples that were run: [conventions](development/guides/CONTRIBUTING.md) · [connectors](development/guides/CONNECTOR_DEVELOPMENT.md) · [engine](development/guides/ENGINE_DEVELOPMENT.md) · [clients](development/guides/CLIENT_DEVELOPMENT.md) · [console](development/guides/CONSOLE_DEVELOPMENT.md) · [security](development/guides/SECURITY_EXTENSIONS.md) |
 | [Handover](development/HANDOVER.md) | State of the work, what is done, what is not, what a fresh session will not guess |
 | [What is left](development/REMAINING.md) | The build strategy for every buildable gap, in tranches and slots |
 
@@ -69,7 +72,8 @@ The documents are in six folders, by who reads them and when:
 
 | | |
 |---|---|
-| [Architecture](design/ARCHITECTURE.md) | The shape, in two pages |
+| [Architecture](design/ARCHITECTURE.md) | How every component fits together: the system and module diagrams, two end-to-end traces, the query and feed lifecycles. The single source of truth for the shape of the system |
+| [Architecture, component by component](design/architecture/README.md) | [Foundations](design/architecture/foundations.md) · [planning](design/architecture/planning.md) · [runtime](design/architecture/runtime.md) · [registry](design/architecture/registry.md) · [ingest and egress](design/architecture/ingest-and-egress.md) · [serving](design/architecture/serving.md) · [governance](design/architecture/governance.md) · [hosts](design/architecture/hosts.md) · [clients and console](design/architecture/clients-and-console.md) · [observability and packaging](design/architecture/observability-and-packaging.md) |
 | [Execution model](design/EXECUTION_MODEL.md) | Lanes, inboxes, arenas, confinement, backpressure, and what actually bounds a node. The single source of truth for how the engine runs |
 | [System design](design/system_design.md) | The full specification |
 | [Implementation plan](design/implementation_plan.md) | The wave roadmap and its gates |
