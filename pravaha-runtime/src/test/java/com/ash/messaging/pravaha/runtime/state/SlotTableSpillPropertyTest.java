@@ -160,6 +160,7 @@ class SlotTableSpillPropertyTest {
 
     /** Without a tier, a table of many segments is all RAM and answers the same. */
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aTableOfManySegmentsInRamAnswersLikeAnOnHeapMap() {
         Random random = new Random(7);
         Map<Integer, Long> model = new HashMap<>();
@@ -215,7 +216,8 @@ class SlotTableSpillPropertyTest {
             }
 
             assertThat(refused).isNotNull();
-            assertThat(refused.errorCode().number()).isEqualTo(4005);
+            assertThat(java.util.Objects.requireNonNull(refused).errorCode().number())
+                    .isEqualTo(4005);
             assertThat(map.indexBytesMapped()).isPositive().isLessThanOrEqualTo(quota);
             assertThat(map.size()).isEqualTo(held.size());
             held.forEach((k, value) -> {
@@ -231,6 +233,7 @@ class SlotTableSpillPropertyTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aSegmentSizeThatIsNotAPowerOfTwoIsRefused() {
         assertThatThrownBy(() -> new VariableKeyStateMap(access, 64, 4096, 4, null, 0, 0, 100))
                 .isInstanceOf(IllegalArgumentException.class);

@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,6 +48,7 @@ class AlertTenantNamesTest {
     @TempDir
     Path dir;
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private AlertFixture fixture;
 
     @AfterEach
@@ -92,8 +94,8 @@ class AlertTenantNamesTest {
                 PravahaException.class, () -> fixture.sql(OLI, "CREATE ALERT b ON nothing NOTIFY buyers"));
 
         assertThat(held.errorCode()).isEqualTo(nobody.errorCode());
-        assertThat(held.getMessage().replace("low_stock", "X"))
-                .isEqualTo(nobody.getMessage().replace("nothing", "X"));
+        assertThat(java.util.Objects.requireNonNull(held.getMessage()).replace("low_stock", "X"))
+                .isEqualTo(java.util.Objects.requireNonNull(nobody.getMessage()).replace("nothing", "X"));
     }
 
     @Test
@@ -130,16 +132,22 @@ class AlertTenantNamesTest {
 
         for (String verb : List.of(
                 "PAUSE ALERT %s", "RESUME ALERT %s", "DROP ALERT %s", "ACK ALERT %s", "SNOOZE ALERT %s FOR '1h'")) {
-            assertThat(refusal(OLI, verb.formatted("secret_low")).replace("secret_low", "X"))
+            assertThat(java.util.Objects.requireNonNull(refusal(OLI, verb.formatted("secret_low")))
+                            .replace("secret_low", "X"))
                     .as(verb)
-                    .isEqualTo(refusal(OLI, verb.formatted("nothing")).replace("nothing", "X"));
+                    .isEqualTo(java.util.Objects.requireNonNull(refusal(OLI, verb.formatted("nothing")))
+                            .replace("nothing", "X"));
         }
-        assertThat(refusal(() -> fixture.service.detail(OLI, "secret_low")).replace("secret_low", "X"))
-                .isEqualTo(refusal(() -> fixture.service.detail(OLI, "nothing")).replace("nothing", "X"));
-        assertThat(refusal(() -> fixture.service.detail(OLI, "acme.default.secret_low"))
+        assertThat(java.util.Objects.requireNonNull(refusal(() -> fixture.service.detail(OLI, "secret_low")))
+                        .replace("secret_low", "X"))
+                .isEqualTo(java.util.Objects.requireNonNull(refusal(() -> fixture.service.detail(OLI, "nothing")))
+                        .replace("nothing", "X"));
+        assertThat(java.util.Objects.requireNonNull(
+                                refusal(() -> fixture.service.detail(OLI, "acme.default.secret_low")))
                         .replace("secret_low", "X"))
                 .as("qualified: refused alike, held or not")
-                .isEqualTo(refusal(() -> fixture.service.detail(OLI, "acme.default.nothing"))
+                .isEqualTo(java.util.Objects.requireNonNull(
+                                refusal(() -> fixture.service.detail(OLI, "acme.default.nothing")))
                         .replace("nothing", "X"));
         assertThat(fixture.service.list(OLI)).isEmpty();
         assertThat(fixture.service.list(BUYER))
@@ -192,11 +200,11 @@ class AlertTenantNamesTest {
         assertThat(fixture.service.firingByAlert()).containsOnlyKeys("acme.default.low", "globex.default.low");
     }
 
-    private String refusal(Principal who, String statement) {
+    private @Nullable String refusal(Principal who, String statement) {
         return refusal(() -> fixture.sql(who, statement));
     }
 
-    private static String refusal(Runnable call) {
+    private static @Nullable String refusal(Runnable call) {
         try {
             call.run();
             return "answered";

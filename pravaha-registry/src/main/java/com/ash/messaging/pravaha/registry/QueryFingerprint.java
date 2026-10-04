@@ -20,6 +20,8 @@ import java.security.MessageDigest;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
@@ -80,7 +82,7 @@ public record QueryFingerprint(String value) {
      * two-argument form means; it is distinct from an explicit {@link Retention#forever()}.
      */
     public static QueryFingerprint of(
-            PhysicalOperator plan, List<String> rowFilters, List<Integer> keyColumns, Retention retention) {
+            PhysicalOperator plan, List<String> rowFilters, List<Integer> keyColumns, @Nullable Retention retention) {
         return of(plan, rowFilters, keyColumns, retention, null);
     }
 
@@ -97,8 +99,8 @@ public record QueryFingerprint(String value) {
             PhysicalOperator plan,
             List<String> rowFilters,
             List<Integer> keyColumns,
-            Retention retention,
-            String tenant) {
+            @Nullable Retention retention,
+            @Nullable String tenant) {
         return of(plan, rowFilters, keyColumns, retention, tenant, List.of());
     }
 
@@ -112,8 +114,8 @@ public record QueryFingerprint(String value) {
             PhysicalOperator plan,
             List<String> rowFilters,
             List<Integer> keyColumns,
-            Retention retention,
-            String tenant,
+            @Nullable Retention retention,
+            @Nullable String tenant,
             List<String> upstreams) {
         // The plan's identity, not its explain text: the text summarises, and every summary was a way
         // for two different queries to share one computation (FP-1).

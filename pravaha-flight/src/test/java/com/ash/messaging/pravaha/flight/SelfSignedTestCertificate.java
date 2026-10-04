@@ -54,7 +54,10 @@ final class SelfSignedTestCertificate implements AutoCloseable {
     private final String password;
     private final String alias = "pravaha-test";
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private Path pemCertificatePath;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private Path pemKeyPath;
 
     private SelfSignedTestCertificate(Path directory, Path keystorePath, String password) {

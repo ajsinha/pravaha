@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -60,11 +62,11 @@ public final class RowNarrowing {
         }
     };
 
-    private final StreamSchema schema;
+    private final @Nullable StreamSchema schema;
     private final NarrowingPlan plan;
-    private final PhysicalOperator operator;
+    private final @Nullable PhysicalOperator operator;
 
-    private RowNarrowing(StreamSchema schema, NarrowingPlan plan, PhysicalOperator operator) {
+    private RowNarrowing(@Nullable StreamSchema schema, NarrowingPlan plan, @Nullable PhysicalOperator operator) {
         this.schema = schema;
         this.plan = plan;
         this.operator = operator;
@@ -137,16 +139,17 @@ public final class RowNarrowing {
 
     private void run(List<Object[]> rows, Kept into) {
         List<Object[]> out = new ArrayList<>(1);
-        RowLayout layout = RowLayout.of(schema);
+        RowLayout layout = RowLayout.of(java.util.Objects.requireNonNull(schema));
         try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 64);
-                InterpretedPipeline pipeline = InterpretedPipeline.compile(
-                        operator, (RowOutput) () -> new ValueCollectingWriter(schema, out::add))) {
+                InterpretedPipeline pipeline =
+                        InterpretedPipeline.compile(java.util.Objects.requireNonNull(operator), (RowOutput)
+                                () -> new ValueCollectingWriter(java.util.Objects.requireNonNull(schema), out::add))) {
             BinaryRowWriter writer = new BinaryRowWriter(layout);
             BinaryRowView cursor = new BinaryRowView(layout);
             for (int index = 0; index < rows.size(); index++) {
                 long handle = arena.allocate(layout.rowSize(1024));
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-                ViewQuery.write(writer, schema, rows.get(index));
+                ViewQuery.write(writer, java.util.Objects.requireNonNull(schema), rows.get(index));
                 writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
                 arena.trimTo(handle, writer.sizeSoFar());
                 pipeline.accept(cursor.wrap(arena.regionOf(handle), arena.offsetOf(handle)));

@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 
@@ -215,7 +217,7 @@ public final class PolicyExpression {
      * @param maskedColumn for a mask, the one column it may name; null for a row filter
      * @throws PravahaException {@code PRV-7038} naming what is wrong
      */
-    public static PolicyExpression of(String text, String maskedColumn) {
+    public static PolicyExpression of(@Nullable String text, @Nullable String maskedColumn) {
         if (text == null || text.isBlank()) {
             throw invalid("a policy needs an expression after AS");
         }
@@ -268,7 +270,7 @@ public final class PolicyExpression {
 
     // ---------------------------------------------------------------------------- checking
 
-    private static void check(List<Token> tokens, String maskedColumn) {
+    private static void check(List<Token> tokens, @Nullable String maskedColumn) {
         int depth = 0;
         for (int i = 0; i < tokens.size(); i++) {
             Token token = tokens.get(i);
@@ -364,7 +366,8 @@ public final class PolicyExpression {
 
     // ---------------------------------------------------------------------------- binding
 
-    private String render(Principal principal, boolean probe) {
+    @SuppressWarnings("NullAway") // principal is null only for a probe, and every read of it is behind !probe
+    private String render(@Nullable Principal principal, boolean probe) {
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < tokens.size(); i++) {
             Token token = tokens.get(i);

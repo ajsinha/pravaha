@@ -100,7 +100,7 @@ public final class DeterministicScheduler {
 
             boolean progressed = false;
             for (String name : runnable) {
-                if (steps.get(name).runOnce()) {
+                if (java.util.Objects.requireNonNull(steps.get(name)).runOnce()) {
                     executed++;
                     progressed = true;
                     if (recordTrace) {

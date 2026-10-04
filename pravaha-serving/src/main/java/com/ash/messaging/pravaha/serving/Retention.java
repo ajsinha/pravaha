@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.serving;
 
 import java.time.Duration;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * How long a view keeps a row, in <strong>event time</strong>.
  *
@@ -55,7 +57,7 @@ import java.time.Duration;
  * legitimately hold more than the view does. Emitting retractions instead would tell every consumer
  * that data had been withdrawn, which would be a lie with consequences.
  */
-public record Retention(Duration maxAge) {
+public record Retention(@Nullable Duration maxAge) {
 
     private static final Retention FOREVER = new Retention(null);
 
@@ -111,6 +113,8 @@ public record Retention(Duration maxAge) {
 
     @Override
     public String toString() {
-        return isForever() ? "forever" : maxAge.toString();
+        return isForever()
+                ? "forever"
+                : java.util.Objects.requireNonNull(maxAge).toString();
     }
 }

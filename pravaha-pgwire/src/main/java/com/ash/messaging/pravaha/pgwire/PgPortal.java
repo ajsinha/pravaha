@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.pgwire;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 
@@ -39,7 +41,7 @@ final class PgPortal {
     private final short[] resultFormats;
 
     /** Set on the first {@code Execute}; {@code null} means this portal has not run yet. */
-    private ViewQuery.Result result;
+    private ViewQuery.@Nullable Result result;
 
     private int cursor;
 
@@ -65,7 +67,7 @@ final class PgPortal {
         return result != null;
     }
 
-    ViewQuery.Result result() {
+    ViewQuery.@Nullable Result result() {
         return result;
     }
 

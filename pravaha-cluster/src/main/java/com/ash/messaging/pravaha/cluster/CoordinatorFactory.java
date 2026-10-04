@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.config.Configuration;
 
@@ -74,7 +76,8 @@ public final class CoordinatorFactory {
      * <p>Exact match first, so a provider that genuinely registers two names differing only in case
      * keeps whichever one was asked for.
      */
-    private static CoordinatorProvider providerNamed(Map<String, CoordinatorProvider> providers, String name) {
+    private static @Nullable CoordinatorProvider providerNamed(
+            Map<String, CoordinatorProvider> providers, String name) {
         CoordinatorProvider exact = providers.get(name);
         if (exact != null) {
             return exact;

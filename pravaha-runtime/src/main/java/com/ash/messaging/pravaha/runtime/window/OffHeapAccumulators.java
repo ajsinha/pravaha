@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.window;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
@@ -57,7 +59,7 @@ final class OffHeapAccumulators implements AutoCloseable {
     private final int columns;
     private final int fixedHeaderBytes;
     private final MemoryAccess access;
-    private final MemoryAccess overflowAccess;
+    private final @Nullable MemoryAccess overflowAccess;
     private final int maxOverflowSlabs;
     private final int ramMaxSlabs;
     private MemoryRegion keyScratch;
@@ -70,7 +72,11 @@ final class OffHeapAccumulators implements AutoCloseable {
      *     so that a small {@code maxSlices} does not carry a RAM budget sized for a large one
      */
     OffHeapAccumulators(
-            int columns, MemoryAccess access, int ramMaxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
+            int columns,
+            MemoryAccess access,
+            int ramMaxSlabs,
+            @Nullable MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         this.columns = columns;
         this.fixedHeaderBytes = Long.BYTES + 2 * Long.BYTES * columns;
         this.access = access;
@@ -94,7 +100,7 @@ final class OffHeapAccumulators implements AutoCloseable {
     }
 
     /** Writes a full key into the scratch region, growing it for a long key, and returns its length. */
-    private int writeKey(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
+    private int writeKey(long keyHigh, long keyLow, long sliceStart, Object @Nullable [] keyValues) {
         int length = GROUP_OFFSET + TaggedValues.groupIdentityLength(keyValues);
         if (keyScratch.capacity() < length) {
             keyScratch.close();
@@ -107,13 +113,13 @@ final class OffHeapAccumulators implements AutoCloseable {
         return length;
     }
 
-    long find(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
+    long find(long keyHigh, long keyLow, long sliceStart, Object @Nullable [] keyValues) {
         int length = writeKey(keyHigh, keyLow, sliceStart, keyValues);
         return map.find(keyScratch, 0, length);
     }
 
     /** Creates a new, zeroed accumulator (the store zeroes a fresh block's value bytes). */
-    long create(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
+    long create(long keyHigh, long keyLow, long sliceStart, Object @Nullable [] keyValues) {
         int length = writeKey(keyHigh, keyLow, sliceStart, keyValues);
         return map.getOrCreate(keyScratch, 0, length, fixedHeaderBytes);
     }
@@ -164,7 +170,7 @@ final class OffHeapAccumulators implements AutoCloseable {
         return map.keyLengthOf(handle) - GROUP_OFFSET;
     }
 
-    Object[] keyValuesOf(long handle) {
+    Object @Nullable [] keyValuesOf(long handle) {
         return TaggedValues.readGroupIdentity(map.keyRegionOf(handle), map.keyOffsetOf(handle) + GROUP_OFFSET);
     }
 

@@ -121,6 +121,7 @@ class ConfigurationBuilderTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // a null argv entry on purpose: the parser skips it
     void commandLineIgnoresAnythingThatIsNotAKeyValueFlag() {
         // The same argv usually carries a subcommand and positional arguments that are none of
         // this parser's business, so they are skipped rather than rejected.

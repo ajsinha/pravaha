@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.registry;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.registry.alert.AlertErrors;
 import com.ash.messaging.pravaha.security.Principal;
@@ -54,7 +56,7 @@ public interface Alerting {
      * {@link #followersOf(String)}, only those {@code principal} may see (ALERTDEPS-1): a view's
      * dependants as a caller is shown them name no alert the alert listing would not.
      */
-    default List<String> followersOf(String view, Principal principal) {
+    default List<String> followersOf(String view, @Nullable Principal principal) {
         return followersOf(view);
     }
 

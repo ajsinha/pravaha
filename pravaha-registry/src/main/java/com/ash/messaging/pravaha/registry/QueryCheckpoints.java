@@ -22,6 +22,8 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
@@ -44,10 +46,10 @@ final class QueryCheckpoints {
     /** A registry that checkpoints nothing, which is the default and correct for an embedder. */
     static final QueryCheckpoints NONE = new QueryCheckpoints(null, null);
 
-    private final Path root;
+    private final @Nullable Path root;
     private final Configuration configuration;
 
-    QueryCheckpoints(Path root, Configuration configuration) {
+    QueryCheckpoints(@Nullable Path root, @Nullable Configuration configuration) {
         this.root = root;
         this.configuration = configuration == null ? Configuration.builder().build() : configuration;
     }
@@ -57,6 +59,7 @@ final class QueryCheckpoints {
     }
 
     /** Where {@code directory} is under the root, or null when nothing is checkpointed. */
+    @Nullable
     Path pathOf(String directory) {
         return root == null ? null : root.resolve(directory);
     }
@@ -102,7 +105,10 @@ final class QueryCheckpoints {
         if (rehomed.isEmpty()) {
             journal.recordDrop(name);
         } else {
-            journal.recordDrop(name, rehomed, nameOf(directory));
+            journal.recordDrop(
+                    name,
+                    rehomed,
+                    nameOf(java.util.Objects.requireNonNull(directory, "rehomed only from a directory")));
         }
     }
 
@@ -204,7 +210,7 @@ final class QueryCheckpoints {
      * previous version took a name and was called after the last name had already been removed, so
      * it resolved a fingerprint digest that had never been a directory and deleted nothing.
      */
-    void delete(Path directory) {
+    void delete(@Nullable Path directory) {
         try (java.util.stream.Stream<Path> entries = Files.list(directory)) {
             for (Path entry : entries.toList()) {
                 Files.deleteIfExists(entry);

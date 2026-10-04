@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.backfill.BackfillErrors;
@@ -98,7 +100,7 @@ public final class QueryReplacements implements AutoCloseable {
     /** Concurrent so that a drop can ask "is this name being replaced?" without taking a lock. */
     private final Map<String, QueryReplacement> byName = new ConcurrentHashMap<>();
 
-    private ScheduledExecutorService watcher;
+    private @Nullable ScheduledExecutorService watcher;
     private volatile boolean closed;
 
     /** Seams only move forward, and two cutovers in the same millisecond must not share one. */
@@ -135,7 +137,7 @@ public final class QueryReplacements implements AutoCloseable {
             List<Integer> keyColumns,
             Principal principal,
             ReplacementOptions options,
-            String resuming) {
+            @Nullable String resuming) {
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "replace");
         RegisteredQuery serving = registry.require(name);
         // ADR-056: a loop through other queries first, then anything a chain makes inexact.
@@ -434,7 +436,8 @@ public final class QueryReplacements implements AutoCloseable {
      * index, and that is logged rather than refused -- the answer is the same either way, and a
      * cutover is not the moment to fail.
      */
-    private static void carryIndexes(String name, RegisteredQuery from, RegisteredQuery to, RegistryJournal journal) {
+    private static void carryIndexes(
+            String name, RegisteredQuery from, RegisteredQuery to, @Nullable RegistryJournal journal) {
         // The lane choice goes with the name too: the C record just written starts without it.
         if (journal != null && to.dedicatedLane()) {
             journal.recordDedicatedLane(name);
@@ -574,7 +577,7 @@ public final class QueryReplacements implements AutoCloseable {
      *
      * @return the delivery to attach to {@code to} after the swap, or null when the name has no sink
      */
-    private SinkDelivery handSinkOver(String name, RegisteredQuery from, RegisteredQuery to, long label) {
+    private @Nullable SinkDelivery handSinkOver(String name, RegisteredQuery from, RegisteredQuery to, long label) {
         SinkDelivery delivery = registry.takeDelivery(name);
         if (delivery == null) {
             return null;
@@ -801,7 +804,8 @@ public final class QueryReplacements implements AutoCloseable {
                 refused.add(new QueryRegistry.Recovery.Refusal(
                         each.name() + " (replacement)",
                         failure instanceof PravahaException coded ? Optional.of(coded.errorCode()) : Optional.empty(),
-                        failure.getMessage()));
+                        // NULLREFUSAL-1, as in RegistryRecovery: a failure with no message is named.
+                        failure.getMessage() == null ? failure.toString() : failure.getMessage()));
                 endedInTheJournal(each.name());
             }
         }

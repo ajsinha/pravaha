@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
@@ -177,8 +179,8 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             List<String> parameters,
-            String sink,
-            String checkpointDirectory,
+            @Nullable String sink,
+            @Nullable String checkpointDirectory,
             List<Integer> indexed,
             boolean dedicatedLane) {
 
@@ -199,8 +201,8 @@ public final class RegistryJournal {
                 String owner,
                 Retention retention,
                 List<String> parameters,
-                String sink,
-                String checkpointDirectory,
+                @Nullable String sink,
+                @Nullable String checkpointDirectory,
                 List<Integer> indexed) {
             this(name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, indexed, false);
         }
@@ -213,8 +215,8 @@ public final class RegistryJournal {
                 String owner,
                 Retention retention,
                 List<String> parameters,
-                String sink,
-                String checkpointDirectory) {
+                @Nullable String sink,
+                @Nullable String checkpointDirectory) {
             this(name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, List.of());
         }
 
@@ -253,7 +255,7 @@ public final class RegistryJournal {
                 String owner,
                 Retention retention,
                 List<String> parameters,
-                String sink) {
+                @Nullable String sink) {
             this(name, sql, keyColumns, owner, retention, parameters, sink, null);
         }
 
@@ -317,7 +319,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             BoundParameters parameters,
-            String sink) {
+            @Nullable String sink) {
         recordRegistration(name, sql, keyColumns, owner, retention, parameters, sink, List.of());
     }
 
@@ -332,7 +334,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             BoundParameters parameters,
-            String sink,
+            @Nullable String sink,
             List<Integer> indexed) {
         recordRegistration(name, sql, keyColumns, owner, retention, parameters, sink, indexed, false);
     }
@@ -348,7 +350,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             BoundParameters parameters,
-            String sink,
+            @Nullable String sink,
             List<Integer> indexed,
             boolean dedicatedLane) {
         List<String> encoded = new ArrayList<>();
@@ -372,7 +374,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             List<String> parameters,
-            String sink) {
+            @Nullable String sink) {
         append(registration(name, sql, keyColumns, owner, retention, parameters, sink));
     }
 
@@ -389,7 +391,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             BoundParameters parameters,
-            String sink,
+            @Nullable String sink,
             Declaring declared) {
         recordRegistration(
                 name,
@@ -412,7 +414,7 @@ public final class RegistryJournal {
         return List.of(LANE, name, "dedicated");
     }
 
-    private static List<String> indexRecord(String name, List<Integer> indexed) {
+    private static @Nullable List<String> indexRecord(String name, List<Integer> indexed) {
         return indexed == null || indexed.isEmpty() ? null : List.of(INDEX, name, joinInts(indexed));
     }
 
@@ -423,7 +425,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             List<String> parameters,
-            String sink) {
+            @Nullable String sink) {
         List<String> fields = new ArrayList<>();
         fields.add(sink == null ? REGISTER : REGISTER_WRITING);
         fields.add(name);
@@ -472,7 +474,7 @@ public final class RegistryJournal {
             List<Integer> keyColumns,
             String owner,
             Retention retention,
-            String sink,
+            @Nullable String sink,
             String options,
             String checkpointDirectory) {
 
@@ -545,7 +547,7 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             BoundParameters parameters,
-            String sink,
+            @Nullable String sink,
             Declaring declared) {
         List<String> encoded = new ArrayList<>();
         for (int index = 0; index < parameters.size(); index++) {
@@ -857,7 +859,7 @@ public final class RegistryJournal {
 
     /** Appends records in one write and one force; a null record is skipped. */
     @SafeVarargs
-    private void append(List<String>... records) {
+    private void append(@Nullable List<String>... records) {
         List<byte[]> payloads = new ArrayList<>();
         int size = 0;
         for (List<String> fields : records) {
@@ -1039,7 +1041,7 @@ public final class RegistryJournal {
     }
 
     /** Reverses {@link #encodeParameter}. */
-    public static Object decodeParameter(String encoded) {
+    public static @Nullable Object decodeParameter(String encoded) {
         if (encoded == null || encoded.length() < 2) {
             return null;
         }

@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.calcite.rel.RelNode;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
@@ -847,10 +848,11 @@ public final class ViewQuery {
                 "the row filter for " + view.name() + " (" + filterSql + ")",
                 "if this principal may read the whole view, say so with an unrestricted allow rather than a filter "
                         + "that restricts nothing; if not, write a filter over a column the view carries");
-        return injectAboveScan(plan, predicate);
+        // requireRestricts refused a predicate that folded away, so there is one here.
+        return injectAboveScan(plan, java.util.Objects.requireNonNull(predicate));
     }
 
-    private static Predicate predicateOf(PhysicalOperator plan) {
+    private static @Nullable Predicate predicateOf(PhysicalOperator plan) {
         if (plan instanceof FilterOperator filter) {
             return filter.predicate();
         }

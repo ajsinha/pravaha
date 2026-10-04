@@ -244,6 +244,7 @@ class OffsetSplicedReaderTest {
     }
 
     @Property(tries = 200)
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aSplicedReadEqualsReadingTheWholeLogWithOneReader(
             @ForAll @IntRange(min = 0, max = 200) int history,
             @ForAll @IntRange(min = 0, max = 60) int afterwards,
@@ -278,6 +279,7 @@ class OffsetSplicedReaderTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aStreamWithNoSeamIsOneReaderThatBecomesLiveWhenTheHistoryRunsOut() {
         Log log = new Log();
         for (long value = 0; value < 5; value++) {

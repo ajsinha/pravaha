@@ -20,6 +20,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.backfill.BackfillJob;
 import com.ash.messaging.pravaha.backfill.ShadowDeployment;
@@ -72,20 +74,20 @@ public final class QueryReplacement {
             State state,
             String sql,
             List<Integer> keyColumns,
-            String sink,
+            @Nullable String sink,
             ReplacementOptions options,
             String owner,
             Instant startedAt,
-            Instant cutOverAt,
-            Instant rollbackUntil,
+            @Nullable Instant cutOverAt,
+            @Nullable Instant rollbackUntil,
             boolean rollbackAvailable,
             BackfillJob.Progress progress,
             long lagNanos,
             String replacing,
             String candidate,
             List<ShadowDeployment.Segment> segments,
-            String failureCode,
-            String failure) {
+            @Nullable String failureCode,
+            @Nullable String failure) {
 
         public Status {
             keyColumns = List.copyOf(keyColumns);
@@ -106,24 +108,24 @@ public final class QueryReplacement {
     private final String name;
     private final String sql;
     private final List<Integer> keyColumns;
-    private final String sink;
+    private final @Nullable String sink;
     private final ReplacementOptions options;
     private final String owner;
     private final com.ash.messaging.pravaha.security.Principal replacedBy;
-    private final com.ash.messaging.pravaha.security.Principal previousOwner;
+    private final com.ash.messaging.pravaha.security.@Nullable Principal previousOwner;
     private final Instant startedAt;
     private final String shadowDirectory;
     private final BackfillJob job;
     private final ShadowDeployment deployment;
 
     /** The registration the replaced version had, so a rollback can journal it back. */
-    private final RegistryJournal.Entry previous;
+    private final RegistryJournal.@Nullable Entry previous;
 
     private RegisteredQuery serving;
     private RegisteredQuery candidate;
     private State state = State.BACKFILLING;
-    private Instant cutOverAt;
-    private PravahaException failure;
+    private @Nullable Instant cutOverAt;
+    private @Nullable PravahaException failure;
     private boolean failureReleased;
     private long lagNanos;
 
@@ -131,16 +133,16 @@ public final class QueryReplacement {
             String name,
             String sql,
             List<Integer> keyColumns,
-            String sink,
+            @Nullable String sink,
             ReplacementOptions options,
             com.ash.messaging.pravaha.security.Principal replacedBy,
-            com.ash.messaging.pravaha.security.Principal previousOwner,
+            com.ash.messaging.pravaha.security.@Nullable Principal previousOwner,
             Instant startedAt,
             String shadowDirectory,
             BackfillJob job,
             RegisteredQuery serving,
             RegisteredQuery candidate,
-            RegistryJournal.Entry previous) {
+            RegistryJournal.@Nullable Entry previous) {
         this.name = name;
         this.sql = sql;
         this.keyColumns = List.copyOf(keyColumns);
@@ -179,6 +181,7 @@ public final class QueryReplacement {
         return keyColumns;
     }
 
+    @Nullable
     String sink() {
         return sink;
     }
@@ -193,7 +196,7 @@ public final class QueryReplacement {
     }
 
     /** Whose the name was before, for a rollback to give it back to; null when nobody was recorded. */
-    com.ash.messaging.pravaha.security.Principal previousOwner() {
+    com.ash.messaging.pravaha.security.@Nullable Principal previousOwner() {
         return previousOwner;
     }
 
@@ -221,7 +224,7 @@ public final class QueryReplacement {
         return candidate;
     }
 
-    RegistryJournal.Entry previous() {
+    RegistryJournal.@Nullable Entry previous() {
         return previous;
     }
 
@@ -229,6 +232,7 @@ public final class QueryReplacement {
         return state;
     }
 
+    @Nullable
     Instant cutOverAt() {
         return cutOverAt;
     }
@@ -256,7 +260,10 @@ public final class QueryReplacement {
             // asked. A stopped source is always a failure and is never retried (FeedStatus).
             FeedStatus feed = candidate.feedStatus();
             if (feed.stopped()) {
-                feed.firstStopped().ifPresent(source -> failed(source.stop().failure()));
+                feed.firstStopped()
+                        .ifPresent(source ->
+                                failed(java.util.Objects.requireNonNull(source.stop(), "a stopped source has its stop")
+                                        .failure()));
             }
         }
     }

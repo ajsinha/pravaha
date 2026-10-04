@@ -19,6 +19,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Reads an execution's operator state <strong>on the lane that owns it</strong> (ADR-048).
  *
@@ -45,7 +47,7 @@ public final class OperatorStateReader {
 
     /** One page of one operator's state, read on the lane. */
     public static OperatorState.Page page(
-            QueryExecution execution, String id, String keyFilter, int offset, int limit, Duration timeout) {
+            QueryExecution execution, String id, @Nullable String keyFilter, int offset, int limit, Duration timeout) {
         return onLane(execution, timeout, pipeline -> pipeline.inspectState(id, keyFilter, offset, limit));
     }
 
@@ -82,6 +84,7 @@ public final class OperatorStateReader {
         if (failure != null) {
             throw failure;
         }
-        return answer.get();
+        // The task ran (awaited above) and did not fail, so it set the answer.
+        return java.util.Objects.requireNonNull(answer.get());
     }
 }

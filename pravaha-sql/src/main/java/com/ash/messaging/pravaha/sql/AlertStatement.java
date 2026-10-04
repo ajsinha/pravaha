@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A statement about an alert (ADR-057), as {@link AlertStatements} reads it. Nothing here is planned:
  * an alert watches a registered view, and its condition is a conjunction of comparisons of the view's
@@ -45,7 +47,8 @@ public sealed interface AlertStatement
      *     {@code FALSE}; null for the two {@code IS} forms
      * @param quoted whether the literal was a string, so {@code '10'} and {@code 10} can be told apart
      */
-    record Condition(String column, String operator, String literal, boolean quoted) {
+    record Condition(
+            String column, String operator, @Nullable String literal, boolean quoted) {
         public Condition {
             Objects.requireNonNull(column, "column");
             Objects.requireNonNull(operator, "operator");
@@ -56,7 +59,9 @@ public sealed interface AlertStatement
             return switch (operator) {
                 case "IS_NULL" -> column + " IS NULL";
                 case "IS_NOT_NULL" -> column + " IS NOT NULL";
-                default -> column + " " + operator + " " + (quoted ? "'" + literal.replace("'", "''") + "'" : literal);
+                default ->
+                    column + " " + operator + " "
+                            + (quoted ? "'" + Objects.requireNonNull(literal).replace("'", "''") + "'" : literal);
             };
         }
     }

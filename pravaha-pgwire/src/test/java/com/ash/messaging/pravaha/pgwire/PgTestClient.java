@@ -27,6 +27,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A PostgreSQL client that speaks bytes, for driving the server over a real socket.
  *
@@ -272,6 +274,7 @@ final class PgTestClient implements AutoCloseable {
     }
 
     /** Reads one backend message, or {@code null} at end of stream. */
+    @Nullable
     Message read() throws IOException {
         int type = in.read();
         if (type < 0) {

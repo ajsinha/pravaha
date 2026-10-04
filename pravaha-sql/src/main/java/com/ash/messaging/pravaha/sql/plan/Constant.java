@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.sql.plan;
 import java.math.BigDecimal;
 
 import org.apache.calcite.rex.RexLiteral;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.sql.SqlErrors;
@@ -123,7 +124,7 @@ sealed interface Constant {
         }
 
         /** This literal in the engine's own units, or null when it is not a temporal one. */
-        private Long temporalNanos() {
+        private @Nullable Long temporalNanos() {
             return switch (literal.getType().getSqlTypeName()) {
                 case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE -> literal.getValueAs(Long.class) * 1_000_000L;
                 case TIME -> (long) literal.getValueAs(Integer.class) * 1_000_000L;

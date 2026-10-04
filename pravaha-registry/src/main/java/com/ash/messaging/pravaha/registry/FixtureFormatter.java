@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.registry;
 
 import java.lang.reflect.InvocationTargetException;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Formats a generated fixture the way this repository's build does (FIX-3).
  *
@@ -63,7 +65,7 @@ final class FixtureFormatter {
         return source.contains(UNFORMATTED_NOTE);
     }
 
-    private static String tryFormat(String source) {
+    private static @Nullable String tryFormat(String source) {
         try {
             Class<?> formatter = Class.forName(FORMATTER, true, FixtureFormatter.class.getClassLoader());
             Object instance = formatter.getMethod("create").invoke(null);

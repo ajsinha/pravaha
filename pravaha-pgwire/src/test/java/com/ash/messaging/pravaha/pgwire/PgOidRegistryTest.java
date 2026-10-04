@@ -49,6 +49,7 @@ class PgOidRegistryTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void twoNamesThatHashAlikeAreGivenTwoOids() {
         Map<Integer, String> seen = new HashMap<>();
         String first = null;

@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
 
@@ -59,8 +61,8 @@ final class UpstreamFeed implements SourceFeed {
 
     private volatile boolean paused;
     private volatile boolean closed;
-    private volatile PravahaException failure;
-    private volatile Instant stoppedAt;
+    private volatile @Nullable PravahaException failure;
+    private volatile @Nullable Instant stoppedAt;
 
     UpstreamFeed(
             String queryName,

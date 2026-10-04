@@ -110,6 +110,7 @@ class FlightDecimalTest {
         assertThat(schema.findField("rate").isNullable()).isTrue();
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void everyValueArrivesExactlyAtItsColumnsScale() throws Exception {
         List<List<BigDecimal>> rows = new ArrayList<>();
@@ -138,6 +139,7 @@ class FlightDecimalTest {
                         java.util.Arrays.asList(new BigDecimal("2.50"), new BigDecimal("0.0000000001")));
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void getTablesDescribesTheColumnAsTheQueryDoes() throws Exception {
         FlightInfo info = client.getTables(null, null, "ledger", null, true);
@@ -203,6 +205,7 @@ class FlightDecimalTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<String> bindAndRead(FlightSqlClient.PreparedStatement statement, BigDecimal value) throws Exception {
         try (VectorSchemaRoot parameters = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
             DecimalVector bound = (DecimalVector) parameters.getVector(0);

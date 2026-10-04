@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.sql;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.PravahaType;
@@ -98,12 +99,12 @@ public final class TypeMapping {
      *
      * @param columnName the column being converted, or null where there is genuinely no name
      */
-    public static PravahaType fromCalcite(RelDataType type, String columnName) {
+    public static PravahaType fromCalcite(RelDataType type, @Nullable String columnName) {
         PravahaType base = baseFromCalcite(type, columnName);
         return type.isNullable() ? base.withNullable(true) : base;
     }
 
-    private static PravahaType baseFromCalcite(RelDataType type, String columnName) {
+    private static PravahaType baseFromCalcite(RelDataType type, @Nullable String columnName) {
         String where = columnName == null ? "" : "column '" + columnName + "': ";
         return switch (type.getSqlTypeName()) {
             case BOOLEAN -> Types.bool();

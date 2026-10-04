@@ -51,6 +51,7 @@ class AlertPrivilegesTest {
     private static final Principal ANA = new Principal("ana", "acme", Set.of("analyst"), Map.of());
     private static final Principal SAM = new Principal("sam", "acme", Set.of("support"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private AlertFixture fixture;
 
     @AfterEach

@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.RowLayout;
@@ -34,7 +36,7 @@ import com.ash.messaging.pravaha.runtime.lane.LaneProcessor;
 record LanePipeline(
         InterpretedPipeline pipeline,
         BinaryRowView[] views,
-        BinaryRowView[] partials,
+        BinaryRowView @Nullable [] partials,
         List<String> streams,
         RowProcessor[] entries)
         implements LaneProcessor {
@@ -47,7 +49,11 @@ record LanePipeline(
      * P2, 2026-09-26). The map does not change after the pipeline is compiled, so the answer does not
      * either.
      */
-    LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, BinaryRowView[] partials, List<String> streams) {
+    LanePipeline(
+            InterpretedPipeline pipeline,
+            BinaryRowView[] views,
+            BinaryRowView @Nullable [] partials,
+            List<String> streams) {
         this(pipeline, views, partials, streams, entriesOf(pipeline, streams));
     }
 

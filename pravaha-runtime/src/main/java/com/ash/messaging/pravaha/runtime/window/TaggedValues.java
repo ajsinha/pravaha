@@ -23,6 +23,8 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 
 /**
@@ -50,7 +52,7 @@ final class TaggedValues {
 
     private TaggedValues() {}
 
-    static void writeTagged(DataOutput out, Object value) throws IOException {
+    static void writeTagged(DataOutput out, @Nullable Object value) throws IOException {
         if (value == null) {
             out.writeByte(NULL);
         } else if (value instanceof String string) {
@@ -72,7 +74,7 @@ final class TaggedValues {
         }
     }
 
-    static Object readTagged(DataInput in) throws IOException {
+    static @Nullable Object readTagged(DataInput in) throws IOException {
         byte tag = in.readByte();
         return switch (tag) {
             case NULL -> null;
@@ -86,7 +88,7 @@ final class TaggedValues {
         };
     }
 
-    static void writeKeyValues(DataOutput out, Object[] keyValues) throws IOException {
+    static void writeKeyValues(DataOutput out, Object @Nullable [] keyValues) throws IOException {
         out.writeInt(keyValues == null ? -1 : keyValues.length);
         if (keyValues == null) {
             return;
@@ -96,7 +98,7 @@ final class TaggedValues {
         }
     }
 
-    static Object[] readKeyValues(DataInput in) throws IOException {
+    static Object @Nullable [] readKeyValues(DataInput in) throws IOException {
         int length = in.readInt();
         if (length < 0) {
             return null;
@@ -109,7 +111,7 @@ final class TaggedValues {
     }
 
     /** {@link #writeKeyValues}, into a byte array. */
-    static byte[] encodeKeyValues(Object[] keyValues) {
+    static byte[] encodeKeyValues(Object @Nullable [] keyValues) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream out = new DataOutputStream(bytes)) {
@@ -124,7 +126,7 @@ final class TaggedValues {
     }
 
     /** {@link #readKeyValues}, from a byte array this class wrote. */
-    static Object[] decodeKeyValues(byte[] encoded) {
+    static Object @Nullable [] decodeKeyValues(byte[] encoded) {
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(encoded))) {
             return readKeyValues(in);
         } catch (IOException e) {
@@ -141,7 +143,7 @@ final class TaggedValues {
      * <p>Computed rather than discovered by writing, so a caller can size its scratch region before
      * the write and the write itself never allocates.
      */
-    static int groupIdentityLength(Object[] keyValues) {
+    static int groupIdentityLength(Object @Nullable [] keyValues) {
         if (keyValues == null) {
             return Integer.BYTES;
         }
@@ -176,7 +178,7 @@ final class TaggedValues {
      * allocates: a string is read a character at a time, not encoded into a new array. That matters
      * because this runs once per row, on the path a windowed aggregate folds every record through.
      */
-    static int writeGroupIdentity(MemoryRegion region, int offset, Object[] keyValues) {
+    static int writeGroupIdentity(MemoryRegion region, int offset, Object @Nullable [] keyValues) {
         if (keyValues == null) {
             region.putInt(offset, -1);
             return offset + Integer.BYTES;
@@ -217,7 +219,7 @@ final class TaggedValues {
     }
 
     /** The key columns {@link #writeGroupIdentity} wrote at {@code offset}, back as objects. */
-    static Object[] readGroupIdentity(MemoryRegion region, int offset) {
+    static Object @Nullable [] readGroupIdentity(MemoryRegion region, int offset) {
         int count = region.getInt(offset);
         if (count < 0) {
             return null;
@@ -266,7 +268,7 @@ final class TaggedValues {
      * which is what {@link Double#equals} compares -- so {@code -0.0} and {@code 0.0} stay two values
      * and every NaN is one, exactly as the on-heap {@code HashMap} this replaced counted them.
      */
-    static byte[] identityBytes(Object value) {
+    static byte[] identityBytes(@Nullable Object value) {
         if (value == null) {
             return new byte[] {NULL};
         }
@@ -301,7 +303,7 @@ final class TaggedValues {
     }
 
     /** The value {@link #identityBytes} encoded, back as an object. */
-    static Object fromIdentityBytes(byte[] bytes) {
+    static @Nullable Object fromIdentityBytes(byte[] bytes) {
         return switch (bytes[0]) {
             case NULL -> null;
             case STRING -> new String(bytes, 1, bytes.length - 1, java.nio.charset.StandardCharsets.UTF_8);

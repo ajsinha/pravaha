@@ -108,6 +108,7 @@ class PgTypesTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void nullIsNullAndNotAnEmptyArray() {
         // PgBackend turns this null into the protocol's -1 length. An empty array here would become
         // a zero length, which is the empty string -- a different value.
@@ -220,6 +221,7 @@ class PgTypesTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aNullParameterIsNullRegardlessOfType() {
         assertThat(PgTypes.decodeParameter(TypeName.STRING, PgBackend.FORMAT_TEXT, null))
                 .isNull();
@@ -252,8 +254,8 @@ class PgTypesTest {
                 .isEqualTo(20_712L);
         assertThat(PgTypes.encode(TypeName.DATE, 20_712L)).asString().isEqualTo("2026-09-16");
 
-        long nanos = (long)
-                PgTypes.decodeParameter(TypeName.TIMESTAMP_LTZ, PgBackend.FORMAT_TEXT, bytes("2026-09-16 12:34:56+00"));
+        long nanos = (long) java.util.Objects.requireNonNull(PgTypes.decodeParameter(
+                TypeName.TIMESTAMP_LTZ, PgBackend.FORMAT_TEXT, bytes("2026-09-16 12:34:56+00")));
         assertThat(PgTypes.encode(TypeName.TIMESTAMP_LTZ, nanos)).asString().isEqualTo("2026-09-16 12:34:56+00");
     }
 

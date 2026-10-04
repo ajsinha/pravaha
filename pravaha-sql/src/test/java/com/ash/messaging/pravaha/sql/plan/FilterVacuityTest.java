@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -514,14 +515,14 @@ class FilterVacuityTest {
         return new Narrowing(Optional.of(sql), Map.of(), List.of());
     }
 
-    private static Predicate predicateOf(StreamSchema schema, String sql) {
+    private static @Nullable Predicate predicateOf(StreamSchema schema, String sql) {
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .overBoundedInput()
                 .build(SqlPlanner.withStreams(schema).plan("SELECT * FROM " + schema.name() + " WHERE " + sql));
         return find(plan);
     }
 
-    private static Predicate find(PhysicalOperator plan) {
+    private static @Nullable Predicate find(PhysicalOperator plan) {
         if (plan instanceof FilterOperator filter) {
             return filter.predicate();
         }

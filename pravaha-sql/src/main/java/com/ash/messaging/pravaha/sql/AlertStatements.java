@@ -22,6 +22,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -93,7 +95,7 @@ public final class AlertStatements {
         try {
             return Optional.of(reader.statement());
         } catch (StatementLexer.Unreadable e) {
-            throw reader.malformed(e.offset, e.getMessage());
+            throw reader.malformed(e.offset, String.valueOf(e.getMessage()));
         }
     }
 
@@ -149,7 +151,7 @@ public final class AlertStatements {
         private final String sql;
         private final String shape;
         private final StatementLexer lexer;
-        private StatementLexer.Token peeked;
+        private StatementLexer.@Nullable Token peeked;
 
         Reader(String sql, String shape) {
             this.sql = sql;

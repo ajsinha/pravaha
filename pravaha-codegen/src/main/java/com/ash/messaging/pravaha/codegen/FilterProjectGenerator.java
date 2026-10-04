@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.codegen;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
@@ -95,7 +97,7 @@ public final class FilterProjectGenerator {
             String className,
             PredicateSource predicates,
             List<String> tests,
-            ProjectOperator projection,
+            @Nullable ProjectOperator projection,
             RowLayout inputLayout,
             StreamSchema inputSchema,
             StreamSchema outputSchema) {

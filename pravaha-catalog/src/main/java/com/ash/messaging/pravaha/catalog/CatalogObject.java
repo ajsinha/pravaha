@@ -20,6 +20,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * One governed object and what the catalogue records about it (ADR-059 §1).
  *
@@ -57,7 +59,7 @@ public record CatalogObject(
     }
 
     /** The level holding it: an object's namespace, a namespace's tenant. */
-    public String parent() {
+    public @Nullable String parent() {
         return CatalogNames.parentOf(fullName);
     }
 

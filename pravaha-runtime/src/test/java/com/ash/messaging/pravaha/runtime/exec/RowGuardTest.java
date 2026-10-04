@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.runtime.exec;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -85,7 +86,8 @@ class RowGuardTest {
                                 TypeName.INT64)));
     }
 
-    private record Rejected(String stream, String row, String reason) {}
+    private record Rejected(
+            String stream, String row, @Nullable String reason) {}
 
     @Test
     void aRowThatDividesByZeroIsDeadLetteredAndTheOthersAreAnswered() {
@@ -109,6 +111,7 @@ class RowGuardTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void withNoSinkTheFailureStopsThePipelineAsBefore() {
         List<Object[]> out = new ArrayList<>();
         try (InterpretedPipeline pipeline =

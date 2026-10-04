@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 
@@ -273,7 +275,11 @@ public final class LaneMultiplexer implements LaneProcessor {
         // and its own catch-up's, which SharedPartitionFeed already interleaves by design and offers
         // only to sources that promise no order.
         for (Map.Entry<Integer, Integer> group : groupSizes.entrySet()) {
-            emitted += dispatch(index.get(group.getKey()), region, grouped.get(group.getKey()), group.getValue());
+            emitted += dispatch(
+                    index.get(group.getKey()),
+                    region,
+                    java.util.Objects.requireNonNull(grouped.get(group.getKey()), "grouped with its sizes"),
+                    group.getValue());
         }
         return emitted;
     }
@@ -285,7 +291,7 @@ public final class LaneMultiplexer implements LaneProcessor {
      * keeping it. Sorting a handful of entries per batch is cheaper than the alternative it prevents:
      * one expensive query permanently ahead of every other query on its lane.
      */
-    private int dispatch(List<Target> subscribers, MemoryRegion region, long[] offsets, int count) {
+    private int dispatch(@Nullable List<Target> subscribers, MemoryRegion region, long[] offsets, int count) {
         if (subscribers == null || subscribers.isEmpty()) {
             // Rows for a route nothing on this lane subscribes to. Not an error: a query may have
             // been dropped, or paused off a shared reader, a moment ago.

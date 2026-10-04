@@ -24,6 +24,7 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -210,7 +211,7 @@ class IncrementalOracleTest {
                 .isNotNull();
     }
 
-    private static Throwable catchThrowable(Runnable body) {
+    private static @Nullable Throwable catchThrowable(Runnable body) {
         try {
             body.run();
             return null;

@@ -20,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -86,7 +88,7 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     private static volatile SpillSettings spillSettings = SpillSettings.DISABLED;
 
-    private static volatile com.ash.messaging.pravaha.state.spill.MappedFileMemoryAccess overflowAccess;
+    private static volatile com.ash.messaging.pravaha.state.spill.@Nullable MappedFileMemoryAccess overflowAccess;
 
     /**
      * Configures ADR-037 item B2's overflow tier for every join compiled from this call onward.
@@ -158,7 +160,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     private static final int MAX_LOOKUP_CACHE_ENTRIES = 10_000;
 
     private final RowArena arena;
-    private final RowProcessor head;
+    private final @Nullable RowProcessor head;
     private final List<Runnable> finishers = new ArrayList<>();
     private final List<Runnable> continuousEmitters = new ArrayList<>();
     private final List<WindowedAggregate> windowed = new ArrayList<>();
@@ -213,7 +215,7 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     private InterpretedPipeline(
             RowArena arena,
-            RowProcessor head,
+            @Nullable RowProcessor head,
             List<ScanOperator> scans,
             RowOutput output,
             List<OperatorMetrics> operators) {
@@ -643,7 +645,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /** One page of one operator's state, filtered by key (ADR-048). On the lane's own thread. */
-    public OperatorState.Page inspectState(String id, String keyFilter, int offset, int limit) {
+    public OperatorState.Page inspectState(String id, @Nullable String keyFilter, int offset, int limit) {
         return stateIndex().page(id, keyFilter, offset, limit);
     }
 
@@ -1185,9 +1187,13 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<OperatorMetrics> ordered = new ArrayList<>();
 
         /** Null when measurement is off, which is what removes the wrappers entirely. */
-        private final OperatorClock clock;
+        private final @Nullable OperatorClock clock;
 
-        Builder(RowArena arena, RowOutput sink, Map<String, LookupSourcePlugin> lookups, PhysicalOperator measured) {
+        Builder(
+                RowArena arena,
+                RowOutput sink,
+                Map<String, LookupSourcePlugin> lookups,
+                @Nullable PhysicalOperator measured) {
             this.arena = arena;
             this.sink = sink;
             this.lookups = lookups;
@@ -1226,7 +1232,12 @@ public final class InterpretedPipeline implements AutoCloseable {
         /** The rows {@code operator} consumes, counted. {@code self} itself when measurement is off. */
         private RowProcessor entering(PhysicalOperator operator, RowProcessor self) {
             OperatorMetrics metrics = counters.get(operator);
-            return metrics == null ? self : metrics.entering(self, clock, operator instanceof ScanOperator);
+            return metrics == null
+                    ? self
+                    : metrics.entering(
+                            self,
+                            java.util.Objects.requireNonNull(clock, "measured"),
+                            operator instanceof ScanOperator);
         }
 
         /** {@link #entering}, marked as the point a row reaches state (DLQPROJ-1, {@link RowGuard}). */
@@ -1286,7 +1297,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                 case FilterOperator f -> {
                     RowProcessor fused = generate ? GeneratedChains.generated(f, arena, downstream, paths) : null;
                     if (fused != null) {
-                        yield buildInput(GeneratedChains.scanUnder(f), fused);
+                        yield buildInput(
+                                java.util.Objects.requireNonNull(
+                                        GeneratedChains.scanUnder(f), "a fused chain ends at a scan"),
+                                fused);
                     }
                     RowProcessor self = row -> {
                         if (f.predicate().test(row)) {
@@ -1298,7 +1312,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                 case ProjectOperator p -> {
                     RowProcessor fused = generate ? GeneratedChains.generated(p, arena, downstream, paths) : null;
                     if (fused != null) {
-                        yield buildInput(GeneratedChains.scanUnder(p), fused);
+                        yield buildInput(
+                                java.util.Objects.requireNonNull(
+                                        GeneratedChains.scanUnder(p), "a fused chain ends at a scan"),
+                                fused);
                     }
                     RowProcessor self = RowStages.projector(p, arena, downstream);
                     yield buildInput(p.input(), entering(p, self));

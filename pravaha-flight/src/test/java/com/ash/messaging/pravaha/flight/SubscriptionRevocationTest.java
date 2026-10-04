@@ -67,9 +67,16 @@ class SubscriptionRevocationTest {
             .field("total", Types.int64())
             .build();
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private FlightClient client;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private com.ash.messaging.pravaha.registry.QueryRegistry registry;
 
     @AfterEach

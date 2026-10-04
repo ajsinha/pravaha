@@ -60,7 +60,8 @@ public final class CatalogStatistics {
     }
 
     void decided(Privilege privilege, boolean allow) {
-        (allow ? allowed : denied).get(privilege).increment();
+        java.util.Objects.requireNonNull((allow ? allowed : denied).get(privilege))
+                .increment();
     }
 
     void cacheHit() {
@@ -73,7 +74,8 @@ public final class CatalogStatistics {
 
     /** Decisions on {@code privilege} that allowed ({@code allow}) or refused. */
     public long decisions(Privilege privilege, boolean allow) {
-        return (allow ? allowed : denied).get(privilege).sum();
+        return java.util.Objects.requireNonNull((allow ? allowed : denied).get(privilege))
+                .sum();
     }
 
     /** Decisions answered from the cache. */

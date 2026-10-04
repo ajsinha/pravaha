@@ -282,7 +282,7 @@ class OperatorMetricsTest {
     }
 
     private static void feed(RowArena arena, InterpretedPipeline pipeline, StreamSchema schema, long second) {
-        RowLayout layout = RowLayout.of(schema);
+        RowLayout layout = RowLayout.of(java.util.Objects.requireNonNull(schema));
         BinaryRowWriter writer = new BinaryRowWriter(layout);
         long handle = arena.allocate(layout.rowSize(64));
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
@@ -290,6 +290,8 @@ class OperatorMetricsTest {
         writer.setLong(1, second);
         writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
-        pipeline.accept(schema.name(), new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+        pipeline.accept(
+                java.util.Objects.requireNonNull(schema).name(),
+                new BinaryRowView(layout).wrap(arena.regionOf(handle), arena.offsetOf(handle)));
     }
 }

@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -428,7 +429,7 @@ class ReplacementSinkHandoverTest {
     record Warehouses(Warehouse warehouse) implements SinkFactory {
 
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
             return new SinkCapabilities(EnumSet.of(EmitMode.UPSERT, EmitMode.RETRACT), true, true, 0);
         }
 
@@ -444,7 +445,7 @@ class ReplacementSinkHandoverTest {
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
+        public StreamSinkPlugin open(@Nullable String sinkName) {
             return new WarehouseSink(warehouse);
         }
 

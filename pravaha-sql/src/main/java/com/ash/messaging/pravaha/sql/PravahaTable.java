@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.sql;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.impl.AbstractTable;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
@@ -73,12 +74,12 @@ public final class PravahaTable extends AbstractTable implements org.apache.calc
      * Calcite validation error about system time.
      */
     @Override
-    public String getSysStartFieldName() {
+    public @Nullable String getSysStartFieldName() {
         return null;
     }
 
     @Override
-    public String getSysEndFieldName() {
+    public @Nullable String getSysEndFieldName() {
         return null;
     }
 

@@ -21,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * An equality index over one column of a view: for each value, the rows holding it, by key
  * (ADR-055).
@@ -101,7 +103,7 @@ final class EqualityIndex<K> {
     }
 
     /** The rows whose indexed column is {@code value}; none for a {@code null} value. */
-    List<Object[]> rowsWith(Object value) {
+    List<Object[]> rowsWith(@Nullable Object value) {
         if (value == null) {
             return List.of();
         }

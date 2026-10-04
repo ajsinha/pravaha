@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.flight;
 
 import java.util.function.UnaryOperator;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What the Flight endpoint tells an observer: each call as it starts and ends, and each subscription
  * the engine ended because the caller was no longer entitled to it.
@@ -60,7 +62,7 @@ public interface FlightObservation {
     /** Observes nothing. */
     FlightObservation NONE = new FlightObservation() {
         @Override
-        public Call begin(String operation, String query, UnaryOperator<String> header) {
+        public Call begin(String operation, @Nullable String query, UnaryOperator<String> header) {
             return NO_CALL;
         }
 
@@ -76,7 +78,7 @@ public interface FlightObservation {
      * @param header the call's propagation headers by name ({@code traceparent}, {@code tracestate},
      *     {@code baggage}, {@code x-correlation-id}), null for one it did not send
      */
-    Call begin(String operation, String query, UnaryOperator<String> header);
+    Call begin(String operation, @Nullable String query, UnaryOperator<String> header);
 
     /** The engine ended a subscription: {@link #CREDENTIAL_REVOKED}, {@link #ACCESS_WITHDRAWN} or {@link #NARROWING_CHANGED}. */
     void subscriptionEnded(String reason);

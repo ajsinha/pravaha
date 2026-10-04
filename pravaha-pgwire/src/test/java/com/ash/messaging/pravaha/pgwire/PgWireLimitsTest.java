@@ -58,7 +58,9 @@ class PgWireLimitsTest {
 
     private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
+
     private final List<Socket> sockets = new ArrayList<>();
 
     @AfterEach
@@ -96,7 +98,7 @@ class PgWireLimitsTest {
     private static PgTestClient signedIn(int port, String password) throws IOException {
         PgTestClient client = new PgTestClient(port);
         client.startup(Map.of("user", "dana"));
-        assertThat(client.read().type()).isEqualTo('R');
+        assertThat(java.util.Objects.requireNonNull(client.read()).type()).isEqualTo('R');
         client.password(password);
         assertThat(PgTestClient.shape(client.readUntilReady())).endsWith("Z");
         return client;
@@ -137,7 +139,7 @@ class PgWireLimitsTest {
         start(StaticTokenVerifier.of("s3cret", DANA), PgWireLimits.DEFAULTS);
         try (PgTestClient client = new PgTestClient(server.port())) {
             client.startup(Map.of("user", "dana"));
-            assertThat(client.read().type()).isEqualTo('R');
+            assertThat(java.util.Objects.requireNonNull(client.read()).type()).isEqualTo('R');
             // The QI-012 attack: a 'p' declaring 16 MiB, and then nothing. It used to be allocated in
             // full and held for the handshake's ten seconds; sixty of them ended a 1 GiB node.
             client.raw(ByteBuffer.allocate(5)
@@ -153,6 +155,7 @@ class PgWireLimitsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void anSslRequestWithPaddingIsAProtocolViolationNotABufferToFill() throws Exception {
         start(null, PgWireLimits.DEFAULTS);
         try (PgTestClient client = new PgTestClient(server.port())) {
@@ -183,6 +186,7 @@ class PgWireLimitsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void pastMaxConnectionsANewSocketIsRefusedAndAClosedOneFreesItsSlot() throws Exception {
         start(null, limits(2, 0, 2, Duration.ofSeconds(30), 1 << 20, Duration.ZERO));
         Socket first = silent();
@@ -233,6 +237,7 @@ class PgWireLimitsTest {
     // ------------------------------------------------------------------ after authentication
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aSignedInMessageLargerThanMaxMessageSizeIsRefusedAndOneUnderItIsReadInPieces() throws Exception {
         start(null, limits(10, 0, 4, Duration.ofSeconds(10), 256 * 1024, Duration.ZERO));
         try (PgTestClient client = new PgTestClient(server.port())) {
@@ -255,7 +260,7 @@ class PgWireLimitsTest {
         PgTestClient first = signedIn(server.port(), "s3cret");
         try (PgTestClient second = new PgTestClient(server.port())) {
             second.startup(Map.of("user", "dana"));
-            assertThat(second.read().type()).isEqualTo('R');
+            assertThat(java.util.Objects.requireNonNull(second.read()).type()).isEqualTo('R');
             second.password("s3cret");
             List<PgTestClient.Message> answer = second.readUntilReady();
             Map<Character, String> error =
@@ -273,6 +278,7 @@ class PgWireLimitsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void anIdleSignedInConnectionIsEndedWith57P05AfterIdleTimeout() throws Exception {
         start(null, limits(10, 0, 4, Duration.ofSeconds(10), 1 << 20, Duration.ofMillis(300)));
         try (PgTestClient client = new PgTestClient(server.port())) {
@@ -341,6 +347,7 @@ class PgWireLimitsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aRevokedCredentialEndsItsOpenConnectionAtTheNextExtendedQueryMessageToo() throws Exception {
         Revocable verifier = new Revocable();
         verifier.valid.put("prv_session", DANA);
@@ -365,6 +372,7 @@ class PgWireLimitsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aCredentialThatNowVerifiesWithFewerRolesIsTheOneTheNextStatementRunsAs() throws Exception {
         Revocable verifier = new Revocable();
         verifier.valid.put("prv_key", DANA);

@@ -51,6 +51,7 @@ import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.parquet.ParquetUtil;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -90,7 +91,10 @@ final class IcebergSinkTable {
     private final Schema schema;
     private final boolean upsert;
     private final HadoopTables tables = new HadoopTables(new Configuration());
+
+    @SuppressWarnings("NullAway.Init") // open() loads or creates it before anything reads it
     private Table table;
+
     private long rowsApplied;
 
     IcebergSinkTable(String instanceName, Path root, Schema schema, boolean upsert) {
@@ -203,7 +207,7 @@ final class IcebergSinkTable {
      * Commits the Parquet files in {@code directory} as one snapshot, labelled when {@code txn} is
      * not null. Data only is an append; any delete file makes it a row delta.
      */
-    void commit(Path directory, String txn, long label) {
+    void commit(Path directory, @Nullable String txn, long label) {
         List<Path> files = filesIn(directory);
         if (files.isEmpty()) {
             return;

@@ -84,9 +84,16 @@ final class SubscriptionIngestCostTest {
     /** Rows between commits, standing in for a publish tick. */
     private static final int COMMIT_EVERY = 250;
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryRegistry registry;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private FlightClient client;
 
     @AfterEach
@@ -137,7 +144,7 @@ final class SubscriptionIngestCostTest {
         // twentieth of one's rate -- and that is what this still fails. Twice was a statement about the
         // machine: twenty subscriber threads woken per commit on a two-vCPU CI runner share the CPU with
         // ingest, and measured 47% of the one-subscriber rate there while the claim held.
-        assertThat(inProcess.get(20) * 5)
+        assertThat(java.util.Objects.requireNonNull(inProcess.get(20)) * 5)
                 .as(
                         "%n%s%nload average %s%nTwenty in-process subscribers must not cost twenty times "
                                 + "what one costs: what a commit does per subscriber is filter the changes "

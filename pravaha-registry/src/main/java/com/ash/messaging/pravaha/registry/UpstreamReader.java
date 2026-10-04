@@ -22,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -71,7 +73,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
     private boolean resync;
     private final ArrayDeque<Pending> ready = new ArrayDeque<>();
     private final Map<RowKey, Object[]> image = new HashMap<>();
-    private Map<RowKey, Object> undo;
+    private @Nullable Map<RowKey, Object> undo;
     private long frontier = Long.MIN_VALUE;
     private long frontierAtFreeze = Long.MIN_VALUE;
     private long sequence;
@@ -84,7 +86,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
     @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
     private record Pending(Object[] row, long weight, long frontier) {}
 
-    UpstreamReader(String upstream, ServedView view, StreamSchema schema, byte[] restoredImage) {
+    UpstreamReader(String upstream, ServedView view, StreamSchema schema, byte @Nullable [] restoredImage) {
         this.upstream = upstream;
         this.view = view;
         this.schema = schema;
@@ -340,7 +342,7 @@ final class UpstreamReader implements PartitionReader, AnswerListener {
 
     /** A view key, compared by content -- including a {@code BYTES} column's. */
     @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
-    private record RowKey(Object[] values) {
+    private record RowKey(Object @Nullable [] values) {
         @Override
         public boolean equals(Object other) {
             return other instanceof RowKey key && Arrays.deepEquals(values, key.values);

@@ -47,6 +47,7 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.ipc.message.IpcOption;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 
@@ -92,6 +93,7 @@ final class ObservedFlightProducer implements FlightProducer {
             this.values = values;
         }
 
+        @Nullable
         String get(String name) {
             return values.get(name);
         }
@@ -148,7 +150,7 @@ final class ObservedFlightProducer implements FlightProducer {
         return Set.copyOf(known);
     }
 
-    private static String firstField(byte[] body) {
+    private static @Nullable String firstField(byte[] body) {
         try {
             List<String> fields = ControlWire.decode(body);
             return fields.isEmpty() ? null : fields.get(0);
@@ -157,7 +159,7 @@ final class ObservedFlightProducer implements FlightProducer {
         }
     }
 
-    private static String subscribedView(byte[] ticket) {
+    private static @Nullable String subscribedView(byte[] ticket) {
         try {
             List<String> fields = ControlWire.decode(ticket);
             return fields.size() >= 2 ? fields.get(1) : null;
@@ -168,7 +170,7 @@ final class ObservedFlightProducer implements FlightProducer {
 
     // ------------------------------------------------------------------ bracketing
 
-    private FlightObservation.Call begin(CallContext context, String operation, String query) {
+    private FlightObservation.Call begin(CallContext context, String operation, @Nullable String query) {
         Headers headers = context == null ? null : context.getMiddleware(KEY);
         try {
             return observation.begin(operation, query, name -> headers == null ? null : headers.get(name));
@@ -184,7 +186,7 @@ final class ObservedFlightProducer implements FlightProducer {
      * and a failure only a throw could mark would read as a success.
      */
     private <T> T observed(
-            CallContext context, String operation, String query, Function<FlightObservation.Call, T> work) {
+            CallContext context, String operation, @Nullable String query, Function<FlightObservation.Call, T> work) {
         FlightObservation.Call call = begin(context, operation, query);
         try {
             return work.apply(call);
@@ -197,7 +199,7 @@ final class ObservedFlightProducer implements FlightProducer {
     }
 
     private void observedVoid(
-            CallContext context, String operation, String query, Consumer<FlightObservation.Call> work) {
+            CallContext context, String operation, @Nullable String query, Consumer<FlightObservation.Call> work) {
         observed(context, operation, query, call -> {
             work.accept(call);
             return null;

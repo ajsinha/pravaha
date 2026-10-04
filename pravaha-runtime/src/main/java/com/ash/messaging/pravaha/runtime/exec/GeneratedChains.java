@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.arena.RowArena;
@@ -53,7 +55,7 @@ import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
  */
 public final class GeneratedChains {
 
-    private static volatile StageGenerator installed;
+    private static volatile @Nullable StageGenerator installed;
 
     private GeneratedChains() {}
 
@@ -63,17 +65,17 @@ public final class GeneratedChains {
      * <p>Process-wide and read at compile time, like {@link InterpretedPipeline#measureOperators}: a
      * query already running keeps the path it was built on.
      */
-    public static void install(StageGenerator generator) {
+    public static void install(@Nullable StageGenerator generator) {
         installed = generator;
     }
 
     /** The installed generator, or null when every query runs interpreted. */
-    public static StageGenerator installed() {
+    public static @Nullable StageGenerator installed() {
         return installed;
     }
 
     /** The scan a chain of filters and projections stands on, or null if something else intervenes. */
-    static ScanOperator scanUnder(PhysicalOperator operator) {
+    static @Nullable ScanOperator scanUnder(PhysicalOperator operator) {
         PhysicalOperator current = operator;
         while (current instanceof FilterOperator || current instanceof ProjectOperator) {
             current = current.inputs().get(0);
@@ -97,7 +99,8 @@ public final class GeneratedChains {
      *
      * @param paths where the outcome is recorded, generated or not
      */
-    static RowProcessor generated(PhysicalOperator root, RowArena arena, RowProcessor downstream, List<String> paths) {
+    static @Nullable RowProcessor generated(
+            PhysicalOperator root, RowArena arena, RowProcessor downstream, List<String> paths) {
         StageGenerator generator = installed;
         if (generator == null || scanUnder(root) == null) {
             return null;
@@ -114,7 +117,8 @@ public final class GeneratedChains {
             return null;
         }
         paths.add("generated: " + describe(root) + " -- " + outcome.reason());
-        GeneratedRowStage stage = outcome.stage();
+        GeneratedRowStage stage =
+                java.util.Objects.requireNonNull(outcome.stage(), "a generated outcome has its stage");
         RowProcessor fallback = interpreted(root, arena, downstream);
         return stage.projects()
                 ? projecting(stage, root, arena, downstream, fallback)

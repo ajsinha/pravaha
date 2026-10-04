@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -155,7 +156,7 @@ class TransactionalSinkDeliveryTest {
         feed(query, "u1", 300L);
         feed(query, "u2", 50L);
         query.commit();
-        before.sink("orders").dieInsteadOfCommitting();
+        java.util.Objects.requireNonNull(before.sink("orders")).dieInsteadOfCommitting();
         checkpointerOf(query).checkpointNow();
 
         assertThat(orders.prepared())
@@ -665,12 +666,13 @@ class TransactionalSinkDeliveryTest {
             return this;
         }
 
+        @Nullable
         TxnSink sink(String name) {
             return opened.get(name);
         }
 
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
             if (databases.containsKey(sinkName)) {
                 return TRANSACTIONAL;
             }
@@ -682,7 +684,8 @@ class TransactionalSinkDeliveryTest {
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
+        @SuppressWarnings("NullAway") // the engine names a sink whenever it opens one
+        public StreamSinkPlugin open(@Nullable String sinkName) {
             if (databases.containsKey(sinkName)) {
                 TxnSink sink = new TxnSink(databases.get(sinkName));
                 opened.put(sinkName, sink);

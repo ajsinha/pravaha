@@ -26,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
 
 /**
@@ -73,7 +75,7 @@ public final class MappedFileMemoryRegion implements MemoryRegion {
 
     private final int capacity;
     private final Path file;
-    private MappedByteBuffer buffer;
+    private @Nullable MappedByteBuffer buffer;
     private boolean closed;
 
     /** Told once, when the region closes: how the access that mapped it gives its bytes back to the quota. */
@@ -88,10 +90,11 @@ public final class MappedFileMemoryRegion implements MemoryRegion {
     }
 
     private MappedByteBuffer buf() {
-        if (closed) {
+        MappedByteBuffer b = buffer;
+        if (closed || b == null) {
             throw new IllegalStateException("region is closed");
         }
-        return buffer;
+        return b;
     }
 
     @Override

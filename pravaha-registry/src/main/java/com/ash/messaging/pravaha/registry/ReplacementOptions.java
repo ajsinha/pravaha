@@ -20,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.backfill.BackfillErrors;
 
@@ -150,7 +152,7 @@ public record ReplacementOptions(
     }
 
     /** Reads back what {@link #toString} wrote. Anything missing keeps its default. */
-    public static ReplacementOptions parse(String encoded) {
+    public static ReplacementOptions parse(@Nullable String encoded) {
         ReplacementOptions options = defaults();
         if (encoded == null || encoded.isBlank()) {
             return options;

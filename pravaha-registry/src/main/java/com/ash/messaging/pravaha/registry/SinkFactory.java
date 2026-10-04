@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.registry;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
 import com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin;
 
@@ -34,14 +36,15 @@ public interface SinkFactory {
     /** A factory that has no sinks, which is correct for an embedded engine and for most tests. */
     SinkFactory NONE = new SinkFactory() {
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
             throw new IllegalArgumentException("no sink named '" + sinkName
                     + "' is bound: this engine has no sink factory, so nothing can be written out. "
                     + "Bind one under pravaha.sinks.<name>.");
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
+        @SuppressWarnings("NullAway") // unreachable: capabilitiesOf refuses first, so nothing is returned
+        public StreamSinkPlugin open(@Nullable String sinkName) {
             // Unreachable in practice: capabilitiesOf refuses first, and a registration is refused
             // before anything tries to open what it named.
             var _ = capabilitiesOf(sinkName);
@@ -58,7 +61,7 @@ public interface SinkFactory {
      * append-only sink corrupts it <em>silently</em>, with rows that are each individually correct
      * and a total that is wrong for ever.
      */
-    SinkCapabilities capabilitiesOf(String sinkName);
+    SinkCapabilities capabilitiesOf(@Nullable String sinkName);
 
     /**
      * Everything a registration checks about a sink before opening it: what it accepts, the row shape
@@ -107,7 +110,7 @@ public interface SinkFactory {
     }
 
     /** The sink itself, opened and ready to be written to. */
-    StreamSinkPlugin open(String sinkName);
+    StreamSinkPlugin open(@Nullable String sinkName);
 
     /**
      * Lets go of a sink {@link #open} returned, when the registration writing to it is dropped.

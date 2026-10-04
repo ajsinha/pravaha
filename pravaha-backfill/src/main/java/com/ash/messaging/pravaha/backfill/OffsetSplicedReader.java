@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.function.LongSupplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
@@ -72,14 +74,14 @@ public final class OffsetSplicedReader implements PartitionReader {
     private final Partition partition;
 
     /** The seam, or null when this stream has none and one reader covers both phases. */
-    private final SourceOffset splice;
+    private final @Nullable SourceOffset splice;
 
     private final BackfillJob job;
     private final LongSupplier clock;
     private final long graceNanos;
 
-    private PartitionReader history;
-    private PartitionReader live;
+    private @Nullable PartitionReader history;
+    private @Nullable PartitionReader live;
     private BackfillPhase phase;
 
     private long historyRows;
@@ -97,7 +99,11 @@ public final class OffsetSplicedReader implements PartitionReader {
      * @param job the control and progress this backfill reports to and is throttled by
      */
     public OffsetSplicedReader(
-            Partition partition, SourceOffset historyFrom, SourceOffset splice, BackfillJob job, boolean historyDone) {
+            Partition partition,
+            SourceOffset historyFrom,
+            @Nullable SourceOffset splice,
+            BackfillJob job,
+            boolean historyDone) {
         this(partition, historyFrom, splice, job, historyDone, System::nanoTime, DEFAULT_GRACE_NANOS);
     }
 
@@ -107,7 +113,7 @@ public final class OffsetSplicedReader implements PartitionReader {
     OffsetSplicedReader(
             Partition partition,
             SourceOffset historyFrom,
-            SourceOffset splice,
+            @Nullable SourceOffset splice,
             BackfillJob job,
             boolean historyDone,
             LongSupplier clock,
@@ -155,7 +161,7 @@ public final class OffsetSplicedReader implements PartitionReader {
             return 0;
         }
         if (phase == BackfillPhase.LIVE) {
-            int moved = live.poll(sink, maxRecords);
+            int moved = liveReader().poll(sink, maxRecords);
             liveRows += moved;
             return moved;
         }
@@ -176,7 +182,7 @@ public final class OffsetSplicedReader implements PartitionReader {
         Counting counting = new Counting(sink);
         while (consumedThisPoll < budget) {
             counting.rejected = 0;
-            int read = history.poll(counting, 1);
+            int read = historyReader().poll(counting, 1);
             // A record the reader set aside on the dead-letter queue is a record read: the reader's
             // position has moved past it (PartitionReader#poll counts it against maxRecords). Before
             // REPL-2 only delivered rows counted, so a poll whose one record was rejected looked like
@@ -194,7 +200,7 @@ public final class OffsetSplicedReader implements PartitionReader {
                 tokens -= consumed;
             }
             firstEmptyPollNanos = Long.MIN_VALUE;
-            if (splice != null && splice.equals(history.position())) {
+            if (splice != null && splice.equals(historyReader().position())) {
                 spliceNow();
                 break;
             }
@@ -262,13 +268,23 @@ public final class OffsetSplicedReader implements PartitionReader {
         }
     }
 
+    /** The history reader; there is one until the splice. */
+    private PartitionReader historyReader() {
+        return java.util.Objects.requireNonNull(history, "history is read only before the splice");
+    }
+
+    /** The live reader; there is one from the splice on. */
+    private PartitionReader liveReader() {
+        return java.util.Objects.requireNonNull(live, "the live stream is read only after the splice");
+    }
+
     /** Hands over to the live stream: the same reader when there is no seam, a new one at it. */
     private void spliceNow() {
         if (splice == null) {
-            live = history;
+            live = historyReader();
         } else {
             live = partition.openAt(splice);
-            history.close();
+            historyReader().close();
         }
         history = null;
         phase = BackfillPhase.LIVE;
@@ -302,9 +318,9 @@ public final class OffsetSplicedReader implements PartitionReader {
     @Override
     public SourceOffset position() {
         if (phase == BackfillPhase.LIVE) {
-            return live.position();
+            return liveReader().position();
         }
-        return new SourceOffset(encode(splice, history.position()));
+        return new SourceOffset(encode(splice, historyReader().position()));
     }
 
     /** True when {@code token} was taken while a backfill was still reading history. */
@@ -313,12 +329,12 @@ public final class OffsetSplicedReader implements PartitionReader {
     }
 
     /** {@code pravaha-backfill:1:<seam>:<history>}, each base64 so a token may hold anything. */
-    public static String encode(SourceOffset splice, SourceOffset history) {
+    public static String encode(@Nullable SourceOffset splice, SourceOffset history) {
         return TOKEN_PREFIX + base64(splice == null ? null : splice.token()) + ":" + base64(history.token());
     }
 
     /** The seam a backfill token carries, or null when the stream it names has none. */
-    public static SourceOffset spliceOf(String token) {
+    public static @Nullable SourceOffset spliceOf(String token) {
         String encoded = field(token, 0);
         return encoded == null ? null : new SourceOffset(encoded);
     }
@@ -329,11 +345,11 @@ public final class OffsetSplicedReader implements PartitionReader {
         return encoded == null ? SourceOffset.BEGINNING : new SourceOffset(encoded);
     }
 
-    private static String base64(String value) {
+    private static String base64(@Nullable String value) {
         return value == null ? "-" : Base64.getUrlEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String field(String token, int index) {
+    private static @Nullable String field(String token, int index) {
         if (!isBackfillToken(token)) {
             throw new IllegalArgumentException("'" + token + "' is not a backfill position");
         }

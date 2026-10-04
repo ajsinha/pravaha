@@ -89,6 +89,7 @@ class SubstringRangeTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void ty22_aLengthAtTheTopOfTheRangeReturnsTheWholeValueRatherThanNothing() {
         // The finding's own reproduction. `1 + Long.MAX_VALUE` wrapped to Long.MIN_VALUE, so the
         // window was empty and a non-empty column came back as "".
@@ -110,6 +111,7 @@ class SubstringRangeTest {
                 .isEmpty();
     }
 
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     private static String substring(String subject, long start, long length) {
         return new Expression.Substring(text(subject), number(start), number(length)).evaluateString(null);
     }

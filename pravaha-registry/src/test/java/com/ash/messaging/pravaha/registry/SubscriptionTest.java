@@ -594,6 +594,7 @@ class SubscriptionTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void strm14DroppingOneNameEndsOnlyTheSubscriptionsOpenedUnderIt() {
         // STRM-14. Two registrations over byte-identical SQL are one computation with two names.
         // Dropping one removed the name and the view but left the computation running, so a

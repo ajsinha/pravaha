@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -431,7 +432,7 @@ class SinkDeliveryTest {
         }
 
         @Override
-        public SinkCapabilities capabilitiesOf(String sinkName) {
+        public SinkCapabilities capabilitiesOf(@Nullable String sinkName) {
             SinkCapabilities capabilities = bound.get(sinkName);
             if (capabilities == null) {
                 throw new IllegalArgumentException("no sink named '" + sinkName + "' is bound");
@@ -440,7 +441,8 @@ class SinkDeliveryTest {
         }
 
         @Override
-        public StreamSinkPlugin open(String sinkName) {
+        @SuppressWarnings("NullAway") // the engine names a sink whenever it opens one
+        public StreamSinkPlugin open(@Nullable String sinkName) {
             capabilitiesOf(sinkName);
             opened++;
             return sink(sinkName);
@@ -466,7 +468,7 @@ class SinkDeliveryTest {
             this(sinkName, capabilities, List.of());
         }
 
-        RecordingSink(String sinkName, SinkCapabilities capabilities, List<String> keyColumns) {
+        RecordingSink(String sinkName, @Nullable SinkCapabilities capabilities, List<String> keyColumns) {
             this.sinkName = sinkName;
             this.capabilities = capabilities == null ? SinkCapabilities.appendOnly() : capabilities;
             this.keyColumns = List.copyOf(keyColumns);

@@ -22,6 +22,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.serving.Retention;
 
@@ -202,7 +204,7 @@ public record RegistrationOptions(
     }
 
     /** {@code 24h}, {@code 7d}, {@code 30m}, {@code 90s}, {@code 2w}; null when it is not one. */
-    private static Duration shortForm(String text) {
+    private static @Nullable Duration shortForm(String text) {
         if (!text.matches("(?i)[0-9]{1,9}\\s*[smhdw]")) {
             return null;
         }

@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongPredicate;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
@@ -60,14 +62,15 @@ final class DistinctValueCounts implements AutoCloseable {
     private static final int OFFSET_GROUP = OFFSET_GROUP_LENGTH + Integer.BYTES;
 
     private final MemoryAccess access;
-    private final MemoryAccess overflowAccess;
+    private final @Nullable MemoryAccess overflowAccess;
     private final int maxOverflowSlabs;
     private final int ramMaxSlabs;
 
     private VariableKeyStateMap map;
     private MemoryRegion keyScratch;
 
-    DistinctValueCounts(MemoryAccess access, int ramMaxSlabs, MemoryAccess overflowAccess, int maxOverflowSlabs) {
+    DistinctValueCounts(
+            MemoryAccess access, int ramMaxSlabs, @Nullable MemoryAccess overflowAccess, int maxOverflowSlabs) {
         this.access = access;
         this.overflowAccess = overflowAccess;
         this.maxOverflowSlabs = maxOverflowSlabs;
@@ -87,7 +90,8 @@ final class DistinctValueCounts implements AutoCloseable {
     }
 
     /** Writes a key into the scratch region, growing it for a long one, and returns its length. */
-    private int writeKey(long keyHigh, long keyLow, long sliceStart, int column, Object[] keyValues, byte[] identity) {
+    private int writeKey(
+            long keyHigh, long keyLow, long sliceStart, int column, Object @Nullable [] keyValues, byte[] identity) {
         int groupLength = TaggedValues.groupIdentityLength(keyValues);
         int length = OFFSET_GROUP + groupLength + identity.length;
         if (keyScratch.capacity() < length) {
@@ -111,7 +115,14 @@ final class DistinctValueCounts implements AutoCloseable {
      *     0} if its presence did not change -- which is what keeps a slice's own distinct count exact
      *     without counting the entries again
      */
-    int add(long keyHigh, long keyLow, long sliceStart, int column, Object[] keyValues, Object value, long weight) {
+    int add(
+            long keyHigh,
+            long keyLow,
+            long sliceStart,
+            int column,
+            Object @Nullable [] keyValues,
+            @Nullable Object value,
+            long weight) {
         if (weight == 0) {
             return 0;
         }
@@ -211,10 +222,11 @@ final class DistinctValueCounts implements AutoCloseable {
     }
 
     /** The group's own key columns, which name it where its digest might not. */
-    Object[] keyValuesOf(long handle) {
+    Object @Nullable [] keyValuesOf(long handle) {
         return TaggedValues.readGroupIdentity(map.keyRegionOf(handle), map.keyOffsetOf(handle) + OFFSET_GROUP);
     }
 
+    @Nullable
     Object valueOf(long handle) {
         int valueOffset = OFFSET_GROUP + groupLengthOf(handle);
         int length = map.keyLengthOf(handle) - valueOffset;
@@ -296,6 +308,7 @@ final class DistinctValueCounts implements AutoCloseable {
         return access;
     }
 
+    @Nullable
     MemoryAccess overflowAccess() {
         return overflowAccess;
     }

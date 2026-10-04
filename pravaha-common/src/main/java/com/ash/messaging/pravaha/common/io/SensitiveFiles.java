@@ -22,6 +22,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Files that hold data rather than configuration.
  *
@@ -96,7 +98,8 @@ public final class SensitiveFiles {
      * survives -- while leaving a deliberate restriction alone. A caller wanting to widen has to say
      * so somewhere that reads like widening.
      */
-    private static java.util.Set<java.nio.file.attribute.PosixFilePermission> narrow(Path target, String mode) {
+    private static java.util.@Nullable Set<java.nio.file.attribute.PosixFilePermission> narrow(
+            Path target, String mode) {
         if (!target.getFileSystem().supportedFileAttributeViews().contains("posix")) {
             return null;
         }

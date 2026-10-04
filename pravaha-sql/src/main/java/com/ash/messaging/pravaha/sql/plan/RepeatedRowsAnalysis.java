@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.EmitMode;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
@@ -84,8 +86,8 @@ public final class RepeatedRowsAnalysis {
     public static void check(
             PhysicalOperator plan,
             Function<String, Optional<String>> repeating,
-            SinkCapabilities sink,
-            String sinkName) {
+            @Nullable SinkCapabilities sink,
+            @Nullable String sinkName) {
         Map<String, Optional<String>> asked = new LinkedHashMap<>();
         Function<String, Optional<String>> once = stream -> asked.computeIfAbsent(stream, repeating);
         Optional<Repeating> repeated = firstRepeating(plan, once);
@@ -109,7 +111,8 @@ public final class RepeatedRowsAnalysis {
      * The lowest operator whose answer depends on multiplicity and which reads, directly or below it,
      * a stream from a source that repeats; null when there is none.
      */
-    private static String offendingOperator(PhysicalOperator plan, Function<String, Optional<String>> repeating) {
+    private static @Nullable String offendingOperator(
+            PhysicalOperator plan, Function<String, Optional<String>> repeating) {
         for (PhysicalOperator input : plan.inputs()) {
             String below = offendingOperator(input, repeating);
             if (below != null) {

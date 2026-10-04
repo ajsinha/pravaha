@@ -22,6 +22,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -133,12 +135,12 @@ public final class FilterVacuity {
      * @param predicate the compiled filter, planned directly over {@code schema}'s columns; null when the
      *     planner folded the filter away, which is {@link Verdict#ALWAYS_TRUE}
      */
-    public static Verdict of(Predicate predicate, StreamSchema schema) {
+    public static Verdict of(@Nullable Predicate predicate, StreamSchema schema) {
         return of(predicate, schema, BUDGET);
     }
 
     /** {@link #of(Predicate, StreamSchema)} with {@code limit} case splits per question. */
-    static Verdict of(Predicate predicate, StreamSchema schema, int limit) {
+    static Verdict of(@Nullable Predicate predicate, StreamSchema schema, int limit) {
         if (predicate == null) {
             return Verdict.ALWAYS_TRUE;
         }
@@ -168,7 +170,8 @@ public final class FilterVacuity {
      * @param subject what the filter is on, for the message: "the row filter on payments (region = region)"
      * @param advice what to do instead, appended to the message
      */
-    public static Verdict requireRestricts(Predicate predicate, StreamSchema schema, String subject, String advice) {
+    public static Verdict requireRestricts(
+            @Nullable Predicate predicate, StreamSchema schema, String subject, String advice) {
         Verdict verdict = of(predicate, schema);
         String why =
                 switch (verdict) {
@@ -320,7 +323,7 @@ public final class FilterVacuity {
      * through the filter -- so it is not a row the filter keeps or drops by value, and no verdict here
      * admits it.
      */
-    private Formula decimalColumnAgainstConstant(Predicate.CompareExpressions compare, boolean faceValue) {
+    private @Nullable Formula decimalColumnAgainstConstant(Predicate.CompareExpressions compare, boolean faceValue) {
         Predicate.Op op = compare.op();
         Expression columnSide = compare.left();
         java.math.BigDecimal constant = constantDecimal(compare.right());
@@ -361,7 +364,7 @@ public final class FilterVacuity {
      * The value of {@code expression} when it reads no row, is not null and is a decimal or an
      * integer; otherwise null.
      */
-    private static java.math.BigDecimal constantDecimal(Expression expression) {
+    private static java.math.@Nullable BigDecimal constantDecimal(Expression expression) {
         if (expression.type() != TypeName.DECIMAL
                 && (expression.type() == TypeName.STRING || expression.isFloatingPoint())) {
             return null;
@@ -378,7 +381,7 @@ public final class FilterVacuity {
      * rescaled to a type that holds every value it can -- no fewer fraction digits, no fewer integer
      * digits -- which is the only rescale that can neither round nor throw. Null for anything else.
      */
-    private Expression.DecimalColumn exactDecimalColumn(Expression expression) {
+    private Expression.@Nullable DecimalColumn exactDecimalColumn(Expression expression) {
         if (expression instanceof Expression.DecimalColumn column) {
             return column;
         }
@@ -456,7 +459,7 @@ public final class FilterVacuity {
         } else {
             return;
         }
-        int id = variables.get(append(key, op));
+        int id = java.util.Objects.requireNonNull(variables.get(append(key, op)));
         if (bounds.containsKey(id)) {
             return;
         }
@@ -487,10 +490,10 @@ public final class FilterVacuity {
      * leaving out a region some value lies in would be unsound, so a region is kept unless provably empty.
      */
     private List<Map<Integer, Boolean>> regions(List<Object> column) {
-        List<Integer> ids = boundsByColumn.get(column);
+        List<Integer> ids = java.util.Objects.requireNonNull(boundsByColumn.get(column), "a column with bounds");
         java.util.TreeSet<BigInteger> constants = new java.util.TreeSet<>();
         for (int id : ids) {
-            constants.add(bounds.get(id).constant());
+            constants.add(java.util.Objects.requireNonNull(bounds.get(id)).constant());
         }
         BigInteger[] domain = domain(column);
         List<Map<Integer, Boolean>> out = new ArrayList<>();
@@ -504,7 +507,8 @@ public final class FilterVacuity {
             out.add(assignment(ids, constant));
             previous = constant;
         }
-        if (previous.compareTo(domain[1]) < 0) {
+        // ids is never empty, so neither is constants and previous is set.
+        if (java.util.Objects.requireNonNull(previous).compareTo(domain[1]) < 0) {
             out.add(assignment(ids, previous.add(BigInteger.ONE)));
         }
         return out;
@@ -514,7 +518,7 @@ public final class FilterVacuity {
     private Map<Integer, Boolean> assignment(List<Integer> ids, BigInteger value) {
         Map<Integer, Boolean> out = new HashMap<>();
         for (int id : ids) {
-            Bound bound = bounds.get(id);
+            Bound bound = java.util.Objects.requireNonNull(bounds.get(id));
             out.put(id, bound.op().matches(value.compareTo(bound.constant())));
         }
         return out;
@@ -588,7 +592,7 @@ public final class FilterVacuity {
     }
 
     /** What {@code predicate} answers without reading the row, or null when it reads it. */
-    private static Boolean constant(Predicate predicate) {
+    private static @Nullable Boolean constant(Predicate predicate) {
         try {
             return predicate.test(NO_ROW);
         } catch (RuntimeException readsTheRowOrFails) {

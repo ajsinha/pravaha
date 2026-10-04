@@ -98,7 +98,7 @@ class SubscriptionNarrowingTest {
 
             @Override
             public Narrowing narrowing(Principal principal, String object) {
-                return object.equals("cards") ? narrowing.get() : Narrowing.NONE;
+                return object.equals("cards") ? java.util.Objects.requireNonNull(narrowing.get()) : Narrowing.NONE;
             }
         };
         registry = new QueryRegistry(views, policy, AuditSink.NONE, PAYMENTS);
@@ -175,7 +175,8 @@ class SubscriptionNarrowingTest {
             // The policy changes: the stream ends, naming why, rather than change meaning half-way.
             narrowing.set(new Narrowing(Optional.empty(), Map.of("card", "'XXXX'"), List.of()));
             assertThat(await(() -> listener.error.get() != null)).isTrue();
-            assertThat(listener.error.get().getMessage()).contains("PRV-7007");
+            assertThat(java.util.Objects.requireNonNull(listener.error.get()).getMessage())
+                    .contains("PRV-7007");
             streaming.join(Duration.ofSeconds(10).toMillis());
         }
     }
@@ -189,7 +190,8 @@ class SubscriptionNarrowingTest {
                     new Ticket(ControlWire.subscribeTicket("cards", List.of("card", "4111"))),
                     listener);
             assertThat(listener.error.get()).isNotNull();
-            assertThat(listener.error.get().getMessage()).contains("PRV-7006");
+            assertThat(java.util.Objects.requireNonNull(listener.error.get()).getMessage())
+                    .contains("PRV-7006");
         }
     }
 
@@ -198,6 +200,8 @@ class SubscriptionNarrowingTest {
 
         final List<String> rows = new CopyOnWriteArrayList<>();
         final AtomicReference<Throwable> error = new AtomicReference<>();
+
+        @SuppressWarnings("NullAway.Init") // a test sets it before reading it
         private VectorSchemaRoot root;
 
         @Override

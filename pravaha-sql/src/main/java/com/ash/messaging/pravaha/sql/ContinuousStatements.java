@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -136,7 +138,7 @@ public final class ContinuousStatements {
                 return Optional.of(new ContinuousStatement.Governance(
                         com.ash.messaging.pravaha.catalog.CatalogStatements.parse(sql)));
             } catch (com.ash.messaging.pravaha.catalog.CatalogStatements.Malformed e) {
-                throw new PravahaException(SqlErrors.STATEMENT_MALFORMED, e.getMessage());
+                throw new PravahaException(SqlErrors.STATEMENT_MALFORMED, String.valueOf(e.getMessage()));
             }
         }
         Optional<String> shape = shapeOf(sql);
@@ -147,7 +149,7 @@ public final class ContinuousStatements {
         try {
             return Optional.of(reader.statement());
         } catch (StatementLexer.Unreadable e) {
-            throw reader.malformed(e.offset, e.getMessage());
+            throw reader.malformed(e.offset, String.valueOf(e.getMessage()));
         }
     }
 
@@ -194,7 +196,7 @@ public final class ContinuousStatements {
         private final String sql;
         private final String shape;
         private final StatementLexer lexer;
-        private StatementLexer.Token peeked;
+        private StatementLexer.@Nullable Token peeked;
 
         Reader(String sql, String shape) {
             this.sql = sql;
@@ -377,7 +379,11 @@ public final class ContinuousStatements {
          * ordered column has to be the last one, or the columns after it would be what an index
          * entry is sorted by.
          */
-        private List<String> withRange(List<String> keys, boolean keyedBy, String range, StatementLexer.Token at) {
+        private List<String> withRange(
+                @Nullable List<String> keys,
+                boolean keyedBy,
+                @Nullable String range,
+                StatementLexer.@Nullable Token at) {
             if (range == null) {
                 return keys == null ? List.of() : keys;
             }

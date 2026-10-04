@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.RowKind;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -93,7 +95,7 @@ public final class ViewSink {
      * precisely so a concurrent {@code subscribe} cannot widen the audience of a commit already in
      * flight.
      */
-    private List<ViewChangeListener> batchAudience;
+    private @Nullable List<ViewChangeListener> batchAudience;
 
     /**
      * Listeners waiting for their snapshot at the end of the commit in flight (SUB-1).
@@ -171,7 +173,7 @@ public final class ViewSink {
     }
 
     private void commit(long requestedFrontier, boolean atApplied) {
-        List<ViewChange> batch = List.of();
+        @Nullable List<ViewChange> batch = List.of();
         List<ViewChangeListener> audience = null;
         List<Handoff> promoted = List.of();
         long committedFrontier = requestedFrontier;
@@ -307,7 +309,7 @@ public final class ViewSink {
         }
     }
 
-    private void deliver(List<ViewChange> batch, List<ViewChangeListener> audience, long committedFrontier) {
+    private void deliver(List<ViewChange> batch, @Nullable List<ViewChangeListener> audience, long committedFrontier) {
         if (batch.isEmpty() || audience == null) {
             return;
         }
@@ -333,7 +335,7 @@ public final class ViewSink {
     }
 
     /** A commit's answer change as weighted rows: what left at {@code -1}, then what entered at {@code +1}. */
-    private static List<ViewChange> asChanges(AnswerChanges.Netted netted) {
+    private static List<ViewChange> asChanges(AnswerChanges.@Nullable Netted netted) {
         if (netted == null) {
             return List.of();
         }
@@ -571,7 +573,7 @@ public final class ViewSink {
     private static final class Handoff implements ViewChangeListener {
 
         private final ViewChangeListener target;
-        private List<ViewChange> snapshot;
+        private @Nullable List<ViewChange> snapshot;
         private long snapshotFrontier;
         private boolean closed;
 
@@ -677,13 +679,13 @@ public final class ViewSink {
     /** Collects values, then stages the finished row -- into a lane's batch, or as a batch of one. */
     private final class StagedRow implements RowWriter {
 
-        private final LaneBatch batch;
+        private final @Nullable LaneBatch batch;
         private Object[] values = new Object[schema.fields().size()];
         private long weight = 1;
         private long eventTime;
         private long sequence;
 
-        StagedRow(LaneBatch batch) {
+        StagedRow(@Nullable LaneBatch batch) {
             this.batch = batch;
         }
 

@@ -58,7 +58,7 @@ class DoubleLiteralTest {
             node = node.inputs().isEmpty() ? null : node.inputs().get(0);
         }
         assertThat(node).as("the plan should contain a filter for %s", sql).isNotNull();
-        Predicate predicate = ((FilterOperator) node).predicate();
+        Predicate predicate = ((FilterOperator) java.util.Objects.requireNonNull(node)).predicate();
         // Two shapes, because the planner does not always fold a literal comparison the same way:
         // 1.7976931348623157E308 arrives as CompareDouble and 1.5 as CompareExpressions over a
         // Literal. Both carry the compiled double, and TY-13 is about that number rather than about

@@ -61,6 +61,7 @@ class EndpointTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // null on purpose: pins the tolerance
     void aHostThatMeansWhatItSaysIsNotCalledAbbreviated_CFG2() {
         // The refusal must not catch anything an operator legitimately writes, or it becomes the
         // defect instead of the fix.

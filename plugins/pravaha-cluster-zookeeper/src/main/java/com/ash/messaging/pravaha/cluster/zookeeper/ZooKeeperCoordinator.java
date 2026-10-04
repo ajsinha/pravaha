@@ -27,6 +27,7 @@ import org.apache.curator.framework.recipes.cache.CuratorCache;
 import org.apache.curator.framework.recipes.leader.LeaderLatch;
 import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
 import org.apache.zookeeper.CreateMode;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
@@ -63,8 +64,8 @@ public final class ZooKeeperCoordinator implements ClusterCoordinator, LeaseGran
     private final PartitionLeaseCoordinator leases;
 
     private volatile List<Member> members = List.of();
-    private LeaderLatch latch;
-    private CuratorCache cache;
+    private @Nullable LeaderLatch latch;
+    private @Nullable CuratorCache cache;
 
     public ZooKeeperCoordinator(CuratorFramework curator, String root) {
         this.curator = curator;

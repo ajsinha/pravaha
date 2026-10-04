@@ -26,6 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
@@ -47,7 +49,7 @@ import com.ash.messaging.pravaha.common.io.SensitiveFiles;
  */
 final class CatalogJournal {
 
-    private final Path file;
+    private final @Nullable Path file;
 
     /** Records appended since the last compaction or replay, for deciding when to compact. */
     private int records;
@@ -61,10 +63,11 @@ final class CatalogJournal {
         return new CatalogJournal(file);
     }
 
-    private CatalogJournal(Path file) {
+    private CatalogJournal(@Nullable Path file) {
         this.file = file;
     }
 
+    @Nullable
     Path file() {
         return file;
     }

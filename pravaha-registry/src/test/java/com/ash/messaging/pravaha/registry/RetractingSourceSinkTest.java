@@ -71,6 +71,8 @@ class RetractingSourceSinkTest {
 
     private SinkDeliveryTest.RecordingSinks sinks;
     private RowArena arena;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryRegistry registry;
 
     @BeforeEach

@@ -28,6 +28,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.ViewNames;
@@ -61,7 +63,7 @@ public final class Catalog {
     private final List<Grant> grants = new ArrayList<>();
     private final Map<String, PolicyDefinition> policies = new LinkedHashMap<>();
     private final List<PolicyBinding> bindings = new ArrayList<>();
-    private String importedPolicy;
+    private @Nullable String importedPolicy;
     private volatile long generation;
     private final Map<String, java.util.concurrent.atomic.LongAdder> changes =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -228,7 +230,7 @@ public final class Catalog {
             }
             throw new PravahaException(CatalogErrors.OBJECT_EXISTS, "the namespace '" + fullName + "' exists already");
         }
-        ensureNamespace(CatalogNames.parentOf(fullName));
+        ensureNamespace(java.util.Objects.requireNonNull(CatalogNames.parentOf(fullName), fullName));
         Instant now = clock.instant();
         CatalogObject created = new CatalogObject(
                 fullName, ObjectKind.NAMESPACE, "", owner, description, Map.of(), now, by, now, by, 1);

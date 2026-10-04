@@ -82,7 +82,7 @@ class SlicedAggregateStateSpillTest {
             List<SlicedAggregateState.WindowResult> results = state.fire(10 * SECOND);
             assertThat(results).hasSize(2000);
             for (SlicedAggregateState.WindowResult result : results) {
-                long key = (Long) result.keyValues()[0];
+                long key = (Long) java.util.Objects.requireNonNull(result.keyValues())[0];
                 assertThat(result.values()).as("group %d", key).containsExactly(1, key * 10);
             }
         }
@@ -118,7 +118,7 @@ class SlicedAggregateStateSpillTest {
             List<SlicedAggregateState.WindowResult> results = restored.fire(10 * SECOND);
             assertThat(results).hasSize(2000);
             for (SlicedAggregateState.WindowResult result : results) {
-                long key = (Long) result.keyValues()[0];
+                long key = (Long) java.util.Objects.requireNonNull(result.keyValues())[0];
                 assertThat(result.values()).as("group %d", key).containsExactly(1, key * 10);
             }
 
@@ -126,7 +126,7 @@ class SlicedAggregateStateSpillTest {
             // answer a frozen fire() -- a checkpoint is a resume point, not a read-only snapshot.
             restored.update(0L, 0L * 31, new Object[] {0L}, SECOND, new long[] {0, 0L}, -1);
             assertThat(restored.fire(10 * SECOND).stream()
-                            .filter(r -> ((Long) r.keyValues()[0]) == 0L)
+                            .filter(r -> ((Long) java.util.Objects.requireNonNull(r.keyValues())[0]) == 0L)
                             .findFirst())
                     .as("the only insert for group 0 was just retracted")
                     .isEmpty();
@@ -176,7 +176,7 @@ class SlicedAggregateStateSpillTest {
             restored.update(0L, 0L, new Object[] {0L}, SECOND, new long[] {0, 7}, -1);
             restored.update(0L, 0L, new Object[] {0L}, 2 * SECOND, new long[] {0, 7}, -1);
             assertThat(restored.fire(10 * SECOND).stream()
-                            .filter(r -> ((Long) r.keyValues()[0]) == 0L)
+                            .filter(r -> ((Long) java.util.Objects.requireNonNull(r.keyValues())[0]) == 0L)
                             .findFirst()
                             .orElseThrow()
                             .values())
@@ -236,7 +236,11 @@ class SlicedAggregateStateSpillTest {
             assertThat(ninth)
                     .hasSize(1_500)
                     .allSatisfy(result -> assertThat(result.values()[2])
-                            .isEqualTo((Long) result.keyValues()[0] % 7 == (Long) result.keyValues()[0] % 11 ? 1 : 2));
+                            .isEqualTo(
+                                    (Long) java.util.Objects.requireNonNull(result.keyValues())[0] % 7
+                                                    == (Long) result.keyValues()[0] % 11
+                                            ? 1
+                                            : 2));
             ByteArrayOutputStream after = new ByteArrayOutputStream();
             try (DataOutputStream out = new DataOutputStream(after)) {
                 state.writeTo(out);
@@ -288,6 +292,7 @@ class SlicedAggregateStateSpillTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void countDistinctWithNoOverflowStillWorksExactlyAsBefore() {
         // No overflow tier: the same off-heap state, refusing at its RAM ceiling instead of
         // spilling, and answering exactly as the on-heap sets did.

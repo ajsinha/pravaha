@@ -27,6 +27,8 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
@@ -88,7 +90,7 @@ public final class TenantQuotas {
         }
 
         /** From nullable values, which is how a configuration binding hands them over. */
-        public static Limits of(Long maxQueries, Long maxStateKeys) {
+        public static Limits of(@Nullable Long maxQueries, @Nullable Long maxStateKeys) {
             return new Limits(
                     maxQueries == null ? OptionalLong.empty() : OptionalLong.of(maxQueries),
                     maxStateKeys == null ? OptionalLong.empty() : OptionalLong.of(maxStateKeys));
@@ -338,7 +340,7 @@ public final class TenantQuotas {
      * The tenant a computation belongs to: that of any of its names, since the fingerprint keeps a
      * computation within one tenant.
      */
-    private String tenantOfComputation(RegisteredQuery computation) {
+    private @Nullable String tenantOfComputation(RegisteredQuery computation) {
         for (String name : computation.names()) {
             String owner = tenantOfName.get(name);
             if (owner != null) {
@@ -364,7 +366,11 @@ public final class TenantQuotas {
                 .computeIfAbsent(principal.tenant(), ignored -> new LongAdder())
                 .increment();
         audit.record(AuditEvent.of(
-                principal, action + ":quota", principal.tenant(), AccessDecision.deny(refusal.getMessage()), sql));
+                principal,
+                action + ":quota",
+                principal.tenant(),
+                AccessDecision.deny(String.valueOf(refusal.getMessage())),
+                sql));
         throw refusal;
     }
 }

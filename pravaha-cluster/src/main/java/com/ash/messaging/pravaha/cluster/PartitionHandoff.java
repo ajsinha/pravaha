@@ -20,6 +20,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -93,13 +95,13 @@ public final class PartitionHandoff {
     }
 
     private final PartitionAssignment.PartitionMove move;
-    private final PartitionOwner source;
-    private final PartitionOwner target;
+    private final @Nullable PartitionOwner source;
+    private final @Nullable PartitionOwner target;
     private final PartitionLeaseCoordinator leases;
-    private final PartitionLease sourceLease;
+    private final @Nullable PartitionLease sourceLease;
     private final Consumer<String> log;
     private volatile Stage stage = Stage.PENDING;
-    private volatile PartitionLease targetLease;
+    private volatile @Nullable PartitionLease targetLease;
 
     /**
      * @param leases the fenced authority ownership is actually checked against, never merely
@@ -114,7 +116,7 @@ public final class PartitionHandoff {
             PartitionOwner target,
             PartitionLeaseCoordinator leases,
             PartitionLease sourceLease,
-            Consumer<String> log) {
+            @Nullable Consumer<String> log) {
         this.move = Objects.requireNonNull(move, "move");
         this.source = Objects.requireNonNull(source, "source");
         this.target = Objects.requireNonNull(target, "target");
@@ -152,9 +154,9 @@ public final class PartitionHandoff {
     @Deprecated
     public PartitionHandoff(
             PartitionAssignment.PartitionMove move,
-            PartitionOwner source,
-            PartitionOwner target,
-            Consumer<String> log) {
+            @Nullable PartitionOwner source,
+            @Nullable PartitionOwner target,
+            @Nullable Consumer<String> log) {
         this.move = move;
         this.source = source;
         this.target = target;
@@ -193,7 +195,7 @@ public final class PartitionHandoff {
         int partition = move.partition();
         long startNanos = System.nanoTime();
 
-        if (!leases.isValid(sourceLease)) {
+        if (!leases.isValid(java.util.Objects.requireNonNull(sourceLease))) {
             // Refused before anything moves, which is the entire point of checking a lease rather
             // than trusting the premise a caller handed in. A stale sourceLease means the source
             // does not actually hold this partition any more -- perhaps a previous handoff already
@@ -208,7 +210,7 @@ public final class PartitionHandoff {
         }
 
         try {
-            source.pause(partition);
+            java.util.Objects.requireNonNull(source).pause(partition);
             stage = Stage.SOURCE_PAUSED;
 
             PartitionSnapshot snapshot = source.snapshot(partition);
@@ -222,10 +224,11 @@ public final class PartitionHandoff {
             }
             stage = Stage.SNAPSHOT_TAKEN;
 
-            target.restore(snapshot);
+            java.util.Objects.requireNonNull(target).restore(snapshot);
             stage = Stage.TARGET_RESTORED;
 
-            Optional<PartitionLease> granted = leases.transfer(sourceLease, move.to());
+            Optional<PartitionLease> granted =
+                    leases.transfer(java.util.Objects.requireNonNull(sourceLease), move.to());
             if (granted.isEmpty()) {
                 // The fencing check this whole slice exists for. A rival handoff -- or a target that
                 // already believes, wrongly, that it owns this partition -- got here first, and the
@@ -280,7 +283,7 @@ public final class PartitionHandoff {
     private void rollBack(RuntimeException failure) {
         Stage failedAt = stage;
         try {
-            source.resume(move.partition());
+            java.util.Objects.requireNonNull(source).resume(move.partition());
             stage = Stage.ROLLED_BACK;
             log.accept("handoff " + move + " failed at " + failedAt + " (" + failure.getMessage() + "); rolled back, "
                     + move.from().id() + " still owns it");

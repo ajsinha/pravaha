@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.common.memory;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Allocator for off-heap {@link MemoryRegion}s, and the single seam between Pravaha and whichever
  * low-level memory API the running JDK offers.
@@ -101,7 +103,7 @@ public interface MemoryAccess {
         return ByteBufferMemoryAccess.INSTANCE;
     }
 
-    private static MemoryAccess tryLoadForeign() {
+    private static @Nullable MemoryAccess tryLoadForeign() {
         try {
             Class<?> c = Class.forName("com.ash.messaging.pravaha.common.memory.ForeignMemoryAccess");
             return (MemoryAccess) c.getField("INSTANCE").get(null);

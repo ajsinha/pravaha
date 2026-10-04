@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,7 @@ class WebhookNotifierTest {
 
     /** One request as the receiver saw it. */
     record Received(Map<String, List<String>> headers, String body) {
+        @Nullable
         String header(String name) {
             return headers.entrySet().stream()
                     .filter(e -> e.getKey().equalsIgnoreCase(name))
@@ -135,7 +137,8 @@ class WebhookNotifierTest {
                 + WebhookNotifier.sign(SECRET.getBytes(StandardCharsets.UTF_8), timestamp + "." + request.body());
         assertThat(MessageDigest.isEqual(
                         expected.getBytes(StandardCharsets.UTF_8),
-                        request.header("X-Pravaha-Signature").getBytes(StandardCharsets.UTF_8)))
+                        java.util.Objects.requireNonNull(request.header("X-Pravaha-Signature"))
+                                .getBytes(StandardCharsets.UTF_8)))
                 .isTrue();
         // Under another secret it does not verify.
         assertThat(request.header("X-Pravaha-Signature"))

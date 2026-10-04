@@ -19,6 +19,8 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Comparator;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.MutableSlice;
 import com.ash.messaging.pravaha.api.data.RowView;
@@ -75,7 +77,7 @@ final class MaterializedRows {
         return values;
     }
 
-    private static Object read(RowView row, int ordinal, TypeName type) {
+    private static @Nullable Object read(RowView row, int ordinal, TypeName type) {
         if (row.isNull(ordinal)) {
             return null;
         }

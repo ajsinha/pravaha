@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -198,7 +200,7 @@ final class FlightTlsPair {
                 last);
     }
 
-    private static PravahaException refusal(String message, Throwable cause) {
+    private static PravahaException refusal(String message, @Nullable Throwable cause) {
         return new PravahaException(FlightErrors.TLS_UNREADABLE, message, cause);
     }
 }

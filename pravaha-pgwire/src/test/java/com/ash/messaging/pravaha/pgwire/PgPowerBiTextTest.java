@@ -126,6 +126,7 @@ class PgPowerBiTextTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void binaryFixedWidthValuesAreBigEndian() {
         assertThat(PgTypes.encodeBinary(TypeName.INT16, (short) -2)).containsExactly(0xff, 0xfe);
         assertThat(PgTypes.encodeBinary(TypeName.INT32, 258)).containsExactly(0, 0, 1, 2);

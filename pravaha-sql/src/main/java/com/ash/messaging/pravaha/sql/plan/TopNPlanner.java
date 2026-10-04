@@ -30,6 +30,7 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexOver;
 import org.apache.calcite.sql.SqlKind;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -127,6 +128,8 @@ final class TopNPlanner {
         }
         if (limit == null) {
             refuseUnbounded(project);
+            // build() is reached only through ranks(), so the projection numbers rows and that refused.
+            throw new AssertionError("refuseUnbounded returned for a projection that numbers rows");
         }
         if (limit < 1) {
             throw refusal("'" + filter.getCondition() + "' keeps no row: row numbers start at 1.");
@@ -235,7 +238,7 @@ final class TopNPlanner {
     }
 
     /** N for {@code rn <= N}, {@code rn < N + 1} or {@code rn = 1}, either way round; null otherwise. */
-    private static Long boundOf(RexNode conjunct, int rankOrdinal) {
+    private static @Nullable Long boundOf(RexNode conjunct, int rankOrdinal) {
         if (!(conjunct instanceof RexCall call) || call.getOperands().size() != 2) {
             return null;
         }
@@ -268,7 +271,7 @@ final class TopNPlanner {
         return bare instanceof RexInputRef ref && ref.getIndex() == rankOrdinal;
     }
 
-    private static Long literal(RexNode node) {
+    private static @Nullable Long literal(RexNode node) {
         if (node instanceof RexLiteral literal && literal.getValue4() instanceof BigDecimal value) {
             try {
                 return value.longValueExact();

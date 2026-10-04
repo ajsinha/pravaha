@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.serving;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class EqualityIndexTest {
 
     /** Rows of {@code (key, region, amount)}; the index is over {@code region}. */
-    private static Object[] row(String key, String region, long amount) {
+    private static Object[] row(String key, @Nullable String region, long amount) {
         return new Object[] {key, region, amount};
     }
 

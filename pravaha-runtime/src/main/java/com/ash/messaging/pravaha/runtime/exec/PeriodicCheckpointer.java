@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.state.checkpoint.Checkpoint;
 import com.ash.messaging.pravaha.state.checkpoint.CheckpointStore;
@@ -82,7 +84,7 @@ public final class PeriodicCheckpointer implements AutoCloseable {
      */
     private volatile Consumer<String> onFailure = message -> {};
 
-    private volatile java.util.concurrent.ScheduledFuture<?> schedule;
+    private volatile java.util.concurrent.@Nullable ScheduledFuture<?> schedule;
     private final AtomicLong nextId = new AtomicLong(1);
     private final AtomicLong taken = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();

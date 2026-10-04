@@ -20,6 +20,8 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * {@link MemoryRegion} over a direct {@code ByteBuffer} accessed through {@link VarHandle}s.
  *
@@ -50,7 +52,7 @@ final class ByteBufferMemoryRegion implements MemoryRegion {
     private static final VarHandle DOUBLE_HANDLE = MethodHandles.byteBufferViewVarHandle(double[].class, ORDER);
 
     private final int capacity;
-    private ByteBuffer buffer;
+    private @Nullable ByteBuffer buffer;
     private boolean closed;
 
     ByteBufferMemoryRegion(int bytes, int alignment) {
@@ -72,10 +74,11 @@ final class ByteBufferMemoryRegion implements MemoryRegion {
     }
 
     private ByteBuffer buf() {
-        if (closed) {
+        ByteBuffer b = buffer;
+        if (closed || b == null) {
             throw new IllegalStateException("region is closed");
         }
-        return buffer;
+        return b;
     }
 
     @Override

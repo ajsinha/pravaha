@@ -20,6 +20,8 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.sql.SqlErrors;
@@ -144,7 +146,7 @@ public final class BoundParameters {
      * {@code value} as the exact decimal it is -- a {@link BigDecimal}, or any integer -- or null when
      * it is not one (a double, text, anything else).
      */
-    public static BigDecimal exactDecimal(Object value) {
+    public static @Nullable BigDecimal exactDecimal(Object value) {
         return switch (value) {
             case BigDecimal exact -> exact;
             case BigInteger whole -> new BigDecimal(whole);

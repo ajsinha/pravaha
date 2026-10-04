@@ -45,6 +45,7 @@ import org.apache.arrow.flight.sql.impl.FlightSql;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -115,7 +116,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private final ViewQuery queries;
     private final SecurityPolicy policy;
     private final AuditSink audit;
-    private QueryRegistry registry;
+    private @Nullable QueryRegistry registry;
 
     /** The node's dead-letter files, or an empty store when no directory is configured (B5). */
     private com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters =
@@ -517,7 +518,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      * <p>Optional. A server that only serves views somebody else maintains has no registry, and its
      * clients get a clear refusal rather than a method that silently does nothing.
      */
-    PravahaFlightSqlProducer withRegistry(QueryRegistry registry) {
+    PravahaFlightSqlProducer withRegistry(@Nullable QueryRegistry registry) {
         this.registry = registry;
         return this;
     }
@@ -758,7 +759,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      * is refused rather than defaulted, because silently keeping a day of a view somebody asked to keep
      * for an hour changes what the view means.
      */
-    static Retention retentionOf(String field) {
+    static @Nullable Retention retentionOf(String field) {
         String text = field == null ? "" : field.strip();
         if (text.isEmpty()) {
             return null;
@@ -792,7 +793,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         return status.firstStopped()
                 .map(source -> List.of(
                         status.state().name(),
-                        source.stop().code(),
+                        java.util.Objects.requireNonNull(source.stop(), "a stopped source has its stop")
+                                .code(),
                         entry.restricted()
                                 ? "the message is withheld: your access to this view is row-filtered, and a "
                                         + "failure's text can quote rows outside your entitlement"
@@ -861,7 +863,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                 text(status.failure()));
     }
 
-    private static String text(Object value) {
+    private static String text(@Nullable Object value) {
         return value == null ? "" : value.toString();
     }
 
@@ -1210,7 +1212,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     }
 
     /** One commit, or the snapshot, on its way from the engine's thread to this call's. */
-    private record Handed(List<com.ash.messaging.pravaha.serving.ViewChange> changes, ControlWire.BatchMark mark) {}
+    private record Handed(
+            List<com.ash.messaging.pravaha.serving.ViewChange> changes, ControlWire.@Nullable BatchMark mark) {}
 
     /**
      * Opens a snapshot subscription feeding {@code handover} (SUB-1).

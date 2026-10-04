@@ -42,4 +42,27 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <!-- Error Prone and NullAway gate this module (-Pep). It was brought to zero findings (NullAway,
+       Error Prone's WARNING checks and javac's -Xlint) and is held there: NullAway at ERROR, and any
+       warning at all fails the compile, main and test code alike. -->
+  <profiles>
+    <profile>
+      <id>ep</id>
+      <properties>
+        <ep.nullaway.level>ERROR</ep.nullaway.level>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

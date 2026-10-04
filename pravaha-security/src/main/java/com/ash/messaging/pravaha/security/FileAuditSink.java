@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -107,7 +109,7 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
     private final Thread writer;
     private final Thread flushOnExit;
 
-    private OutputStream out;
+    private @Nullable OutputStream out;
     private long bytesInFile;
     private long reportedDrops;
     private boolean reportedFailure;
@@ -125,7 +127,7 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
      *     (it sits on the path of every query), and an audit sink failing in complete silence is the
      *     defect this class exists to close
      */
-    public FileAuditSink(Path path, long rotateBytes, int keep, Consumer<String> problems) {
+    public FileAuditSink(Path path, long rotateBytes, int keep, @Nullable Consumer<String> problems) {
         this.path = path.toAbsolutePath();
         this.rotateBytes = Math.max(4096L, rotateBytes);
         this.keep = Math.max(0, keep);
@@ -304,7 +306,8 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
         if (bytesInFile + bytes.length > rotateBytes && bytesInFile > 0) {
             rotate();
         }
-        out.write(bytes);
+        // writeLine returns early without a stream, and a rotation that succeeds opens the next one.
+        java.util.Objects.requireNonNull(out, "an open audit file").write(bytes);
         bytesInFile += bytes.length;
     }
 
@@ -316,8 +319,9 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
      * node it was auditing.
      */
     private void rotate() throws IOException {
-        out.flush();
-        out.close();
+        OutputStream current = java.util.Objects.requireNonNull(out, "an open audit file");
+        current.flush();
+        current.close();
         out = null;
         for (int generation = keep; generation >= 1; generation--) {
             Path older = sibling(generation);

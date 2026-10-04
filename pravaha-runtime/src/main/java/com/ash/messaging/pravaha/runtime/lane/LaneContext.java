@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.lane;
 
 import java.util.Arrays;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.common.arena.RowArena;
 
 /**
@@ -38,9 +40,14 @@ public final class LaneContext {
     private final RowArena arena;
     private final int[] virtualPartitions;
     private final LaneConfig config;
-    private final LaneExchange.Sender exchange;
+    private final LaneExchange.@Nullable Sender exchange;
 
-    LaneContext(int laneId, RowArena arena, int[] virtualPartitions, LaneConfig config, LaneExchange.Sender exchange) {
+    LaneContext(
+            int laneId,
+            RowArena arena,
+            int[] virtualPartitions,
+            LaneConfig config,
+            LaneExchange.@Nullable Sender exchange) {
         this.laneId = laneId;
         this.arena = arena;
         this.virtualPartitions = virtualPartitions;

@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -69,10 +70,15 @@ class NpgsqlClientTest {
     private static final String TOKEN = "pbi-token";
     private static final Principal ANALYST = new Principal("ann", "public", Set.of("analyst"), Map.of());
 
-    private static Path dotnet;
+    private static @Nullable Path dotnet;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private static Path probe;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private static String skipReason;
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @TempDir
@@ -260,7 +266,7 @@ class NpgsqlClientTest {
     private static Map<String, String> probe(int port, String password, String sslMode) throws Exception {
         Run result = run(
                 List.of(
-                        dotnet.toString(),
+                        java.util.Objects.requireNonNull(dotnet).toString(),
                         probe.toString(),
                         "127.0.0.1",
                         String.valueOf(port),
@@ -298,7 +304,7 @@ class NpgsqlClientTest {
         return new Run(process.exitValue(), new String(output, StandardCharsets.UTF_8));
     }
 
-    private static Path findDotnet() {
+    private static @Nullable Path findDotnet() {
         String explicit = System.getenv("DOTNET");
         if (explicit != null && Files.isExecutable(Paths.get(explicit))) {
             return Paths.get(explicit);

@@ -115,6 +115,7 @@ class CatalogStatementsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // null on purpose: pins the tolerance
     void recognitionIsByTheLeadingWordsOnly() {
         assertThat(CatalogStatements.recognizes("GRANT nonsense")).isTrue();
         assertThat(CatalogStatements.recognizes("alter view x owner to role y")).isTrue();

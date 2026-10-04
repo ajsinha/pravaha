@@ -239,7 +239,7 @@ final class FixtureWriter {
                             .append("L);\n");
                     continue;
                 }
-                ReplaySource.ReplayRow row = action.row();
+                ReplaySource.ReplayRow row = java.util.Objects.requireNonNull(action.row(), "a row action has its row");
                 out.append("        harness.row(")
                         .append(FixtureExport.quote(row.stream()))
                         .append(", ")

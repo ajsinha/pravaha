@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.exec;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
@@ -96,7 +98,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * nothing extra: this exists for COUNT(DISTINCT), which is the only thing that cares what a
      * value <em>is</em> rather than what it adds up to.
      */
-    private final Object[] distinctScratch;
+    private final Object @Nullable [] distinctScratch;
 
     private final List<Integer> valueOrdinals;
 
@@ -121,7 +123,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * (ALLNULLAGG-1); it takes part in deciding whether a correction changed anything.
      */
     @SuppressWarnings("ArrayRecordComponent") // carries the array; nothing compares or hashes one
-    private record Published(Object[] keyValues, long windowStartNanos, long[] values, boolean[] nulls) {
+    private record Published(Object @Nullable [] keyValues, long windowStartNanos, long[] values, boolean[] nulls) {
 
         boolean sameAnswer(long[] otherValues, boolean[] otherNulls) {
             return java.util.Arrays.equals(values, otherValues) && java.util.Arrays.equals(nulls, otherNulls);
@@ -152,7 +154,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * them costs an array comparison on a path that runs once per window per key, not per row.
      */
     @SuppressWarnings("ArrayRecordComponent") // equals and hashCode compare the array's contents
-    private record GroupKey(Object[] values) {
+    private record GroupKey(Object @Nullable [] values) {
 
         @Override
         public boolean equals(Object other) {
@@ -212,7 +214,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             WindowedAggregateOperator operator,
             RowArena arena,
             RowProcessor downstream,
-            MemoryAccess overflowAccess,
+            @Nullable MemoryAccess overflowAccess,
             int maxOverflowSlabs) {
         this.operator = operator;
         this.windows = new SlicedWindows(operator.spec());
@@ -524,14 +526,15 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         java.util.List<Long> windowEnds = new java.util.ArrayList<>(emitted.keySet());
         java.util.Collections.sort(windowEnds);
         for (long windowEnd : windowEnds) {
-            java.util.List<Published> rows =
-                    new java.util.ArrayList<>(emitted.get(windowEnd).values());
+            java.util.List<Published> rows = new java.util.ArrayList<>(
+                    java.util.Objects.requireNonNull(emitted.get(windowEnd)).values());
             rows.sort(java.util.Comparator.comparing(row -> keyText(row.keyValues())));
             for (Published row : rows) {
                 java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
                 values.put("window_start", Long.toString(row.windowStartNanos()));
                 values.put("window_end", Long.toString(windowEnd));
-                Object[] keyValues = row.keyValues();
+                Object[] keyValues =
+                        java.util.Objects.requireNonNull(row.keyValues(), "a published window row carries its key");
                 for (int i = 0; i < keyValues.length; i++) {
                     values.put("key" + i, String.valueOf(keyValues[i]));
                 }
@@ -551,9 +554,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         }
     }
 
-    private static String keyText(Object[] keyValues) {
+    private static String keyText(Object @Nullable [] keyValues) {
         StringBuilder text = new StringBuilder();
-        for (int i = 0; i < keyValues.length; i++) {
+        for (int i = 0;
+                i < java.util.Objects.requireNonNull(keyValues, "a published window row carries its key").length;
+                i++) {
             if (i > 0) {
                 text.append('|');
             }
@@ -582,7 +587,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * being produced.
      */
     private void emitRow(
-            Object[] keyValues,
+            Object @Nullable [] keyValues,
             long windowStartNanos,
             long windowEndNanos,
             long[] values,
@@ -613,7 +618,10 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 } else if (ordinal == operator.windowEndOrdinal()) {
                     writer.setLong(column++, windowEndNanos);
                 } else {
-                    writeKey(column++, keyValues[dataKey++]);
+                    writeKey(
+                            column++,
+                            java.util.Objects.requireNonNull(keyValues, "a published window row carries its key")[
+                                    dataKey++]);
                 }
             }
             for (int i = 0; i < values.length; i++) {
@@ -830,7 +838,8 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
     }
 
     /** A group's key columns, each tagged with its shape, for the checkpoint. */
-    private static void writeTaggedValues(java.io.DataOutput out, Object[] values) throws java.io.IOException {
+    private static void writeTaggedValues(java.io.DataOutput out, Object @Nullable [] values)
+            throws java.io.IOException {
         out.writeInt(values == null ? -1 : values.length);
         if (values == null) {
             return;
@@ -860,7 +869,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         }
     }
 
-    private static Object[] readTaggedValues(java.io.DataInput in) throws java.io.IOException {
+    private static Object @Nullable [] readTaggedValues(java.io.DataInput in) throws java.io.IOException {
         int length = in.readInt();
         if (length < 0) {
             return null;

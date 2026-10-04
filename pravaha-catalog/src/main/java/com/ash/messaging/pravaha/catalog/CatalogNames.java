@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.catalog;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -96,7 +98,7 @@ public final class CatalogNames {
     }
 
     /** The level above: an object's namespace, a namespace's tenant, a tenant's root; null above the root. */
-    public static String parentOf(String fullName) {
+    public static @Nullable String parentOf(String fullName) {
         if (ROOT.equals(fullName)) {
             return null;
         }

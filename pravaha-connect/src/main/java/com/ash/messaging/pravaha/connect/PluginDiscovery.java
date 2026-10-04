@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PravahaPlugin;
 
@@ -61,7 +63,11 @@ public final class PluginDiscovery {
      *     then its cause
      * @param firstFailure the first failure's throwable, carried as the cause of any refusal
      */
-    public record Found<T>(T plugin, List<String> available, List<String> failures, Throwable firstFailure) {}
+    public record Found<T>(
+            @Nullable T plugin,
+            List<String> available,
+            List<String> failures,
+            @Nullable Throwable firstFailure) {}
 
     /** {@link #find(Class, String, ClassLoader)} through the thread's context class loader, as {@link ServiceLoader#load(Class)} does. */
     public static <T extends PravahaPlugin> Found<T> find(Class<T> type, String name) {

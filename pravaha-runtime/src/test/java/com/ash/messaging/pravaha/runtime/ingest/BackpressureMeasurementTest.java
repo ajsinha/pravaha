@@ -195,7 +195,8 @@ class BackpressureMeasurementTest {
             long settled = pump.backpressureWaitNanos();
             assertThat(settled).isPositive();
             LaneBackpressure.Snapshot blocked = lane.backpressure().snapshot(0, lane.inboxCells());
-            assertThat(blocked.byQuery().get("q").waitNanos())
+            assertThat(java.util.Objects.requireNonNull(blocked.byQuery().get("q"))
+                            .waitNanos())
                     .as("the lane's copy of the closed episode stops growing too")
                     .isPositive();
         }
@@ -224,7 +225,9 @@ class BackpressureMeasurementTest {
         LaneBackpressure.Snapshot blocked = lane.snapshot(12, 64);
         assertThat(blocked.waits()).isEqualTo(3);
         assertThat(blocked.byQuery()).containsOnlyKeys("fast_query", "slow_query");
-        assertThat(blocked.byQuery().get("slow_query").waits()).isEqualTo(2);
+        assertThat(java.util.Objects.requireNonNull(blocked.byQuery().get("slow_query"))
+                        .waits())
+                .isEqualTo(2);
         assertThat(blocked.longestWaiter().orElseThrow().getKey())
                 .as("the console's verdict names this one")
                 .isEqualTo("slow_query");

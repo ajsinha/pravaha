@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.dlq;
 import java.util.Base64;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The one place that knows what a line of a {@code .dlq} file looks like.
  *
@@ -101,12 +103,12 @@ final class DeadLetterJson {
                 number(line, "wall")));
     }
 
-    private static String orEmpty(String value) {
+    private static String orEmpty(@Nullable String value) {
         return value == null ? "" : value;
     }
 
     /** The string value of {@code "key":"..."}, unescaped, or null when the key is absent. */
-    static String string(String line, String key) {
+    static @Nullable String string(String line, String key) {
         int at = keyAt(line, key);
         if (at < 0) {
             return null;

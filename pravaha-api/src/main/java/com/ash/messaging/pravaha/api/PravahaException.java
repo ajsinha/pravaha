@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.api;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Base class for every checked failure the engine raises.
  *
@@ -33,13 +35,22 @@ public class PravahaException extends RuntimeException {
         this.errorCode = errorCode;
     }
 
-    public PravahaException(ErrorCode errorCode, String message, Throwable cause) {
+    public PravahaException(ErrorCode errorCode, String message, @Nullable Throwable cause) {
         super(format(errorCode, message), cause);
         this.errorCode = errorCode;
     }
 
     private static String format(ErrorCode code, String message) {
         return code.code() + "  " + message;
+    }
+
+    /**
+     * The code and the text, as constructed. Never null: every constructor formats one, and saying
+     * so here spares each caller a null check the message never needed.
+     */
+    @Override
+    public String getMessage() {
+        return String.valueOf(super.getMessage());
     }
 
     public ErrorCode errorCode() {

@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 
@@ -49,17 +51,17 @@ public final class LaneRebalance {
     /** What a rebalance would do, or is doing. */
     public record Plan(
             String mode,
-            Integer autoFrom,
+            @Nullable Integer autoFrom,
             int ownLaneQueries,
             int room,
             boolean running,
-            Instant startedAt,
-            Instant finishedAt,
-            String startedBy,
+            @Nullable Instant startedAt,
+            @Nullable Instant finishedAt,
+            @Nullable String startedBy,
             List<Move> moves) {}
 
-    private Plan last;
-    private Thread worker;
+    private @Nullable Plan last;
+    private @Nullable Thread worker;
 
     /** What a rebalance would do now; changes nothing. */
     public synchronized Plan plan(QueryRegistry registry) {
@@ -84,7 +86,7 @@ public final class LaneRebalance {
         return last;
     }
 
-    private Plan planned(QueryRegistry registry, Instant startedAt, String startedBy) {
+    private Plan planned(QueryRegistry registry, @Nullable Instant startedAt, @Nullable String startedBy) {
         int ceiling = registry.maxQueriesPerSharedLane();
         int from = registry.sharingFrom();
         String mode = ceiling == 0 ? "false" : from > 0 ? "auto" : "true";
@@ -146,8 +148,9 @@ public final class LaneRebalance {
             }
         }
         synchronized (this) {
+            Plan was = java.util.Objects.requireNonNull(last, "recorded once planned");
             last = new Plan(
-                    last.mode(),
+                    was.mode(),
                     last.autoFrom(),
                     registry.queriesOnOwnLanes(),
                     last.room(),
@@ -192,8 +195,9 @@ public final class LaneRebalance {
         return "failed";
     }
 
-    private synchronized void record(int index, Move move, String status, String detail) {
-        List<Move> moves = new ArrayList<>(last.moves());
+    private synchronized void record(int index, Move move, String status, @Nullable String detail) {
+        List<Move> moves = new ArrayList<>(
+                java.util.Objects.requireNonNull(last, "recorded once planned").moves());
         moves.set(index, new Move(move.name(), move.fromSharedLane(), status, detail == null ? "" : detail));
         last = new Plan(
                 last.mode(),

@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.registry;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
@@ -58,14 +60,15 @@ public final class DraftFingerprint {
             String sql,
             List<Integer> keys,
             Principal principal,
-            Retention retention,
-            String sink) {
+            @Nullable Retention retention,
+            @Nullable String sink) {
         Retention kept =
                 retention != null ? retention : sink != null ? Retention.forever() : registry.defaultRetention();
         synchronized (registry) {
             // In the caller's tenant, as registering it would be (ADR-060).
             String engine = com.ash.messaging.pravaha.security.ViewNames.engineName(principal.tenant(), name);
-            return registry.prepare(engine, sql, keys, principal, kept, BoundParameters.none(), sink, "explain")
+            return RegistrationPlanning.prepare(
+                            registry, engine, sql, keys, principal, kept, BoundParameters.none(), sink, "explain")
                     .fingerprint();
         }
     }

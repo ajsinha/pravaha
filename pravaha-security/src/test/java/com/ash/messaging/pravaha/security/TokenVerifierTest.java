@@ -50,6 +50,7 @@ class TokenVerifierTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // null on purpose: pins the refusal
     void anAbsentOrEmptyCredentialIsRefusedRatherThanTreatedAsAbsentAuthentication() {
         TokenVerifier verifier = StaticTokenVerifier.of("s3cret", ANALYST);
 

@@ -21,6 +21,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongConsumer;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -120,7 +122,7 @@ public final class IngestPump implements AutoCloseable {
      * the reader fails exactly as it always has. A do-nothing queue would answer {@code true} and
      * turn every deployment into one that discards bad records silently.
      */
-    private DeadLetterQueue deadLetters;
+    private @Nullable DeadLetterQueue deadLetters;
 
     private String deadLetterQueryId = "";
 
@@ -137,10 +139,10 @@ public final class IngestPump implements AutoCloseable {
      * so it needs no synchronisation of its own: the lock that serialises a replay against a poll
      * serialises this too.
      */
-    private String replayingId;
+    private @Nullable String replayingId;
 
     /** What the source promises, when the binding layer has said. Null means it did not. */
-    private com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee sourceGuarantee;
+    private com.ash.messaging.pravaha.api.plugin.@Nullable DeliveryGuarantee sourceGuarantee;
 
     /**
      * How fast records are being rejected, and whether that has stopped being normal.
@@ -151,7 +153,7 @@ public final class IngestPump implements AutoCloseable {
      * one. Shared by every pump of a query, so the fraction is the query's and not one
      * partition's; null until the binding layer attaches one.
      */
-    private com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate deadLetterRate;
+    private com.ash.messaging.pravaha.runtime.dlq.@Nullable DeadLetterRate deadLetterRate;
 
     /**
      * A cell-sized buffer rows are decoded into while a dead-letter queue is attached.
@@ -169,9 +171,9 @@ public final class IngestPump implements AutoCloseable {
      * asked for a dead-letter queue, and it buys the property the queue exists for: a bad record
      * does not stop the pipeline.
      */
-    private MemoryRegion staging;
+    private @Nullable MemoryRegion staging;
 
-    private BinaryRowWriter stagingWriter;
+    private @Nullable BinaryRowWriter stagingWriter;
 
     private final AtomicLong rowsRejected = new AtomicLong();
 
@@ -253,7 +255,7 @@ public final class IngestPump implements AutoCloseable {
      * <p>Set once, at wiring time. A pump whose name changed mid-stream would split one query's
      * waiting across two entries and attribute neither correctly.
      */
-    public IngestPump attributedTo(String name) {
+    public IngestPump attributedTo(@Nullable String name) {
         this.queryId = name == null ? "" : name;
         return this;
     }
@@ -580,10 +582,11 @@ public final class IngestPump implements AutoCloseable {
     private RowWriter beginRow() {
         if (deadLetters != null || sharedInbox) {
             // Decode into staging; the row reaches the inbox only if it decodes.
-            stagingWriter.begin(staging, 0, lane.inboxCellBytes());
+            BinaryRowWriter writer = stagedWriter();
+            writer.begin(stagedRow(), 0, lane.inboxCellBytes());
             // Abandoning a staged row is free: nothing has been claimed, so there is nothing to
             // give back. That is the whole reason rows are staged while a queue is attached.
-            return new DelegatingRowWriter(stagingWriter, this::publishStagedRow, eventTimeObserver, () -> {});
+            return new DelegatingRowWriter(writer, this::publishStagedRow, eventTimeObserver, () -> {});
         }
         claimed = lane.claim(input);
         if (claimed == com.ash.messaging.pravaha.common.queue.RowInbox.NO_SPACE) {
@@ -600,12 +603,21 @@ public final class IngestPump implements AutoCloseable {
         return new DelegatingRowWriter(writer, () -> lane.publish(input, claimed), eventTimeObserver);
     }
 
+    /** The staging buffer; there is one whenever a row is staged (a queue is attached, or the inbox is shared). */
+    private MemoryRegion stagedRow() {
+        return java.util.Objects.requireNonNull(staging, "staging is allocated while rows are staged");
+    }
+
+    private BinaryRowWriter stagedWriter() {
+        return java.util.Objects.requireNonNull(stagingWriter, "staging is allocated while rows are staged");
+    }
+
     private void publishStagedRow() {
         if (sharedInbox) {
             offerWhenThereIsRoom();
             return;
         }
-        if (!lane.offer(input, staging, 0, stagingWriter.sizeSoFar())) {
+        if (!lane.offer(input, stagedRow(), 0, stagedWriter().sizeSoFar())) {
             throw new PravahaException(
                     RuntimeErrors.BACKPRESSURED,
                     "lane " + lane.laneId() + "'s inbox filled during a poll that was sized to fit. Either "
@@ -653,12 +665,12 @@ public final class IngestPump implements AutoCloseable {
     }
 
     private void offerWhenThereIsRoom() {
-        int size = stagingWriter.sizeSoFar();
+        int size = stagedWriter().sizeSoFar();
         long began = System.nanoTime();
         long deadline = began + SHARED_INBOX_WAIT.toNanos();
         boolean waited = false;
         while (true) {
-            if (lane.inboxFill(input) < 1.0 && lane.offer(input, staging, 0, size)) {
+            if (lane.inboxFill(input) < 1.0 && lane.offer(input, stagedRow(), 0, size)) {
                 if (waited) {
                     // Timed exactly rather than by poll, because this one really does block inside
                     // a single call: the row is decoded and parked in staging with nowhere to go.

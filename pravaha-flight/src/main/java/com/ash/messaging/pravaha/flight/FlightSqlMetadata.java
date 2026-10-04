@@ -34,6 +34,7 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -144,7 +145,9 @@ final class FlightSqlMetadata {
                     if (command.hasTableNameFilterPattern() && !matches(command.getTableNameFilterPattern(), name)) {
                         continue;
                     }
-                    ServedView view = catalog.find(engineName(principal, name)).orElse(null);
+                    ServedView view = catalog.find(java.util.Objects.requireNonNull(
+                                    engineName(principal, name), "a visible name resolves"))
+                            .orElse(null);
                     if (view == null) {
                         continue;
                     }
@@ -460,7 +463,7 @@ final class FlightSqlMetadata {
     }
 
     /** The engine name {@code table} means to {@code principal}, or null for one it may not name. */
-    private static String engineName(Principal principal, String table) {
+    private static @Nullable String engineName(Principal principal, String table) {
         try {
             return ViewNames.resolve(principal, table);
         } catch (com.ash.messaging.pravaha.api.PravahaException outsideTheTenant) {
@@ -495,7 +498,7 @@ final class FlightSqlMetadata {
     }
 
     /** Whether a filter field names something, as opposed to being absent or empty. */
-    private static boolean named(String filter) {
+    private static boolean named(@Nullable String filter) {
         return filter != null && !filter.isEmpty();
     }
 
@@ -512,7 +515,7 @@ final class FlightSqlMetadata {
         ((VarCharVector) root.getVector(field)).setSafe(index, value.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static void textOrNull(VectorSchemaRoot root, String field, int index, String value) {
+    private static void textOrNull(VectorSchemaRoot root, String field, int index, @Nullable String value) {
         if (value == null) {
             root.getVector(field).setNull(index);
         } else {
@@ -524,7 +527,7 @@ final class FlightSqlMetadata {
         ((BitVector) root.getVector(field)).setSafe(index, value ? 1 : 0);
     }
 
-    private static void bitOrNull(VectorSchemaRoot root, String field, int index, Boolean value) {
+    private static void bitOrNull(VectorSchemaRoot root, String field, int index, @Nullable Boolean value) {
         if (value == null) {
             root.getVector(field).setNull(index);
         } else {
@@ -585,7 +588,7 @@ final class FlightSqlMetadata {
         private final String typeName;
         private final int jdbcType;
         private final int columnSize;
-        private final String literalQuote;
+        private final @Nullable String literalQuote;
         private final boolean caseSensitive;
         private final boolean numeric;
 
@@ -593,7 +596,7 @@ final class FlightSqlMetadata {
                 String typeName,
                 int jdbcType,
                 int columnSize,
-                String literalQuote,
+                @Nullable String literalQuote,
                 boolean caseSensitive,
                 boolean numeric) {
             this.typeName = typeName;

@@ -50,6 +50,7 @@ class LaneRebalanceTest {
     @TempDir
     Path root;
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryRegistry registry;
 
     @AfterEach

@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.state;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -103,7 +105,7 @@ public final class VariableKeyStateMap implements AutoCloseable {
     private static final long TOMBSTONE = -2L;
 
     private final MemoryAccess access;
-    private final MemoryAccess overflowAccess;
+    private final @Nullable MemoryAccess overflowAccess;
     private final RowStore store;
     private final double maxLoadFactor = 0.7;
     private final long slotTableRamBytes;
@@ -150,7 +152,7 @@ public final class VariableKeyStateMap implements AutoCloseable {
             int initialCapacity,
             int storeSlabBytes,
             int storeMaxSlabs,
-            MemoryAccess overflowAccess,
+            @Nullable MemoryAccess overflowAccess,
             int maxOverflowSlabs) {
         this(
                 access,
@@ -176,7 +178,7 @@ public final class VariableKeyStateMap implements AutoCloseable {
             int initialCapacity,
             int storeSlabBytes,
             int storeMaxSlabs,
-            MemoryAccess overflowAccess,
+            @Nullable MemoryAccess overflowAccess,
             int maxOverflowSlabs,
             long slotTableRamBytes,
             int segmentSlots) {

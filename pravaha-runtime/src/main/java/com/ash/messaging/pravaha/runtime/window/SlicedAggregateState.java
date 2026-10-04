@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.runtime.window;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
@@ -92,7 +94,7 @@ public final class SlicedAggregateState implements AutoCloseable {
     public record WindowResult(
             long keyHigh,
             long keyLow,
-            Object[] keyValues,
+            Object @Nullable [] keyValues,
             long windowStartNanos,
             long windowEndNanos,
             long[] values,
@@ -166,7 +168,7 @@ public final class SlicedAggregateState implements AutoCloseable {
     private final OffHeapAccumulators offHeap;
 
     /** Every distinct column's values and their counts; null when no column is {@code COUNT_DISTINCT}. */
-    private final DistinctValueCounts distinct;
+    private final @Nullable DistinctValueCounts distinct;
 
     /**
      * Whether an overflow tier was configured. When it was, {@link #maxSlices} stops being a hard
@@ -199,7 +201,11 @@ public final class SlicedAggregateState implements AutoCloseable {
      *     overflowAccess} is {@code null}
      */
     public SlicedAggregateState(
-            SlicedWindows windows, Kind[] kinds, int maxSlices, MemoryAccess overflowAccess, int maxOverflowSlabs) {
+            SlicedWindows windows,
+            Kind[] kinds,
+            int maxSlices,
+            @Nullable MemoryAccess overflowAccess,
+            int maxOverflowSlabs) {
         if (maxSlices < 1) {
             throw new IllegalArgumentException("the slice limit must be at least 1, got " + maxSlices);
         }
@@ -264,7 +270,7 @@ public final class SlicedAggregateState implements AutoCloseable {
             long eventTimeNanos,
             long[] values,
             boolean[] present,
-            Object[] distinctValues,
+            Object @Nullable [] distinctValues,
             long weight) {
         if (weight == 0) {
             // A consolidated row contributes nothing and must not be counted. Skipping it here also
@@ -304,7 +310,9 @@ public final class SlicedAggregateState implements AutoCloseable {
                         // Counted, not flagged. A value seen three times and retracted once is
                         // still present, and a set would have said it had gone.
                         Object value = distinctValues == null ? (Object) values[i] : distinctValues[i];
-                        int change = distinct.add(keyHigh, keyLow, sliceStart, i, keyValues, value, weight);
+                        int change = java.util.Objects.requireNonNull(
+                                        distinct, "a COUNT_DISTINCT column has its counts")
+                                .add(keyHigh, keyLow, sliceStart, i, keyValues, value, weight);
                         if (change != 0) {
                             // The slice's own distinct count, kept exact without recounting.
                             offHeap.setValue(handle, i, offHeap.value(handle, i) + change);
@@ -410,7 +418,7 @@ public final class SlicedAggregateState implements AutoCloseable {
     }
 
     /** How a refusal names each aggregate column, {@code SUM(amount)}; null names them by position. */
-    private String[] names;
+    private String @Nullable [] names;
 
     /** Names the aggregate columns for a refusal, in {@code kinds} order. */
     public SlicedAggregateState describedAs(String[] aggregateNames) {
@@ -539,12 +547,13 @@ public final class SlicedAggregateState implements AutoCloseable {
                         // reader of a WindowResult seeing the answer rather than an intermediate.
                         values[i] = combined.nonNull[i] == 0 ? 0 : combined.values[i] / combined.nonNull[i];
                     } else if (kinds[i] == Kind.COUNT_DISTINCT) {
-                        values[i] = counts.countOf(
-                                offHeap.keyRegionOf(handle),
-                                offHeap.keyOffsetOf(handle),
-                                OffHeapAccumulators.GROUP_OFFSET,
-                                offHeap.groupLengthOf(handle),
-                                i);
+                        values[i] = java.util.Objects.requireNonNull(counts, "a COUNT_DISTINCT column has its counts")
+                                .countOf(
+                                        offHeap.keyRegionOf(handle),
+                                        offHeap.keyOffsetOf(handle),
+                                        OffHeapAccumulators.GROUP_OFFSET,
+                                        offHeap.groupLengthOf(handle),
+                                        i);
                     }
                 }
                 out.accept(new WindowResult(

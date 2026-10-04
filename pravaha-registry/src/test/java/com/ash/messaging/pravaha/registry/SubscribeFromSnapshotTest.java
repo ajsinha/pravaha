@@ -25,6 +25,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -189,7 +190,7 @@ class SubscribeFromSnapshotTest {
             }
 
             @Override
-            public void onCommit(List<ViewChange> changes, long frontier) {}
+            public void onCommit(@Nullable List<ViewChange> changes, long frontier) {}
         });
         settle(subscription);
         assertThat(subscription.isClosed()).isTrue();
@@ -292,7 +293,7 @@ class SubscribeFromSnapshotTest {
         }
 
         @Override
-        public void onCommit(List<ViewChange> changes, long frontier) {
+        public void onCommit(@Nullable List<ViewChange> changes, long frontier) {
             // Recorded, not asserted: this runs on an engine thread, which would swallow the error.
             if (snapshots != 1) {
                 outOfOrder = true;

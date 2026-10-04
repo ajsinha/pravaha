@@ -38,6 +38,7 @@ class PgTlsTest {
     private File dir;
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aCertificateWithNoKeyIsRefusedNamingTheMissingSetting() throws Exception {
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(dir);
 
@@ -47,6 +48,7 @@ class PgTlsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void aKeyWithNoCertificateIsRefusedNamingTheMissingSetting() throws Exception {
         SelfSignedTestCertificate cert = SelfSignedTestCertificate.generate(dir);
 
@@ -59,6 +61,7 @@ class PgTlsTest {
     }
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void neitherHalfConfiguredIsNotAskedAboutHere() {
         // PravahaPgWireServer simply never calls encryptedWith when nobody configured TLS -- this
         // class has no "both null means fine" case to test, because that call is never made.

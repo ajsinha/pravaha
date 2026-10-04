@@ -30,6 +30,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -75,7 +76,7 @@ class DistinctValueCountsPropertyTest {
         final Map<List<Long>, List<Map<Object, Long>>> distinct = new HashMap<>();
         final Map<List<Long>, Long> sums = new HashMap<>();
 
-        void apply(long group, long slice, Object text, Long number, long amount, long weight) {
+        void apply(long group, long slice, @Nullable Object text, @Nullable Long number, long amount, long weight) {
             List<Long> key = List.of(group, slice);
             rows.merge(key, weight, Long::sum);
             sums.merge(key, amount * weight, Long::sum);
@@ -105,10 +106,13 @@ class DistinctValueCountsPropertyTest {
                 long group = key.get(0);
                 long[] total = totals.computeIfAbsent(group, g -> new long[2]);
                 total[0] += count;
-                total[1] += sums.get(key);
+                total[1] += java.util.Objects.requireNonNull(sums.get(key));
                 List<Set<Object>> union = unions.computeIfAbsent(group, g -> List.of(new HashSet<>(), new HashSet<>()));
                 for (int c = 0; c < 2; c++) {
-                    union.get(c).addAll(distinct.get(key).get(c).keySet());
+                    union.get(c)
+                            .addAll(java.util.Objects.requireNonNull(distinct.get(key))
+                                    .get(c)
+                                    .keySet());
                 }
             });
             Map<Long, List<Long>> result = new TreeMap<>();
@@ -119,7 +123,9 @@ class DistinctValueCountsPropertyTest {
                             group,
                             List.of(
                                     total[0],
-                                    (long) union.get(0).size(),
+                                    (long) java.util.Objects.requireNonNull(union)
+                                            .get(0)
+                                            .size(),
                                     (long) union.get(1).size(),
                                     total[1]));
                 }
@@ -145,7 +151,9 @@ class DistinctValueCountsPropertyTest {
     private static Map<Long, List<Long>> fired(SlicedAggregateState state, long windowEnd) {
         Map<Long, List<Long>> result = new TreeMap<>();
         for (SlicedAggregateState.WindowResult r : state.fire(windowEnd)) {
-            result.put((Long) r.keyValues()[0], List.of(r.count(), r.values()[1], r.values()[2], r.values()[3]));
+            result.put(
+                    (Long) java.util.Objects.requireNonNull(r.keyValues())[0],
+                    List.of(r.count(), r.values()[1], r.values()[2], r.values()[3]));
         }
         return result;
     }
@@ -155,8 +163,8 @@ class DistinctValueCountsPropertyTest {
             boolean collide,
             long group,
             long slice,
-            Object text,
-            Long number,
+            @Nullable Object text,
+            @Nullable Long number,
             long amount,
             long weight) {
         Object[] distinctValues = {null, text, number, null};

@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.config.Configuration;
@@ -104,7 +106,7 @@ public final class DebugSessions implements AutoCloseable {
      * @param typed the query's name as the caller wrote it, resolved in the caller's tenant (ADR-060)
      * @param checkpointId the checkpoint to fork from, or null for the newest retained one
      */
-    public DebugSession.Status fork(String typed, Long checkpointId, Principal principal) {
+    public DebugSession.Status fork(String typed, @Nullable Long checkpointId, Principal principal) {
         String name = QueryRegistry.engineName(principal, typed);
         expireStale();
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "debug");
@@ -203,7 +205,7 @@ public final class DebugSessions implements AutoCloseable {
      * checkpoint at all, this query has not taken one yet, and the id asked for has been pruned.
      * "No checkpoint" without saying which would send an operator to the wrong setting.
      */
-    private Checkpoint checkpointOf(RegisteredQuery query, String name, Long wanted) {
+    private Checkpoint checkpointOf(RegisteredQuery query, String name, @Nullable Long wanted) {
         Path directory = query.checkpointDirectory()
                 .orElseThrow(() -> new PravahaException(
                         DebugErrors.NO_CHECKPOINT,
@@ -251,7 +253,7 @@ public final class DebugSessions implements AutoCloseable {
 
     /** One page of one operator's state, read without changing it. */
     public OperatorState.Page inspect(
-            String id, String operatorId, String key, int offset, int limit, Principal principal) {
+            String id, String operatorId, @Nullable String key, int offset, int limit, Principal principal) {
         return require(id, principal, "debug-inspect").inspect(operatorId, key, offset, limit);
     }
 
@@ -260,7 +262,7 @@ public final class DebugSessions implements AutoCloseable {
         return require(id, principal, "debug-view").viewRows();
     }
 
-    public Optional<DebugSession.Status> of(String id, Principal principal) {
+    public Optional<DebugSession.Status> of(@Nullable String id, Principal principal) {
         DebugSession session = byId.get(id);
         if (session == null) {
             return Optional.empty();
@@ -333,7 +335,7 @@ public final class DebugSessions implements AutoCloseable {
                 if (action.isWatermark()) {
                     execution.advanceWatermark(action.watermarkNanos());
                 } else {
-                    feeder.feed(action.row());
+                    feeder.feed(java.util.Objects.requireNonNull(action.row(), "a row action has its row"));
                 }
                 // After each action, exactly as the generated fixture does: an expectation that
                 // depended on committing less often than the test does would be an expectation the

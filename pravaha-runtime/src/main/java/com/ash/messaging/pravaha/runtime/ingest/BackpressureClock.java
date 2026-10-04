@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.runtime.ingest;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.runtime.lane.LaneBackpressure;
 
 /**
@@ -51,7 +53,7 @@ final class BackpressureClock {
      * fullest <em>now</em> would leave the lane it was opened on waiting for ever, reporting a
      * blocked fraction that climbs to 1 and stays there.
      */
-    private volatile LaneBackpressure openedAgainst;
+    private volatile @Nullable LaneBackpressure openedAgainst;
 
     /**
      * The writer has found no room. Idempotent while an episode is open: a pump that polls a

@@ -48,6 +48,7 @@ class PgExtendedProtocolTest {
             .field("total", Types.int64())
             .build();
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @AfterEach

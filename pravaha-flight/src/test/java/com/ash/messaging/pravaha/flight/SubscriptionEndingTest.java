@@ -70,9 +70,16 @@ class SubscriptionEndingTest {
 
     private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaFlightServer server;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private FlightClient client;
+
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private QueryRegistry registry;
 
     @AfterEach

@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
@@ -43,7 +45,7 @@ final class ReplayableLog implements SourceFeedFactory {
     private final StreamSchema schema;
     private final List<Object[]> rows = new CopyOnWriteArrayList<>();
     private final AtomicInteger readers = new AtomicInteger();
-    private volatile com.ash.messaging.pravaha.api.PravahaException backfillFailure;
+    private volatile com.ash.messaging.pravaha.api.@Nullable PravahaException backfillFailure;
 
     ReplayableLog(StreamSchema schema) {
         this.schema = schema;
@@ -66,7 +68,7 @@ final class ReplayableLog implements SourceFeedFactory {
      * Makes every backfill's next read fail with {@code failure}, as a source that cannot reach the
      * seam does (PRV-4013). The running version's own reader is untouched.
      */
-    void failBackfillsWith(com.ash.messaging.pravaha.api.PravahaException failure) {
+    void failBackfillsWith(com.ash.messaging.pravaha.api.@Nullable PravahaException failure) {
         this.backfillFailure = failure;
     }
 
@@ -161,6 +163,8 @@ final class ReplayableLog implements SourceFeedFactory {
         private volatile boolean closed;
         private volatile long fed;
         private final String stream;
+
+        @SuppressWarnings("NullAway.Init") // a test sets it before reading it
         private volatile FeedStatus.Stop stop;
 
         Feed(String queryName, String stream, IngestPump pump, Runnable afterDelivery) {

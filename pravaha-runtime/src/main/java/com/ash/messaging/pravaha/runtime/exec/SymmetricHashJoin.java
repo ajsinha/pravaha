@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.runtime.exec;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -100,7 +102,7 @@ final class SymmetricHashJoin implements AutoCloseable {
             RowArena arena,
             RowProcessor downstream,
             int maxStateSlabs,
-            MemoryAccess overflowAccess,
+            @Nullable MemoryAccess overflowAccess,
             int maxOverflowSlabs) {
         this.plan = plan;
         this.arena = arena;

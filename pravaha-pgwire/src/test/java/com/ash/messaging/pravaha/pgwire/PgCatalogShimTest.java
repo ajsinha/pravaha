@@ -58,6 +58,7 @@ class PgCatalogShimTest {
     private static final StreamSchema PAYROLL_SCHEMA =
             StreamSchema.builder("payroll").field("employee_id", Types.string()).build();
 
+    @SuppressWarnings("NullAway.Init") // a test sets it before reading it
     private PravahaPgWireServer server;
 
     @AfterEach
@@ -186,7 +187,8 @@ class PgCatalogShimTest {
     private PgTestClient authenticated(String password) throws IOException {
         PgTestClient client = new PgTestClient(server.port());
         client.startup(Map.of("user", "anyone", "database", "pravaha"));
-        assertThat(client.read().type()).isEqualTo('R'); // AuthenticationCleartextPassword
+        assertThat(java.util.Objects.requireNonNull(client.read()).type())
+                .isEqualTo('R'); // AuthenticationCleartextPassword
         client.password(password);
         List<PgTestClient.Message> handshake = client.readUntilReady();
         assertThat(PgTestClient.shape(handshake)).endsWith("Z");

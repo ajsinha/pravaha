@@ -80,9 +80,12 @@ class CatalogServiceTest {
         CatalogStatementExecutor.Answer why = run(OPS, "SHOW EFFECTIVE ACCESS FOR USER ana ON VIEW sales.revenue");
         Map<String, List<String>> byPrivilege = new java.util.HashMap<>();
         why.rows().forEach(r -> byPrivilege.put(r.get(2), r));
-        assertThat(byPrivilege.get("SELECT").get(3)).isEqualTo("true");
-        assertThat(byPrivilege.get("SELECT").get(4)).isEqualTo("grant SELECT on acme.sales.revenue to ROLE analyst");
-        assertThat(byPrivilege.get("MANAGE").get(3)).isEqualTo("false");
+        assertThat(java.util.Objects.requireNonNull(byPrivilege.get("SELECT")).get(3))
+                .isEqualTo("true");
+        assertThat(java.util.Objects.requireNonNull(byPrivilege.get("SELECT")).get(4))
+                .isEqualTo("grant SELECT on acme.sales.revenue to ROLE analyst");
+        assertThat(java.util.Objects.requireNonNull(byPrivilege.get("MANAGE")).get(3))
+                .isEqualTo("false");
 
         run(OPS, "REVOKE SUBSCRIBE ON VIEW sales.revenue FROM ROLE analyst");
         assertThat(service.access()
@@ -128,13 +131,13 @@ class CatalogServiceTest {
         try {
             run(BOB, "SHOW GRANTS ON VIEW revenue");
         } catch (PravahaException e) {
-            hidden = e.getMessage();
+            hidden = String.valueOf(e.getMessage());
         }
         String absent = "";
         try {
             run(BOB, "SHOW GRANTS ON VIEW no_such_view");
         } catch (PravahaException e) {
-            absent = e.getMessage();
+            absent = String.valueOf(e.getMessage());
         }
         assertThat(hidden).contains("PRV-7031");
         assertThat(hidden.replace("revenue", "X")).isEqualTo(absent.replace("no_such_view", "X"));

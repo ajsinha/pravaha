@@ -22,6 +22,8 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -65,7 +67,12 @@ final class PgTransactionBlock {
     static final char FAILED = 'E';
 
     /** One transaction-control statement, recognised; {@link #run} decides what it does in this state. */
-    record Command(Kind kind, String tag, String savepoint, boolean chain, String isolation) {}
+    record Command(
+            Kind kind,
+            String tag,
+            @Nullable String savepoint,
+            boolean chain,
+            @Nullable String isolation) {}
 
     enum Kind {
         BEGIN,
@@ -254,14 +261,19 @@ final class PgTransactionBlock {
             case RELEASE -> {
                 requireBlock("RELEASE SAVEPOINT");
                 savepoints
-                        .subList(indexOf(command.savepoint()), savepoints.size())
+                        .subList(
+                                indexOf(java.util.Objects.requireNonNull(command.savepoint(), "RELEASE names one")),
+                                savepoints.size())
                         .clear();
             }
             case ROLLBACK_TO -> {
                 requireBlock("ROLLBACK TO SAVEPOINT");
                 // The savepoint itself survives a rollback to it; everything after it does not.
                 savepoints
-                        .subList(indexOf(command.savepoint()) + 1, savepoints.size())
+                        .subList(
+                                indexOf(java.util.Objects.requireNonNull(command.savepoint(), "ROLLBACK TO names one"))
+                                        + 1,
+                                savepoints.size())
                         .clear();
                 status = IN_BLOCK;
             }
@@ -334,7 +346,7 @@ final class PgTransactionBlock {
         return raw.toLowerCase(Locale.ROOT);
     }
 
-    private static String isolationIn(String modes) {
+    private static @Nullable String isolationIn(String modes) {
         if (modes == null) {
             return null;
         }

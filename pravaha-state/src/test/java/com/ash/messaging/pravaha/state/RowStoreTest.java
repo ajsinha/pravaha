@@ -235,6 +235,7 @@ class RowStoreTest {
     // ------------------------------------------------------------------ ADR-037 item B2: overflow
 
     @Test
+    @SuppressWarnings("NullAway") // nulls on purpose: what a caller outside NullAway may pass
     void withNoOverflowTierGivenTheStoreBehavesExactlyAsBefore() {
         try (RowStore store = new RowStore(MemoryAccess.best(), MIN_SLAB, 2, null, 0)) {
             assertThat(store.hasSpilled()).isFalse();

@@ -166,6 +166,10 @@
          coverage gate that had nothing to measure. -->
     <jacoco.skip>${skipTests}</jacoco.skip>
     <skipTests>false</skipTests>
+    <!-- SKIPFAILSAFE-1: failsafe 3.6.0 no longer binds its skipTests to the skipTests property (only
+         skipITs), so -DskipTests ran every *IT, Testcontainers and all. skipITs follows skipTests
+         here; -DskipITs on its own still skips just the integration tests. -->
+    <skipITs>${skipTests}</skipITs>
     <benchmarks.skip>true</benchmarks.skip>
     <errorprone.skip>true</errorprone.skip>
     <!-- The ep ratchet (ERRORPRONE-2): every check Error Prone 2.50 enables at WARNING, raised to ERROR, so

@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.sql.plan;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 
 /**
@@ -67,7 +69,8 @@ public record PlanGraph(List<Node> nodes, List<Edge> edges) {
         return new PlanGraph(nodes, edges);
     }
 
-    private static void visit(PhysicalOperator operator, String consumer, List<Node> nodes, List<Edge> edges) {
+    private static void visit(
+            PhysicalOperator operator, @Nullable String consumer, List<Node> nodes, List<Edge> edges) {
         String id = com.ash.messaging.pravaha.runtime.plan.PlanNodes.idOf(nodes.size());
         List<String> fields = new ArrayList<>(operator.outputSchema().fieldCount());
         for (int i = 0; i < operator.outputSchema().fieldCount(); i++) {

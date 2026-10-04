@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.registry;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.Retention;
@@ -56,7 +58,7 @@ final class RegistrationPlanning {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName,
+            @Nullable String sinkName,
             String action) {
         if (keyColumns == null || keyColumns.isEmpty()) {
             // Coded as CREATE CONTINUOUS QUERY's own refusal of a missing KEYED BY (UNCODEDAPI-1).
@@ -97,8 +99,8 @@ final class RegistrationPlanning {
                     plan,
                     stream -> chains.retracts(stream, tenant) || feeds.retracts(stream),
                     sink.capabilities(),
-                    sinkName);
-            SinkShape.require(sink, plan.outputSchema(), keyColumns, sinkName);
+                    java.util.Objects.requireNonNull(sinkName, "a described sink was named"));
+            SinkShape.require(sink, plan.outputSchema(), keyColumns, java.util.Objects.requireNonNull(sinkName));
         }
 
         // The policy's three questions, in RegistrationAuthorization: may they register, may they

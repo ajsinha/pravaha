@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
@@ -148,7 +150,7 @@ final class RegistrationAuthorization {
             Principal principal,
             String action,
             String name,
-            String sinkName,
+            @Nullable String sinkName,
             String sql) {
         if (sinkName == null) {
             return;

@@ -53,7 +53,7 @@ public record FixtureExport(String className, String path, Map<String, String> f
 
     /** The generated Java source, which is the file the export is for. */
     public String source() {
-        return files.get(path);
+        return java.util.Objects.requireNonNull(files.get(path), "an export holds its own file");
     }
 
     /** Where a generated fixture belongs, and the package the generator writes. */

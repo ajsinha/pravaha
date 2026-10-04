@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.apache.iceberg.data.Record;
+import org.jspecify.annotations.Nullable;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -88,18 +89,27 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
     static final long DEFAULT_MAX_KEYS = 1_000_000L;
 
     private String instanceName = "iceberg-sink";
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String path;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
     private List<String> keyNames = List.of();
     private int[] keyOrdinals = new int[0];
     private boolean changelog;
     private boolean transactional;
     private boolean create;
     private long maxKeys = DEFAULT_MAX_KEYS;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String transactionId;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Path stagingRoot;
 
-    private IcebergSinkTable table;
+    private @Nullable IcebergSinkTable table;
 
     /** Upsert mode: the open transaction's changes, collapsed by key, in the order of each key's last change. */
     private final Map<List<Object>, Change> pending = new LinkedHashMap<>();
@@ -170,7 +180,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         this.stagingRoot = root.resolve("data").resolve("_pravaha").resolve(transactionId);
         this.table = new IcebergSinkTable(
                 instanceName, root, IcebergSinkSchema.toIceberg(instanceName, schema, changelog, keyNames), !changelog);
-        table.check();
+        sinkTable().check();
     }
 
     private long maxKeys(String value) {
@@ -249,7 +259,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
 
     @Override
     public void open() {
-        table.open(create);
+        sinkTable().open(create);
     }
 
     @Override
@@ -286,16 +296,16 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         boolean inTransaction = transactional && openLabel >= 0;
         if (changelog) {
             Path directory = inTransaction ? labelDirectory(openLabel) : directDirectory();
-            table.writeData(directory, String.format("data-%06d", nextSeq++), changelogRecords(changes));
+            sinkTable().writeData(directory, String.format("data-%06d", nextSeq++), changelogRecords(changes));
             if (!inTransaction) {
-                table.commit(directory, null, -1L);
+                sinkTable().commit(directory, null, -1L);
             }
         } else {
             changes.forEach(this::collapse);
             if (!inTransaction) {
                 Path directory = directDirectory();
                 writeCollapsed(directory);
-                table.commit(directory, null, -1L);
+                sinkTable().commit(directory, null, -1L);
             }
         }
         return changes.size();
@@ -332,7 +342,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         List<Record> keys = new ArrayList<>(pending.size());
         List<Record> rows = new ArrayList<>(pending.size());
         for (Change change : pending.values()) {
-            Record key = table.newKeyRecord();
+            Record key = sinkTable().newKeyRecord();
             for (int ordinal : keyOrdinals) {
                 key.setField(schema.field(ordinal).name(), change.values()[ordinal]);
             }
@@ -342,9 +352,9 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
             }
         }
         pending.clear();
-        table.writeDeletes(directory, "000000", keys);
+        sinkTable().writeDeletes(directory, "000000", keys);
         if (!rows.isEmpty()) {
-            table.writeData(directory, "data-000000", rows);
+            sinkTable().writeData(directory, "data-000000", rows);
         }
     }
 
@@ -360,7 +370,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
     }
 
     private Record record(Change change) {
-        Record record = table.newRecord();
+        Record record = sinkTable().newRecord();
         for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
             record.set(ordinal, change.values()[ordinal]);
         }
@@ -378,7 +388,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
             return;
         }
         requireOpen();
-        if (checkpointId > table.committedLabel(transactionId).orElse(Long.MIN_VALUE)) {
+        if (checkpointId > sinkTable().committedLabel(transactionId).orElse(Long.MIN_VALUE)) {
             IcebergSinkTable.discard(labelDirectory(checkpointId));
         }
         pending.clear();
@@ -416,10 +426,10 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         }
         requireOpen();
         long label = labelOf(handle);
-        if (table.committedLabel(transactionId).orElse(Long.MIN_VALUE) >= label) {
+        if (sinkTable().committedLabel(transactionId).orElse(Long.MIN_VALUE) >= label) {
             return;
         }
-        table.commit(labelDirectory(label), transactionId, label);
+        sinkTable().commit(labelDirectory(label), transactionId, label);
     }
 
     @Override
@@ -429,7 +439,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         }
         requireOpen();
         long label = labelOf(handle);
-        if (label > table.committedLabel(transactionId).orElse(Long.MIN_VALUE)) {
+        if (label > sinkTable().committedLabel(transactionId).orElse(Long.MIN_VALUE)) {
             IcebergSinkTable.discard(labelDirectory(label));
         }
         if (label == openLabel) {
@@ -445,7 +455,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
             return;
         }
         requireOpen();
-        long committed = table.committedLabel(transactionId).orElse(Long.MIN_VALUE);
+        long committed = sinkTable().committedLabel(transactionId).orElse(Long.MIN_VALUE);
         for (long label : IcebergSinkTable.labels(stagingRoot)) {
             if (label > checkpointId && label > committed) {
                 IcebergSinkTable.discard(labelDirectory(label));
@@ -490,6 +500,11 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         }
     }
 
+    /** The table this sink writes; there is one from configure() until close(). */
+    private IcebergSinkTable sinkTable() {
+        return java.util.Objects.requireNonNull(table, "configured and not closed");
+    }
+
     /** Data rows this instance has committed to the table. */
     public long rowsApplied() {
         return table == null ? 0L : table.rowsApplied();
@@ -497,7 +512,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
 
     /** The table, once open: for tests that read it back through Iceberg. */
     org.apache.iceberg.Table icebergTable() {
-        return table.table();
+        return sinkTable().table();
     }
 
     @Override

@@ -45,7 +45,7 @@ public interface StreamSourcePlugin extends PravahaPlugin {
      *
      * @param resumeFrom where to resume, or {@code null} to start from the configured position
      */
-    PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom);
+    PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom);
 
     /**
      * Creates a reader, offering it work the engine would rather not do itself.
@@ -60,7 +60,8 @@ public interface StreamSourcePlugin extends PravahaPlugin {
      * is returning fewer rows than the filters allow, because the engine cannot tell the difference
      * between a row its source withheld and a row that was never there.
      */
-    default PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
+    default PartitionReader createReader(
+            SourcePartition partition, @Nullable SourceOffset resumeFrom, ReadRequest request) {
         return createReader(partition, resumeFrom);
     }
 

@@ -62,6 +62,7 @@ public final class ViewNames {
     }
 
     /** The name an engine name has within its tenant: the part after the last dot. */
+    @SuppressWarnings("NullAway") // null only for a null name, which only a caller outside NullAway passes
     public static String localName(String engineName) {
         if (engineName == null) {
             return null;
@@ -82,6 +83,7 @@ public final class ViewNames {
     }
 
     /** How {@code engineName} is shown to {@code principal}: bare in its own tenant, qualified outside it. */
+    @SuppressWarnings("NullAway") // null only for a null name, which only a caller outside NullAway passes
     public static String shown(Principal principal, String engineName) {
         if (engineName == null) {
             return null;

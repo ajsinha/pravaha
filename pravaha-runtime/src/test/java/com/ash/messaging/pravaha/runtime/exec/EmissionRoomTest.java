@@ -132,7 +132,7 @@ class EmissionRoomTest {
             long mark = arena.mark();
             long handle = arena.allocate(layout.rowSize(16));
             writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-            filler.fill(writer, i);
+            java.util.Objects.requireNonNull(filler).fill(writer, i);
             writer.weight(1L).eventTimestampNanos(1L).sequence(i).commit();
             into.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
             arena.resetTo(mark);

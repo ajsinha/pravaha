@@ -20,6 +20,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.Administration;
 import com.ash.messaging.pravaha.security.Principal;
@@ -90,7 +92,7 @@ public final class QueryOwners {
     }
 
     /** A cutover or a rollback gave the name to another version, and so to whoever that version is by. */
-    void transferred(String name, Principal owner) {
+    void transferred(String name, @Nullable Principal owner) {
         if (owner != null && owners.containsKey(name)) {
             owners.put(name, owner);
         }

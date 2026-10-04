@@ -19,6 +19,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.registry.SubscriptionOptions;
@@ -45,7 +47,7 @@ record SubscriptionTicket(
         boolean fromSnapshot,
         boolean answer,
         Map<String, Object> equals,
-        ControlWire.SubscriberPreference preference) {
+        ControlWire.@Nullable SubscriberPreference preference) {
 
     /** Reads a ticket, refusing one that is not a subscription's. */
     static SubscriptionTicket read(byte[] ticket) {

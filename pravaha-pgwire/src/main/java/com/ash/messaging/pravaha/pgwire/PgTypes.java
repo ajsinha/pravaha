@@ -21,6 +21,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
 import com.ash.messaging.pravaha.api.data.Field;
@@ -176,7 +178,7 @@ final class PgTypes {
      * different values and a client that cannot tell them apart will eventually total them
      * differently.
      */
-    static byte[] encode(TypeName typeName, Object value) {
+    static byte @Nullable [] encode(TypeName typeName, Object value) {
         if (value == null) {
             return null;
         }
@@ -295,7 +297,7 @@ final class PgTypes {
      * digits. PostgreSQL itself has no finer resolution, so no PostgreSQL client that asked for
      * binary expected more.
      */
-    static byte[] encodeBinary(TypeName typeName, Object value) {
+    static byte @Nullable [] encodeBinary(TypeName typeName, Object value) {
         if (value == null) {
             return null;
         }
@@ -419,7 +421,7 @@ final class PgTypes {
      *     value this gateway does not decode, {@link PgWireErrors#UNSUPPORTED_TYPE} for a
      *     placeholder type this gateway never puts on the wire in either direction
      */
-    static Object decodeParameter(TypeName typeName, short format, byte[] bytes) {
+    static @Nullable Object decodeParameter(TypeName typeName, short format, byte[] bytes) {
         return decodeParameter(typeName, 0, format, bytes);
     }
 
@@ -427,7 +429,7 @@ final class PgTypes {
      * As {@link #decodeParameter(TypeName, short, byte[])}, reading a binary value as the type the
      * client declared for it in {@code Parse} ({@code 0}: none, so the placeholder's own width).
      */
-    static Object decodeParameter(TypeName typeName, int declaredOid, short format, byte[] bytes) {
+    static @Nullable Object decodeParameter(TypeName typeName, int declaredOid, short format, byte[] bytes) {
         if (bytes == null) {
             return null;
         }
@@ -560,7 +562,7 @@ final class PgTypes {
      * {@code DOUBLE}; a wider integer than the placeholder is accepted only when its value is in the
      * placeholder's range, and a {@code float8} is never narrowed to a {@code REAL}.
      */
-    private static Object decodeAsDeclared(TypeName typeName, int declaredOid, byte[] bytes) {
+    private static @Nullable Object decodeAsDeclared(TypeName typeName, int declaredOid, byte[] bytes) {
         int declaredWidth =
                 switch (declaredOid) {
                     case OID_INT2 -> 2;

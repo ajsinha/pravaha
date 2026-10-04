@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -179,7 +180,7 @@ class SpillBeyondRamMeasurementIT {
      * Why a memory cap cannot be imposed here, or {@code null} if it can: a scope is started with
      * a 64 MiB {@code MemoryMax} and must report that limit from inside.
      */
-    private static String memoryCapUnavailable() {
+    private static @Nullable String memoryCapUnavailable() {
         if (!System.getProperty("os.name", "")
                 .toLowerCase(java.util.Locale.ROOT)
                 .contains("linux")) {

@@ -383,8 +383,9 @@ final class PgExtendedSession {
     }
 
     private void deliverRows(PgBackend backend, PgPortal portal, int maxRows) throws IOException {
-        List<Object[]> rows = portal.result().rows();
-        StreamSchema schema = portal.result().schema();
+        ViewQuery.Result result = java.util.Objects.requireNonNull(portal.result(), "a portal runs before it delivers");
+        List<Object[]> rows = result.rows();
+        StreamSchema schema = result.schema();
         int start = portal.cursor();
         int end = maxRows <= 0 ? rows.size() : Math.min(rows.size(), start + maxRows);
         short[] formats = portal.resultFormats();

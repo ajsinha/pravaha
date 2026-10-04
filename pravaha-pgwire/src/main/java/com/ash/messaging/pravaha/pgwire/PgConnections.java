@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.pgwire;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -77,7 +79,7 @@ final class PgConnections {
     final class Ticket {
 
         private boolean signingIn = true;
-        private String principal;
+        private @Nullable String principal;
         private boolean closed;
 
         /**

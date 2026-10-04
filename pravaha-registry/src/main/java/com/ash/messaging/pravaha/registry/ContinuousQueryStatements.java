@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.StringJoiner;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -88,7 +90,7 @@ public final class ContinuousQueryStatements {
      * @param policy the policy the surface running the statement authorizes with -- the one its
      *     actions use -- so that the SQL spelling cannot be decided by a different rule
      */
-    public ContinuousQueryStatements(QueryRegistry registry, SecurityPolicy policy, AuditSink audit) {
+    public ContinuousQueryStatements(QueryRegistry registry, SecurityPolicy policy, @Nullable AuditSink audit) {
         this.registry = registry;
         this.policy = policy == null ? SecurityPolicy.PERMISSIVE : policy;
         this.audit = audit == null ? AuditSink.NONE : audit;
@@ -142,7 +144,7 @@ public final class ContinuousQueryStatements {
      */
     private record Parsed(
             ContinuousStatement.Create statement,
-            Retention retention,
+            @Nullable Retention retention,
             boolean dedicatedLane,
             List<Integer> keys,
             Optional<Integer> index) {}
@@ -417,8 +419,8 @@ public final class ContinuousQueryStatements {
             String sql,
             List<Integer> keys,
             Principal principal,
-            String sink,
-            Retention retention) {
+            @Nullable String sink,
+            @Nullable Retention retention) {
         if (sink != null) {
             return retention == null
                     ? registry.registerWritingTo(name, sql, keys, principal, sink)
