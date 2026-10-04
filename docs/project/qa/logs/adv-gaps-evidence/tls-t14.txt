@@ -1,0 +1,25 @@
+started after 5s
+2026-10-04T09:45:25.548Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : security: authentication=token, policy=authenticated, administer=ownership, audit=none, flight transport=TLS
+2026-10-04T09:45:25.986Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : Flight SQL listening on 0.0.0.0:19090 (pravaha.flight.host, pravaha.flight.port)
+2026-10-04T09:45:25.999Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : PostgreSQL wire protocol listening on 0.0.0.0:5432 over TLS
+2026-10-04T09:45:26.007Z  INFO 1 --- [pravaha] [           main] c.a.m.p.server.PravahaServerApplication  : Started PravahaServerApplication in 2.732 seconds (process running for 3.192)
+### node log lines mentioning expiry / validity
+(none above means the node said nothing about the expired certificate)
+### psql verify-full
+psql: error: connection to server at "localhost" (127.0.0.1), port 36432 failed: SSL error: certificate verify failed
+exit=2
+### psql require (verifies nothing)
+ERROR:  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one.
+DETAIL:  SERVING_NO_SUCH_VIEW
+exit=1
+### SDKs
+### QG-T11 Python SDK grpc+tls
+python sdk ca.pem: ConnectError code=1040 'PRV-1040  failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:39090: Ssl handshake failed (TSI_PROTOCOL_FAILURE): SSL_ERROR_SSL: error:0A000086:SSL routines::certificate verify failed: certificate has expired'  (0.1s)
+python sdk other-ca.pem: ConnectError code=1040 'PRV-1040  failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:39090: Ssl handshake failed (TSI_PROTOCOL_FAILURE): SSL_ERROR_SSL: error:0A000086:SSL routines::certificate verify failed: unable to get local issuer certificate'  (0.0s)
+### QG-T12 Python SDK plaintext grpc:// against TLS Flight
+### QG-T08 pgjdbc verify-full
+pgjdbc verify-full ca.pem: org.postgresql.util.PSQLException SSL error: (certificate_expired) PKIX path validation failed: java.security.cert.CertPathValidatorException: validity check failed (0.1s)
+pgjdbc verify-full other-ca.pem: org.postgresql.util.PSQLException SSL error: (certificate_unknown) PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target (0.0s)
+### QG-T09/T10 Java SDK grpc+tls
+java sdk ca.pem: PravahaClientException PRV-1040 (CLIENT_CONNECT_FAILED) retryable=true PRV-1040  cannot reach localhost:39090: io exception Channel Pipeline: [SslHandler#0, ProtocolNegotiators$ClientTlsHandler#0, WriteBufferingAndExceptionHandler#0, DefaultChannelPipeline$TailContext#0]. Check that a Pravaha node is running there and that the scheme matches (grpc:// for plaintext, grpc+tls:// for TLS) (0.3s)
+java sdk other-ca.pem: PravahaClientException PRV-1040 (CLIENT_CONNECT_FAILED) retryable=true PRV-1040  cannot reach localhost:39090: io exception Channel Pipeline: [SslHandler#0, ProtocolNegotiators$ClientTlsHandler#0, WriteBufferingAndExceptionHandler#0, DefaultChannelPipeline$TailContext#0]. Check that a Pravaha node is running there and that the scheme matches (grpc:// for plaintext, grpc+tls:// for TLS) (0.0s)

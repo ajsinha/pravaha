@@ -1,0 +1,14 @@
+### QG-T07 psycopg verify-full
+psycopg verify-full ca.pem: OK ([('AMER', 800000), ('EMEA', 900000)], True)  (0.1s)
+psycopg verify-full other-ca.pem: OperationalError code=None 'connection failed: connection to server at "127.0.0.1", port 36432 failed: SSL error: certificate verify failed'  (0.0s)
+### QG-T11 Python SDK grpc+tls
+python sdk ca.pem: OK [('AMER', 800000), ('APAC', 300000), ('EMEA', 900000)]  (0.1s)
+python sdk other-ca.pem: ConnectError code=1040 'PRV-1040  failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:39090: Ssl handshake failed (TSI_PROTOCOL_FAILURE): SSL_ERROR_SSL: error:0A000086:SSL routines::certificate verify failed: unable to get local issuer certificate'  (0.0s)
+python sdk system trust (no ca): ConnectError code=1040 'PRV-1040  failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:39090: Ssl handshake failed (TSI_PROTOCOL_FAILURE): SSL_ERROR_SSL: error:0A000086:SSL routines::certificate verify failed: unable to get local issuer certificate'  (0.0s)
+### QG-T12 Python SDK plaintext grpc:// against TLS Flight
+python sdk grpc:// no token: ConnectError code=1040 'PRV-1040  failed to connect to all addresses; last error: UNAVAILABLE: ipv4:127.0.0.1:39090: Socket closed'  (0.0s)
+### QG-T16 Python SDK with a client certificate (CA's / other CA's)
+python sdk client cert (CA): OK [('AMER', 800000), ('APAC', 300000), ('EMEA', 900000)]  (0.0s)
+python sdk client cert (other CA): OK [('AMER', 800000), ('APAC', 300000), ('EMEA', 900000)]  (0.0s)
+### QG-T17 Python SDK wrong token over TLS
+python sdk wrong token: QueryError code=1041 'PRV-1041  PRV-7001  the credential presented was not accepted'  (0.0s)

@@ -1,0 +1,54 @@
+### QG-S07 baseline (40 rows, sum 8200), stable across passes (2 s interval)
+register v_cass -> QueryError PRV-1041  PRV-5091  the 'cassandra' plugin could not be opened for stream 's_cass': java.lang.IllegalStateException: Since you provided explicit contact points, the local DC must be explicitly set (see basic.load-balancing-policy.local-datacenter in the config, or set it programmatically with SessionBuilder.withLocalDatacenter). Current contact points are: Node(endPoint=qg-cassandra/<unresolved>:9042, hostId=edea5218-4990-4a9a-97e9-5c2b9e1b67f5, hashCode=502577bd)=datacenter1. Current DCs in thi (2.7s)
+05:59:54 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T09:59:54.412982271Z","path":"/api/v1/queries/v_cass"} failure=None None
+06:00:00 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:00:00.517512741Z","path":"/api/v1/queries/v_cass"} failure=None None
+### QG-S08 cassandra stopped mid-stream
+06:00:10 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:00:10.215469978Z","path":"/api/v1/queries/v_cass"} failure=None None
+06:00:25 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:00:25.329116466Z","path":"/api/v1/queries/v_cass"} failure=None None
+### cassandra started again; 5 more rows
+
+Warning: Using a password on the command line interface can be insecure.
+Recommendation: use the credentials file to securely provide the password.
+
+06:00:43 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:00:43.017066438Z","path":"/api/v1/queries/v_cass"} failure=None None
+### drop and register again
+Traceback (most recent call last):
+  File "/home/ashutosh/IdeaProjects/pravaha/.claude/worktrees/agent-a99f7b2093c924b60/sdk/python/pravaha/client.py", line 1154, in _act
+    return [_wire_decode(bytes(r.body)) for r in results]
+                                                 ^^^^^^^
+  File "pyarrow/_flight.pyx", line 1668, in _do_action_response
+  File "pyarrow/_flight.pyx", line 78, in pyarrow._flight.check_flight_status
+    return check_status(status)
+  File "pyarrow/error.pxi", line 92, in pyarrow.lib.check_status
+pyarrow.lib.ArrowInvalid: Flight returned invalid argument error, with message: PRV-8002  no query named 'v_cass' is registered. The registered names are not listed here: this layer holds no principal, so it cannot tell whose names a caller may be told. Run `pravaha queries` (or the Flight LIST action), which answers as you and lists what you may read.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ashutosh/.cache/pravaha-qg/s/sq.py", line 38, in <module>
+    c.drop(sys.argv[2])
+    ~~~~~~^^^^^^^^^^^^^
+  File "/home/ashutosh/IdeaProjects/pravaha/.claude/worktrees/agent-a99f7b2093c924b60/sdk/python/pravaha/client.py", line 869, in drop
+    self._act(_ACTION_DROP, [name])
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ashutosh/IdeaProjects/pravaha/.claude/worktrees/agent-a99f7b2093c924b60/sdk/python/pravaha/client.py", line 1162, in _act
+    raise self._deadline_or_failure(exc, f"action {action}") from exc
+pravaha.client.QueryError: PRV-1041  PRV-8002  no query named 'v_cass' is registered. The registered names are not listed here: this layer holds no principal, so it cannot tell whose names a caller may be told. Run `pravaha queries` (or the Flight LIST action), which answers as you and lists what you may read.
+register v_cass -> QueryError PRV-1041  PRV-5091  the 'cassandra' plugin could not be opened for stream 's_cass': java.lang.IllegalStateException: Since you provided explicit contact points, the local DC must be explicitly set (see basic.load-balancing-policy.local-datacenter in the config, or set it programmatically with SessionBuilder.withLocalDatacenter). Current contact points are: Node(endPoint=qg-cassandra/<unresolved>:9042, hostId=edea5218-4990-4a9a-97e9-5c2b9e1b67f5, hashCode=3b14dfa6)=datacenter1. Current DCs in thi (2.2s)
+06:00:51 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:00:51.459886030Z","path":"/api/v1/queries/v_cass"} failure=None None
+### QG-S09 table dropped while running
+
+Warning: Using a password on the command line interface can be insecure.
+Recommendation: use the credentials file to securely provide the password.
+
+06:00:57 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:00:57.432521097Z","path":"/api/v1/queries/v_cass"} failure=None None
+06:01:07 v_cass: rows=QueryError: PRV-1041  PRV-4023  no views are registered, so there is nothing to query. A view is created by registering a continuous query that serves one. state=404 feed={"code":"PRV-8002","message":"PRV-8002  no registered query named 'v_cass' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.","helpUrl":"","timestamp":"2026-10-04T10:01:07.544777715Z","path":"/api/v1/queries/v_cass"} failure=None None
+### QG-S10 wrong password
+
+Warning: Using a password on the command line interface can be insecure.
+Recommendation: use the credentials file to securely provide the password.
+
+register v_cass_badpw -> QueryError PRV-1041  PRV-5091  the 'cassandra' plugin could not be opened for stream 's_cass_badpw': com.ash.messaging.pravaha.api.PravahaException: PRV-5085  source 's_cass_badpw' cannot reach Cassandra at [qg-cassandra/<unresolved>:9042]: Could not reach any contact point, make sure you've provided valid addresses (showing first 1 nodes, use getAllErrors() for more): Node(endPoint=qg-cassandra/<unresolved>:9042, hostId=null, hashCode=346ccfc5): [com.datastax.oss.driver.api.core.auth.AuthenticationExcepti (2.1s)
+log lines carrying the password: 0
+### QG-S11 keyspace absent
+register v_cass_nokeyspace -> QueryError PRV-1041  PRV-5091  the 'cassandra' plugin could not be opened for stream 's_cass_nokeyspace': java.lang.IllegalStateException: Since you provided explicit contact points, the local DC must be explicitly set (see basic.load-balancing-policy.local-datacenter in the config, or set it programmatically with SessionBuilder.withLocalDatacenter). Current contact points are: Node(endPoint=qg-cassandra/<unresolved>:9042, hostId=edea5218-4990-4a9a-97e9-5c2b9e1b67f5, hashCode=6fd486e9)=datacenter1. Current (2.2s)

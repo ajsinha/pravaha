@@ -1,0 +1,64 @@
+### fill the volume
+dd: IO error: No space left on device
+Filesystem     1K-blocks  Used Available Use% Mounted on
+tmpfs              16384 16384         0 100% /opt/pravaha/data
+### QG-D02 register v2 on a full disk
+registered v2
+{'v1': [{'n': 100, 's': 50500}], 'v2': [{'n': 90, 's': 49950}]}
+v1 RUNNING RUNNING None
+v2 RUNNING RUNNING None
+total 16372
+drwxrwxrwt 5 root    root         160 Oct  4 09:46 .
+drwxr-xr-x 1 root    root        4096 Oct  4 09:46 ..
+-rw------- 1 pravaha pravaha      218 Oct  4 09:46 .pravaha-owner
+-rw-r--r-- 1 pravaha pravaha 16748544 Oct  4 09:46 ballast
+drwx------ 4 pravaha pravaha      100 Oct  4 09:46 checkpoints
+drwx------ 2 pravaha pravaha       80 Oct  4 09:46 dlq
+-rw------- 1 pravaha pravaha      185 Oct  4 09:46 registry.journal
+drwx------ 2 pravaha pravaha       40 Oct  4 09:46 spill
+### QG-D03 rows arrive; checkpoints due every 2 s
+{'v1': [{'n': 200, 's': 201000}], 'v2': [{'n': 190, 's': 200450}]}
+v1 RUNNING RUNNING None
+v2 RUNNING RUNNING None
+200 {'state': None, 'health': None, 'stoppedFeeds': 0, 'checkpoint': None, 'lastCheckpoint': None}
+/opt/pravaha/data/checkpoints:
+total 0
+drwx------ 4 pravaha pravaha 100 Oct  4 09:46 .
+drwxrwxrwt 5 root    root    160 Oct  4 09:46 ..
+-rw------- 1 pravaha pravaha   0 Oct  4 09:46 .pravaha-owner
+drwx------ 2 pravaha pravaha  80 Oct  4 09:46 v1
+drwx------ 2 pravaha pravaha  40 Oct  4 09:46 v2
+
+/opt/pravaha/data/checkpoints/v1:
+total 16
+drwx------ 2 pravaha pravaha   80 Oct  4 09:46 .
+drwx------ 4 pravaha pravaha  100 Oct  4 09:46 ..
+-rw------- 1 pravaha pravaha 5240 Oct  4 09:46 checkpoint-6.bin
+-rw------- 1 pravaha pravaha 5240 Oct  4 09:46 checkpoint-7.bin
+
+/opt/pravaha/data/checkpoints/v2:
+total 0
+drwx------ 2 pravaha pravaha  40 Oct  4 09:46 .
+drwx------ 4 pravaha pravaha 100 Oct  4 09:46 ..
+### QG-D04 unparseable rows on a full disk (DLQ)
+{'v1': [{'n': 210, 's': 221550}], 'v2': [{'n': 200, 's': 221000}]}
+v1 RUNNING RUNNING None
+v2 RUNNING RUNNING None
+dead letters -> TypeError object of type 'DeadLetterPage' has no len()
+(200, {'query': 'v1', 'total': 0, 'bytes': 0, 'evicted': 0, 'evictedBytes': 0, 'replayed': 0, 'failedAgain': 0, 'oldest': None, 'newest': None, 'retention': '268435456 bytes', 'configured': True})
+total 4
+drwx------ 2 pravaha pravaha   80 Oct  4 09:46 .
+drwxrwxrwt 5 root    root     160 Oct  4 09:46 ..
+-rw------- 1 pravaha pravaha    0 Oct  4 09:46 v1.dlq
+-rw------- 1 pravaha pravaha 2315 Oct  4 09:46 v2.dlq
+### node log: WARN/ERROR since the fill
+      1 2026-10-04T09:46:33.326Z  WARN 1 --- [pravaha] [aha-state-owner] c.a.m.pravaha.common.io.SensitiveFiles   : could not set rwx------ on /opt/pravaha/data (java.nio.file.FileSystemException: /opt/pravaha/data: Operation not permitted). It holds data rather than configuration, so check its mode by hand.
+      1 2026-10-04T09:46:33.312Z  WARN 1 --- [pravaha] [aha-state-owner] c.a.m.pravaha.common.io.StateOwnership   : could not refresh the ownership marker /opt/pravaha/data/checkpoints/.pravaha-owner (com.ash.messaging.pravaha.api.PravahaException: PRV-4004  cannot write the ownership marker /opt/pravaha/data/checkpoints/.pravaha-owner: java.io.IOException: No space left on device). If this continues past
+      1 2026-10-04T09:46:23.325Z  WARN 1 --- [pravaha] [aha-state-owner] c.a.m.pravaha.common.io.SensitiveFiles   : could not set rwx------ on /opt/pravaha/data (java.nio.file.FileSystemException: /opt/pravaha/data: Operation not permitted). It holds data rather than configuration, so check its mode by hand.
+      1 2026-10-04T09:46:23.313Z  WARN 1 --- [pravaha] [aha-state-owner] c.a.m.pravaha.common.io.StateOwnership   : could not refresh the ownership marker /opt/pravaha/data/checkpoints/.pravaha-owner (com.ash.messaging.pravaha.api.PravahaException: PRV-4004  cannot write the ownership marker /opt/pravaha/data/checkpoints/.pravaha-owner: java.io.IOException: No space left on device). If this continues past
+      1 2026-10-04T09:46:19.312Z  WARN 1 --- [pravaha] [    virtual-121] c.a.m.pravaha.common.io.SensitiveFiles   : could not set rwx------ on /opt/pravaha/data (java.nio.file.FileSystemException: /opt/pravaha/data: Operation not permitted). It holds data rather than configuration, so check its mode by hand.
+      1 2026-10-04T09:46:13.325Z  WARN 1 --- [pravaha] [aha-state-owner] c.a.m.pravaha.common.io.SensitiveFiles   : could not set rwx------ on /opt/pravaha/data (java.nio.file.FileSystemException: /opt/pravaha/data: Operation not permitted). It holds data rather than configuration, so check its mode by hand.
+      1 2026-10-04T09:46:04.275Z  WARN 1 --- [pravaha] [     virtual-52] c.a.m.pravaha.common.io.SensitiveFiles   : could not set rwx------ on /opt/pravaha/data (java.nio.file.FileSystemException: /opt/pravaha/data: Operation not permitted). It holds data rather than configuration, so check its mode by hand.
+      1 2026-10-04T09:46:03.540Z  WARN 1 --- [pravaha] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /api/docs endpoint is enabled by default. To disable it in production, set the property 'springdoc.swagger-ui.enabled=false'
+      1 2026-10-04T09:46:03.539Z  WARN 1 --- [pravaha] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /api/v1/openapi.json endpoint is enabled by default. To disable it in production, set the property 'springdoc.api-docs.enabled=false'
+      1 2026-10-04T09:46:03.325Z  WARN 1 --- [pravaha] [           main] c.a.m.pravaha.common.io.SensitiveFiles   : could not set rwx------ on /opt/pravaha/data (java.nio.file.FileSystemException: /opt/pravaha/data: Operation not permitted). It holds data rather than configuration, so check its mode by hand.

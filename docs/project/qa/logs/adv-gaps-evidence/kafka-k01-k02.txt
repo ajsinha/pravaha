@@ -1,0 +1,12 @@
+### QG-K01
+v_reg: rows=[(1, 100), (2, 200), (3, 300), (4, 400), (5, 500)]
+   state=RUNNING feed=RUNNING failure=None None
+   dead letters (0):
+### QG-K02
+v2 (amount string) id = 2 3 records id 6..8; v1 id 1 records 9,10; compatible v5 id 3 record 11
+v_reg: rows=[(1, 100), (2, 200), (3, 300), (4, 400), (5, 500), (9, 900), (10, 1000), (11, 1100)]
+   state=RUNNING feed=RUNNING failure=None None
+   dead letters (3):
+     t_reg/0@7: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+     t_reg/0@6: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+     t_reg/0@5: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t

@@ -28,6 +28,10 @@ class ClientOptions:
 
     endpoint: Endpoint
     token: Optional[str] = field(default=None, repr=False)
+    #: Validated and otherwise read by nothing: pyarrow's Flight client has no connect
+    #: timeout to feed it, and the connection is made inside the first request, so it is
+    #: ``request_timeout_seconds`` that bounds connecting (CONNECTTIMEOUT-1). Kept so code
+    #: that sets it keeps working.
     connect_timeout_seconds: float = 10.0
     request_timeout_seconds: float = 30.0
     default_consistency: Consistency = Consistency.CONSISTENT

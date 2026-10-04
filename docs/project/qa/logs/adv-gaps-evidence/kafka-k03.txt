@@ -1,0 +1,16 @@
+### QG-K03 registry stopped, unseen schema id
+record id 12 with unseen schema id 9999
+v_reg: rows=[(1, 100), (2, 200), (3, 300), (4, 400), (5, 500), (9, 900), (10, 1000), (11, 1100)]
+   state=RUNNING feed=STOPPED failure=PRV-5109 PRV-5109  PRV-5109  source 's_reg': the schema registry at [redacted schema.registry.url]/schemas/ids/9999 could not be read after 3 attempts: java.net.ConnectException. Records carrying a schema id cannot be decoded without it, so the reader stops rather than setting good records aside as dead lett
+   dead letters (3):
+     t_reg/0@7: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+     t_reg/0@6: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+     t_reg/0@5: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+### registry back, a record with a known id
+record id 13 with schema id 1
+v_reg: rows=[(1, 100), (2, 200), (3, 300), (4, 400), (5, 500), (9, 900), (10, 1000), (11, 1100)]
+   state=RUNNING feed=STOPPED failure=PRV-5109 PRV-5109  PRV-5109  source 's_reg': the schema registry at [redacted schema.registry.url]/schemas/ids/9999 could not be read after 3 attempts: java.net.ConnectException. Records carrying a schema id cannot be decoded without it, so the reader stops rather than setting good records aside as dead lett
+   dead letters (3):
+     t_reg/0@7: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+     t_reg/0@6: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t
+     t_reg/0@5: schema id 2 cannot be read into this stream's columns: Avro field 'amount' is string and column 'amount' is PrimitiveType[typeName=INT64, nullable=false]: no reading of that Avro type makes that column. Every record written with t

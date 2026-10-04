@@ -1,0 +1,32 @@
+### QG-T02 sslmode=require
+$ psql "host=localhost port=36432 user=qa dbname=pravaha sslmode=require" -c "SELECT region, revenue FROM sales"
+EMEA|900000
+APAC|300000
+AMER|800000
+exit=0
+ Protocol Version     | 3.0
+ SSL Connection       | true
+ SSL Library          | OpenSSL
+ SSL Protocol         | TLSv1.3
+### QG-T03 verify-full, right CA
+$ psql "host=localhost port=36432 user=qa dbname=pravaha sslmode=verify-full sslrootcert=/home/ashutosh/.cache/pravaha-qg/pki/ca.pem" -c "SELECT count(*) FROM sales"
+3
+exit=0
+### QG-T04 verify-full, wrong CA
+$ psql "host=localhost port=36432 user=qa dbname=pravaha sslmode=verify-full sslrootcert=/home/ashutosh/.cache/pravaha-qg/pki/other-ca.pem" -c "SELECT 1"
+psql: error: connection to server at "localhost" (127.0.0.1), port 36432 failed: SSL error: certificate verify failed
+exit=2
+### QG-T05 verify-full, name not in the certificate (127.0.0.1)
+$ psql "host=127.0.0.1 port=36432 user=qa dbname=pravaha sslmode=verify-full sslrootcert=/home/ashutosh/.cache/pravaha-qg/pki/ca.pem" -c "SELECT 1"
+psql: error: connection to server at "127.0.0.1", port 36432 failed: server certificate for "localhost" (and 2 other names) does not match host name "127.0.0.1"
+exit=2
+### QG-T06 sslmode=disable against the TLS-configured gateway
+$ psql "host=localhost port=36432 user=qa dbname=pravaha sslmode=disable" -c "SELECT region FROM sales"
+EMEA
+APAC
+AMER
+exit=0
+ SSL Connection       | false
+### QG-T06 raw protocol (no SSLRequest)
+server -> b'R' auth code 3 (3 = AuthenticationCleartextPassword)
+server -> b'R' auth code 0 (0 = AuthenticationOk)

@@ -21,6 +21,16 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   naming the call and the deadline. The 60 s stall the 2.1.0 gate saw in `JavaSdkTlsTest` was a cold
   first query (Calcite bootstrap in a fresh JVM, under full-build load) still making progress, not a
   hang.
+- **`ClientOptions.connectTimeout` is deprecated** (CONNECTTIMEOUT-1). It never bounded anything:
+  Arrow's Flight client builder has no setting it could feed. The connection is made inside the
+  first call, so `requestTimeout` is what bounds connecting — a node that is reachable but never
+  answers fails that call with `PRV-1045` at the deadline. The builder method and getter are kept
+  (`@Deprecated(since = "2.1.1")`, still validated) so 2.x code compiles; Python's
+  `connect_timeout_seconds` is documented the same way.
+- **A full disk no longer leaves a node that will not start** (DISKJOURNAL-1). A registry-journal
+  append that the disk failed part way left its bytes behind; once space returned, the next
+  registration was written after them, and the next start refused the journal with `PRV-8005`. A
+  failed append now has the next one cut the torn bytes first. Found by the ADV-GAPS QA pass.
 
 Register: **554 findings — 534 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

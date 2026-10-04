@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.sdk.flight;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -109,10 +110,15 @@ class JavaSdkDeadlineTest {
         }
     }
 
+    /** The client {@link #start()} connected; NullAway cannot see that it ran first. */
+    private PravahaFlightClient live() {
+        return Objects.requireNonNull(client, "client");
+    }
+
     @Test
     void aQueryTheServerNeverPlansFailsAtTheDeadlineNamingTheCallAndTheDeadline() {
         long started = System.nanoTime();
-        assertThatThrownBy(() -> client.query("SELECT n FROM anything"))
+        assertThatThrownBy(() -> live().query("SELECT n FROM anything"))
                 .isInstanceOfSatisfying(PravahaClientException.class, e -> {
                     assertThat(e.errorCode()).isEqualTo(ClientErrors.DEADLINE_EXCEEDED);
                     assertThat(e.errorCode().code()).isEqualTo("PRV-1045");
@@ -127,7 +133,7 @@ class JavaSdkDeadlineTest {
 
     @Test
     void anActionTheServerNeverAnswersFailsAtTheDeadline() {
-        assertThatThrownBy(() -> client.queries()).isInstanceOfSatisfying(PravahaClientException.class, e -> {
+        assertThatThrownBy(() -> live().queries()).isInstanceOfSatisfying(PravahaClientException.class, e -> {
             assertThat(e.errorCode()).isEqualTo(ClientErrors.DEADLINE_EXCEEDED);
             assertThat(e.getMessage()).contains("action ");
         });
@@ -136,7 +142,7 @@ class JavaSdkDeadlineTest {
     @Test
     void aQueryWhoseResultNeverOpensFailsAtTheDeadline() {
         answerFlightInfo = true;
-        assertThatThrownBy(() -> client.query("SELECT n FROM anything"))
+        assertThatThrownBy(() -> live().query("SELECT n FROM anything"))
                 .isInstanceOfSatisfying(PravahaClientException.class, e -> {
                     assertThat(e.errorCode()).isEqualTo(ClientErrors.DEADLINE_EXCEEDED);
                     assertThat(e.getMessage()).contains("query (opening its result)");
@@ -145,7 +151,7 @@ class JavaSdkDeadlineTest {
 
     @Test
     void aSubscriptionThatNeverOpensFailsAtTheDeadline() {
-        Subscription subscription = client.subscribe("v", batch -> {});
+        Subscription subscription = live().subscribe("v", batch -> {});
         assertThatThrownBy(subscription::awaitOpen).isInstanceOfSatisfying(PravahaClientException.class, e -> {
             assertThat(e.errorCode()).isEqualTo(ClientErrors.DEADLINE_EXCEEDED);
             assertThat(e.getMessage()).contains("subscribe(v)");
@@ -159,7 +165,7 @@ class JavaSdkDeadlineTest {
         AtomicLong rows = new AtomicLong();
         long started = System.nanoTime();
         try (Subscription subscription =
-                client.subscribe("v", batch -> rows.addAndGet(batch.rows().size()))) {
+                live().subscribe("v", batch -> rows.addAndGet(batch.rows().size()))) {
             subscription.run();
         }
         // Five batches, 300 ms apart: three deadlines' worth, and every one of them delivered.

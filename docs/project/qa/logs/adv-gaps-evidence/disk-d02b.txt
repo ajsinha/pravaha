@@ -1,0 +1,98 @@
+### QG-D02 registrations until the journal needs a new page, refilling the volume before each
+q3 journal=282 :: registered q3
+q4 journal=379 :: registered q4
+q5 journal=476 :: registered q5
+q6 journal=573 :: registered q6
+q7 journal=670 :: registered q7
+q8 journal=767 :: registered q8
+q9 journal=864 :: registered q9
+q10 journal=963 :: registered q10
+q11 journal=1062 :: registered q11
+q12 journal=1161 :: registered q12
+q13 journal=1260 :: registered q13
+q14 journal=1359 :: registered q14
+q15 journal=1458 :: registered q15
+q16 journal=1557 :: registered q16
+q17 journal=1656 :: registered q17
+q18 journal=1755 :: registered q18
+q19 journal=1854 :: registered q19
+q20 journal=1953 :: registered q20
+q21 journal=2052 :: registered q21
+q22 journal=2151 :: registered q22
+q23 journal=2250 :: registered q23
+q24 journal=2349 :: registered q24
+q25 journal=2448 :: registered q25
+q26 journal=2547 :: registered q26
+q27 journal=2646 :: registered q27
+q28 journal=2745 :: registered q28
+q29 journal=2844 :: registered q29
+q30 journal=2943 :: registered q30
+q31 journal=3042 :: registered q31
+q32 journal=3141 :: registered q32
+q33 journal=3240 :: registered q33
+q34 journal=3339 :: registered q34
+q35 journal=3438 :: registered q35
+q36 journal=3537 :: registered q36
+q37 journal=3636 :: registered q37
+q38 journal=3735 :: registered q38
+q39 journal=3834 :: registered q39
+q40 journal=3933 :: registered q40
+q41 journal=4032 :: registered q41
+q42 journal=4096 :: register q42 -> QueryError PRV-1041  PRV-8006  cannot append to the registry journal at /opt/pravaha/data/registry.journal. The registration would be lost at the next restart, so it is refused now rather than acknowledged and forgotten
+### after the refusal
+{'v1': [{'n': 210, 's': 221550}], 'v2': [{'n': 200, 's': 221000}]}
+v1 RUNNING RUNNING None
+v2 RUNNING RUNNING None
+41 registered: ['q38', 'q39', 'q40', 'q41']
+total 16372
+drwxrwxrwt  5 root    root         960 Oct  4 09:48 .
+drwxr-xr-x  1 root    root        4096 Oct  4 09:46 ..
+-rw-------  1 pravaha pravaha      218 Oct  4 09:48 .pravaha-owner
+-rw-r--r--  1 pravaha pravaha 16748544 Oct  4 09:46 ballast
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-10
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-11
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-12
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-13
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-14
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-15
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-16
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-17
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-18
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-19
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-20
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-21
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-22
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-23
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-24
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-25
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-26
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-27
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-28
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-29
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-3
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-30
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-31
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-32
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-33
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-34
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-35
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-36
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-37
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-38
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-39
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-4
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-40
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-41
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-42
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-5
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-6
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-7
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-8
+-rw-r--r--  1 pravaha pravaha        0 Oct  4 09:48 ballast-9
+drwx------ 44 pravaha pravaha      900 Oct  4 09:48 checkpoints
+drwx------  2 pravaha pravaha      880 Oct  4 09:48 dlq
+-rw-------  1 pravaha pravaha     4096 Oct  4 09:48 registry.journal
+drwx------  2 pravaha pravaha       40 Oct  4 09:46 spill
+2026-10-04T09:46:03.326Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : claimed the registry journal directory /opt/pravaha/data for node 'qg-disk'
+2026-10-04T09:46:03.333Z  INFO 1 --- [pravaha] [           main] c.a.m.pravaha.server.PravahaNode         : registry recovered 0 of 0 queries from /opt/pravaha/data/registry.journal
+2026-10-04T09:46:03.337Z  INFO 1 --- [pravaha] [           main] c.a.messaging.pravaha.server.NodeAlerts  : alerts: serving with channels {} from /opt/pravaha/data/alerts.journal
