@@ -21,6 +21,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.RowKind;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -69,14 +71,14 @@ final class FilesystemPartitionReader implements com.ash.messaging.pravaha.api.p
      */
     private long lastSize;
 
-    private Object lastIdentity;
+    private @Nullable Object lastIdentity;
 
     FilesystemPartitionReader(
             Path path,
             DelimitedCodec codec,
             boolean skipHeader,
-            SourceOffset resumeFrom,
-            java.util.Set<String> deleteMarkers) {
+            @Nullable SourceOffset resumeFrom,
+            java.util.@Nullable Set<String> deleteMarkers) {
         this(path, codec, skipHeader, resumeFrom, deleteMarkers, false);
     }
 
@@ -84,8 +86,8 @@ final class FilesystemPartitionReader implements com.ash.messaging.pravaha.api.p
             Path path,
             DelimitedCodec codec,
             boolean skipHeader,
-            SourceOffset resumeFrom,
-            java.util.Set<String> deleteMarkers,
+            @Nullable SourceOffset resumeFrom,
+            java.util.@Nullable Set<String> deleteMarkers,
             boolean follow) {
         this.deleteMarkers = deleteMarkers == null ? java.util.Set.of() : deleteMarkers;
         this.codec = codec;
@@ -239,7 +241,7 @@ final class FilesystemPartitionReader implements com.ash.messaging.pravaha.api.p
      * bounded read keeps {@code readLine}, where a trailing unterminated line is the last line of a
      * finished file rather than a line still being written.
      */
-    private String readCompleteLine() throws IOException {
+    private @Nullable String readCompleteLine() throws IOException {
         int c;
         while ((c = reader.read()) != -1) {
             if (c == '\n') {

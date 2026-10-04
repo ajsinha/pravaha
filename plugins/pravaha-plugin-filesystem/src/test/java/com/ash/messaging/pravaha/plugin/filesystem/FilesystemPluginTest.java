@@ -660,10 +660,8 @@ class FilesystemPluginTest {
         try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
             source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL)));
             source.open();
-            com.ash.messaging.pravaha.api.plugin.OrderedPositions order = source.orderedPositions();
-            assertThat(order)
-                    .as("a file read once through has ordered positions")
-                    .isNotNull();
+            com.ash.messaging.pravaha.api.plugin.OrderedPositions order = java.util.Objects.requireNonNull(
+                    source.orderedPositions(), "a file read once through has ordered positions");
             try (PartitionReader plain =
                             source.createReader(source.partitions("txn").get(0), null);
                     Collector out = new Collector(source.schema())) {

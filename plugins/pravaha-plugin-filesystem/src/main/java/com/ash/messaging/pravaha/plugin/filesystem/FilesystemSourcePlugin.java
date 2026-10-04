@@ -23,6 +23,8 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -53,12 +55,20 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class FilesystemSourcePlugin implements StreamSourcePlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Path path;
+
     private String opColumn = "";
     private java.util.Set<String> deleteMarkers = java.util.Set.of();
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
     private char delimiter;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private String nullLiteral;
+
     private boolean skipHeader;
 
     /** Whether end of file means end of stream. See configure's `follow`. */
@@ -306,7 +316,7 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
     }
 
     @Override
-    public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+    public PartitionReader createReader(SourcePartition partition, @Nullable SourceOffset resumeFrom) {
         DelimitedCodec codec = new DelimitedCodec(schema, delimiter, nullLiteral);
         codec.markOperationColumn(opColumn);
         return new FilesystemPartitionReader(path, codec, skipHeader, resumeFrom, deleteMarkers, follow);
@@ -322,7 +332,7 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
      * which file they belong to.
      */
     @Override
-    public com.ash.messaging.pravaha.api.plugin.OrderedPositions orderedPositions() {
+    public com.ash.messaging.pravaha.api.plugin.@Nullable OrderedPositions orderedPositions() {
         return follow ? null : FilesystemPartitionReader::compareLines;
     }
 

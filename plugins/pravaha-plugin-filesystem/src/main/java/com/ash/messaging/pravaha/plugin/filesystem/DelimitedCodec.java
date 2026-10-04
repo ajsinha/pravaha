@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.plugin.filesystem;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.data.RowView;
@@ -97,15 +99,16 @@ final class DelimitedCodec {
     }
 
     private long lastEventTimeNanos = Long.MIN_VALUE;
-    private String lastOpValue;
+    private @Nullable String lastOpValue;
     private int opOrdinal = -1;
 
     /** Names the column whose value says whether a row is an insertion or a retraction. */
-    void markOperationColumn(String columnName) {
+    void markOperationColumn(@Nullable String columnName) {
         this.opOrdinal = columnName == null || columnName.isBlank() ? -1 : schema.indexOf(columnName);
     }
 
     /** The operation column's value for the row just decoded, or null when there is no such column. */
+    @Nullable
     String lastOperation() {
         return lastOpValue;
     }

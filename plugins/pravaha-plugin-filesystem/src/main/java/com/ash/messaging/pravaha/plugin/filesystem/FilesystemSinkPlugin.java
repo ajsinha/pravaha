@@ -24,6 +24,8 @@ import java.nio.file.StandardOpenOption;
 import java.util.EnumSet;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.EmitMode;
 import com.ash.messaging.pravaha.api.data.RowView;
@@ -53,12 +55,18 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  */
 public final class FilesystemSinkPlugin implements StreamSinkPlugin {
 
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private Path path;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private StreamSchema schema;
+
+    @SuppressWarnings("NullAway.Init") // set by configure(), which the engine calls before anything else
     private DelimitedCodec codec;
+
     private boolean append;
     private boolean flushEveryBatch;
-    private BufferedWriter writer;
+    private @Nullable BufferedWriter writer;
     private long rowsWritten;
 
     @Override
