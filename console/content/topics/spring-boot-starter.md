@@ -108,6 +108,7 @@ GROUP BY region, window_start, window_end;
 | `dlq.directory` | none | Where undecodable source records, and rows whose evaluation fails before state (`PRV-3027`), go instead of stopping the source or the query |
 | `watermark.idle-after` / `.tick` | `30s` / `1s` | For queries fed by a bound source |
 | `listener.max-pending` | `10000` | Commits a listener may have waiting before it is detached |
+| `serving.read.max-concurrent` / `.max-queued` / `.queue-timeout` / `.tenant-share` / `.deadline` | `0` / `0` / `2s` / `1.0` / `0s` | Read admission and the read deadline for `query`, as on a node: [Configuration](/help/topics/configuration). Unset, every read is admitted; out of range fails the startup (`PRV-1026`) |
 
 ## A complete service
 

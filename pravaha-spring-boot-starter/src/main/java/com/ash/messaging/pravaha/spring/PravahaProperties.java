@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -65,6 +66,7 @@ public class PravahaProperties {
     private final Dlq dlq = new Dlq();
     private final Watermark watermark = new Watermark();
     private final Listener listener = new Listener();
+    private final Serving serving = new Serving();
 
     public boolean isEnabled() {
         return enabled;
@@ -116,6 +118,10 @@ public class PravahaProperties {
 
     public Listener getListener() {
         return listener;
+    }
+
+    public Serving getServing() {
+        return serving;
     }
 
     /** {@code pravaha.node.*}. */
@@ -367,6 +373,79 @@ public class PravahaProperties {
 
         public void setOnError(PravahaListenerErrorHandler.Decision onError) {
             this.onError = onError;
+        }
+    }
+
+    /** {@code pravaha.serving.*}. */
+    public static class Serving {
+
+        private final Read read = new Read();
+
+        public Read getRead() {
+            return read;
+        }
+    }
+
+    /**
+     * {@code pravaha.serving.read.*} (STARTERREAD-1): read admission and the read deadline, as a node
+     * reads them. Each is unset by default, which leaves the engine's own default -- every read
+     * admitted, no deadline.
+     */
+    public static class Read {
+
+        /** Reads run at once; 0 for no limit. */
+        private @Nullable Integer maxConcurrent;
+
+        /** Reads that may wait for a permit beyond those; 0 refuses at once (PRV-4026). */
+        private @Nullable Integer maxQueued;
+
+        /** How long a queued read waits before PRV-4027. */
+        private @Nullable Duration queueTimeout;
+
+        /** The fraction of max-concurrent one tenant may hold, in (0, 1]. */
+        private @Nullable Double tenantShare;
+
+        /** How long one read may run before PRV-4029; 0 for none. */
+        private @Nullable Duration deadline;
+
+        public @Nullable Integer getMaxConcurrent() {
+            return maxConcurrent;
+        }
+
+        public void setMaxConcurrent(@Nullable Integer maxConcurrent) {
+            this.maxConcurrent = maxConcurrent;
+        }
+
+        public @Nullable Integer getMaxQueued() {
+            return maxQueued;
+        }
+
+        public void setMaxQueued(@Nullable Integer maxQueued) {
+            this.maxQueued = maxQueued;
+        }
+
+        public @Nullable Duration getQueueTimeout() {
+            return queueTimeout;
+        }
+
+        public void setQueueTimeout(@Nullable Duration queueTimeout) {
+            this.queueTimeout = queueTimeout;
+        }
+
+        public @Nullable Double getTenantShare() {
+            return tenantShare;
+        }
+
+        public void setTenantShare(@Nullable Double tenantShare) {
+            this.tenantShare = tenantShare;
+        }
+
+        public @Nullable Duration getDeadline() {
+            return deadline;
+        }
+
+        public void setDeadline(@Nullable Duration deadline) {
+            this.deadline = deadline;
         }
     }
 }

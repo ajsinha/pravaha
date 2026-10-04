@@ -31,6 +31,8 @@ import com.ash.messaging.pravaha.api.EngineState;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
+import com.ash.messaging.pravaha.serving.ReadAdmission;
+import com.ash.messaging.pravaha.serving.ReadLimits;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -132,6 +134,38 @@ class PravahaAutoConfigurationTest {
                     assertThat(Files.exists(dir.resolve("journal/registry.log")))
                             .isTrue();
                 });
+    }
+
+    /** STARTERREAD-1: {@code pravaha.serving.read.*} reaches the embedded engine's read admission. */
+    @Test
+    void readAdmissionSettingsReachTheEngine() {
+        runner.withPropertyValues(
+                        "pravaha.serving.read.max-concurrent=3",
+                        "pravaha.serving.read.max-queued=5",
+                        "pravaha.serving.read.queue-timeout=750ms",
+                        "pravaha.serving.read.tenant-share=0.5",
+                        "pravaha.serving.read.deadline=20s")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    ReadLimits limits =
+                            ReadLimits.from(context.getBean(PravahaEngine.class).configuration());
+                    assertThat(limits)
+                            .isEqualTo(new ReadLimits(3, 5, 0.5, Duration.ofMillis(750), Duration.ofSeconds(20)));
+                    assertThat(limits.admission()).isNotSameAs(ReadAdmission.UNLIMITED);
+                });
+
+        runner.run(context -> assertThat(
+                        ReadLimits.from(context.getBean(PravahaEngine.class).configuration()))
+                .as("unset, the engine's own defaults")
+                .isEqualTo(ReadLimits.NONE));
+
+        runner.withPropertyValues("pravaha.serving.read.tenant-share=1.5").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure())
+                    .rootCause()
+                    .hasMessageContaining("PRV-1026")
+                    .hasMessageContaining("pravaha.serving.read.tenant-share");
+        });
     }
 
     @Test
