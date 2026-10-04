@@ -29,8 +29,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
-source "$root/tools/jdk25.sh"
+# JDK 21 or later on JAVA_HOME, or a stop naming the requirement (ADR-062).
+source "$root/tools/jdk.sh"
 out="$root/target/sdk-dist"
 goal="package"
 java=1
@@ -125,7 +125,7 @@ cat > "$out/README.txt" <<EOF
 Pravaha client SDKs, built by tools/build-sdk.sh from $(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo "an unknown commit").
 Nothing in this directory contains the server; none of it needs one to be installed.
 
-java/  (Maven coordinates com.ash.messaging:<artifact>:$version; every jar needs Java 25,
+java/  (Maven coordinates com.ash.messaging:<artifact>:$version; every jar needs Java 21 or later,
        the Flight client, pravaha-sdk-java and pravaha-api alike)
   pravaha-sdk-java-flight-$version.jar      The Java client: connect, query, register, subscribe.
                                             Use this with Maven or Gradle; it brings Arrow Flight

@@ -23,8 +23,8 @@
 # at a thousand or two operations a second, which is the finding.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
-source tools/jdk25.sh
+# JDK 21 or later on JAVA_HOME, or a stop naming the requirement (ADR-062).
+source tools/jdk.sh
 
 DIR="${1:?usage: tools/spill-beyond-ram.sh <spill-directory> [maven args]}"
 shift || true

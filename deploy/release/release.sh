@@ -14,7 +14,7 @@
 #   2. sets the version across 37 poms, 2 wheels and the chart (deploy/release/set-version.sh)
 #   3. `./mvnw -o clean verify` -- the whole reactor, offline, tests and all
 #   4. builds the container images (engine and console) and tags them with the release version;
-#      the engine runs on Java 25, the only JRE from 2.0 (ADR-061)
+#      the engine image runs on a Java 21 JRE, the floor every newer JDK also runs (ADR-062)
 #   5. runs the image's smoke journey against the engine image it just built
 #   6. packages the Helm chart, if helm is available
 #   7. commits the version bump and writes an ANNOTATED TAG
@@ -39,8 +39,8 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-# Java 25 builds the release, and nothing else does (ADR-061): JAVA_HOME, or a stop naming it.
-source "$root/tools/jdk25.sh"
+# A JDK 21 or later builds the release; the classes are Java 21 class files either way (ADR-062).
+source "$root/tools/jdk.sh"
 
 version=""
 next=""
@@ -111,12 +111,12 @@ run "$root/mvnw" -o -B clean verify -f "$root/pom.xml"
 
 # ---------------------------------------------------------------- 4 and 5. the image
 
-# One engine image, on Java 25: from 2.0 the classes are Java 25 class files, so the 1.x -jre21
-# image has nothing left to run (ADR-061).
-step "build the image (Java 25)"
+# One engine image, on a Java 21 JRE: the classes target 21, and the image runs the lowest JRE the
+# 2.x promise names, so what ships is what the floor runs (ADR-062).
+step "build the image (Java 21)"
 run "$root/deploy/docker/build.sh" --tag "$image_repo:$version"
 
-step "smoke-test the image (Java 25)"
+step "smoke-test the image (Java 21)"
 run "$root/deploy/docker/smoke.sh" --image "$image_repo:$version"
 
 # The console is its own image (2026-09-26, the owner's decision): same version, same release.
@@ -158,7 +158,7 @@ cat <<EOF
 === released locally: $version ===
 
   tag     $tag          (annotated, NOT pushed)
-  image   $image_repo:$version   (Java 25; built and smoke-tested, NOT pushed)
+  image   $image_repo:$version   (Java 21; built and smoke-tested, NOT pushed)
   image   ${image_repo%-server}-console:$version   (built, NOT pushed)
   chart   target/pravaha-*.tgz   (if helm was available)
   jars    pravaha-*/target/*.jar

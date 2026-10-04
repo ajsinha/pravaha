@@ -16,8 +16,8 @@
 # Always finish a batch with tools/verify-clean.sh before committing.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
-source tools/jdk25.sh
+# JDK 21 or later on JAVA_HOME, or a stop naming the requirement (ADR-062).
+source tools/jdk.sh
 
 FORKS="${PRAVAHA_FORKS:-0.5C}"
 TARGET="${1:?usage: tools/check.sh <module>|--all [maven args]}"

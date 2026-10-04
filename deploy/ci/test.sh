@@ -109,7 +109,7 @@ jobs:
       - uses: actions/checkout
 ' "with no version"
 
-seed "a JDK other than 25" 'name: x
+seed "a JDK other than 21 or 25" 'name: x
 on: push
 jobs:
   a:
@@ -118,9 +118,25 @@ jobs:
     steps:
       - uses: actions/setup-java@v4
         with:
-          java-version: '"'"'21'"'"'
+          java-version: '"'"'17'"'"'
           distribution: temurin
-' "sets up Java 21"
+' "sets up Java 17"
+
+seed "a matrix leg on a JDK other than 21 or 25" 'name: x
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        java: ['"'"'21'"'"', '"'"'24'"'"']
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+' "sets up Java 24"
 
 seed "no jobs" 'name: x
 on: push
