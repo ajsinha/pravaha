@@ -205,6 +205,7 @@ final class PgWireConnection implements Runnable {
      */
     private Prelude handshake(Socket initial) throws IOException {
         Socket active = initial;
+        boolean encrypted = false;
         PgFrontend frontend = new PgFrontend(active.getInputStream());
         PgBackend backend = new PgBackend(active.getOutputStream());
         try {
@@ -226,6 +227,7 @@ final class PgWireConnection implements Runnable {
                     // would read raw TLS handshake bytes as though they were PostgreSQL protocol.
                     backend.acceptEncryption();
                     active = tls.serverSocket(active);
+                    encrypted = true;
                     active.setSoTimeout(handshakeMillis());
                     frontend = new PgFrontend(active.getInputStream());
                     backend = new PgBackend(active.getOutputStream());
@@ -254,7 +256,7 @@ final class PgWireConnection implements Runnable {
                                     + (startup.code() & 0xffff)
                                     + ". Protocol 2 clients predate PostgreSQL 7.4 and are not supported.");
                 }
-                if (tls != null && active == initial && !allowPlaintext) {
+                if (tls != null && !encrypted && !allowPlaintext) {
                     // PGTLSONLY-1. A certificate protected only the clients that asked for it: one
                     // that sent its startup in the clear was asked for the token in the clear. Refused
                     // here, before any credential is requested -- PostgreSQL's hostssl.
