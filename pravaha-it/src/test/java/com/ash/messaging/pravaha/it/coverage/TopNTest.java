@@ -97,6 +97,7 @@ class TopNTest {
 
     @Test
     void nullsSortFirstWhenDescendingAsSqlDefaultsAndLastWhenAskedTo() {
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         ZSetHarness.Change none = bid(1, 1, null, 1);
         ZSetHarness.Change some = bid(1, 2, 5L, 2);
         assertThat(run(
@@ -151,6 +152,7 @@ class TopNTest {
                 .hasMessageContaining("window aggregate");
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void theIncrementalAnswerEqualsTheAnswerFromScratchOverAThousandRandomChanges() {
         Random random = new Random(20260926L);

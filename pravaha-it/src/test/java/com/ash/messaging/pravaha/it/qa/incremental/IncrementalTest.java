@@ -21,7 +21,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -95,7 +97,7 @@ class IncrementalTest {
             .build();
 
     /** One arrival: a row and the weight it carries. */
-    private record Change(String user, Long amount, long eventTime, long weight) {}
+    private record Change(String user, @Nullable Long amount, long eventTime, long weight) {}
 
     private static Change at(String user, long amount, long seconds) {
         return new Change(user, amount, seconds * SECOND, 1);
@@ -981,7 +983,7 @@ class IncrementalTest {
                 if (change.amount() == null) {
                     writer.setNull(1);
                 } else {
-                    writer.setLong(1, change.amount());
+                    writer.setLong(1, Objects.requireNonNull(change.amount(), "a change with an amount"));
                 }
                 writer.setLong(2, change.eventTime())
                         .weight(change.weight())
@@ -1047,7 +1049,7 @@ class IncrementalTest {
                 long handle = arena.allocate(layout.rowSize(256));
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 writer.setString(0, change.user())
-                        .setLong(1, change.amount())
+                        .setLong(1, Objects.requireNonNull(change.amount(), "a change with an amount"))
                         .setLong(2, change.eventTime())
                         .weight(change.weight())
                         .eventTimestampNanos(change.eventTime())
@@ -1064,7 +1066,7 @@ class IncrementalTest {
                 long handle = arena.allocate(layout.rowSize(256));
                 writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                 writer.setString(0, change.user())
-                        .setLong(1, change.amount())
+                        .setLong(1, Objects.requireNonNull(change.amount(), "a change with an amount"))
                         .setLong(2, change.eventTime())
                         .weight(change.weight())
                         .eventTimestampNanos(change.eventTime())
@@ -1110,7 +1112,7 @@ class IncrementalTest {
                     long handle = arena.allocate(layout.rowSize(256));
                     writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
                     writer.setString(0, change.user())
-                            .setLong(1, change.amount())
+                            .setLong(1, Objects.requireNonNull(change.amount(), "a change with an amount"))
                             .setLong(2, change.eventTime())
                             .weight(change.weight())
                             .eventTimestampNanos(change.eventTime())

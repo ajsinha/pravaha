@@ -33,6 +33,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,10 +116,11 @@ class MarkdownLinksTest {
     }
 
     /** Why {@code target}, written in {@code from}, does not resolve -- or null when it does. */
-    private String problem(Path root, Path from, String target) throws IOException {
+    private @Nullable String problem(Path root, Path from, String target) throws IOException {
         int hash = target.indexOf('#');
         String file = URLDecoder.decode(hash < 0 ? target : target.substring(0, hash), StandardCharsets.UTF_8);
         String anchor = hash < 0 ? "" : URLDecoder.decode(target.substring(hash + 1), StandardCharsets.UTF_8);
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         Path resolved = file.isEmpty() ? from : from.getParent().resolve(file).normalize();
         if (!resolved.startsWith(root)) {
             return "outside the repository";

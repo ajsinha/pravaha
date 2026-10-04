@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -68,7 +69,7 @@ class StateCompactionTest extends StateTestSupport {
             dir = dir.getParent();
         }
         assertThat(dir).isNotNull();
-        return dir;
+        return Objects.requireNonNull(dir, "run inside the repository");
     }
 
     @Test

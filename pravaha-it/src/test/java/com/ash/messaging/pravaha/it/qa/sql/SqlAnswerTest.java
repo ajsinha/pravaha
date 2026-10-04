@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it.qa.sql;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -655,7 +656,7 @@ class SqlAnswerTest {
     }
 
     /** The refusal message for a two-stream statement, or null if it planned and compiled. */
-    private static String joinRefusalOf(String sql) {
+    private static @Nullable String joinRefusalOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(orders(), users()).plan(sql));

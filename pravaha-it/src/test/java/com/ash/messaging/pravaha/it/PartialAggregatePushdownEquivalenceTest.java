@@ -71,6 +71,7 @@ class PartialAggregatePushdownEquivalenceTest {
      * filter would have run against, so a source that could not apply the filter must not be asked
      * for a partial at all (SourcePushdown#filtersAllPushable).
      */
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static final SourceCapabilities PUSHES_PARTIAL_AGGREGATE = new SourceCapabilities(
             true,
             true,
@@ -134,6 +135,7 @@ class PartialAggregatePushdownEquivalenceTest {
 
     @Test
     void aSourceThatCannotApplyTheFilterIsNeverAskedForAPartial() {
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         SourceCapabilities partialOnly = new SourceCapabilities(
                 true,
                 true,

@@ -144,6 +144,7 @@ class SourceFileSizeTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static Path repoRoot() {
         Path p = Path.of("").toAbsolutePath();
         while (p != null

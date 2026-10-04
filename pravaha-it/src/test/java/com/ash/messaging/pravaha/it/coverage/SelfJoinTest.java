@@ -109,6 +109,7 @@ class SelfJoinTest {
         assertThat(answer).isEqualTo(ZSetHarness.fromScratch(BID, q7, changes, 20 * SECOND + 1));
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void aFilterOnOneSideIsNotPushedToTheSourceBothSidesRead() {
         // The stream is read once for both sides, so a filter pushed to the source for side a would

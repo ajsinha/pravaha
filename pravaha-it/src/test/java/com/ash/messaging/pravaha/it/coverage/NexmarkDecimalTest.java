@@ -83,6 +83,7 @@ class NexmarkDecimalTest {
                 .isEqualTo(new BigDecimal("-2.50"));
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void nullInIsNullOut() {
         assertThat(one("SELECT fee * 2 FROM bid", row(1L, 1L, null))).isNull();
@@ -135,6 +136,7 @@ class NexmarkDecimalTest {
                 .hasMessageContaining("needs 40 decimal places");
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void aRowWhoseAnswerHasTooManyDigitsIsRefusedRatherThanWrapped() {
         // 10^37 * 10 has 39 digits and DECIMAL(38, 0) holds 38.

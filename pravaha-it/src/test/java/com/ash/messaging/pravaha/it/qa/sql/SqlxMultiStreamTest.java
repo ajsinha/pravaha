@@ -15,6 +15,7 @@
  */
 package com.ash.messaging.pravaha.it.qa.sql;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -68,7 +69,7 @@ class SqlxMultiStreamTest {
     }
 
     /** Builds the plan; returns null if it planned and compiled, or the refusal's message if not. */
-    private static String refusalOf(String sql) {
+    private static @Nullable String refusalOf(String sql) {
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(SqlPlanner.withStreams(txn(), other(), third()).plan(sql));
@@ -86,7 +87,7 @@ class SqlxMultiStreamTest {
      * Builds and binds the plan with a genuine Java value (not a CLI string, which is what
      * SQLX-157 needs: {@code --params} can only ever hand the server a STRING).
      */
-    private static String bindingRefusalOf(String sql, Object... values) {
+    private static @Nullable String bindingRefusalOf(String sql, Object... values) {
         try {
             new PhysicalPlanBuilder()
                     .bind(com.ash.messaging.pravaha.sql.plan.BoundParameters.of(values))

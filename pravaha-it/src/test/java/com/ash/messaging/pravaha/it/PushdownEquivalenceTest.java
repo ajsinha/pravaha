@@ -60,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class PushdownEquivalenceTest {
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static final SourceCapabilities PUSHES_FILTERS = new SourceCapabilities(
             true, true, false, false, DeliveryGuarantee.AT_LEAST_ONCE, java.util.EnumSet.of(PushdownKind.FILTER), null);
 
@@ -74,6 +75,7 @@ class PushdownEquivalenceTest {
 
     private record Row(long id, long amount, String status, String note) {}
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static List<Row> data(int count) {
         List<Row> rows = new ArrayList<>();
         for (int i = 0; i < count; i++) {
@@ -187,6 +189,7 @@ class PushdownEquivalenceTest {
 
     @Test
     void aSourceThatHasNotDeclaredFilterPushdownIsSentNothing() {
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         SourceCapabilities silent = new SourceCapabilities(
                 true,
                 true,
@@ -292,6 +295,7 @@ class PushdownEquivalenceTest {
         return true;
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static boolean matches(Object value, ReadRequest.Filter filter) {
         return switch (filter.comparison()) {
             case IS_NULL -> value == null;

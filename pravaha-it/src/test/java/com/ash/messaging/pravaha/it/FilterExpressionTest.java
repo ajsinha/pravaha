@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -69,13 +70,18 @@ class FilterExpressionTest {
     }
 
     /** id, amount, rate, and the two nullable columns. */
-    private record Row(long id, long amount, double rate, Long bonus, Boolean flagged) {}
+    private record Row(
+            long id,
+            long amount,
+            double rate,
+            @Nullable Long bonus,
+            @Nullable Boolean flagged) {}
 
     private static Row row(long id, long amount) {
         return new Row(id, amount, 0d, null, null);
     }
 
-    private static Row bonus(long id, Long bonus) {
+    private static Row bonus(long id, @Nullable Long bonus) {
         return new Row(id, 0, 0d, bonus, null);
     }
 

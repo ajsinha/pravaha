@@ -156,6 +156,7 @@ class EndToEndQueryTest {
     // ------------------------------------------------------------------ the harness
 
     /** Plans {@code sql} and runs it from {@code input} to {@code output}. */
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static void run(String sql, Path input, Path output, String outputSchemaSpec) {
         StreamSchema sourceSchema = FilesystemSourcePlugin.parseSchema("txn", SCHEMA_SPEC);
 

@@ -212,6 +212,7 @@ final class ProfileAGateIT {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void profileAScalingFromOneLaneToEight() throws Exception {
         MemoryAccess access = MemoryAccess.best();
@@ -251,6 +252,7 @@ final class ProfileAGateIT {
     }
 
     /** Prints one path's table and returns its efficiency at each lane count. */
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static double[] scalingTable(Map<Integer, double[]> byLaneCount, String path, MachineState state) {
         double oneLane = best(byLaneCount.get(1));
         System.out.printf(
@@ -276,6 +278,7 @@ final class ProfileAGateIT {
         return efficiencies;
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static void printScalingVerdict(
             double[] efficiencies, Map<Integer, double[]> byLaneCount, MachineState state) {
         double oneLane = best(byLaneCount.get(1));

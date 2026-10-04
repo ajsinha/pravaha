@@ -203,6 +203,7 @@ class JoinPlanningAndReachabilityTest {
     // ======================= JOIN-029: a month/year window is refused as a missing key, not explained
     // =======================
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void aMonthOrYearWindowIsRefusedAsThoughTheEqualityWereMissingNotAsAnUnrecognisedUnit() {
         StreamSchema o = StreamSchema.builder("orders")

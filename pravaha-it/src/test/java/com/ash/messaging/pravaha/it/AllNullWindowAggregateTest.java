@@ -61,6 +61,7 @@ class AllNullWindowAggregateTest {
             + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
             + "GROUP BY window_start, window_end, user_id";
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void anAllNullWindowGroupPublishesNullAndACheckpointCarriesIt() {
         List<String> emitted = new ArrayList<>();

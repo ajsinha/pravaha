@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -69,7 +70,8 @@ class ComputedProjectionTest {
     }
 
     /** One input row: id, amount, rate, and a bonus that may be null. */
-    private record Row(long id, long amount, double rate, Long bonus) {}
+    private record Row(
+            long id, long amount, double rate, @Nullable Long bonus) {}
 
     @Test
     void arithmeticOnAColumnIsComputedPerRow() {

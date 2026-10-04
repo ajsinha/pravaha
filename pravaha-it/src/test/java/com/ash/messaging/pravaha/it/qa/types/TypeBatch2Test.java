@@ -234,7 +234,10 @@ class TypeBatch2Test {
             T0 + S,
             2.5f,
             1);
+
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static final Object[] L3 = left(3, null, null, null, null, null, null, null, null, null, null, 2);
+
     private static final Object[] L4 = left(
             4, true, (byte) 7, (short) 700, 70000, 7_000_000_000L, 1.5, "alpha", "cafe".getBytes(UTF_8), T0, 1.5f, 3);
 
@@ -266,7 +269,10 @@ class TypeBatch2Test {
             3.5f,
             "M",
             1.5);
+
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static final Object[] R3 = right(3, null, null, null, null, null, null, null, null, null, null, "N", 2.5);
+
     private static final Object[] R4 = right(
             4,
             false,
@@ -565,6 +571,7 @@ class TypeBatch2Test {
 
     // ---------------------------------------------------------------------- TYPE-052
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void type052_nullKeyJoinsWithNothingAndDoesNotGrowState() {
         String sql = "SELECT l.id AS lid, r.id AS rid, r.tag FROM jl AS l JOIN jr AS r ON l.ks = r.ks" + TIME_BOUND;
@@ -658,7 +665,8 @@ class TypeBatch2Test {
 
     // Row 5 spells the integer it starts from, 2^24 + 1 and 2^53 + 1, as the float and double literal
     // the case file writes; the literal rounding is the point of the row.
-    @SuppressWarnings("FloatingPointLiteralPrecision")
+    // NullAway: nulls passed on purpose
+    @SuppressWarnings({"FloatingPointLiteralPrecision", "NullAway"})
     private static final List<Object[]> TYPES_5 = List.of(
             typesRow(
                     1,

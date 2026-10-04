@@ -71,6 +71,7 @@ class AdvPredicateDifferentialTest {
     static final String[] COLUMNS = {"id", "n", "m", "d", "t", "f"};
 
     record Cmp(int col, String op, Object literal) implements P {
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public Boolean eval(Object[] row) {
             Object v = row[col];
@@ -126,6 +127,7 @@ class AdvPredicateDifferentialTest {
     }
 
     record Not(P inner) implements P {
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public Boolean eval(Object[] row) {
             Boolean b = inner.eval(row);
@@ -155,6 +157,7 @@ class AdvPredicateDifferentialTest {
     }
 
     record And(P l, P r) implements P {
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public Boolean eval(Object[] row) {
             Boolean a = l.eval(row);
@@ -177,6 +180,7 @@ class AdvPredicateDifferentialTest {
     }
 
     record Or(P l, P r) implements P {
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public Boolean eval(Object[] row) {
             Boolean a = l.eval(row);
@@ -241,6 +245,7 @@ class AdvPredicateDifferentialTest {
     }
 
     record Like(String pattern, boolean negated) implements P {
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public Boolean eval(Object[] row) {
             Object v = row[4];
@@ -275,6 +280,7 @@ class AdvPredicateDifferentialTest {
     }
 
     record Bare(boolean negated) implements P {
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public Boolean eval(Object[] row) {
             Object v = row[5];
@@ -363,6 +369,7 @@ class AdvPredicateDifferentialTest {
 
     record Result(int registered, int refused, int generated, List<String> nanNotMismatches, List<String> mismatches) {}
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     static Result differential(long seed, int count, boolean generate) {
         if (generate) {
             FilterProjectStageGenerator.install();

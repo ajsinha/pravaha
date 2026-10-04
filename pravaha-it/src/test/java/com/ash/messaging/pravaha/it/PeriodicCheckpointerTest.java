@@ -111,12 +111,15 @@ class PeriodicCheckpointerTest {
         // product defect for as long as it takes somebody to open the file.
         private final List<Integer> pruneCalls = new java.util.concurrent.CopyOnWriteArrayList<>();
         private final AtomicInteger stored = new AtomicInteger();
+
+        @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
         private volatile RuntimeException failNextStore;
 
         RecordingStore(CheckpointStore delegate) {
             this.delegate = delegate;
         }
 
+        @SuppressWarnings("NullAway") // teardown lets go of what setup made
         @Override
         public void store(Checkpoint checkpoint) {
             RuntimeException failure = failNextStore;
@@ -150,6 +153,7 @@ class PeriodicCheckpointerTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     @Timeout(60)
     void checkpointsAreTakenOnAScheduleAndOldOnesDeleted(@TempDir Path directory) {
@@ -175,6 +179,7 @@ class PeriodicCheckpointerTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     @Timeout(60)
     void idsKeepCountingUpAcrossARestart(@TempDir Path directory) {
@@ -198,6 +203,7 @@ class PeriodicCheckpointerTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     @Timeout(60)
     void theLastSuccessIsWhenOneWasStoredAndAFailureDoesNotMoveIt(@TempDir Path directory) {
@@ -254,6 +260,7 @@ class PeriodicCheckpointerTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     @Timeout(60)
     void retentionIsCountedRatherThanTimed(@TempDir Path directory) {
@@ -274,6 +281,7 @@ class PeriodicCheckpointerTest {
         assertThat(store.availableIds()).hasSize(2);
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     @Timeout(60)
     void keepingNoneIsRefused(@TempDir Path directory) {

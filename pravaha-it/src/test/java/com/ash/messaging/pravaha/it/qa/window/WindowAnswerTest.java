@@ -216,6 +216,7 @@ class WindowAnswerTest extends WindowTestSupport {
                 .hasMessageContaining("Cannot apply 'TUMBLE'");
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void win012_explainRendersSizeAndSlideInMillisecondsNotNanoseconds() {
         // WIN-012. WindowAssignOperator.label() divides sizeNanos by 1_000_000 -- the one place a
@@ -387,6 +388,7 @@ class WindowAnswerTest extends WindowTestSupport {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void win018_theHopIntervalOrderIsSlideThenSize() {
         // WIN-018. PhysicalPlanBuilder reverses Calcite's argument order: the first interval in the
@@ -452,6 +454,7 @@ class WindowAnswerTest extends WindowTestSupport {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void win030_explainOnAHopNamesHoppingAndBothIntervals() {
         // WIN-030. The window kind and both intervals must be visible in the plan; the aggregate's
@@ -526,10 +529,12 @@ class WindowAnswerTest extends WindowTestSupport {
                 .isInstanceOf(RuntimeException.class);
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void win050_lowerAndMixedCaseWindowFunctionNamesPlanIdentically() {
         // WIN-050. buildWindowAssign upper-cases the operator name with Locale.ROOT, so case must
         // not change whether a window is recognised.
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         String upper =
                 findByLabel(plan(tumble("s0", "10' SECOND")), "WindowAssign").label();
         com.ash.messaging.pravaha.runtime.plan.PhysicalOperator lower = plan("SELECT window_start, window_end, "

@@ -198,6 +198,7 @@ final class DebugFixtureExportTest {
     }
 
     /** Compiles the fixture exactly as pravaha-it would, then runs its test method. */
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static void compileAndRun(Path dir, String className, String source) throws Exception {
         Path generated = Files.createDirectories(dir.resolve("gen/com/ash/messaging/pravaha/it/fixtures"));
         Path sourceFile = generated.resolve(className + ".java");

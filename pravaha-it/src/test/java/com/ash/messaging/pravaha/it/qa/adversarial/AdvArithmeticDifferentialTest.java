@@ -66,6 +66,7 @@ class AdvArithmeticDifferentialTest {
             return name;
         }
 
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public BigInteger eval(Long x, Long y) {
             Long v = "x".equals(name) ? x : y;
@@ -91,6 +92,7 @@ class AdvArithmeticDifferentialTest {
             return "(" + l.sql() + " " + op + " " + r.sql() + ")";
         }
 
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public BigInteger eval(Long x, Long y) {
             // NULL wins over an error in the other operand: the engine checks nullness before it
@@ -167,6 +169,7 @@ class AdvArithmeticDifferentialTest {
             return "(-" + inner.sql() + ")";
         }
 
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public BigInteger eval(Long x, Long y) {
             BigInteger v = inner.eval(x, y);
@@ -180,6 +183,7 @@ class AdvArithmeticDifferentialTest {
             return "ABS(" + inner.sql() + ")";
         }
 
+        @SuppressWarnings("NullAway") // null is an answer here (SQL NULL, or nothing found)
         @Override
         public BigInteger eval(Long x, Long y) {
             BigInteger v = inner.eval(x, y);
@@ -248,6 +252,7 @@ class AdvArithmeticDifferentialTest {
 
     record Mismatch(String name, String sql, String detail, boolean minOverMinusOne) {}
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void qe040_randomBigintExpressionsAgreeWithBigInteger() {
         long seed = Long.getLong("pravaha.qa.seed", 40L);

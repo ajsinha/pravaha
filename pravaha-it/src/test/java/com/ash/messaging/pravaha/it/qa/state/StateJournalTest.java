@@ -170,6 +170,7 @@ class StateJournalTest extends StateTestSupport {
         assertThat(e.parameters()).isEmpty();
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void state068_everyRetentionEncodingRoundTrips(@TempDir Path dir) {
         Path journalFile = dir.resolve("registry.journal");
@@ -205,6 +206,7 @@ class StateJournalTest extends StateTestSupport {
     @Test
     void state069_everyBoundParameterTypeTagRoundTrips() {
         record Case(Object in, String encoded) {}
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         List<Case> cases = List.of(
                 new Case(null, "n:"),
                 new Case(new byte[] {1, 2, -1}, "b:AQL/"),

@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.common.io.StateOwnership;
  */
 public final class CrashNodeMain {
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     public static void main(String[] args) throws Exception {
         if (args.length < 3) {
             System.out.println("FAILED expected <stateDir> <nodeId> <port>");

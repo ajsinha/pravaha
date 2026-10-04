@@ -36,6 +36,7 @@ import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -61,6 +62,7 @@ class AdvDurabilityTest {
         final Map<Long, String[]> live = new TreeMap<>(); // id -> g, v, ts-second
         final Map<String, long[]> windows = new TreeMap<>(); // start|end|g -> sum, count
 
+        @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
         Workload(long seed, int chunkCount, int linesPerChunk) {
             Random random = new Random(seed);
             long nextId = 1;
@@ -135,7 +137,8 @@ class AdvDurabilityTest {
     }
 
     /** Waits until all three views equal the workload's answer; null if they do, else the difference. */
-    static String converge(PravahaEngine engine, Workload workload, Duration within) throws InterruptedException {
+    static @Nullable String converge(PravahaEngine engine, Workload workload, Duration within)
+            throws InterruptedException {
         long deadline = System.nanoTime() + within.toNanos();
         String last = "";
         while (System.nanoTime() < deadline) {
@@ -312,6 +315,7 @@ class AdvDurabilityTest {
         }
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     static Path newest(List<Path> files, String query) {
         return files.stream()
                 .filter(p -> p.getParent().getFileName().toString().equals(query))
@@ -528,6 +532,7 @@ class AdvDurabilityTest {
         assertThat(sharedAfterRestart(dir, "alias_a")).containsExactly("a|1", "a|2");
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void qe091_droppingTheOtherNameOrNoneStillKeepsTheState(@TempDir Path dir) throws Exception {
         assertThat(sharedAfterRestart(dir.resolve("none"), null)).containsExactly("a|1", "a|2");

@@ -407,7 +407,9 @@ class LookupJoinTest {
 
     /** A dimension table that takes its time, so the overlap is observable. */
     private static final class SlowLookup extends MapLookup {
+        @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
         private Long slowKey;
+
         private Duration slowBy = Duration.ZERO;
         private final Duration everyLookup;
 

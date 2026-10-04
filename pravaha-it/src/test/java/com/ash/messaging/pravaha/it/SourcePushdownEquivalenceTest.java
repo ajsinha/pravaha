@@ -67,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class SourcePushdownEquivalenceTest {
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static final SourceCapabilities PUSHES_PROJECTION = new SourceCapabilities(
             true, true, false, false, DeliveryGuarantee.AT_LEAST_ONCE, EnumSet.of(PushdownKind.PROJECT), null);
 
@@ -81,6 +82,7 @@ class SourcePushdownEquivalenceTest {
 
     private record Row(long id, long amount, String status, String note) {}
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static List<Row> data(int count) {
         List<Row> rows = new ArrayList<>();
         for (int i = 0; i < count; i++) {
@@ -175,6 +177,7 @@ class SourcePushdownEquivalenceTest {
 
     @Test
     void aSourceThatHasNotDeclaredProjectPushdownIsSentNoColumns() {
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         SourceCapabilities silent = new SourceCapabilities(
                 true, true, false, false, DeliveryGuarantee.AT_LEAST_ONCE, EnumSet.noneOf(PushdownKind.class), null);
         assertThat(SourcePushdown.requestFor(plan("SELECT id FROM txn"), "txn", silent)
@@ -185,6 +188,7 @@ class SourcePushdownEquivalenceTest {
     // ------------------------------------------------------------------ partial-aggregate decision
 
     /** FILTER too: a partial is only ever asked of a source that also applies the WHERE clause. */
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private static final SourceCapabilities PUSHES_AGGREGATE = new SourceCapabilities(
             true,
             true,
@@ -236,6 +240,7 @@ class SourcePushdownEquivalenceTest {
 
     @Test
     void aSourceThatHasNotDeclaredPartialAggregatePushdownIsSentNone() {
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         SourceCapabilities silent = new SourceCapabilities(
                 true, true, false, false, DeliveryGuarantee.AT_LEAST_ONCE, EnumSet.noneOf(PushdownKind.class), null);
         assertThat(SourcePushdown.requestFor(plan("SELECT COUNT(*) FROM txn"), "txn", silent)

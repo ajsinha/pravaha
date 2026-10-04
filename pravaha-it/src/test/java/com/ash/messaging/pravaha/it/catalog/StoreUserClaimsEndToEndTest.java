@@ -82,11 +82,21 @@ class StoreUserClaimsEndToEndTest {
     @TempDir
     Path dir;
 
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private PravahaNode node;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightClient flight;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightSqlClient sql;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private RowArena arena;
+
     private long sequence = 1;
 
     @AfterEach
@@ -183,6 +193,7 @@ class StoreUserClaimsEndToEndTest {
         arena = arena == null ? new RowArena(MemoryAccess.best(), 1 << 20, 8) : arena;
     }
 
+    @SuppressWarnings("NullAway") // teardown lets go of what setup made
     private void closeClient() throws Exception {
         if (sql != null) {
             sql.close();

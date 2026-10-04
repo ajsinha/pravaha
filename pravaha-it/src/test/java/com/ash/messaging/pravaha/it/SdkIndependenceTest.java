@@ -34,6 +34,7 @@ import java.util.zip.ZipFile;
 
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -251,6 +252,7 @@ class SdkIndependenceTest {
     private record Module(String artifactId, List<Dependency> dependencies) {}
 
     /** Every module of the reactor by artifactId, with its Pravaha dependencies (profiles included). */
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     private static Map<String, Module> modules() throws Exception {
         Map<String, Module> modules = new LinkedHashMap<>();
         Deque<Path> todo = new ArrayDeque<>();
@@ -324,13 +326,13 @@ class SdkIndependenceTest {
         return found;
     }
 
-    private static String childText(Element parent, String name) {
+    private static @Nullable String childText(Element parent, String name) {
         List<Element> found = children(parent, name);
         return found.isEmpty() ? null : found.get(0).getTextContent().trim();
     }
 
     /** python3, if it is on the PATH and new enough to list its own standard library (3.10). */
-    private static String pythonWithStdlibNames() {
+    private static @Nullable String pythonWithStdlibNames() {
         try {
             Process p = new ProcessBuilder("python3", "-c", "import sys; sys.stdlib_module_names")
                     .redirectErrorStream(true)

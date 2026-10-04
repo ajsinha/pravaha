@@ -212,6 +212,7 @@ class AerospikeContinuousQueryIT {
     @org.junit.jupiter.api.io.TempDir
     java.nio.file.Path deleteState;
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void theReadmesQueryRunsOverAerospikeThroughTheDeploymentPath() {
         // The test below drives the engine through its own API: it compiles a pipeline by hand,
@@ -353,6 +354,7 @@ class AerospikeContinuousQueryIT {
                 .isGreaterThanOrEqualTo(expected);
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void theReadmesQueryRunsOverAerospikeEndToEnd() {
         PhysicalOperator plan = new PhysicalPlanBuilder()

@@ -74,6 +74,7 @@ class CrossConnectorJoinTest {
             .field("segment", Types.string())
             .build();
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void cx001_aJoinAcrossFilesystemAndFeedfileMatchesExactlyThePairsThatShareAKey(@TempDir Path dir) throws Exception {
         // The filesystem side: one file, read once. order 3 (customer c9) has no partner on the

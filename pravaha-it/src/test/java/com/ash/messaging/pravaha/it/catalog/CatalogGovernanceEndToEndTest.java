@@ -63,9 +63,16 @@ class CatalogGovernanceEndToEndTest {
     @TempDir
     Path dir;
 
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private PravahaNode node;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightClient flight;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightSqlClient sql;
 
     @AfterEach
@@ -128,6 +135,7 @@ class CatalogGovernanceEndToEndTest {
         assertThat(Files.exists(dir.resolve("catalog.journal"))).isTrue();
     }
 
+    @SuppressWarnings("NullAway") // teardown lets go of what setup made
     @Test
     void importingThePolicyOnceAndRefusingTwoAuthorities() throws Exception {
         start("import");
@@ -215,6 +223,7 @@ class CatalogGovernanceEndToEndTest {
         sql = new FlightSqlClient(flight);
     }
 
+    @SuppressWarnings("NullAway") // teardown lets go of what setup made
     private void closeClient() throws Exception {
         if (sql != null) {
             sql.close();

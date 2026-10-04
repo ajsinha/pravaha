@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -94,6 +95,7 @@ class JoinRetentionTest {
         pipeline.accept(stream, view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
     }
 
+    @SuppressWarnings("NullAway") // a value the case has just put there, or one whose absence should fail it
     @Test
     void aJoinHasAMatchWindowEvenWhenTheQueryDoesNotMentionOne() {
         PhysicalOperator root = plan();
@@ -175,7 +177,7 @@ class JoinRetentionTest {
         return () -> new CapturingRowWriter(plan.outputSchema(), out::add);
     }
 
-    private static JoinOperator findJoin(PhysicalOperator operator) {
+    private static @Nullable JoinOperator findJoin(PhysicalOperator operator) {
         if (operator instanceof JoinOperator join) {
             return join;
         }

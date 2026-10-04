@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -85,6 +86,7 @@ class NexmarkScalarFunctionTest {
                 .isEqualTo("1969-12-31 23:59:59");
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void dateFormatOfNullIsNull() {
         assertThat(one("SELECT DATE_FORMAT(date_time, 'yyyy-MM-dd') FROM bid", "x", null))
@@ -104,6 +106,7 @@ class NexmarkScalarFunctionTest {
                 .isEqualTo("id=42");
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void regexpExtractWithNoMatchIsNullRatherThanEmpty() {
         assertThat(one("SELECT REGEXP_EXTRACT(url, '(&|^)channel_id=([^&]*)', 2) FROM bid", "a=1", 0L))
@@ -128,6 +131,7 @@ class NexmarkScalarFunctionTest {
         assertThat(one("SELECT SPLIT_INDEX(url, '/', 5) FROM bid", url, 0L)).isEqualTo("item.htm");
     }
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     @Test
     void splitIndexPastTheLastFieldIsNull() {
         assertThat(one("SELECT SPLIT_INDEX(url, '/', 6) FROM bid", "a/b/c/d/e/f", 0L))
@@ -214,6 +218,7 @@ class NexmarkScalarFunctionTest {
                 + "FROM bid";
         ZSetHarness.Change a = ZSetHarness.Change.insert(0, 1L, "x/channel_id=3", LATE_ON_THE_20TH, "Apple");
         ZSetHarness.Change b = ZSetHarness.Change.insert(0, 2L, "p/q&channel_id=4", LATE_ON_THE_20TH + SECOND, "Baidu");
+        @SuppressWarnings("NullAway") // nulls passed on purpose
         ZSetHarness.Change c = ZSetHarness.Change.insert(0, 3L, null, null, "Google");
         List<ZSetHarness.Change> changes = List.of(a, b, c, a.retracted(), a, c.retracted(), b.retracted());
 
@@ -232,7 +237,7 @@ class NexmarkScalarFunctionTest {
     }
 
     /** One row with this url and channel through the query; the first output column, or null if dropped. */
-    private static Object oneOnChannel(String sql, String url, String channel) {
+    private static @Nullable Object oneOnChannel(String sql, String url, String channel) {
         Map<List<Object>, Long> out = ZSetHarness.maintained(
                 BID, sql, List.of(ZSetHarness.Change.insert(0, 1L, url, 0L, channel)), Long.MIN_VALUE);
         return out.isEmpty() ? null : out.keySet().iterator().next().get(0);

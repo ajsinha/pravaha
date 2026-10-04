@@ -77,11 +77,21 @@ class CatalogPoliciesEndToEndTest {
     @TempDir
     Path dir;
 
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private PravahaNode node;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightClient flight;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightSqlClient sql;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private RowArena arena;
+
     private long sequence = 1;
 
     @AfterEach
@@ -95,7 +105,9 @@ class CatalogPoliciesEndToEndTest {
         }
     }
 
-    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
+    // NullAway: null is an answer here (SQL NULL, or nothing found)
+    @SuppressWarnings({"try", "NullAway"
+    }) // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void twoUsersSeeTheirOwnRowsAndMaskedValuesFromTheSameView() throws Exception {
         start();
@@ -192,6 +204,7 @@ class CatalogPoliciesEndToEndTest {
 
     // ----------------------------------------------------------------------------------- set-up
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     private void start() {
         StreamCatalog streams = new StreamCatalog();
         streams.register(TXN);
@@ -238,6 +251,7 @@ class CatalogPoliciesEndToEndTest {
         return spec;
     }
 
+    @SuppressWarnings("NullAway") // teardown lets go of what setup made
     private void closeClient() throws Exception {
         if (sql != null) {
             sql.close();

@@ -82,11 +82,21 @@ class AdvSecurityTest {
     @TempDir
     Path dir;
 
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private PravahaNode node;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private BufferAllocator allocator;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightClient flight;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private FlightSqlClient sql;
+
+    @SuppressWarnings("NullAway.Init") // set by the case's setup before any use; teardown checks what was set
     private RowArena arena;
+
     private long sequence = 1;
 
     @AfterEach
@@ -107,6 +117,7 @@ class AdvSecurityTest {
 
     // ------------------------------------------------------------------ the node
 
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     void start(TenancyProperties tenancy) {
         StreamCatalog streams = new StreamCatalog();
         streams.register(TXN);
@@ -166,6 +177,7 @@ class AdvSecurityTest {
     }
 
     /** payments, granted to analysts, filtered by region and masked on card. */
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     void baseline() throws Exception {
         start(null);
         run("ops", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, region, card, amount FROM txn");
@@ -403,6 +415,7 @@ class AdvSecurityTest {
     }
 
     /** ana's alert comparing the masked card with the raw value of p1; what it says after the rows arrive. */
+    @SuppressWarnings("NullAway") // nulls passed on purpose
     List<String> maskedAlert() throws Exception {
         start(null);
         run("ops", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, region, card, amount FROM txn");

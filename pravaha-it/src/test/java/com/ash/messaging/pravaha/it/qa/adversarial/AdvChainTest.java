@@ -29,6 +29,7 @@ import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -110,7 +111,7 @@ class AdvChainTest {
     }
 
     /** Polls until each view equals the oracle's, or gives up and returns the difference. */
-    static String await(PravahaEngine engine, KeyedOracle oracle) {
+    static @Nullable String await(PravahaEngine engine, KeyedOracle oracle) {
         long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
         String last = "";
         while (System.nanoTime() < deadline) {
