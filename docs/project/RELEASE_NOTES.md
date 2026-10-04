@@ -81,6 +81,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `clients` and `cli-reference` topics, the Python guide and SECURITY.md now say so: a client
   certificate is for a TLS terminator in front of the node, and the token is what authenticates.
   Documentation only; server-side mTLS remains unbuilt.
+- **Npgsql 5 and later are told how to connect** (NPGSQLNEW-1). Newer Npgsql sends its type loading
+  as one multi-statement query, refused `PRV-6201`, while the `power-bi` topic said such versions got
+  `PRV-6205`. The refusal now names the fix when the batch reads `pg_type` — `Server Compatibility
+  Mode=NoTypeLoading` in the connection string, with which Npgsql 8 opens and reads every type — and
+  the `power-bi`, `pgwire` and `errors-gateway` topics and TROUBLESHOOTING say so. The type-loading
+  batch itself is still not answered.
 
 Register: **566 findings — 536 fixed, 11 open, 0 GA-BLOCKER, 2 GA-REQUIRED**.
 

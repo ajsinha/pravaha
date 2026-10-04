@@ -155,9 +155,11 @@ result it might treat as complete. Read such a view over Flight, or project the 
 
 A message or statement the gateway does not implement, refused by name with SQLSTATE `0A000`:
 `COPY` (the statement, or its protocol messages), SQL-level cursors (`DECLARE`, `FETCH`, `MOVE`,
-`CLOSE`), `LISTEN`/`UNLISTEN`/`NOTIFY`, `SELECT STREAM` and a `FunctionCall`. Read a view with a plain
-`SELECT`; to follow a view as it changes, subscribe over Flight (`pravaha subscribe`, an SDK's
-`subscribe()`, the console's live tail).
+`CLOSE`), `LISTEN`/`UNLISTEN`/`NOTIFY`, `SELECT STREAM`, a `FunctionCall`, and a `Query` message
+carrying several statements. Read a view with a plain `SELECT`; to follow a view as it changes,
+subscribe over Flight (`pravaha subscribe`, an SDK's `subscribe()`, the console's live tail). Npgsql 5
+and later open with a multi-statement type-loading query and meet this code: add `Server
+Compatibility Mode=NoTypeLoading` to the connection string (NPGSQLNEW-1).
 
 ### PRV-6202 — pgwire protocol violation
 

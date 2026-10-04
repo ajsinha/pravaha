@@ -102,4 +102,16 @@ class SimpleQueryTextTest {
         assertThat(SimpleQueryText.singleStatement("SELECT * FROM t WHERE a = 'open"))
                 .isEqualTo("SELECT * FROM t WHERE a = 'open");
     }
+
+    @Test
+    void newerNpgsqlsTypeLoadingIsToldTheConnectionStringSettingThatSkipsIt() {
+        // NPGSQLNEW-1: Npgsql 5+ sends its type loading as one multi-statement Query.
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> SimpleQueryText.singleStatement(
+                                "SELECT version(); SELECT ns.nspname, t.oid FROM pg_type AS t JOIN pg_namespace AS ns ON 1 = 1"))
+                .hasMessageContaining("PRV-6201")
+                .hasMessageContaining("Server Compatibility Mode=NoTypeLoading");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> SimpleQueryText.singleStatement("SELECT 1; SELECT 2"))
+                .hasMessageNotContaining("Npgsql");
+    }
 }

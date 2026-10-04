@@ -448,6 +448,11 @@ has TLS configured and the client did not ask for it (`sslmode=disable`, Npgsql 
 with `sslmode=verify-full` (Npgsql: `SSL Mode=Require`), or set `pravaha.pgwire.tls.allow-plaintext:
 true` to accept plaintext clients too, whose token then crosses the wire in the clear (PGTLSONLY-1).
 
+**A .NET application (Npgsql 5 or later) fails to open with `0A000` / `PRV-6201` "this Query message
+carries 4 statements".** Newer Npgsql loads types with one multi-statement query, which the gateway
+does not run. Add `Server Compatibility Mode=NoTypeLoading` to the connection string; Npgsql 8 then
+opens and reads every type the gateway sends. Power BI's Npgsql 4.0.17 needs nothing (NPGSQLNEW-1).
+
 **`RST_STREAM ... CANCEL` from a Flight client, with nothing explaining why.** Almost always the JVM
 missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED`.
 Arrow fails *inside the server* and cancels the stream; the client sees only the cancellation. Add
