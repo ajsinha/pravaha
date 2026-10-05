@@ -12,6 +12,10 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+- **The brand leads to the landing page, and back.** Signed in, the Pravaha name and logo in the
+  console's bar now open the landing page, as they do for a visitor, instead of your home screen;
+  arriving from a console page, the landing page offers "Back to where you were" beside "Open the
+  console". Only a page of this console is offered as the way back.
 - **A dependency built for a newer Java than 21 fails the build** (ADR-062). Production runs Java 21,
   and `maven.compiler.release` only governs Pravaha's own classes: a library upgrade compiled for 22
   or later would build and pass on JDK 25, then fail on the production JVM with
