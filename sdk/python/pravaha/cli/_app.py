@@ -39,6 +39,8 @@ from pravaha.cli import (
     _assist,
     _catalog,
     _completion,
+    _contexts,
+    _dryrun,
     _doctor,
     _examples,
     _flight,
@@ -57,6 +59,7 @@ from pravaha.cli._common import (
     UsageError,
 )
 from pravaha.cli._output import Output, to_json
+from pravaha.cli._settings import CONTEXT_KEYS as _CONTEXT_KEYS
 from pravaha.cli._settings import Settings
 from pravaha.errors import (
     InvalidDocsBaseUrlError,
@@ -79,7 +82,10 @@ HTTP API at --http.
 
 Destructive commands (drop, abandon, finish, lanes rebalance, key revoke, user disable, revoke,
 catalog owner, policy unbind, policy drop, alert drop) say what they would do and change nothing
-unless given --yes.
+unless given --yes. --dry-run (drop, replace, cutover, rollback, abandon, finish, grant, revoke,
+policy bind/unbind/drop, user disable/enable/roles, key revoke, alert drop) reads what the command
+would touch and says what would happen and whether the engine would refuse (exit 1), changing
+nothing even with --yes.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -133,13 +139,17 @@ def _global_options(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
     given before the command is not overwritten by the command's own default."""
     kwargs: dict[str, Any] = {"default": argparse.SUPPRESS} if suppress else {}
     group = parser.add_argument_group("connection")
+    group.add_argument("--context", metavar="NAME", **kwargs,
+                       help="a saved connection (env PRAVAHA_CONTEXT; else `pravaha context use`'s); "
+                            "a flag or variable below still wins over it")
     group.add_argument("--url", metavar="URL", **kwargs,
                        help="the node's Flight endpoint (env PRAVAHA_URL; grpc://localhost:19090)")
     group.add_argument("--http", metavar="URL", **kwargs,
                        help="the node's HTTP API (env PRAVAHA_HTTP or PRAVAHA_ENGINE_HTTP; "
                             "http://localhost:18080)")
     group.add_argument("--token", metavar="TOKEN", **kwargs,
-                       help="a bearer token (env PRAVAHA_TOKEN; else the file login --save wrote)")
+                       help="a bearer token (env PRAVAHA_TOKEN; else the context's, or with no "
+                            "context the file login --save wrote)")
     group.add_argument("--insecure-token", action="store_true", **kwargs,
                        help="allow the token over plaintext grpc:// or http:// "
                             "(env PRAVAHA_INSECURE_TOKEN=true); for loopback or a local sidecar")
@@ -175,6 +185,12 @@ def _global_options(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
 def _sql_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sql", help="the SQL")
     parser.add_argument("--sql-file", metavar="PATH", help="read the SQL from a file")
+
+
+def _dry(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dry-run", action="store_true",
+                        help="change nothing: read what it would touch, say what would happen and "
+                             "whether the engine would refuse (exit 1 if so); with --json, a plan")
 
 
 def _yes(parser: argparse.ArgumentParser, what: str) -> None:
@@ -261,6 +277,7 @@ def build_parser() -> _Parser:
         p.add_argument("--name", help="the query's name")
         if verb == "drop":
             _yes(p, "drop it")
+            _dry(p)
 
     p = b.add("replace", _flight.replace, "Start a blue/green replacement of a running query.")
     p.add_argument("--name", help="the query being replaced")
@@ -272,6 +289,7 @@ def build_parser() -> _Parser:
     p.add_argument("--rollback-retention", metavar="PT1H",
                    help="how long the replaced version is kept for a rollback")
     p.add_argument("--wait", action="store_true", help="wait until the backfill has caught up")
+    _dry(p)
 
     p = b.add("replacements", _flight.replacements, "How replacements are getting on.")
     p.add_argument("--name", help="only this query's")
@@ -291,6 +309,8 @@ def build_parser() -> _Parser:
             p.add_argument("--rate", type=int, metavar="N", help="records a second")
         if verb in ("abandon", "finish"):
             _yes(p, verb + " it")
+        if verb in ("cutover", "rollback", "abandon", "finish"):
+            _dry(p)
 
     p = b.add("subscribe", _flight.subscribe, "Print a view's committed changes as they happen.")
     p.add_argument("--view", help="the view to follow")
@@ -381,6 +401,26 @@ def build_parser() -> _Parser:
     p.add_argument("shell", choices=_completion.SHELLS, metavar="bash|zsh|fish",
                    help="the shell to complete for")
 
+    p = b.add("context", _contexts.context,
+              "Named connections: say --url, --http, the token and TLS once per node.")
+    add = b.verbs(p, _contexts.context)
+    v = add("list", "Every context, the current one starred.")
+    v.add_argument("--names", action="store_true", help="only the names, one a line")
+    v = add("show", "One context's settings, secrets masked (default: the one in use).")
+    v.add_argument("context_name", metavar="<name>", nargs="?")
+    v = add("add", "Save a context from the connection flags given with it.")
+    v.add_argument("context_name", metavar="<name>")
+    v.add_argument("--use", action="store_true", help="also make it the current context")
+    v = add("set", "Change a context: the connection flags given, and --unset ones.")
+    v.add_argument("context_name", metavar="<name>")
+    v.add_argument("--unset", action="append", metavar="KEY", choices=_CONTEXT_KEYS,
+                   help="a setting to remove (url, http, token, tls-ca ...); repeatable")
+    v = add("use", "Make a context the current one.")
+    v.add_argument("context_name", metavar="<name>")
+    v = add("remove", "Delete a context, and its saved token.")
+    v.add_argument("context_name", metavar="<name>")
+    add("current", "The context in use, and what chose it.")
+
     p = b.add("streams", _http.streams, "List, describe or declare streams.")
     add = b.verbs(p, _http.streams)
     add("list", "Every stream you may read.")
@@ -446,8 +486,10 @@ def build_parser() -> _Parser:
     p.add_argument("--password", help="omit to be asked without echo")
     p.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
     p.add_argument("--save", action="store_true",
-                   help="save the token to ~/.config/pravaha/token (mode 0600) instead of printing it")
-    b.add("logout", _identity.logout, "End this session and delete the saved token.")
+                   help="save the token instead of printing it, mode 0600: into the context in use, "
+                        "else ~/.config/pravaha/token")
+    b.add("logout", _identity.logout, "End this session and delete the saved token "
+                                         "(the context's, when one is in use).")
     b.add("whoami", _identity.whoami, "Who the engine says you are.")
     p = b.add("password", _identity.password, "Change your password, or redeem a reset token.")
     p.add_argument("--current", help="your current password; omit to be asked")
@@ -472,11 +514,14 @@ def build_parser() -> _Parser:
     v = add("disable", "Disable a user; their sessions end.")
     v.add_argument("target", metavar="<name>")
     _yes(v, "disable them")
+    _dry(v)
     v = add("enable", "Enable a user.")
     v.add_argument("target", metavar="<name>")
+    _dry(v)
     v = add("roles", "Replace a user's roles.")
     v.add_argument("target", metavar="<name>")
     v.add_argument("--roles", metavar="A,B")
+    _dry(v)
     v = add("reset", "Issue a single-use password reset token.")
     v.add_argument("target", metavar="<name>")
     v = add("attrs", "Show, set or unset a user's attributes, the claims their credentials carry.")
@@ -499,6 +544,7 @@ def build_parser() -> _Parser:
     v = add("revoke", "Revoke a key at once.")
     v.add_argument("target", metavar="<keyId>")
     _yes(v, "revoke it")
+    _dry(v)
     add("report", "Keys unused, expiring or superseded (admin).")
 
     p = b.add("session", _identity.session, "Sessions: yours, or everyone's (admin).")
@@ -617,6 +663,7 @@ def build_parser() -> _Parser:
         p.add_argument("--user")
         if name == "revoke":
             _yes(p, "revoke them")
+        _dry(p)
     p = b.add("grants", _catalog.grants, "Grants on an object, or to a role or user.")
     p.add_argument("--on", metavar="OBJECT")
     p.add_argument("--role")
@@ -657,9 +704,11 @@ def build_parser() -> _Parser:
         v.add_argument("--tag", metavar="KEY[=VALUE]")
         if verb == "unbind":
             _yes(v, "unbind it")
+        _dry(v)
     v = add("drop", "Drop a policy (MANAGE; refused while bound).")
     v.add_argument("name", metavar="<policy>")
     _yes(v, "drop it")
+    _dry(v)
 
     # ------------------------------------------------------------------ alerts (ADR-057)
     p = b.add("alerts", _alerts.alerts, "Alerts: what is firing, and pause, snooze or acknowledge one.")
@@ -700,6 +749,7 @@ def build_parser() -> _Parser:
     v.add_argument("--if-exists", dest="if_exists", action="store_true")
     v.add_argument("--print-sql", dest="print_sql", action="store_true", help=argparse.SUPPRESS)
     _yes(v, "drop it")
+    _dry(v)
 
     for made in b.made:
         _global_options(made, suppress=True)
@@ -845,8 +895,12 @@ def main(
             args.query_name = args.name
         out.json_mode = bool(getattr(args, "json", False))
         configure_docs_base_from_environment()
-        settings = Settings.resolve(args, environ)
+        # `context` mends the contexts file; a broken one must not stop it from running.
+        settings = Settings() if args.command == "context" else Settings.resolve(args, environ)
         ctx = Context(args, out, settings)
+        if getattr(args, "dry_run", False):
+            # Not the command: a planner made of reads, so --dry-run cannot reach a change.
+            return _dryrun.run(ctx)
         return int(args.run(ctx))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED

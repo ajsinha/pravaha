@@ -361,7 +361,9 @@ def validate(ctx: Context) -> int:
     for diagnostic in answer.get("diagnostics") or []:
         where = diagnostic.get("range") or {}
         at = f" (line {where.get('startLine')}, column {where.get('startColumn')})" if where else ""
-        ctx.out.warn(f"{diagnostic.get('code')}  {diagnostic.get('message')}{at}")
+        code, message = str(diagnostic.get("code") or ""), str(diagnostic.get("message") or "")
+        # The engine's message may already begin with its code; it is said once.
+        ctx.out.warn((message if message.startswith(code) else f"{code}  {message}") + at)
     return EXIT_REFUSED
 
 

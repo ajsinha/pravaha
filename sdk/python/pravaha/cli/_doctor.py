@@ -32,7 +32,7 @@ from typing import Any, Callable, Mapping, Optional
 
 import pravaha
 from pravaha.cli._common import EXIT_OK, EXIT_REFUSED, Context
-from pravaha.cli._settings import token_file
+from pravaha.cli._settings import contexts_file, token_file
 from pravaha.errors import (
     InvalidOptionsError,
     InvalidTlsOptionsError,
@@ -162,7 +162,8 @@ def java_check(environ: Mapping[str, str], timeout: float,
 def token_file_check(ctx: Context, environ: Mapping[str, str]) -> "dict[str, str]":
     path = token_file(environ)
     source = ctx.settings.token_source
-    using = {"flag": "--token", "env": "PRAVAHA_TOKEN", "file": "this file"}.get(source or "", "none")
+    using = {"flag": "--token", "env": "PRAVAHA_TOKEN", "file": "this file",
+             "context": f"context {ctx.settings.context}"}.get(source or "", "none")
     if not path.exists():
         return check(GREEN, "token file", f"{path}: none saved (pravaha login --save writes it); "
                      f"token from {using}")
@@ -175,6 +176,23 @@ def token_file_check(ctx: Context, environ: Mapping[str, str]) -> "dict[str, str
         return check(RED, "token file", f"{path} is mode {mode:04o}: others on this machine may "
                      f"read your token; token from {using}", f"chmod 600 {path}")
     return check(GREEN, "token file", f"{path} is mode {mode:04o}; token from {using}")
+
+
+def context_check(ctx: Context, environ: Mapping[str, str]) -> "dict[str, str]":
+    """Which context is in use, what chose it, and whether its file is private."""
+    path = contexts_file(environ)
+    name, source = ctx.settings.context, ctx.settings.context_source
+    chosen = {"flag": "--context", "env": "PRAVAHA_CONTEXT",
+              "current": "pravaha context use"}.get(source or "", "")
+    using = (f"{name} (chosen by {chosen}): {ctx.settings.http}, {ctx.settings.url}" if name
+             else "none in use: flags, environment and defaults decide")
+    if not path.exists():
+        return check(GREEN, "context", using)
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        return check(RED, "context", f"{using}; {path} is mode {mode:04o}: others on this machine "
+                     "may read the tokens in it", f"chmod 600 {path}")
+    return check(GREEN, "context", using)
 
 
 # ---------------------------------------------------------------------------------- TLS
@@ -395,7 +413,7 @@ def run_checks(ctx: Context, environ: Optional[Mapping[str, str]] = None) -> "li
     timeout = _timeout(ctx, env)
     ctx.settings.timeout = timeout
     results = [python_check(), cli_check(), pyarrow_check(), java_check(env, timeout),
-               token_file_check(ctx, env)]
+               token_file_check(ctx, env), context_check(ctx, env)]
     have_pyarrow = results[2]["status"] == GREEN
     http, url = ctx.settings.http, ctx.settings.url
     if http.startswith("https://"):
