@@ -45,6 +45,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Optional
@@ -179,12 +180,23 @@ class ScratchNode:
                 with urllib.request.urlopen(self.http + "/api/v1/status", timeout=2) as answer:
                     if json.loads(answer.read()).get("engineState") == "RUNNING":
                         return self
+            except urllib.error.HTTPError as refused:
+                # A node with users on (args) asks who is asking; its open readiness probe answers.
+                if refused.code in (401, 403) and self._ready():
+                    return self
             except OSError:
                 pass
             time.sleep(0.25)
         tail = (self.home / "node.log").read_text(errors="replace")[-3000:]
         self.__exit__(None, None, None)
         raise NodeUnavailable(f"the scratch node did not start:\n{tail}")
+
+    def _ready(self) -> bool:
+        try:
+            with urllib.request.urlopen(self.http + "/actuator/health/readiness", timeout=2) as answer:
+                return bool(json.loads(answer.read()).get("status") == "UP")
+        except OSError:
+            return False
 
     def __exit__(self, *_: object) -> None:
         if self.process is not None and self.process.poll() is None:

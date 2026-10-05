@@ -82,7 +82,10 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `pravaha top` shows the node's queries live — rows a second from successive samples, watermark
   delay, state held and its bytes, view rows, subscribers — redrawn with plain ANSI on a terminal
   and as plain frames or JSON lines elsewhere; `--once` (with `--json`) is one frame for a script.
-  Fixed on the way: `doctor` said "1 continuous queries".
+  The documentation's screenshots are reproducible: `pravaha-console/tools/docs_screenshots.py` makes
+  every one from a declared list (`--list`, `--only`) — the console screens over the fake engine, the
+  IDE guide's against a scratch node — and a test fails on an image that is missing, one no document
+  shows, and one the list cannot make. All fifteen were regenerated. Fixed on the way: `doctor` said "1 continuous queries".
 
 ---
 
