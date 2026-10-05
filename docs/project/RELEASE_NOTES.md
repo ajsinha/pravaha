@@ -28,6 +28,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   a 500 on HTTP, `UNKNOWN` with no code on Flight, and a silently dropped socket on pgwire. Each is
   now `PRV-7001` (HTTP 401, Flight `UNAUTHENTICATED`, pgwire `FATAL 28000`), closed rather than open,
   with the verifier's own failure logged and not sent to the client.
+- **Kafka: an Avro schema that is the JSON `null` is refused as a malformed schema again** (J21-2).
+  The NullAway sweep turned it into a `NullPointerException`, which a schema-registry lookup does not
+  catch as a dead letter.
 - **Console: "About this page" on every page.** Each page of the console ends with a short panel —
   what the page is for, two to four tiles on what you can do there and the idea behind it, and
   *More in Help*, the screen's help topics — open by default, collapsible, remembered closed per
