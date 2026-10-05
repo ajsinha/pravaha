@@ -40,6 +40,7 @@ from pravaha.cli import (
     _catalog,
     _completion,
     _contexts,
+    _dryrun,
     _doctor,
     _examples,
     _flight,
@@ -81,7 +82,10 @@ HTTP API at --http.
 
 Destructive commands (drop, abandon, finish, lanes rebalance, key revoke, user disable, revoke,
 catalog owner, policy unbind, policy drop, alert drop) say what they would do and change nothing
-unless given --yes.
+unless given --yes. --dry-run (drop, replace, cutover, rollback, abandon, finish, grant, revoke,
+policy bind/unbind/drop, user disable/enable/roles, key revoke, alert drop) reads what the command
+would touch and says what would happen and whether the engine would refuse (exit 1), changing
+nothing even with --yes.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -183,6 +187,12 @@ def _sql_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sql-file", metavar="PATH", help="read the SQL from a file")
 
 
+def _dry(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dry-run", action="store_true",
+                        help="change nothing: read what it would touch, say what would happen and "
+                             "whether the engine would refuse (exit 1 if so); with --json, a plan")
+
+
 def _yes(parser: argparse.ArgumentParser, what: str) -> None:
     parser.add_argument("--yes", "-y", action="store_true",
                         help=f"{what}; without it, print what would happen and change nothing")
@@ -267,6 +277,7 @@ def build_parser() -> _Parser:
         p.add_argument("--name", help="the query's name")
         if verb == "drop":
             _yes(p, "drop it")
+            _dry(p)
 
     p = b.add("replace", _flight.replace, "Start a blue/green replacement of a running query.")
     p.add_argument("--name", help="the query being replaced")
@@ -278,6 +289,7 @@ def build_parser() -> _Parser:
     p.add_argument("--rollback-retention", metavar="PT1H",
                    help="how long the replaced version is kept for a rollback")
     p.add_argument("--wait", action="store_true", help="wait until the backfill has caught up")
+    _dry(p)
 
     p = b.add("replacements", _flight.replacements, "How replacements are getting on.")
     p.add_argument("--name", help="only this query's")
@@ -297,6 +309,8 @@ def build_parser() -> _Parser:
             p.add_argument("--rate", type=int, metavar="N", help="records a second")
         if verb in ("abandon", "finish"):
             _yes(p, verb + " it")
+        if verb in ("cutover", "rollback", "abandon", "finish"):
+            _dry(p)
 
     p = b.add("subscribe", _flight.subscribe, "Print a view's committed changes as they happen.")
     p.add_argument("--view", help="the view to follow")
@@ -500,11 +514,14 @@ def build_parser() -> _Parser:
     v = add("disable", "Disable a user; their sessions end.")
     v.add_argument("target", metavar="<name>")
     _yes(v, "disable them")
+    _dry(v)
     v = add("enable", "Enable a user.")
     v.add_argument("target", metavar="<name>")
+    _dry(v)
     v = add("roles", "Replace a user's roles.")
     v.add_argument("target", metavar="<name>")
     v.add_argument("--roles", metavar="A,B")
+    _dry(v)
     v = add("reset", "Issue a single-use password reset token.")
     v.add_argument("target", metavar="<name>")
     v = add("attrs", "Show, set or unset a user's attributes, the claims their credentials carry.")
@@ -527,6 +544,7 @@ def build_parser() -> _Parser:
     v = add("revoke", "Revoke a key at once.")
     v.add_argument("target", metavar="<keyId>")
     _yes(v, "revoke it")
+    _dry(v)
     add("report", "Keys unused, expiring or superseded (admin).")
 
     p = b.add("session", _identity.session, "Sessions: yours, or everyone's (admin).")
@@ -645,6 +663,7 @@ def build_parser() -> _Parser:
         p.add_argument("--user")
         if name == "revoke":
             _yes(p, "revoke them")
+        _dry(p)
     p = b.add("grants", _catalog.grants, "Grants on an object, or to a role or user.")
     p.add_argument("--on", metavar="OBJECT")
     p.add_argument("--role")
@@ -685,9 +704,11 @@ def build_parser() -> _Parser:
         v.add_argument("--tag", metavar="KEY[=VALUE]")
         if verb == "unbind":
             _yes(v, "unbind it")
+        _dry(v)
     v = add("drop", "Drop a policy (MANAGE; refused while bound).")
     v.add_argument("name", metavar="<policy>")
     _yes(v, "drop it")
+    _dry(v)
 
     # ------------------------------------------------------------------ alerts (ADR-057)
     p = b.add("alerts", _alerts.alerts, "Alerts: what is firing, and pause, snooze or acknowledge one.")
@@ -728,6 +749,7 @@ def build_parser() -> _Parser:
     v.add_argument("--if-exists", dest="if_exists", action="store_true")
     v.add_argument("--print-sql", dest="print_sql", action="store_true", help=argparse.SUPPRESS)
     _yes(v, "drop it")
+    _dry(v)
 
     for made in b.made:
         _global_options(made, suppress=True)
@@ -876,6 +898,9 @@ def main(
         # `context` mends the contexts file; a broken one must not stop it from running.
         settings = Settings() if args.command == "context" else Settings.resolve(args, environ)
         ctx = Context(args, out, settings)
+        if getattr(args, "dry_run", False):
+            # Not the command: a planner made of reads, so --dry-run cannot reach a change.
+            return _dryrun.run(ctx)
         return int(args.run(ctx))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED
