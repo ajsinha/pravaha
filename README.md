@@ -149,7 +149,7 @@ in [`LIMITS.md`](docs/guides/LIMITS.md). What is left is below.
 - The eight-lane scaling target: measured at 32–37 % of linear against 90 % on JDK 25 (28–42 % on
   JDK 21), on a laptop, with no reference hardware (below).
 - The manual WCAG 2.2 AA audit, which is a person's task.
-- The [findings register](docs/project/qa/FINDINGS.md) holds 580 findings, 557 fixed and 4 open (all LOW, POST-GA), on 2026-10-05; the adversarial QA's reproductions are kept as opt-in suites
+- The [findings register](docs/project/qa/FINDINGS.md) holds 581 findings, 558 fixed and 4 open (all LOW, POST-GA), on 2026-10-05; the adversarial QA's reproductions are kept as opt-in suites
   ([TESTING](docs/development/TESTING.md#the-adversarial-suites)).
 
 **Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.

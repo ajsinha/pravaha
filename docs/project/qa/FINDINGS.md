@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **580 findings carrying a
-status — 557 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
+only part that is kept current. Counting the register as it stands: **581 findings carrying a
+status — 558 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7833,4 +7833,10 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 
 > **Status:** OPEN — the image is a JRE, so a stalled node cannot be dumped from inside it. A sidecar sharing its PID namespace works (`docker run --pid container:<node> --user 10001` with a JDK), but the guide does not say so. Fix: a "Diagnosing a stall" section in RUNNING_IN_DOCKER.md (and the Kubernetes equivalent, an ephemeral debug container).
 > **Disposition:** POST-GA — documentation; the workaround is standard.
+
+## Found building the CLI's doctor and JSON contract (2026-10-05), 1 finding
+
+### CLIJSON-1 (LOW) — a missing pyarrow under --json printed plain text, and any ImportError was blamed on pyarrow
+
+> **Status:** FIXED — with pyarrow absent, a Flight command run with --json printed a plain-text message instead of the {"error": …} document --json promises on stderr; and every ImportError was reported as "needs pyarrow", so another missing module was misnamed. Both now follow the contract: the JSON error under --json, and the missing module named as itself. tests/test_cli_contract.py.
 
