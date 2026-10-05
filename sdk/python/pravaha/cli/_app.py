@@ -8,7 +8,11 @@ Exit codes are a contract scripts rely on:
 * ``0`` -- done;
 * ``1`` -- the engine refused, and its ``PRV-nnnn`` code and message are on stderr;
 * ``2`` -- the command line or a setting was wrong, and nothing was sent;
-* ``3`` -- nothing answered at the engine's address.
+* ``3`` -- nothing answered at the engine's address;
+* ``130`` -- interrupted (Ctrl-C), except ``subscribe``, which Ctrl-C ends with ``0``.
+
+``doctor`` and ``health`` are probes: ``1`` means a RED check or an unhealthy node, even when the
+node did not answer. docs: the console's CLI reference, "Exit codes" and "JSON output".
 
 The assistant's commands (``ask``, ``explain-sql``, ``why``, ``assist``) keep the contract: a
 model that failed exits ``1`` with the normalised error, a wrong assistant configuration exits
@@ -43,6 +47,7 @@ from pravaha.cli import (
     _policy,
 )
 from pravaha.cli._common import (
+    EXIT_INTERRUPTED,
     EXIT_OK,
     EXIT_REFUSED,
     EXIT_UNREACHABLE,
@@ -844,12 +849,21 @@ def main(
         ctx = Context(args, out, settings)
         return int(args.run(ctx))
     except KeyboardInterrupt:
-        return 130
+        return EXIT_INTERRUPTED
     except ImportError as exc:
-        out.warn(
-            f"this command speaks Arrow Flight and needs pyarrow: {exc}. Install it with\n"
-            '    pip install "pravaha[flight]"'
-        )
+        missing = str(getattr(exc, "name", "") or "")
+        if missing.split(".")[0] in ("pyarrow", ""):
+            words = (f"this command speaks Arrow Flight and needs pyarrow: {exc}. Install it with\n"
+                     '    pip install "pravaha[flight]"')
+        else:
+            # Not pyarrow: say what is missing rather than send the person to install the wrong thing.
+            words = f"a module this command needs is not installed: {exc}"
+        if out.json_mode:
+            # --json promises a JSON error on stderr, whatever failed.
+            body = {"code": None, "message": words, "exit": EXIT_USAGE}
+            print(to_json({"error": body}, indent=None), file=out.err)
+        else:
+            out.warn(words)
         return EXIT_USAGE
     except BrokenPipeError:  # pragma: no cover - `pravaha ... | head`
         return EXIT_OK

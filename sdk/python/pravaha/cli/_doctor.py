@@ -162,7 +162,7 @@ def java_check(environ: Mapping[str, str], timeout: float,
 def token_file_check(ctx: Context, environ: Mapping[str, str]) -> "dict[str, str]":
     path = token_file(environ)
     source = ctx.settings.token_source
-    using = {"flag": "--token", "env": "PRAVAHA_TOKEN", "file": str(path)}.get(source or "", "none")
+    using = {"flag": "--token", "env": "PRAVAHA_TOKEN", "file": "this file"}.get(source or "", "none")
     if not path.exists():
         return check(GREEN, "token file", f"{path}: none saved (pravaha login --save writes it); "
                      f"token from {using}")

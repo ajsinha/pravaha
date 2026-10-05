@@ -46,6 +46,16 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `make -C pravaha-console install`, and point PyCharm at `pravaha-console/` and
   `pravaha-console/.venv`. No runtime, image, configuration or API change — the image still keeps the
   console at `/opt/pravaha/console` and is still `pravaha/pravaha-console`.
+- **`pravaha doctor`, `pravaha completion`, and `examples:` in every command's help.** `doctor` prints
+  one GREEN/YELLOW/RED line per check — Python, pyarrow, Java 21+, the token file's permissions, the
+  node's health over HTTP and a Flight call with latency, its version against the CLI's, TLS trust,
+  hostname and expiry, `whoami` and a session's expiry, the default ports — each with its fix, and
+  exits `1` on any RED; `--json` is the list of checks. `completion bash|zsh|fish` is generated from
+  the parser, so it cannot go stale. Every command's `--help` ends with one to three real examples,
+  each parsed by a test. The exit codes (`0`, `1`, `2`, `3`, `130`) and the `--json` shapes of the main
+  commands are documented as a contract in the console's CLI reference and pinned by tests. Fixed on
+  the way: a missing pyarrow under `--json` printed plain text, not the promised JSON error; and any
+  missing module was reported as pyarrow.
 
 ---
 

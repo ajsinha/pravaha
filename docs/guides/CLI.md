@@ -51,6 +51,8 @@ stays valid, with three deliberate differences:
 pip install "pravaha[flight]"    # the CLI and the Flight transport
 pravaha --help
 pravaha version
+pravaha doctor                        # is this machine ready, and is the node well?
+source <(pravaha completion bash)     # completion: zsh and fish too
 ```
 
 Without the `flight` extra the CLI still installs and every HTTP command works; a Flight command says
@@ -58,6 +60,13 @@ Without the `flight` extra the CLI still installs and every HTTP command works; 
 `pravaha` when there is one (other than itself), and otherwise `python -m pravaha.cli` from
 `sdk/python`, with that directory's `.venv` when it exists. `PRAVAHA_CLI_FROM_SOURCE=1` skips the
 installed one; `PRAVAHA_PYTHON` chooses the interpreter.
+
+`pravaha doctor` checks Python, pyarrow, Java 21+, the token file's permissions, the node over HTTP
+and Flight, TLS expiry and who you are, one GREEN/YELLOW/RED line each with its fix, and exits `1` on
+any RED; `pravaha completion bash|zsh|fish` prints a completion script generated from the parser.
+Both are described, with captured output and install lines, in the reference's
+[Doctor](../../pravaha-console/content/topics/cli-reference.md#doctor) and [Shell completion](../../pravaha-console/content/topics/cli-reference.md#shell-completion).
+Every `pravaha <command> --help` ends with `examples:`.
 
 ## Configuration
 
@@ -105,13 +114,11 @@ pravaha logout
 `change` object per row and a `commit` or `snapshot` object per commit), and a failure is a JSON
 `{"error": {...}}` object on stderr.
 
-| Exit | Means |
-|---|---|
-| `0` | Done — including a destructive command that only said what it would do, and a subscription ended by Ctrl-C or `--limit` |
-| `1` | The engine refused: its `PRV-nnnn` code and message on stderr, then where the code is explained (`PRAVAHA_DOCS_BASE_URL` makes that a link). Also `health` not `UP`/`DEGRADED`, invalid SQL under `validate`, a record that failed again under `dlq replay` |
-| `2` | Usage: an unknown command, a missing or malformed flag, a setting refused before sending (PRV-1031, PRV-1032, PRV-1053), an offline command, a Flight command without pyarrow |
-| `3` | Nothing answered at `--url` or `--http` (PRV-1040); the message names the address |
-| `130` | Interrupted |
+Exit codes in brief: `0` done, `1` the engine refused (or `health`/`doctor` found the node unwell),
+`2` usage, `3` nothing answered, `130` interrupted. The full table, and the JSON shape each `--json`
+command prints, are the contract scripts rely on; their one home is the reference's
+[Exit codes](../../pravaha-console/content/topics/cli-reference.md#exit-codes) and [JSON output](../../pravaha-console/content/topics/cli-reference.md#json-output), pinned by
+`sdk/python/tests/test_cli_contract.py`.
 
 `PRAVAHA_CLI_TRACE=1` adds a stack trace to any failure.
 
@@ -148,6 +155,8 @@ HTTP (`--http`):
 | `status` | `GET /api/v1/status` |
 | `health` | `GET /actuator/health` (exit `1` unless `UP` or `DEGRADED`) |
 | `version [--client]` | the CLI's version, and `GET /api/v1/status`'s |
+| `doctor [--local]` | local checks, then `GET /actuator/health`, `/api/v1/status`, `/api/v1/auth/me`, `/api/v1/sessions` and a Flight list |
+| `completion bash\|zsh\|fish` | nothing: a script generated from the parser |
 | `metrics [--grep TEXT]` | `GET /actuator/prometheus` |
 | `plugins`, `sinks` | `GET /api/v1/plugins`, `/api/v1/sinks` |
 | `streams [list]`, `streams describe S`, `streams declare S --schema ... [--event-time C] [--out-of-orderness D]` | `GET /api/v1/streams`, `/streams/{name}`, `POST /api/v1/streams` |
