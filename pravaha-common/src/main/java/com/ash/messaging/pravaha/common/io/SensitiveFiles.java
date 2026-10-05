@@ -116,13 +116,24 @@ public final class SensitiveFiles {
             Files.setPosixFilePermissions(target, narrowed);
             return current;
         } catch (IOException | UnsupportedOperationException cannot) {
+            // J21-3: once per path per process, as reportTightened is. This runs on every journal
+            // append and every checkpoint, so a data volume the node does not own -- a Kubernetes
+            // fsGroup volume, a bind mount -- logged this warning once per registration, drop and
+            // checkpoint: 110,000 lines in a two-minute run, burying everything else in the log.
+            System.Logger.Level level = UNNARROWABLE.add(target.toAbsolutePath().normalize())
+                    ? System.Logger.Level.WARNING
+                    : System.Logger.Level.DEBUG;
             LOG.log(
-                    System.Logger.Level.WARNING,
+                    level,
                     "could not set " + mode + " on " + target + " (" + cannot
-                            + "). It holds data rather than configuration, so check its mode by hand.");
+                            + "). It holds data rather than configuration, so check its mode by hand. "
+                            + "Reported once; later attempts log at DEBUG.");
             return null;
         }
     }
+
+    /** Paths whose permissions this process could not narrow and has said so, so each warns once. */
+    private static final java.util.Set<Path> UNNARROWABLE = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Directories whose loosened permissions this process has already reported, so each warns once. */
     private static final java.util.Set<Path> REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
