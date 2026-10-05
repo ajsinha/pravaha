@@ -73,7 +73,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-Register: **581 findings — 558 fixed, 4 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **582 findings — 559 fixed, 4 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.3.0 — 2026-10-04
 
