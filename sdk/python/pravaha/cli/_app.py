@@ -36,6 +36,7 @@ from pravaha.cli import (
     _catalog,
     _completion,
     _doctor,
+    _examples,
     _flight,
     _http,
     _identity,
@@ -82,8 +83,16 @@ The assistant (ask, explain-sql, why, assist) asks a configured model, with the 
 judge; see docs/guides/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
 when the engine still refuses the draft after its repair turns. Only --register registers.
 
-pravaha <command> --help prints one command's flags without contacting anything.
-Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine.
+pravaha <command> --help prints one command's flags, and examples, without contacting anything.
+Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine,
+130 interrupted. `pravaha doctor` checks this machine and the node first.
+
+examples:
+  pravaha doctor
+  pravaha login --user ann --save
+  pravaha queries
+  pravaha query --sql "SELECT * FROM spend_by_hour" --json
+  source <(pravaha completion bash)
 """
 
 
@@ -102,6 +111,16 @@ class _Parser(argparse.ArgumentParser):
 
     def _command_path(self) -> str:
         return " ".join(self.prog.split()[1:])
+
+
+class _HelpFormatter(argparse.HelpFormatter):
+    """argparse's own formatting -- the description wrapped to the terminal as before -- except
+    that an ``examples:`` epilog keeps its lines, each a command a person may paste whole."""
+
+    def _fill_text(self, text: str, width: int, indent: str) -> str:
+        if text.startswith("examples:"):
+            return "".join(indent + line for line in text.splitlines(keepends=True))
+        return super()._fill_text(text, width, indent)
 
 
 def _global_options(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
@@ -169,7 +188,8 @@ class _Builder:
 
     def add(self, name: str, run: Command, summary: str, **kwargs: Any) -> _Parser:
         parser: _Parser = self.commands.add_parser(
-            name, help=summary, description=summary, allow_abbrev=False, **kwargs
+            name, help=summary, description=summary, allow_abbrev=False,
+            epilog=_examples.epilog(name), formatter_class=_HelpFormatter, **kwargs
         )
         parser.set_defaults(run=run)
         self.made.append(parser)
@@ -180,8 +200,11 @@ class _Builder:
         verbs.required = required
 
         def add(name: str, summary: str) -> _Parser:
-            verb: _Parser = verbs.add_parser(name, help=summary, description=summary,
-                                             allow_abbrev=False)
+            verb: _Parser = verbs.add_parser(
+                name, help=summary, description=summary, allow_abbrev=False,
+                epilog=_examples.epilog(f"{parser._command_path()} {name}"),
+                formatter_class=_HelpFormatter,
+            )
             verb.set_defaults(run=run)
             self.made.append(verb)
             return verb
