@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 Part of [clients and the console](clients-and-console.md#the-console).
-The screens here are captured from the console with its browser-test harness
+The screens here are made by `pravaha-console/tools/docs_screenshots.py` with the console's browser-test harness
 (`pravaha-console/tests/browser_harness.py`): the real application, real Chrome, and the **fake engine** the
 product tests use, so the names and numbers are the fake's (`big_txn`, `hot`), not a live node's.
 

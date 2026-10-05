@@ -160,6 +160,24 @@ If the change is intended, look at the diff, then `make baselines` and commit th
 record the Chrome major version that took them; on another version the comparison is skipped and says
 so. Run the browser suites when pages change, not on every edit.
 
-The screenshots in these documents were taken with the same harness — `Console(BrowserEngine())`, real
+### Regenerating the documentation's screenshots
+
+Every image in `docs/assets/screenshots/` is made by `tools/docs_screenshots.py` from the list it
+declares (`SHOTS`): the console screens with the same harness — `Console(BrowserEngine())`, real
 Chrome through `tests/cdp.py`, the `DETERMINISM` script and the light theme, at 1400×900 — so they show
-the fake engine's data, not a live node's.
+the fake engine's data, not a live node's; the two IDE-guide shots against a scratch node (the server
+jar on free ports, profiles `dev,users`, a `txn` stream) with a console over it signed in as `admin`,
+its ports shown as the standard ones.
+
+```bash
+cd pravaha-console
+.venv/bin/python tools/docs_screenshots.py --list                    # the declared shots
+.venv/bin/python tools/docs_screenshots.py                           # all of them
+.venv/bin/python tools/docs_screenshots.py --only console-query      # one; repeatable
+```
+
+It needs Chrome, and for the node shots `JAVA_HOME` and the built server jar. With Pillow on this
+interpreter or on `python3`, each PNG is palette-quantised to about a fifth of Chrome's size. Look at
+the images before committing them. `tests/test_doc_images.py` fails when a document shows an image
+that is missing, when an image is in the directory that no document shows, and when a document shows
+one the tool does not declare: to add a screenshot, declare it, run the tool, and reference it.

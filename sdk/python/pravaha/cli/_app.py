@@ -46,7 +46,10 @@ from pravaha.cli import (
     _flight,
     _http,
     _identity,
+    _init,
+    _plugin_new,
     _policy,
+    _top,
 )
 from pravaha.cli._common import (
     EXIT_INTERRUPTED,
@@ -86,6 +89,8 @@ unless given --yes. --dry-run (drop, replace, cutover, rollback, abandon, finish
 policy bind/unbind/drop, user disable/enable/roles, key revoke, alert drop) reads what the command
 would touch and says what would happen and whether the engine would refuse (exit 1), changing
 nothing even with --yes.
+
+Scaffolding asks no node: init writes a starter project, plugin new a connector project.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -191,6 +196,14 @@ def _dry(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true",
                         help="change nothing: read what it would touch, say what would happen and "
                              "whether the engine would refuse (exit 1 if so); with --json, a plan")
+
+
+def _scaffold_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--force", action="store_true",
+                        help="write into a directory that is not empty, over files of the same name")
+    # Not dest=dry_run: that routes to the planner of reads, and a scaffold asks no node.
+    parser.add_argument("--dry-run", dest="scaffold_dry_run", action="store_true",
+                        help="list the files it would write, and write none")
 
 
 def _yes(parser: argparse.ArgumentParser, what: str) -> None:
@@ -401,6 +414,26 @@ def build_parser() -> _Parser:
     p.add_argument("shell", choices=_completion.SHELLS, metavar="bash|zsh|fish",
                    help="the shell to complete for")
 
+    p = b.add("init", _init.init,
+              "Scaffold a starter project: a stream, its sample data, a first continuous query, "
+              "and a docker-compose.yml for the engine image. Asks no node.")
+    p.add_argument("directory", metavar="DIR", nargs="?", default=".",
+                   help="where to write it (default: here); refused unless empty, or --force")
+    _scaffold_options(p)
+
+    p = b.add("plugin", _plugin_new.plugin, "Scaffold a connector: a Maven project against "
+              "pravaha-api with the TCK wired in. Asks no node.")
+    add = b.verbs(p, _plugin_new.plugin, required=True)
+    v = add("new", "A source or sink plugin project that builds, and passes its TCK, as generated.")
+    v.add_argument("plugin_name", metavar="NAME",
+                   help="what configuration names it by: lower case, digits, hyphens (my-store)")
+    v.add_argument("--kind", choices=_plugin_new.KINDS, help="source or sink")
+    v.add_argument("--package", metavar="JAVA.PACKAGE", help="default com.example.<name>")
+    v.add_argument("--dir", metavar="PATH", help="where to write it (default pravaha-plugin-<name>)")
+    v.add_argument("--pravaha-version", metavar="V",
+                   help="the engine version to build against (default: this CLI's)")
+    _scaffold_options(v)
+
     p = b.add("context", _contexts.context,
               "Named connections: say --url, --http, the token and TLS once per node.")
     add = b.verbs(p, _contexts.context)
@@ -445,6 +478,15 @@ def build_parser() -> _Parser:
         p = b.add(name, run, summary)
         p.add_argument("query_name", metavar="<query>", nargs="?")
         p.add_argument("--name", help="the query, if not given as an argument")
+
+    p = b.add("top", _top.top, "The node's queries, live: rows a second, watermark delay, state, "
+                               "subscribers, redrawn every --interval seconds.")
+    p.add_argument("--interval", type=float, default=2.0, metavar="SECONDS",
+                   help="seconds between samples (default 2); rates are over this interval")
+    p.add_argument("--sort", choices=_top.SORTS, default="name",
+                   help="name (default), or largest first: rate, rows, lag, state, subs")
+    p.add_argument("--once", action="store_true",
+                   help="two samples --interval apart, one frame, and exit; with --json, one object")
 
     p = b.add("validate", _http.validate, "Plan SQL against the node without running it.")
     _sql_options(p)

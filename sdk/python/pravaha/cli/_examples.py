@@ -91,6 +91,22 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "pravaha completion zsh > ~/.zfunc/_pravaha        # zsh, with fpath+=~/.zfunc",
         "pravaha completion fish > ~/.config/fish/completions/pravaha.fish",
     ),
+    "top": (
+        "pravaha top",
+        "pravaha top --sort rate --interval 5",
+        "pravaha top --once --json | jq '.queries[] | {name, rowsPerSecond}'",
+    ),
+    "init": (
+        "pravaha init spend-demo",
+        "pravaha init spend-demo --dry-run",
+        "pravaha init . --force --json",
+    ),
+    "plugin": ("pravaha plugin new my-store --kind source",),
+    "plugin new": (
+        "pravaha plugin new my-store --kind source --package com.acme.mystore",
+        "pravaha plugin new audit-file --kind sink --dir connectors/audit-file",
+        "pravaha plugin new my-store --kind sink --dry-run --json",
+    ),
     "context": (
         "pravaha context add prod --url grpc+tls://node-1:19090 --http https://node-1:18080 "
         "--tls-ca ca.pem --use",

@@ -70,6 +70,22 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   diff, grants before and after — and exits `1` when the engine would refuse, changing nothing.
   `sdk/python/tools/cli_captures.py` captures the CLI reference's output blocks from a scratch node,
   and a test fails when they drift. Fixed on the way: `validate` printed a refusal's PRV code twice.
+- **`pravaha init` and `pravaha plugin new`: projects that run as generated.** `init` writes a stream declaration and the CSV feeding
+  it (`conf/application.yaml`, the node's own format), a first windowed query, a `docker-compose.yml`
+  for the engine image on the standard ports (the console behind a profile), a README with the next
+  three commands, and the `pravaha context add` command to save the connection — saying why each
+  file is there, refusing a directory that is not empty without `--force`, and writing nothing under
+  `--dry-run`. A test starts a node on the generated configuration and runs the query.
+  `plugin new NAME --kind source|sink` writes a Maven connector project as the connector guide lays
+  one out — `pravaha-api` at `provided` scope, the `META-INF/services` registration, Java 21 — with
+  `SourcePluginTck` or `SinkPluginTck` wired in; a test builds both kinds offline and the TCK passes.
+  `pravaha top` shows the node's queries live — rows a second from successive samples, watermark
+  delay, state held and its bytes, view rows, subscribers — redrawn with plain ANSI on a terminal
+  and as plain frames or JSON lines elsewhere; `--once` (with `--json`) is one frame for a script.
+  The documentation's screenshots are reproducible: `pravaha-console/tools/docs_screenshots.py` makes
+  every one from a declared list (`--list`, `--only`) — the console screens over the fake engine, the
+  IDE guide's against a scratch node — and a test fails on an image that is missing, one no document
+  shows, and one the list cannot make. All fifteen were regenerated. Fixed on the way: `doctor` said "1 continuous queries".
 
 ---
 

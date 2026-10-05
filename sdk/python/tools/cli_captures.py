@@ -45,6 +45,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Optional
@@ -92,6 +93,7 @@ CAPTURES: "tuple[Capture, ...]" = (
     Capture("queries", ("queries",)),
     Capture("describe", ("describe", "spend_by_minute")),
     Capture("views", ("views",)),
+    Capture("top-once", ("top", "--once", "--interval", "1")),
     Capture("validate", ("validate", "--sql", WINDOW_SQL)),
     Capture("validate-refused", ("validate", "--sql", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id")),
     Capture("explain", ("explain", "--sql", WINDOW_SQL)),
@@ -130,9 +132,13 @@ def free_port(taken: "set[int]") -> int:
 
 
 class ScratchNode:
-    """A node of its own, in a temporary directory, on two free ports; stopped on exit."""
+    """A node of its own, in a temporary directory, on two free ports; stopped on exit.
 
-    def __init__(self) -> None:
+    ``args`` are more of the server's own (``--spring.config.additional-location=...``); files a
+    test wants under the node's working directory go into :attr:`home` before it is entered."""
+
+    def __init__(self, args: "tuple[str, ...]" = ()) -> None:
+        self.args = tuple(args)
         self.jar = server_jar()
         java_home = os.environ.get("JAVA_HOME")
         self.java = str(pathlib.Path(java_home) / "bin" / "java") if java_home else shutil.which("java")
@@ -156,10 +162,14 @@ class ScratchNode:
         tmp.mkdir()
         log = open(self.home / "node.log", "wb")
         self.process = subprocess.Popen(
-            [self.java, f"-Djava.io.tmpdir={tmp}", f"-Duser.home={self.home}", "-jar", str(self.jar),
+            # The opens bin/pravaha-server gives: without them Arrow cannot allocate a Flight
+            # answer's buffers and every query that returns rows is reset (RST_STREAM).
+            [self.java, "--add-opens=java.base/java.nio=ALL-UNNAMED",
+             "--add-opens=java.base/java.lang=ALL-UNNAMED", "--enable-native-access=ALL-UNNAMED",
+             f"-Djava.io.tmpdir={tmp}", f"-Duser.home={self.home}", "-jar", str(self.jar),
              "--spring.profiles.active=dev", "--server.address=127.0.0.1",
              f"--server.port={self.http_port}", "--pravaha.flight.host=127.0.0.1",
-             f"--pravaha.flight.port={self.flight_port}"],
+             f"--pravaha.flight.port={self.flight_port}", *self.args],
             cwd=self.home, stdout=log, stderr=subprocess.STDOUT,
         )
         deadline = time.monotonic() + 120
@@ -170,12 +180,23 @@ class ScratchNode:
                 with urllib.request.urlopen(self.http + "/api/v1/status", timeout=2) as answer:
                     if json.loads(answer.read()).get("engineState") == "RUNNING":
                         return self
+            except urllib.error.HTTPError as refused:
+                # A node with users on (args) asks who is asking; its open readiness probe answers.
+                if refused.code in (401, 403) and self._ready():
+                    return self
             except OSError:
                 pass
             time.sleep(0.25)
         tail = (self.home / "node.log").read_text(errors="replace")[-3000:]
         self.__exit__(None, None, None)
         raise NodeUnavailable(f"the scratch node did not start:\n{tail}")
+
+    def _ready(self) -> bool:
+        try:
+            with urllib.request.urlopen(self.http + "/actuator/health/readiness", timeout=2) as answer:
+                return bool(json.loads(answer.read()).get("status") == "UP")
+        except OSError:
+            return False
 
     def __exit__(self, *_: object) -> None:
         if self.process is not None and self.process.poll() is None:
