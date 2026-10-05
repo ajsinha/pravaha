@@ -332,8 +332,9 @@ def flight_check(ctx: Context, have_pyarrow: bool) -> "dict[str, str]":
                          "start the node, or pass --url (env PRAVAHA_URL) naming its Flight port")
         return check(YELLOW, "flight", f"{where} answered in {_ms(started)}, and refused: "
                      f"{_words(exc)}", "pravaha whoami; pravaha login --save")
-    return check(GREEN, "flight", f"{where} answered in {_ms(started)}: {len(listed)} "
-                 "continuous queries you may see")
+    noun = "continuous query" if len(listed) == 1 else "continuous queries"
+    return check(GREEN, "flight", f"{where} answered in {_ms(started)}: {len(listed)} {noun} "
+                 "you may see")
 
 
 def _instant(text: Any) -> Optional[datetime.datetime]:

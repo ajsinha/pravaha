@@ -648,7 +648,7 @@ GREEN    token file  ~/.config/pravaha/token: none saved (pravaha login --save w
 GREEN    context     none in use: flags, environment and defaults decide
 GREEN    http        http://localhost:18080 answered in N ms: health UP
 GREEN    version     cli <version>, node <version>
-GREEN    flight      grpc://localhost:19090 answered in N ms: 1 continuous queries you may see
+GREEN    flight      grpc://localhost:19090 answered in N ms: 1 continuous query you may see
 YELLOW   auth        no token: every call is anonymous, which a node with identity on refuses
                      fix: pravaha login --user <name> --save
 doctor: 0 red, 1 yellow
