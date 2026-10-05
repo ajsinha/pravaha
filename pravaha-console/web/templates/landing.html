@@ -21,6 +21,7 @@
   <a href="/help">{{ t('landing.rail.docs') }}</a>
   <a href="/about">{{ t('landing.rail.about') }}</a>
   {% if signed_in %}
+  {% if back_to %}<a class="btn btn-sm btn-outline-secondary" href="{{ back_to }}" id="rail-back"><i class="bi bi-arrow-left" aria-hidden="true"></i> {{ t('landing.back') }}</a>{% endif %}
   <a class="btn btn-sm btn-primary" href="/home" id="rail-cta">{{ t('landing.open_console') }}</a>
   {% else %}
   <a class="btn btn-sm btn-primary" href="/login" id="rail-cta">{{ t('shell.sign_in') }}</a>
@@ -42,6 +43,7 @@
     <p class="lp2-sub">{{ t('landing.hero_sub') }}</p>
     <div class="lp2-actions">
       {% if signed_in %}
+      {% if back_to %}<a href="{{ back_to }}" class="lp2-btn lp2-btn-outline" id="hero-back"><i class="bi bi-arrow-left" aria-hidden="true"></i> {{ t('landing.back') }}</a>{% endif %}
       <a href="/home" class="lp2-btn lp2-btn-primary"><i class="bi bi-grid-1x2" aria-hidden="true"></i> {{ t('landing.open_console') }}</a>
       {% else %}
       <a href="/login" class="lp2-btn lp2-btn-primary"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> {{ t('shell.sign_in') }}</a>

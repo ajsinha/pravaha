@@ -977,6 +977,22 @@ def test_the_landing_pages_call_to_action_follows_the_session(anonymous, signed_
     assert 'id="rail-cta"' in out and 'id="rail-cta"' in inn
 
 
+def test_the_brand_leads_to_the_landing_page_and_the_landing_page_leads_back(anonymous, signed_in):
+    """The brand in the signed-in bar goes to the landing page, as it does for a visitor; arriving
+    there from a console page, the landing page offers the way back to it. Only a page of this
+    console is offered: a foreign Referer, a protocol-relative one and the landing page itself
+    are not, and nobody signed out is offered anything."""
+    page = signed_in.get("/queries").text
+    assert 'class="navbar-brand pv-brand" href="/"' in page
+    host = "http://testserver"
+    back = signed_in.get("/", headers={"referer": f"{host}/queries/hot?tab=plan"}).text
+    assert 'id="rail-back"' in back and 'href="/queries/hot?tab=plan"' in back and 'id="hero-back"' in back
+    for referer in ("https://evil.example/queries", f"{host}//evil.example/x", f"{host}/", "not a url"):
+        assert 'id="rail-back"' not in signed_in.get("/", headers={"referer": referer}).text, referer
+    assert 'id="rail-back"' not in signed_in.get("/").text
+    assert 'id="rail-back"' not in anonymous.get("/", headers={"referer": f"{host}/queries"}).text
+
+
 def test_the_landing_page_tells_a_stranger_nothing_about_this_deployment(anonymous, signed_in):
     """A page anonymous readers can see is a disclosure decision, and this is the decision:
     the console's own version and whether the engine answers -- which is what reaching this

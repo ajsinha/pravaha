@@ -12,6 +12,7 @@ least useful.
 from __future__ import annotations
 
 import time
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -21,7 +22,28 @@ from core.about import (CAPABILITIES, DIFFERENT, LIMITS, MEASURED, PRINCIPLES, P
                         TECHNOLOGY, AboutSource)
 from core.competitive import BEHIND, SHINE
 from core.help_catalog import ERROR_FAMILIES, HelpCatalog
-from routes.base import Routes
+from routes.base import Routes, _signed_in
+
+
+def _back_to(request: Request) -> str | None:
+    """Where a signed-in visitor came from, if it was a page of this console.
+
+    The brand in the bar leads to the landing page for everyone, signed in or not, so the
+    landing page offers the way back to the page that was left. Only a Referer from this
+    same host is taken, and only its path and query: never a scheme, a host or a
+    protocol-relative "//", so the link cannot lead off the console.
+    """
+    if not _signed_in(request):
+        return None
+    referer = request.headers.get("referer")
+    if not referer:
+        return None
+    parts = urlsplit(referer)
+    if parts.netloc != request.url.netloc or not parts.path.startswith("/") or parts.path.startswith("//"):
+        return None
+    if parts.path in ("/", "/login", "/logout"):
+        return None
+    return parts.path + (f"?{parts.query}" if parts.query else "")
 
 
 class PublicRoutes(Routes):
@@ -39,7 +61,7 @@ class PublicRoutes(Routes):
             server is as to be an operator checking on it, and a wall of query
             statistics answers only the second.
             """
-            return self.page(request, "landing.html", current="/")
+            return self.page(request, "landing.html", current="/", back_to=_back_to(request))
 
         @self.app.get("/about", response_class=HTMLResponse, tags=["public"])
         def about(request: Request):
