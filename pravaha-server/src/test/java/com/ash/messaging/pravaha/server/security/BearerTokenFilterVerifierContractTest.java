@@ -44,6 +44,7 @@ class BearerTokenFilterVerifierContractTest {
     private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     @Test
+    @SuppressWarnings("NullAway") // null on purpose: what a verifier outside NullAway may return
     void aVerifierThatReturnsNullIsARefusalNotA500() throws Exception {
         assertRefused(token -> null);
     }
