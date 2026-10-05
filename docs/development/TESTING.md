@@ -47,7 +47,7 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 
 | | Check | Notes |
 |---|---|---|
-| JDK 21 or later | `$JAVA_HOME/bin/java -version` | The build enforces `[21,)` (`enforce-build-environment`). The build scripts source `tools/jdk.sh`: with `JAVA_HOME` unset it takes the first of `/usr/lib/jvm/java-25-openjdk*` and `/usr/lib/jvm/java-21-openjdk*`, then a `javac` 21 or later on `PATH`, and refuses an older one by name |
+| JDK 21 or later | `$JAVA_HOME/bin/java -version` | The build enforces `[21,)` (`enforce-build-environment`), and refuses a dependency with classes newer than Java 21 (`enforce-java-21-bytecode`). The build scripts source `tools/jdk.sh`: with `JAVA_HOME` unset it takes the first of `/usr/lib/jvm/java-21-openjdk*` and `/usr/lib/jvm/java-25-openjdk*` (21 first: production runs 21), then a `javac` 21 or later on `PATH`, and refuses an older one by name |
 | The Maven wrapper | `./mvnw -v` | vendored; the builds below run offline (`-o`) once `~/.m2` is populated |
 | Python | `python3 --version` | SDK ≥ 3.9, console ≥ 3.11. Measured with 3.14.4 |
 | `venv` / `ensurepip` | `python3 -m venv /tmp/x` | Debian and Ubuntu ship it separately (`python3.X-venv`). Without it `make install` fails with *"ensurepip is not available"*. Workaround used here: `uv venv --seed .venv`, then `make install` |

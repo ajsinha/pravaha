@@ -50,7 +50,7 @@ git version 2.53.0
 
 | | Needed for | Notes |
 |---|---|---|
-| JDK 21 or later | everything | set `JAVA_HOME` to it. The build scripts (`tools/worktree-build.sh`, `tools/verify-clean.sh`, ...) source `tools/jdk.sh`: with `JAVA_HOME` unset it takes the first of `/usr/lib/jvm/java-25-openjdk*` and `/usr/lib/jvm/java-21-openjdk*`, then a `javac` 21 or later on `PATH`, and it refuses a `JAVA_HOME` older than 21 by name; plain `./mvnw` uses whatever `JAVA_HOME` or `PATH` gives it, and the enforcer refuses anything before 21 |
+| JDK 21 or later | everything | set `JAVA_HOME` to it. The build scripts (`tools/worktree-build.sh`, `tools/verify-clean.sh`, ...) source `tools/jdk.sh`: with `JAVA_HOME` unset it takes the first of `/usr/lib/jvm/java-21-openjdk*` and `/usr/lib/jvm/java-25-openjdk*` (21 first: production runs 21), then a `javac` 21 or later on `PATH`, and it refuses a `JAVA_HOME` older than 21 by name; plain `./mvnw` uses whatever `JAVA_HOME` or `PATH` gives it, and the enforcer refuses anything before 21 |
 | Git | the clone | |
 | Python ≥ 3.11 with `venv` | the SDK (≥ 3.9) and the console (≥ 3.11) | Debian/Ubuntu split `venv` out: without `python3.X-venv`, `make install` stops at *"ensurepip is not available"*. Install that package, or create the venv with `uv venv --seed .venv` and then run `make install` |
 | Chrome or Chromium | the console's browser suites only | found on `PATH`, or `PRAVAHA_CHROME=<path>` |

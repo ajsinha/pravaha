@@ -571,7 +571,7 @@ there is nothing to keep in step.
 
 | | |
 |---|---|
-| **`export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64`** (or the 21 one) | Pravaha builds on JDK 21 or later (ADR-062) and the enforcer refuses anything older; `tools/jdk.sh` picks the 25 then the 21 under `/usr/lib/jvm` when `JAVA_HOME` is unset. CI runs 21 and 25, so check a change that touches threading or locks on 21 too. |
+| **`export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`** (or the 25 one) | Production runs Java 21. Pravaha builds on JDK 21 or later (ADR-062), the enforcer refuses an older JDK and any dependency with classes newer than Java 21, and `tools/jdk.sh` picks the 21 then the 25 under `/usr/lib/jvm` when `JAVA_HOME` is unset. CI runs 21 and 25, so check a change that touches threading or locks on 21. |
 | Python | 3.13 under `~/.local/share/uv/python/cpython-3.13.15-linux-x86_64-gnu/bin` |
 | Maven | Use `./mvnw`. A system Maven exists but the wrapper is the contract. |
 | JMH | Never run `clean` while a benchmark is running — it deletes the jar mid-flight. Clear `/tmp/jmh.lock` if a run was killed. |

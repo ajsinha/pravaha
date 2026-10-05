@@ -121,6 +121,7 @@
     <maven.surefire.plugin.version>3.6.0</maven.surefire.plugin.version>
     <maven.failsafe.plugin.version>3.6.0</maven.failsafe.plugin.version>
     <maven.enforcer.plugin.version>3.6.3</maven.enforcer.plugin.version>
+    <extra.enforcer.rules.version>1.11.0</extra.enforcer.rules.version>
     <maven.toolchains.plugin.version>3.3.0</maven.toolchains.plugin.version>
     <!--
       A developer following sdk/python/README.md makes a .venv there, and that is where pytest
@@ -592,6 +593,13 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
         <version>${maven.enforcer.plugin.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>extra-enforcer-rules</artifactId>
+            <version>${extra.enforcer.rules.version}</version>
+          </dependency>
+        </dependencies>
         <executions>
           <execution>
             <id>enforce-build-environment</id>
@@ -688,6 +696,29 @@
                   </excludes>
                   <message>ADR-053: this dependency carries native code for a fixed set of platforms. Exclude it where it enters and use the Java path; or, if there is none, record the platforms in an ADR and allow it there.</message>
                 </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+          <execution>
+            <!--
+              ADR-062: production runs Java 21. maven.compiler.release makes Pravaha's own classes
+              Java 21 (class-file version 65), but says nothing about the libraries that ship beside
+              them: a dependency upgrade compiled for Java 22 or later builds and passes on a newer
+              JDK, and then fails on the production JVM with UnsupportedClassVersionError at the
+              first class it loads. So every dependency of every module, transitive and test ones
+              included, is held to Java 21 bytecode here, at validate, on whatever JDK runs the build.
+              Multi-release jars are fine: their newer classes under META-INF/versions are not checked.
+            -->
+            <id>enforce-java-21-bytecode</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <enforceBytecodeVersion>
+                  <maxJdkVersion>${maven.compiler.release}</maxJdkVersion>
+                  <message>ADR-062: this dependency has classes newer than Java ${maven.compiler.release}, which the production JVM cannot load. Pin a release built for Java ${maven.compiler.release}, or exclude it where it enters.</message>
+                </enforceBytecodeVersion>
               </rules>
             </configuration>
           </execution>

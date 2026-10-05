@@ -12,6 +12,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+- **A dependency built for a newer Java than 21 fails the build** (ADR-062). Production runs Java 21,
+  and `maven.compiler.release` only governs Pravaha's own classes: a library upgrade compiled for 22
+  or later would build and pass on JDK 25, then fail on the production JVM with
+  `UnsupportedClassVersionError`. The enforcer's new `enforce-java-21-bytecode` rule (extra-enforcer-rules'
+  `enforceBytecodeVersion`) holds every dependency of every module to Java 21 bytecode at `validate`,
+  on any JDK. A `mvn package` on JDK 25 was checked to produce only Java 21 classes: 42 jars, about
+  128,600 classes including the libraries inside the server's jar. `tools/jdk.sh` now prefers JDK 21
+  when `JAVA_HOME` is unset, and DEPLOYMENT.md says how to choose generational ZGC on 21
+  (`-XX:+UseZGC -XX:+ZGenerational`).
 - **Console: "About this page" on every page.** Each page of the console ends with a short panel —
   what the page is for, two to four tiles on what you can do there and the idea behind it, and
   *More in Help*, the screen's help topics — open by default, collapsible, remembered closed per

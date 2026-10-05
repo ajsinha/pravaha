@@ -135,6 +135,25 @@ allocate direct buffers for every Flight call, and the spill tier is only fast w
 holds its index. A heap at three quarters of the limit leaves that nothing, and then the kernel
 decides what gives way rather than the JVM.
 
+**The collector is left to the JVM, and on Java 21 that matters if you choose ZGC.** Neither the image
+nor the launchers pick a garbage collector, so the JVM's default applies: G1 on every supported JDK,
+which suits this engine (its large state is off-heap, so the heap holds short-lived batch objects).
+If you choose ZGC for lower pause times, say so in full on Java 21:
+
+```
+PRAVAHA_JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError -XX:+UseZGC -XX:+ZGenerational"
+```
+
+On 21, `-XX:+UseZGC` alone selects the older single-generation ZGC, which collects the whole heap
+every cycle and needs more headroom to keep up with allocation; `-XX:+ZGenerational` selects the
+generational one. From Java 23 ZGC is generational by default (JEP 474), and on 24 and later the
+single-generation mode is gone (JEP 490) and `-XX:+ZGenerational` is ignored with a warning, so drop
+it when you move a deployment past 21. Replacing `PRAVAHA_JAVA_OPTS` replaces the defaults too: keep
+the two above in the value, as the example does. The JDK 21 benchmark figures in
+[`docs/project/gates/measured-2026-10-04-jdk21`](../project/gates/measured-2026-10-04-jdk21/README.md)
+ran single-generation ZGC (the benchmarks fork with `-XX:+UseZGC` alone), not what this section
+recommends.
+
 The image sets `PRAVAHA_HOME=/opt/pravaha` and nothing else of the engine's configuration. The
 launcher then reads the jar's `pravaha-home.yaml`, which sets only *locations* — the node's log, the
 registry journal, the checkpoints, the identity store and the audit file, all under `/opt/pravaha`.
