@@ -70,6 +70,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   diff, grants before and after — and exits `1` when the engine would refuse, changing nothing.
   `sdk/python/tools/cli_captures.py` captures the CLI reference's output blocks from a scratch node,
   and a test fails when they drift. Fixed on the way: `validate` printed a refusal's PRV code twice.
+- **`pravaha init`: a starter project that runs.** It writes a stream declaration and the CSV feeding
+  it (`conf/application.yaml`, the node's own format), a first windowed query, a `docker-compose.yml`
+  for the engine image on the standard ports (the console behind a profile), a README with the next
+  three commands, and the `pravaha context add` command to save the connection — saying why each
+  file is there, refusing a directory that is not empty without `--force`, and writing nothing under
+  `--dry-run`. A test starts a node on the generated configuration and runs the query. Fixed on the
+  way: `doctor` said "1 continuous queries".
 
 ---
 

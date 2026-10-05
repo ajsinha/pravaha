@@ -130,9 +130,13 @@ def free_port(taken: "set[int]") -> int:
 
 
 class ScratchNode:
-    """A node of its own, in a temporary directory, on two free ports; stopped on exit."""
+    """A node of its own, in a temporary directory, on two free ports; stopped on exit.
 
-    def __init__(self) -> None:
+    ``args`` are more of the server's own (``--spring.config.additional-location=...``); files a
+    test wants under the node's working directory go into :attr:`home` before it is entered."""
+
+    def __init__(self, args: "tuple[str, ...]" = ()) -> None:
+        self.args = tuple(args)
         self.jar = server_jar()
         java_home = os.environ.get("JAVA_HOME")
         self.java = str(pathlib.Path(java_home) / "bin" / "java") if java_home else shutil.which("java")
@@ -156,10 +160,14 @@ class ScratchNode:
         tmp.mkdir()
         log = open(self.home / "node.log", "wb")
         self.process = subprocess.Popen(
-            [self.java, f"-Djava.io.tmpdir={tmp}", f"-Duser.home={self.home}", "-jar", str(self.jar),
+            # The opens bin/pravaha-server gives: without them Arrow cannot allocate a Flight
+            # answer's buffers and every query that returns rows is reset (RST_STREAM).
+            [self.java, "--add-opens=java.base/java.nio=ALL-UNNAMED",
+             "--add-opens=java.base/java.lang=ALL-UNNAMED", "--enable-native-access=ALL-UNNAMED",
+             f"-Djava.io.tmpdir={tmp}", f"-Duser.home={self.home}", "-jar", str(self.jar),
              "--spring.profiles.active=dev", "--server.address=127.0.0.1",
              f"--server.port={self.http_port}", "--pravaha.flight.host=127.0.0.1",
-             f"--pravaha.flight.port={self.flight_port}"],
+             f"--pravaha.flight.port={self.flight_port}", *self.args],
             cwd=self.home, stdout=log, stderr=subprocess.STDOUT,
         )
         deadline = time.monotonic() + 120

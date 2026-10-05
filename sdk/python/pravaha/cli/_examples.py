@@ -91,6 +91,11 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "pravaha completion zsh > ~/.zfunc/_pravaha        # zsh, with fpath+=~/.zfunc",
         "pravaha completion fish > ~/.config/fish/completions/pravaha.fish",
     ),
+    "init": (
+        "pravaha init spend-demo",
+        "pravaha init spend-demo --dry-run",
+        "pravaha init . --force --json",
+    ),
     "context": (
         "pravaha context add prod --url grpc+tls://node-1:19090 --http https://node-1:18080 "
         "--tls-ca ca.pem --use",

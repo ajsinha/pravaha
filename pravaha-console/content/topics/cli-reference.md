@@ -7,7 +7,7 @@ icon: terminal
 summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, doctor, lanes, identity, the assistant — with output, --json shapes, exit codes and completion; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
+keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, init, scaffold, starter project, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
 related: [clients, http-api, subscriptions, lanes, authentication]
 ---
@@ -68,6 +68,7 @@ Run it again after an upgrade if you saved it to a file. Every `pravaha <command
 | `doctor` | both | Is this machine ready, and is the node well: one GREEN/YELLOW/RED line per check |
 | `completion bash`, `zsh`, `fish` | nothing | A shell completion script |
 | `context list`, `show`, `add`, `set`, `use`, `remove`, `current` | nothing | Named connections ([Contexts](#contexts)) |
+| `init` | nothing | A starter project: a stream, sample data, a first query, a `docker-compose.yml` ([Starting a project](#starting-a-project)) |
 | `streams`, `views`, `describe`, `plan` | HTTP | The catalogue, one query in full, a running plan |
 | `validate`, `explain` | HTTP | Plan SQL against the node, which knows its own streams |
 | `lanes`, `lanes rebalance` | HTTP | Where every query runs; an administrator's rebalance |
@@ -244,6 +245,7 @@ deliberate act, and this table changes with it.
 | `queries` | the Python SDK's `RegisteredQuery`, in snake_case: `[{name, state, sql, fingerprint, rows_in, key_columns, sink, retention, feed, feed_stop, sink_state, sink_failure, owner}]`; `feed_stop` is `{code, message, where, at}` or `null`, `sink_failure` `{code, message}` or `null`, `rows_in` `-1` when withheld |
 | `version` | `{cli, server, serverError}`; `server` and `serverError` are `null` when not asked or not answered |
 | `doctor` | a list of checks: `[{name, status, detail, fix}]`, `status` one of `GREEN`, `YELLOW`, `RED`, `SKIPPED` |
+| `init` | `{directory, dryRun, files: [{path, why}], next, context, image, query: {name, sqlFile, keys}}` |
 | a failure, on stderr | `{"error": {code, message, exit, status?}}`: `code` the `PRV-nnnn` or `null`, `status` the HTTP status on an HTTP failure; an assistant failure adds its normalised fields |
 
 Every other HTTP listing (`plugins`, `sinks`, `lanes`, `audit`, `user list`, `catalog ls` …) is the
@@ -656,6 +658,32 @@ doctor: 0 red, 1 yellow
 <!-- /capture -->
 
 `--json` prints the same checks as a list (see [JSON output](#json-output)).
+
+## Starting a project
+
+```text
+pravaha init [DIR] [--force] [--dry-run] [--json]
+```
+
+Writes a starter project into `DIR` (default: here) that runs as it stands, and says what each file
+is for and which choices it made for you. It asks no node and writes nothing outside `DIR`; a
+directory that holds anything is refused (exit `2`) unless `--force`, which writes the scaffold's
+files over any of the same name and touches nothing else. `--dry-run` lists the files and writes none.
+
+| File | What it is |
+|---|---|
+| `conf/application.yaml` | the node's configuration: the stream `txn` under `pravaha.streams` (with its event-time column), fed by the CSV under `pravaha.sources` (`filesystem`, `follow: true`) |
+| `data/txn.csv` | twelve sample transactions over four minutes of event time |
+| `queries/spend_per_minute.sql` | the first continuous query: each user's completed spend per one-minute tumbling window |
+| `docker-compose.yml` | `pravaha/pravaha-server:<the CLI's version>` on the standard ports (127.0.0.1:18080 and 19090) with the file above mounted as `/opt/pravaha/conf/application.yaml`, and the console on 17070 behind the `console` profile |
+| `README.md` | what is here, and the next three commands |
+| `.pravaha` | the connection the project's node wants; the CLI does not read it |
+
+It ends with the next commands — `docker compose up -d`, `pravaha register --name spend_per_minute
+--sql-file queries/spend_per_minute.sql --keys 0,1`, `pravaha query --sql "SELECT * FROM
+spend_per_minute"` — and the `pravaha context add` command that saves the connection. Your
+configuration is never written: the context is yours to add. `sdk/python/tests/test_cli_init.py`
+starts a node with the generated configuration and runs those commands.
 
 ## The catalogue and one query
 

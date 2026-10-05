@@ -46,6 +46,7 @@ from pravaha.cli import (
     _flight,
     _http,
     _identity,
+    _init,
     _policy,
 )
 from pravaha.cli._common import (
@@ -191,6 +192,14 @@ def _dry(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true",
                         help="change nothing: read what it would touch, say what would happen and "
                              "whether the engine would refuse (exit 1 if so); with --json, a plan")
+
+
+def _scaffold_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--force", action="store_true",
+                        help="write into a directory that is not empty, over files of the same name")
+    # Not dest=dry_run: that routes to the planner of reads, and a scaffold asks no node.
+    parser.add_argument("--dry-run", dest="scaffold_dry_run", action="store_true",
+                        help="list the files it would write, and write none")
 
 
 def _yes(parser: argparse.ArgumentParser, what: str) -> None:
@@ -400,6 +409,13 @@ def build_parser() -> _Parser:
               "~/.config/fish/completions/pravaha.fish.")
     p.add_argument("shell", choices=_completion.SHELLS, metavar="bash|zsh|fish",
                    help="the shell to complete for")
+
+    p = b.add("init", _init.init,
+              "Scaffold a starter project: a stream, its sample data, a first continuous query, "
+              "and a docker-compose.yml for the engine image. Asks no node.")
+    p.add_argument("directory", metavar="DIR", nargs="?", default=".",
+                   help="where to write it (default: here); refused unless empty, or --force")
+    _scaffold_options(p)
 
     p = b.add("context", _contexts.context,
               "Named connections: say --url, --http, the token and TLS once per node.")

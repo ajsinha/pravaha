@@ -6,6 +6,12 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Ten minutes from a clone to a continuous query you can watch updating. No store to install, no
 cluster, no configuration file.
 
+> **Or start with `pravaha init`.** With the Python CLI installed and Docker at hand,
+> `pravaha init my-project` writes a project that runs as it stands — a stream and the CSV feeding
+> it, a first windowed query, and a `docker-compose.yml` for the engine image on the standard ports —
+> and prints the three commands that start it, register the query and read its answer
+> ([CLI reference](../../pravaha-console/content/topics/cli-reference.md#starting-a-project)).
+
 ---
 
 ## Before you start
