@@ -63,6 +63,8 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
  */
 final class PgWireConnection implements Runnable {
 
+    private static final System.Logger LOG = System.getLogger(PgWireConnection.class.getName());
+
     /**
      * How many magic packets ({@code SSLRequest}, {@code GSSENCRequest}) precede a real startup.
      *
@@ -363,6 +365,16 @@ final class PgWireConnection implements Runnable {
             // verifier's own, which by TokenVerifier's contract says the credential was rejected and
             // nothing about why -- "expired" versus "unknown" is an oracle for whoever is guessing.
             backend.errorResponse("FATAL", "28P01", refused.getMessage(), null);
+            return null;
+        } catch (RuntimeException failed) {
+            // J21-1: a verifier that failed other than by refusing escaped run() and dropped the
+            // socket with nothing said. Closed, as reverify already is, and answered: 28000 rather
+            // than 28P01, since the password was not judged wrong. The failure stays in the log.
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "the token verifier failed rather than refusing; the sign-in is refused",
+                    failed);
+            backend.errorResponse("FATAL", "28000", "the credential presented could not be verified", null);
             return null;
         }
     }

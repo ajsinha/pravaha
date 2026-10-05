@@ -72,6 +72,8 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
     /** springdoc's own default, used when {@code springdoc.swagger-ui.path} is not configured. */
     public static final String DEFAULT_SWAGGER_UI_PATH = "/swagger-ui.html";
 
+    private static final System.Logger LOG = System.getLogger(BearerTokenFilter.class.getName());
+
     private final TokenVerifier verifier;
 
     /**
@@ -172,7 +174,7 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
         String token = header.regionMatches(true, 0, "Bearer ", 0, 7)
                 ? header.substring(7).strip()
                 : header.strip();
-        Principal principal;
+        @Nullable Principal principal;
         try {
             principal = verifier.verify(token);
         } catch (PravahaException e) {
@@ -180,6 +182,23 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
             // and it is passed through unchanged: "expired" versus "unknown" versus "bad signature"
             // is three bits of an oracle for whoever is guessing.
             refuse(response, request.getRequestURI(), e.getMessage());
+            return;
+        } catch (RuntimeException failed) {
+            // J21-1: a custom verifier that fails other than by refusing -- its identity provider
+            // unreachable, a bug -- is closed, not open, and not a 500 either. Its message stays in
+            // the log: it may name an internal host, and the client is owed only the refusal.
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "the token verifier failed rather than refusing; the request is refused as unauthenticated",
+                    failed);
+            refuse(response, request.getRequestURI(), "the credential presented could not be verified");
+            return;
+        }
+        if (principal == null || principal.isAnonymous()) {
+            // J21-1: TokenVerifier's contract is never null and never ANONYMOUS, and Flight and
+            // pgwire refuse either. Here null was a NullPointerException, and ANONYMOUS let a credential
+            // the verifier did not accept through as the caller a node without authentication serves.
+            refuse(response, request.getRequestURI(), "the credential presented was not accepted");
             return;
         }
         if (mustChangePassword(principal) && !BEFORE_A_CHANGE.contains(request.getRequestURI())) {

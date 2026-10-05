@@ -171,7 +171,13 @@ final class AvroSchema {
 
     /** The schema {@code json} declares. */
     static Node parse(String json) {
-        return new AvroSchema().node(Objects.requireNonNull(readJson(json), "a schema, not JSON null"), "");
+        Object read = readJson(json);
+        if (read == null) {
+            // J21-2: the schema JSON `null` is a malformed schema, refused as one. The NullAway sweep
+            // made it a NullPointerException, which a registry lookup does not catch as a dead letter.
+            throw new Invalid("a schema must be a name, an object or a union, not null");
+        }
+        return new AvroSchema().node(read, "");
     }
 
     // ---- the schema tree ----------------------------------------------------------------------

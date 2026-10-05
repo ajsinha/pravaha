@@ -21,6 +21,20 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   128,600 classes including the libraries inside the server's jar. `tools/jdk.sh` now prefers JDK 21
   when `JAVA_HOME` is unset, and DEPLOYMENT.md says how to choose generational ZGC on 21
   (`-XX:+UseZGC -XX:+ZGenerational`).
+- **A custom `TokenVerifier` that breaks its contract is refused the same way on every surface**
+  (J21-1). HTTP took a verifier's `null` as a raw `NullPointerException` (a 500 with no code) and its
+  `Principal.ANONYMOUS` as the anonymous caller a node without authentication serves; Flight and
+  pgwire already refused both. A verifier that throws something other than a `PravahaException` was
+  a 500 on HTTP, `UNKNOWN` with no code on Flight, and a silently dropped socket on pgwire. Each is
+  now `PRV-7001` (HTTP 401, Flight `UNAUTHENTICATED`, pgwire `FATAL 28000`), closed rather than open,
+  with the verifier's own failure logged and not sent to the client.
+- **Kafka: an Avro schema that is the JSON `null` is refused as a malformed schema again** (J21-2).
+  The NullAway sweep turned it into a `NullPointerException`, which a schema-registry lookup does not
+  catch as a dead letter.
+- **A data directory the node cannot `chmod` is reported once, not on every write** (J21-3). The
+  owner-only narrowing runs on every journal append and checkpoint, and on a volume the node does not
+  own (a Kubernetes `fsGroup` volume, a bind mount) each one logged a WARNING — 110,000 lines in a
+  two-minute run of the Java 21 image. Now once per path per process, then DEBUG.
 - **Console: "About this page" on every page.** Each page of the console ends with a short panel —
   what the page is for, two to four tiles on what you can do there and the idea behind it, and
   *More in Help*, the screen's help topics — open by default, collapsible, remembered closed per

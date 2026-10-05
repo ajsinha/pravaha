@@ -150,6 +150,34 @@ class SensitiveFilesTest {
         assertThat(warnings).isEmpty();
     }
 
+    /**
+     * J21-3: a directory this process cannot narrow -- one it does not own, as a Kubernetes fsGroup
+     * volume or a bind mount is -- is reported once, not on every append and checkpoint.
+     */
+    @Test
+    void aDirectoryThatCannotBeNarrowedIsReportedOnceNotOnEveryWrite() throws IOException {
+        // A sticky world-writable directory owned by root: writable here, and not ours to chmod.
+        Path shared = Path.of("/dev/shm");
+        assumeTrue(Files.isDirectory(shared) && Files.isWritable(shared) && posix(shared), "no /dev/shm here");
+        assumeTrue(
+                !Files.getOwner(shared).getName().equals(System.getProperty("user.name")),
+                "/dev/shm is this user's own, so it can be narrowed");
+        Path file = shared.resolve("pravaha-j21-3-" + ProcessHandle.current().pid() + ".bin");
+        List<String> warnings = new ArrayList<>();
+        Handler handler = recording(warnings);
+        Logger logger = Logger.getLogger(SensitiveFiles.class.getName());
+        logger.addHandler(handler);
+        try {
+            for (int write = 0; write < 5; write++) {
+                SensitiveFiles.createOwnerOnly(file);
+            }
+        } finally {
+            logger.removeHandler(handler);
+            Files.deleteIfExists(file);
+        }
+        assertThat(warnings).singleElement().asString().contains(shared.toString());
+    }
+
     private static Handler recording(List<String> into) {
         return new Handler() {
             @Override

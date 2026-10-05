@@ -30,6 +30,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** An Avro writer schema mapped to a stream's columns: what it reads, and what it refuses by name. */
 class AvroRowReaderTest {
 
+    /**
+     * J21-2: the JSON {@code null} as a schema is refused as a malformed schema, as it was before the
+     * NullAway sweep made it a {@code NullPointerException} that a registry lookup does not catch.
+     */
+    @Test
+    void theJsonNullIsAnInvalidSchemaNotANullPointerException() {
+        assertThatThrownBy(() -> AvroSchema.parse("null"))
+                .isInstanceOf(AvroSchema.Invalid.class)
+                .hasMessageContaining("not null");
+    }
+
     @Test
     void everyTypeAndLogicalTypeThisSourceReadsBecomesItsColumn() throws Undecodable {
         StreamSchema schema = KafkaSchema.parse(
