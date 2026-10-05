@@ -34,6 +34,7 @@ from pravaha.cli import (
     _alerts,
     _assist,
     _catalog,
+    _completion,
     _doctor,
     _flight,
     _http,
@@ -345,6 +346,12 @@ def build_parser() -> _Parser:
     p.add_argument("--local", action="store_true",
                    help="also say whether the default ports 18080, 19090 and 17070 are in use "
                         "(always, when --http names this machine)")
+    p = b.add("completion", _completion.completion,
+              "Print a shell completion script, made from this CLI's own commands and flags: "
+              "source <(pravaha completion bash); zsh the same; fish into "
+              "~/.config/fish/completions/pravaha.fish.")
+    p.add_argument("shell", choices=_completion.SHELLS, metavar="bash|zsh|fish",
+                   help="the shell to complete for")
 
     p = b.add("streams", _http.streams, "List, describe or declare streams.")
     add = b.verbs(p, _http.streams)
