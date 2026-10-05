@@ -159,3 +159,8 @@ tools/worktree-build.sh -o -pl pravaha-flight test -Dtest=FlightRegistryTest
 tools/worktree-build.sh -o -pl pravaha-server test -Dtest='OpenApiContractTest,OpenApiLockTest,RegistryEndpointsTest'
 cd sdk/python && .venv/bin/python -m pytest tests/test_client.py tests/test_cli_flight.py -q
 ```
+
+Documented CLI output is captured, not typed: the blocks between `<!-- capture: … -->` markers in the
+console's CLI reference and `CLI.md` are written by `sdk/python/tools/cli_captures.py` from a scratch
+node (`pravaha-server` built), and `tests/test_cli_captures.py` fails when one drifts. Regenerate with
+`cd sdk/python && .venv/bin/python tools/cli_captures.py`.

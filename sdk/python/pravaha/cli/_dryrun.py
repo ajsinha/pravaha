@@ -99,8 +99,9 @@ class Plan:
                     out.line(value.rstrip("\n"))
             if self.refusal is not None:
                 code = self.refusal.get("code")
-                out.line(out.bad("would be refused: ") + (f"{code}  " if code else "")
-                         + str(self.refusal.get("message")))
+                message = str(self.refusal.get("message"))
+                said = f"{code}  {message}" if code and not message.startswith(code) else message
+                out.line(out.bad("would be refused: ") + said)
             elif self.effects:
                 out.line("would:")
                 for effect in self.effects:

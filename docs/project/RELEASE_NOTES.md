@@ -56,6 +56,16 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   commands are documented as a contract in the console's CLI reference and pinned by tests. Fixed on
   the way: a missing pyarrow under `--json` printed plain text, not the promised JSON error; and any
   missing module was reported as pyarrow.
+- **`pravaha` CLI: named contexts, `--dry-run`, and documented output that is captured, not typed.**
+  `pravaha context list|show|add|set|use|remove|current` saves a connection (`--url`, `--http`, the
+  token, `--tls-*`) under a name in `contexts.json`, mode `0600`, written atomically; `--context` or
+  `PRAVAHA_CONTEXT` picks one, a flag or variable still wins, `login --save` saves into it, `show`
+  never prints a token, and with no context nothing changes. `--dry-run` on `drop`, `replace`, the
+  replacement steps, `grant`/`revoke`, `policy bind|unbind|drop`, `user disable|enable|roles`,
+  `key revoke` and `alert drop` reads what the command would touch — sharing, dependants, a plan
+  diff, grants before and after — and exits `1` when the engine would refuse, changing nothing.
+  `sdk/python/tools/cli_captures.py` captures the CLI reference's output blocks from a scratch node,
+  and a test fails when they drift. Fixed on the way: `validate` printed a refusal's PRV code twice.
 
 ---
 

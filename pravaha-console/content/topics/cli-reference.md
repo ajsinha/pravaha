@@ -67,6 +67,7 @@ Run it again after an upgrade if you saved it to a file. Every `pravaha <command
 | `status`, `health`, `version`, `metrics`, `plugins`, `sinks` | HTTP | The node |
 | `doctor` | both | Is this machine ready, and is the node well: one GREEN/YELLOW/RED line per check |
 | `completion bash`, `zsh`, `fish` | nothing | A shell completion script |
+| `context list`, `show`, `add`, `set`, `use`, `remove`, `current` | nothing | Named connections ([Contexts](#contexts)) |
 | `streams`, `views`, `describe`, `plan` | HTTP | The catalogue, one query in full, a running plan |
 | `validate`, `explain` | HTTP | Plan SQL against the node, which knows its own streams |
 | `lanes`, `lanes rebalance` | HTTP | Where every query runs; an administrator's rebalance |
@@ -85,10 +86,11 @@ Run it again after an upgrade if you saved it to a file. Every `pravaha <command
 
 Every command takes these, **before or after** the command name (`pravaha --json queries` and
 `pravaha queries --json` are the same). For each, a flag beats an environment variable, which beats
-the default.
+the [context](#contexts) in use, which beats the default.
 
 | Flag | Environment | Default | |
 |---|---|---|---|
+| `--context` | `PRAVAHA_CONTEXT` | the current context, if any | A saved connection: see [Contexts](#contexts) |
 | `--url` | `PRAVAHA_URL` | `grpc://localhost:19090` | The node's Flight endpoint. `grpc://` is plaintext; `grpc+tls://` (or no scheme) is TLS |
 | `--http` | `PRAVAHA_HTTP`, then `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | The node's HTTP API |
 | `--token` | `PRAVAHA_TOKEN` | the saved token, if any | A bearer token: a session token from `login`, an API key, or a static token |
@@ -97,9 +99,10 @@ the default.
 | `--json` | | off | Machine output (below) |
 | `--no-color` | `NO_COLOR` | colour on a terminal | Colour is also off whenever stdout is not a terminal |
 
-The token is looked for in order: `--token`, `PRAVAHA_TOKEN`, then the file `pravaha login --save`
-wrote — `~/.config/pravaha/token` (or `$XDG_CONFIG_HOME/pravaha/token`, or `$PRAVAHA_CONFIG_DIR/token`),
-mode `0600`. `pravaha whoami` says which one it used.
+The token is looked for in order: `--token`, `PRAVAHA_TOKEN`, the context's saved token, then —
+with no context in use — the file `pravaha login --save` wrote: `~/.config/pravaha/token` (or
+`$XDG_CONFIG_HOME/pravaha/token`, or `$PRAVAHA_CONFIG_DIR/token`), mode `0600`. `pravaha whoami`
+says which one it used.
 
 **A token is never sent over plaintext unless you say so.** Without `--insecure-token` a command
 with a token and a `grpc://` or `http://` address is refused before anything is sent (PRV-1031,
@@ -128,6 +131,50 @@ pravaha login --user ann --save
 pravaha queries
 ```
 
+## Contexts
+
+A **context** is a named connection — `--url`, `--http`, the token, `--insecure-token`, `--timeout`
+and every `--tls-*` option — saved once and chosen by name, as `kubectl` does it. They live in
+`contexts.json` beside the token file (`~/.config/pravaha/contexts.json`, or under
+`$XDG_CONFIG_HOME` or `$PRAVAHA_CONFIG_DIR`), written mode `0600` and replaced atomically, so a
+reader never sees half of it.
+
+```text
+pravaha context list [--names]                  every context, the current one starred
+pravaha context show [NAME]                     one context, tokens and store passwords as <set>
+pravaha context add NAME [connection flags] [--use]
+pravaha context set NAME [connection flags] [--unset KEY ...]
+pravaha context use NAME                        make it the current one
+pravaha context remove NAME
+pravaha context current                         the context in use, and what chose it
+```
+
+```bash
+pravaha context add prod --url grpc+tls://node-1:19090 --http https://node-1:18080 --tls-ca ca.pem
+pravaha context add local --url grpc://localhost:19090 --http http://localhost:18080 --use
+pravaha --context prod login --user ann --save     # the token is saved in prod
+pravaha --context prod queries
+PRAVAHA_CONTEXT=prod pravaha status
+```
+
+Which setting wins, for each of them:
+
+| Order | Where | |
+|---|---|---|
+| 1 | a flag | `--http https://other:18080` beats everything below |
+| 2 | an environment variable | `PRAVAHA_HTTP`, `PRAVAHA_TOKEN`, `PRAVAHA_TLS_CA` … |
+| 3 | the context in use | the one `--context` names, else `PRAVAHA_CONTEXT`, else `pravaha context use`'s |
+| 4 | the token file | the token only, and only with **no** context in use |
+| 5 | the default | `grpc://localhost:19090`, `http://localhost:18080`, no token |
+
+With no contexts file, or none in use, every command behaves exactly as it did before contexts:
+nothing about an existing setup changes. `login --save` saves into the context in use (else the token
+file) and `logout` removes it from there. A context without a token does **not** borrow the token
+file's: that token was issued by the default node. A context name that does not exist, or a
+contexts file with a setting it does not know, exits `2` naming it; `pravaha context` still runs to
+mend it. `doctor` names the context in use and turns RED if the file is readable by others. Shell
+completion offers context names after `--context` and `context use|show|set|remove`.
+
 ## Output
 
 By default a person reads it: aligned tables with upper-case headers, `-` for nothing, lists
@@ -143,7 +190,17 @@ mode is one JSON object on stderr:
 {"error": {"code": "PRV-8002", "message": "no continuous query is registered under 'x'", "exit": 1}}
 ```
 
-(an HTTP failure adds `"status"`, the HTTP status).
+(an HTTP failure adds `"status"`, the HTTP status). On a terminal a refusal is its code and message on
+stderr, with where to look it up, and exit `1`:
+
+<!-- capture: describe-refused -->
+```text
+$ pravaha describe no_such_query
+PRV-8002  no registered query named 'no_such_query' that you may see. The registered queries are not listed here; GET /api/v1/queries lists the ones you may see.
+  look PRV-8002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
+(exit 1)
+```
+<!-- /capture -->
 
 ## Exit codes
 
@@ -322,11 +379,13 @@ Refusals: PRV-2041 (the query revises its answer and the sink only appends), PRV
 pravaha queries [--verbose]
 ```
 
+<!-- capture: queries -->
 ```text
-NAME           STATE    FINGERPRINT   ROWS IN  SINK
-spend_by_hour  RUNNING  3f9c2a61d0b4  1284551  spend_table
-big_txn        PAUSED   9a01bc77e2f3  -        -
+$ pravaha queries
+NAME             STATE    FINGERPRINT   ROWS IN  SINK
+spend_by_minute  RUNNING  <fp>          0        -
 ```
+<!-- /capture -->
 
 A `-` under `ROWS IN` means the count was withheld: your access to that view is row-filtered, and
 its total is not yours to see (a note on stderr says so). `--verbose` adds `FEED`: `RUNNING`,
@@ -366,6 +425,27 @@ pravaha drop --name spend_by_hour --yes
 ```text
 dropped spend_by_hour
 ```
+
+`--dry-run` says more, changes nothing even with `--yes`, and exits `1` when the engine would refuse
+(see [Dry runs](#dry-runs)):
+
+<!-- capture: drop-dry-run -->
+```text
+$ pravaha drop --name spend_by_minute --dry-run
+dry run: drop spend_by_minute -- nothing was changed
+state        RUNNING
+fingerprint  <fp>
+owner        anonymous
+shared with  nothing
+reads from   txn
+dependants   none
+sink         -
+subscribers  0
+would:
+  - the name spend_by_minute goes: a read or subscription of spend_by_minute is refused after it
+  - it is the computation's last name: the computation stops and its view and state are released
+```
+<!-- /capture -->
 
 The SQL forms:
 
@@ -502,20 +582,26 @@ sessions), PRV-8015 (a step or page it cannot make sense of). See
 | `pravaha plugins` | `GET /api/v1/plugins` | Every plugin the node can load: kinds, compatible, loaded, health, the bindings you may see |
 | `pravaha sinks` | `GET /api/v1/sinks` | The sinks the node binds: plugin, emit modes, retractions, guarantee, writers. Never a binding's options |
 
-```bash
-pravaha status
-```
-
+<!-- capture: status -->
 ```text
-instance       node-1
-version        2.3.1
+$ pravaha status
+instance       pravaha-node-01
+version        <version>
 engine         RUNNING
-uptime         5321 s
-queries        4
-streams        2
+uptime         N s
+queries        1
+streams        1
 stopped feeds  0
-flight         grpc://node-1:19090
+flight         localhost:19090
 ```
+<!-- /capture -->
+
+<!-- capture: health -->
+```text
+$ pravaha health
+UP
+```
+<!-- /capture -->
 
 ## Doctor
 
@@ -536,6 +622,7 @@ mode is read, never set, and no line ever holds the token.
 | `pyarrow` | installed, with Flight; YELLOW if missing (the HTTP commands still work) |
 | `java` | `JAVA_HOME` (its `release` file), else `java` on `PATH`: Java 21 or later. YELLOW if there is none, since only `pravaha-engine` and a local node need one; RED if older than 21 |
 | `token file` | `~/.config/pravaha/token` (or `$PRAVAHA_CONFIG_DIR/token`), and where the token in use came from; RED if others may read it, fixed by `chmod 600` |
+| `context` | the [context](#contexts) in use and what chose it, or none; RED if `contexts.json` may be read by others |
 | `tls http`, `tls flight` | with `https://` or `grpc+tls://`: the node's certificate is trusted (as `--tls-ca` and the other TLS options say), names the host, and when it expires: YELLOW within 30 days, RED once expired |
 | `http` | `GET /actuator/health` and how long it took: `UP` GREEN, `DEGRADED` YELLOW, anything else or no answer RED |
 | `version` | the node's version (`GET /api/v1/status`) against the CLI's: YELLOW if the minor differs or is not known, RED if the major differs |
@@ -547,27 +634,26 @@ mode is read, never set, and no line ever holds the token.
 A node that does not answer still gets a whole report: `http` is RED and `auth` is `SKIPPED`. Each
 call waits at most `--timeout` seconds — 10 by default here, not the 60 a query may need.
 
-Captured against a fake node (the SDK tests' harness, on 127.0.0.1) with a token file left readable
-by others; the home directory is shortened to `~` and the checkout's path to `sdk/python`:
+Captured against a scratch node with no token (see [Captured output](#captured-output)); the
+`port` lines, which describe the machine that ran it, are left out:
 
+<!-- capture: doctor -->
 ```text
-GREEN    python        Python 3.14.4 (sdk/python/.venv/bin/python); needs >=3.9
-GREEN    cli           pravaha 2.3.1 (sdk/python/pravaha)
-GREEN    pyarrow       pyarrow 25.0.1, with Flight
-GREEN    java          JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64: Java 21
-RED      token file    ~/.config/pravaha/token is mode 0644: others on this machine may read your token; token from this file
-                       fix: chmod 600 ~/.config/pravaha/token
-GREEN    http          http://127.0.0.1:28181 answered in 4 ms: health UP
-GREEN    version       cli 2.3.1, node 2.3.1
-GREEN    flight        grpc://127.0.0.1:29191 answered in 6 ms: 0 continuous queries you may see
-GREEN    auth          ann (tenant acme), via session, roles analyst,operator
-YELLOW   token expiry  expires 2026-10-06T09:00:00+00:00 (in 10.6 h)
-                       fix: pravaha login --user <name> --save   before it does
-GREEN    port 18080    free (the node's HTTP API's default)
-GREEN    port 19090    free (the node's Flight port's default)
-GREEN    port 17070    free (the console's default)
-doctor: 1 red, 1 yellow
+$ pravaha doctor
+GREEN    python      Python 3.x (python); needs >=3.9
+GREEN    cli         pravaha <version> (sdk/python/pravaha)
+GREEN    pyarrow     pyarrow <version>, with Flight
+GREEN    java        JAVA_HOME=$JAVA_HOME: Java 21
+GREEN    token file  ~/.config/pravaha/token: none saved (pravaha login --save writes it); token from none
+GREEN    context     none in use: flags, environment and defaults decide
+GREEN    http        http://localhost:18080 answered in N ms: health UP
+GREEN    version     cli <version>, node <version>
+GREEN    flight      grpc://localhost:19090 answered in N ms: 1 continuous queries you may see
+YELLOW   auth        no token: every call is anonymous, which a node with identity on refuses
+                     fix: pravaha login --user <name> --save
+doctor: 0 red, 1 yellow
 ```
+<!-- /capture -->
 
 `--json` prints the same checks as a list (see [JSON output](#json-output)).
 
@@ -596,20 +682,70 @@ is attached, rows in, when it was registered, the names sharing it, what it read
 stopped source with its code. `plan` is the plan it is running, one operator per row with rows in and
 out, state bytes and its share of the time, then the edges and the bottleneck.
 
+<!-- capture: views -->
+```text
+$ pravaha views
+NAME             STATE    KEY                   RETENTION  SINK  FINGERPRINT
+spend_by_minute  RUNNING  user_id,window_start  forever    -     <fp>
+```
+<!-- /capture -->
+
+<!-- capture: describe -->
+```text
+$ pravaha describe spend_by_minute
+name         spend_by_minute
+state        RUNNING
+owner        anonymous
+fingerprint  <fp>
+lane         own
+key          user_id,window_start
+retention    forever
+sink         -
+rows in      0
+registered   <time>
+shared with  -
+reads        txn
+feed         NONE
+execution    interpreted: Project[user_id, amount, ts] <- Scan(txn) -- not generated: PRV-3101  cannot generate a projection of STRING yet (column 'user_id'). The interpreted path handles it; this stage falls back. The interpreted path runs this correctly and more slowly.
+sql
+SELECT user_id, window_start, window_end, SUM(amount) AS spend FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) GROUP BY user_id, window_start, window_end
+```
+<!-- /capture -->
+
 `validate` and `explain` plan against **the node**, which knows every stream — so a join or a lookup
 join validates here, where the offline tool reports the other side as not found. An invalid query
 prints each diagnostic (`PRV-2050  … (line 1, column 8)`) and exits `1`.
 
-```bash
-pravaha validate --sql "SELECT merchant, window_start, window_end, SUM(amount) AS spend
-  FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '1' MINUTE))
-  GROUP BY merchant, window_start, window_end"
-```
-
+<!-- capture: validate -->
 ```text
-valid  2154 us
-  output: [merchant VARCHAR, window_start TIMESTAMP, window_end TIMESTAMP, spend BIGINT]
+$ pravaha validate --sql "SELECT user_id, window_start, window_end, SUM(amount) AS spend FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) GROUP BY user_id, window_start, window_end"
+valid  N us
+  output: [user_id VARCHAR NOT NULL, window_start TIMESTAMP(3) WITH LOCAL TIME ZONE NOT NULL, window_end TIMESTAMP(3) WITH LOCAL TIME ZONE NOT NULL, spend INT64 NOT NULL]
 ```
+<!-- /capture -->
+
+<!-- capture: explain -->
+```text
+$ pravaha explain --sql "SELECT user_id, window_start, window_end, SUM(amount) AS spend FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) GROUP BY user_id, window_start, window_end"
+WindowedAggregate(TUMBLING 60000ms, keys=[0, 1, 2], [SUM(amount)->spend])
+  Project[user_id, window_start, window_end, amount]
+    WindowAssign(TUMBLING size=60000ms slide=60000ms on ts)
+      Project[user_id, amount, ts]
+        Scan(txn)
+```
+<!-- /capture -->
+
+<!-- capture: validate-refused -->
+```text
+$ pravaha validate --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"
+PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows with the number of distinct keys and never shrinks. One row per key is fine at a thousand keys and fatal at a hundred million, and the failure arrives weeks after deployment.
+  Bound it with a window -- GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id -- so state is released when each window closes.
+Refusing now rather than exhausting memory later.
+(exit 1)
+```
+<!-- /capture -->
+
+Over the quick start's `txn` stream (`merchant`, `event_time`), the windowed form plans:
 
 ```sql
 SELECT merchant, window_start, window_end, SUM(amount) AS spend
@@ -766,14 +902,23 @@ pravaha --http https://engine.internal:18080 login --user ann --save
 pravaha --http https://engine.internal:18080 whoami
 ```
 
+Against a scratch node with no token, `whoami` is the anonymous principal; after `login --save`,
+`via` says `session` and `token from` says `file` (or `context` when one is in use):
+
+<!-- capture: whoami -->
 ```text
-user        ann
-principal   ann
-tenant      acme
-roles       admin,reader
-via         session
-token from  file
+$ pravaha whoami
+user              anonymous
+principal         anonymous
+tenant            public
+roles             -
+via               token
+name              -
+email             -
+password expires  -
+token from        -
 ```
+<!-- /capture -->
 
 `user attrs` shows a user's attributes, or sets and removes some: `pravaha user attrs ann
 region=EU desk=rates --unset team`. Attributes are facts about a person that every session and API
@@ -940,6 +1085,47 @@ pravaha-engine run --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLE
 error. Asked of `pravaha`, `validate --schema`, `explain --schema` and `run` are usage errors that
 name `pravaha-engine`.
 
+## Dry runs
+
+`--dry-run` is on the commands that are destructive or hard to undo: `drop`, `replace`, `cutover`,
+`rollback`, `abandon`, `finish`, `grant`, `revoke`, `policy bind|unbind|drop`,
+`user disable|enable|roles`, `key revoke` and `alert drop`. With it the command **changes nothing** —
+not even with `--yes`: it is not run at all, and in its place the CLI makes only reads (HTTP `GET`s,
+and `validate`/`explain`, which plan and keep nothing) and says what it found and what would happen.
+
+| Command | What the dry run reads and shows |
+|---|---|
+| `drop` | the query (`GET /api/v1/queries/{name}`): state, fingerprint, the names sharing its computation (then it keeps running), what it reads, its dependants (a drop is refused while any, PRV-8024), its sink, and live subscriptions from its plan |
+| `replace` | the query, any replacement in flight (PRV-4017), sharing and state (PRV-8003), `validate` of the new SQL (its diagnostics are the refusal), `explain` of both versions as a plan diff, the fingerprint the new one would get, and that a backfill would start (or not, with `--backfill none`) |
+| `cutover`, `rollback`, `abandon`, `finish` | the replacement's state, candidate and retention, and whether the step is allowed from it (`cutover` needs `CAUGHT_UP`, PRV-4014 while backfilling; `rollback` and `finish` need `CUT_OVER`, PRV-8003) |
+| `grant`, `revoke` | the object (`GET /api/v1/catalog/objects/{name}`), the grantee's privileges on it now and after, and whether you hold `MANAGE` |
+| `policy bind`, `unbind`, `drop` | the policy and where it is bound; `drop` while bound and `bind` where already bound are PRV-7040 |
+| `user disable`, `enable`, `roles` | the user's status and roles (PRV-7021 if there is none), the roles gained and lost, the sessions a disable ends |
+| `key revoke` | the key, its holder, status and last use |
+| `alert drop` | the alert, its view, channels and how many keys its state holds; `--if-exists` makes a missing one a success |
+
+Exit `0` means the reads show no reason for a refusal; exit `1` means they show one — the PRV code
+where the engine's rule is known — and nothing answering is `3`, as anywhere. Some things only the
+change itself can find (whether every stream can be replayed for a backfill, a mask that conflicts
+with another): the plan lists them under *not known without doing it* rather than guessing. With
+`--json` the plan is one object: `dryRun`, `command`, `target`, `wouldSucceed`, `refusal`
+(`code`, `message`), `facts`, `effects`, `unknown`, and the command's own detail (`planDiff`,
+`sharedWith`, `held`/`after` …).
+
+## Captured output
+
+The output blocks on this page marked as captured are not typed by hand. `sdk/python/tools/cli_captures.py`
+starts a scratch node from the build (free ports, a temporary directory, the `dev` profile), declares
+a stream `txn` and registers `spend_by_minute`, runs each documented command and writes what it
+printed here, with what differs between runs normalised: ports to the defaults, versions to
+`<version>`, instants to `<time>`, durations to `N`, fingerprints to `<fp>`. A test runs it with
+`--check` wherever the real-engine tests run, so the page cannot drift from the program. To
+regenerate after changing what a command prints:
+
+```bash
+cd sdk/python && .venv/bin/python tools/cli_captures.py
+```
+
 ## Pitfalls
 
 !!! warning "Pitfall: `--keys` are ordinals, and default to 0"
@@ -957,7 +1143,8 @@ name `pravaha-engine`.
 
 !!! warning "Pitfall: a script that drops"
     `drop`, `abandon`, `finish`, `lanes rebalance`, `key revoke` and `user disable` exit `0` **without
-    doing anything** when `--yes` is missing. A script that means it must say `--yes`.
+    doing anything** when `--yes` is missing. A script that means it must say `--yes`. And
+    `--dry-run` wins over `--yes`: nothing is changed with both.
 
 ## Where next
 

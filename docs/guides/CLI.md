@@ -71,10 +71,11 @@ Every `pravaha <command> --help` ends with `examples:`.
 ## Configuration
 
 Options that say how to reach the engine are accepted **before or after** the command. For each, a
-flag beats an environment variable, which beats the default.
+flag beats an environment variable, which beats the context in use, which beats the default.
 
 | Flag | Environment | Default |
 |---|---|---|
+| `--context` | `PRAVAHA_CONTEXT` | the current context, if any |
 | `--url` | `PRAVAHA_URL` | `grpc://localhost:19090` |
 | `--http` | `PRAVAHA_HTTP`, then `PRAVAHA_ENGINE_HTTP` (the Java CLI's name) | `http://localhost:18080` |
 | `--token` | `PRAVAHA_TOKEN` | the token `login --save` wrote |
@@ -105,6 +106,35 @@ pravaha whoami                        # "token from  file"
 pravaha queries
 pravaha logout
 ```
+
+**Contexts** save all of that under a name — `pravaha context add prod --url … --http … --tls-ca …`,
+then `pravaha context use prod` or `--context prod` (or `PRAVAHA_CONTEXT=prod`). They live in
+`contexts.json` beside the token file, mode `0600`, written atomically; `login --save` saves the token
+into the context in use. With no context in use nothing changes. The precedence table and every verb
+are in the CLI reference's "Contexts" section.
+
+**`--dry-run`** on `drop`, `replace`, `cutover`, `rollback`, `abandon`, `finish`, `grant`, `revoke`,
+`policy bind|unbind|drop`, `user disable|enable|roles`, `key revoke` and `alert drop` makes only reads
+and says what the command would do and whether the engine would refuse it (exit `1`); it changes
+nothing, even with `--yes`. See the CLI reference's "Dry runs". Captured against a scratch node:
+
+<!-- capture: drop-dry-run -->
+```text
+$ pravaha drop --name spend_by_minute --dry-run
+dry run: drop spend_by_minute -- nothing was changed
+state        RUNNING
+fingerprint  <fp>
+owner        anonymous
+shared with  nothing
+reads from   txn
+dependants   none
+sink         -
+subscribers  0
+would:
+  - the name spend_by_minute goes: a read or subscription of spend_by_minute is refused after it
+  - it is the computation's last name: the computation stops and its view and state are released
+```
+<!-- /capture -->
 
 ## Output and exit codes
 
@@ -238,9 +268,15 @@ parser, dispatch and exit codes), `_flight.py`, `_http.py` and `_identity.py` (t
 SDK's own wire framing, and the engine's fixture server when `pravaha-flight` is built) and
 `test_api.py` (`EngineApi`).
 
+The command output the CLI reference shows is **captured, not typed**: `tools/cli_captures.py` runs
+each documented command against a scratch node and writes its output, normalised, between
+`<!-- capture: … -->` markers in the reference and here; `tests/test_cli_captures.py` runs it with
+`--check` where the real-engine tests run. After changing what a command prints, regenerate with
+`.venv/bin/python tools/cli_captures.py` (it needs `pravaha-server` built).
+
 ```bash
 cd sdk/python
 .venv/bin/python -m pytest -q
-.venv/bin/ruff check pravaha tests
+.venv/bin/ruff check pravaha tests tools
 .venv/bin/mypy pravaha
 ```
