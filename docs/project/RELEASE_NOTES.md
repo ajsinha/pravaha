@@ -44,6 +44,8 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+Register: **580 findings — 557 fixed, 4 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.3.0 — 2026-10-04
 
 **Java 21 or later.** 2.3.0 runs on any JDK or JRE from 21 up — 21, 22, 23, 24, 25 and later — where

@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **573 findings carrying a
-status — 554 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **580 findings carrying a
+status — 557 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7794,4 +7794,43 @@ Cases and evidence: [cases/ADV-GAPS.md](cases/ADV-GAPS.md), [logs/ADV-GAPS.md](l
 ### STARTERREAD-1 (LOW) — the Spring Boot starter does not forward `pravaha.serving.read.*` to its embedded engine
 
 > **Status:** FIXED — PravahaProperties carries pravaha.serving.read.{max-concurrent, max-queued, queue-timeout, tenant-share, deadline}, each unset by default so the engine keeps its defaults, and the auto-configuration passes them to the embedded engine's own keys; an out-of-range value fails the application's startup with PRV-1026. PravahaAutoConfigurationTest#readAdmissionSettingsReachTheEngine; the starter's help topic and USER_GUIDE §10 list them.
+
+## Found by the ADV-JDK21 adversarial pass on Java 21 (2026-10-05), 7 findings
+
+The pass attacked ADR-062's lock conversion, 2.2's read admission and security beans, the NullAway
+sweep's `requireNonNull` additions and the Java 21 image: 34 cases, in
+[`cases/ADV-JDK21.md`](cases/ADV-JDK21.md) and [`logs/ADV-JDK21.md`](logs/ADV-JDK21.md). The lock
+conversion held under review and load (`RegistryLockStressTest`, no deadlock, no pin).
+
+### J21-1 (MEDIUM) — a custom TokenVerifier that returns null or ANONYMOUS, or throws, was let through or answered without a code
+
+> **Status:** FIXED — HTTP's BearerTokenFilter took a verifier's null as a NullPointerException (500, no code) and its Principal.ANONYMOUS as the anonymous caller a node without authentication serves, where Flight and pgwire refused both; a verifier throwing anything but a PravahaException was a 500 on HTTP, UNKNOWN with no code on Flight (Arrow catches only FlightRuntimeException from a middleware factory) and a closed socket with nothing said on pgwire. Each is now PRV-7001 and closed — HTTP 401, Flight UNAUTHENTICATED, pgwire FATAL 28000 — with the verifier's own failure logged, not echoed. BearerTokenFilterVerifierContractTest, FlightVerifierFailureTest, PgVerifierFailureTest.
+
+### J21-2 (LOW) — the NullAway sweep made an Avro schema of JSON null a NullPointerException instead of a coded refusal
+
+> **Status:** FIXED — AvroSchema.parse("null") was AvroSchema.Invalid before the sweep's requireNonNull and an NPE after it, which SchemaRegistry's lookup (it catches Invalid to dead-letter the record) did not catch. Restored. AvroRowReaderTest#theJsonNullIsAnInvalidSchemaNotANullPointerException.
+
+### J21-3 (LOW) — a data directory the node cannot chmod logged a WARNING on every journal append and checkpoint
+
+> **Status:** FIXED — SensitiveFiles.narrow warned on every call; on a volume the node does not own (a bind mount, a Kubernetes fsGroup volume) a 150 s soak of the Java 21 image wrote 110,292 identical lines. Now once per path per process, then DEBUG, as reportTightened already was. SensitiveFilesTest#aDirectoryThatCannotBeNarrowedIsReportedOnceNotOnEveryWrite.
+
+### J21-4 (LOW) — read admission's queue-depth check can let a burst queue past max-queued
+
+> **Status:** OPEN — ReadAdmission reads the queue depth and then increments it, so concurrent arrivals can each see room and together exceed pravaha.serving.read.max-queued by a few. Fix: reserve the slot with a compare-and-set (or under the admission lock) before queueing, with a concurrent test.
+> **Disposition:** POST-GA — the overshoot is bounded by the number of simultaneous arrivals, and the default is no queue.
+
+### J21-5 (LOW) — a read lease closed twice from two threads could release two permits
+
+> **Status:** OPEN — ReadAdmission.Lease.close guards against a second release with a plain field, so two threads closing the same lease at once could both release. The engine's callers close each lease once (try-with-resources); a plugin or future caller sharing one could inflate the permits. Fix: an AtomicBoolean (getAndSet) guard, with a test.
+> **Disposition:** POST-GA — no caller in the engine does this.
+
+### J21-6 (LOW) — the file audit sink handles a broken stream outside the monitor that guards it
+
+> **Status:** OPEN — FileAuditSink's drainForever handles a write failure (streamBroken) outside the monitor that guards the output stream, so a concurrent rotation or reopen can interleave with it. Fix: take the same monitor, with a test that fails writes during a rotation.
+> **Disposition:** POST-GA — found by review; no lost or doubled event was observed under load.
+
+### J21-7 (LOW) — the image has no jcmd and RUNNING_IN_DOCKER.md does not say how to take a thread dump
+
+> **Status:** OPEN — the image is a JRE, so a stalled node cannot be dumped from inside it. A sidecar sharing its PID namespace works (`docker run --pid container:<node> --user 10001` with a JDK), but the guide does not say so. Fix: a "Diagnosing a stall" section in RUNNING_IN_DOCKER.md (and the Kubernetes equivalent, an ephemeral debug container).
+> **Disposition:** POST-GA — documentation; the workaround is standard.
 
