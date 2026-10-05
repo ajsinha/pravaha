@@ -7,7 +7,7 @@ icon: terminal
 summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, doctor, lanes, identity, the assistant — with output, --json shapes, exit codes and completion; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, init, scaffold, starter project, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
+keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, init, scaffold, starter project, plugin new, connector, TCK, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
 related: [clients, http-api, subscriptions, lanes, authentication]
 ---
@@ -69,6 +69,7 @@ Run it again after an upgrade if you saved it to a file. Every `pravaha <command
 | `completion bash`, `zsh`, `fish` | nothing | A shell completion script |
 | `context list`, `show`, `add`, `set`, `use`, `remove`, `current` | nothing | Named connections ([Contexts](#contexts)) |
 | `init` | nothing | A starter project: a stream, sample data, a first query, a `docker-compose.yml` ([Starting a project](#starting-a-project)) |
+| `plugin new` | nothing | A connector project against `pravaha-api`, its TCK wired in ([A connector project](#a-connector-project)) |
 | `streams`, `views`, `describe`, `plan` | HTTP | The catalogue, one query in full, a running plan |
 | `validate`, `explain` | HTTP | Plan SQL against the node, which knows its own streams |
 | `lanes`, `lanes rebalance` | HTTP | Where every query runs; an administrator's rebalance |
@@ -246,6 +247,7 @@ deliberate act, and this table changes with it.
 | `version` | `{cli, server, serverError}`; `server` and `serverError` are `null` when not asked or not answered |
 | `doctor` | a list of checks: `[{name, status, detail, fix}]`, `status` one of `GREEN`, `YELLOW`, `RED`, `SKIPPED` |
 | `init` | `{directory, dryRun, files: [{path, why}], next, context, image, query: {name, sqlFile, keys}}` |
+| `plugin new` | `{directory, dryRun, files: [{path, why}], next, plugin: {name, kind, package, class, pravahaVersion}}` |
 | a failure, on stderr | `{"error": {code, message, exit, status?}}`: `code` the `PRV-nnnn` or `null`, `status` the HTTP status on an HTTP failure; an assistant failure adds its normalised fields |
 
 Every other HTTP listing (`plugins`, `sinks`, `lanes`, `audit`, `user list`, `catalog ls` …) is the
@@ -684,6 +686,27 @@ It ends with the next commands — `docker compose up -d`, `pravaha register --n
 spend_per_minute"` — and the `pravaha context add` command that saves the connection. Your
 configuration is never written: the context is yours to add. `sdk/python/tests/test_cli_init.py`
 starts a node with the generated configuration and runs those commands.
+
+### A connector project
+
+```text
+pravaha plugin new NAME --kind source|sink [--package P] [--dir PATH] [--pravaha-version V]
+                        [--force] [--dry-run] [--json]
+```
+
+Writes a Maven project (default `pravaha-plugin-NAME/`) for a plugin that configuration names `NAME`
+— lower case, digits and hyphens — following the connector guide (`docs/development/guides/CONNECTOR_DEVELOPMENT.md` in the repository):
+for a source, the guide's worked example under your class names with `SourcePluginTck` (all ten
+tests pass); for a sink, one that appends rows to a file with `SinkPluginTck` (four pass, six skip
+for capabilities it does not claim). The `META-INF/services` registration, `pravaha-api` at
+`provided` scope and `maven.compiler.release` 21 are in place, and the versions of `pravaha-api` and
+`pravaha-testkit` are the CLI's own unless `--pravaha-version` says otherwise. `--package` defaults
+to `com.example.<name>`. A bad name, kind or package is exit `2`; the directory rules are `init`'s.
+
+```bash
+pravaha plugin new my-store --kind source --package com.acme.mystore
+cd pravaha-plugin-my-store && mvn verify
+```
 
 ## The catalogue and one query
 

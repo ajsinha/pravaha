@@ -19,6 +19,22 @@ Read alongside:
 - [`CONNECTOR_TLS.md`](../../guides/CONNECTOR_TLS.md) — the `tls.*` options, per store.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — error codes, licence headers, file size, tests, documentation.
 
+**Start with `pravaha plugin new`.** It writes a Maven project that is this guide's shape — the
+§8 example under your names for a source, a file-appending sink for a sink, the
+`META-INF/services` registration, `pravaha-api` at `provided` scope, `maven.compiler.release` 21 —
+with the TCK of §10 already wired in, and it builds and passes as generated:
+
+```bash
+pravaha plugin new my-store --kind source --package com.acme.mystore   # or --kind sink
+cd pravaha-plugin-my-store && mvn verify
+```
+
+The source passes all ten `SourcePluginTck` tests; the sink passes the four every sink runs and
+skips the six for capabilities it does not claim. `pravaha-api` and `pravaha-testkit` are the
+CLI's own version unless `--pravaha-version` says otherwise. `sdk/python/tests/test_cli_plugin_new.py`
+builds both kinds offline against the reactor's installed snapshot. Then replace the example with your
+store and keep the TCK green.
+
 ---
 
 ## 1. The shape of a connector

@@ -96,6 +96,12 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "pravaha init spend-demo --dry-run",
         "pravaha init . --force --json",
     ),
+    "plugin": ("pravaha plugin new my-store --kind source",),
+    "plugin new": (
+        "pravaha plugin new my-store --kind source --package com.acme.mystore",
+        "pravaha plugin new audit-file --kind sink --dir connectors/audit-file",
+        "pravaha plugin new my-store --kind sink --dry-run --json",
+    ),
     "context": (
         "pravaha context add prod --url grpc+tls://node-1:19090 --http https://node-1:18080 "
         "--tls-ca ca.pem --use",

@@ -47,6 +47,7 @@ from pravaha.cli import (
     _http,
     _identity,
     _init,
+    _plugin_new,
     _policy,
 )
 from pravaha.cli._common import (
@@ -87,6 +88,8 @@ unless given --yes. --dry-run (drop, replace, cutover, rollback, abandon, finish
 policy bind/unbind/drop, user disable/enable/roles, key revoke, alert drop) reads what the command
 would touch and says what would happen and whether the engine would refuse (exit 1), changing
 nothing even with --yes.
+
+Scaffolding asks no node: init writes a starter project, plugin new a connector project.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -416,6 +419,19 @@ def build_parser() -> _Parser:
     p.add_argument("directory", metavar="DIR", nargs="?", default=".",
                    help="where to write it (default: here); refused unless empty, or --force")
     _scaffold_options(p)
+
+    p = b.add("plugin", _plugin_new.plugin, "Scaffold a connector: a Maven project against "
+              "pravaha-api with the TCK wired in. Asks no node.")
+    add = b.verbs(p, _plugin_new.plugin, required=True)
+    v = add("new", "A source or sink plugin project that builds, and passes its TCK, as generated.")
+    v.add_argument("plugin_name", metavar="NAME",
+                   help="what configuration names it by: lower case, digits, hyphens (my-store)")
+    v.add_argument("--kind", choices=_plugin_new.KINDS, help="source or sink")
+    v.add_argument("--package", metavar="JAVA.PACKAGE", help="default com.example.<name>")
+    v.add_argument("--dir", metavar="PATH", help="where to write it (default pravaha-plugin-<name>)")
+    v.add_argument("--pravaha-version", metavar="V",
+                   help="the engine version to build against (default: this CLI's)")
+    _scaffold_options(v)
 
     p = b.add("context", _contexts.context,
               "Named connections: say --url, --http, the token and TLS once per node.")

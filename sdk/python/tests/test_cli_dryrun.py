@@ -44,7 +44,7 @@ def test_every_covered_command_takes_dry_run_and_nothing_else_does():
     tree = walk(build_parser())
     offered = {" ".join(path) for path, node in tree.items() if "--dry-run" in node["opts"]}
     # A scaffold's --dry-run lists files it would write; it is not a planner of reads.
-    assert offered == set(COVERED) | {"init"}
+    assert offered == set(COVERED) | {"init", "plugin new"}
 
 
 # ---------------------------------------------------------------------------------- drop
