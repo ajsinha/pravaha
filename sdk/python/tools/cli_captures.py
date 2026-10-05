@@ -92,6 +92,7 @@ CAPTURES: "tuple[Capture, ...]" = (
     Capture("queries", ("queries",)),
     Capture("describe", ("describe", "spend_by_minute")),
     Capture("views", ("views",)),
+    Capture("top-once", ("top", "--once", "--interval", "1")),
     Capture("validate", ("validate", "--sql", WINDOW_SQL)),
     Capture("validate-refused", ("validate", "--sql", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id")),
     Capture("explain", ("explain", "--sql", WINDOW_SQL)),

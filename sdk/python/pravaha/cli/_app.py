@@ -49,6 +49,7 @@ from pravaha.cli import (
     _init,
     _plugin_new,
     _policy,
+    _top,
 )
 from pravaha.cli._common import (
     EXIT_INTERRUPTED,
@@ -477,6 +478,15 @@ def build_parser() -> _Parser:
         p = b.add(name, run, summary)
         p.add_argument("query_name", metavar="<query>", nargs="?")
         p.add_argument("--name", help="the query, if not given as an argument")
+
+    p = b.add("top", _top.top, "The node's queries, live: rows a second, watermark delay, state, "
+                               "subscribers, redrawn every --interval seconds.")
+    p.add_argument("--interval", type=float, default=2.0, metavar="SECONDS",
+                   help="seconds between samples (default 2); rates are over this interval")
+    p.add_argument("--sort", choices=_top.SORTS, default="name",
+                   help="name (default), or largest first: rate, rows, lag, state, subs")
+    p.add_argument("--once", action="store_true",
+                   help="two samples --interval apart, one frame, and exit; with --json, one object")
 
     p = b.add("validate", _http.validate, "Plan SQL against the node without running it.")
     _sql_options(p)

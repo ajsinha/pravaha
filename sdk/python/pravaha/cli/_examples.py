@@ -91,6 +91,11 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "pravaha completion zsh > ~/.zfunc/_pravaha        # zsh, with fpath+=~/.zfunc",
         "pravaha completion fish > ~/.config/fish/completions/pravaha.fish",
     ),
+    "top": (
+        "pravaha top",
+        "pravaha top --sort rate --interval 5",
+        "pravaha top --once --json | jq '.queries[] | {name, rowsPerSecond}'",
+    ),
     "init": (
         "pravaha init spend-demo",
         "pravaha init spend-demo --dry-run",

@@ -7,7 +7,7 @@ icon: terminal
 summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, doctor, lanes, identity, the assistant — with output, --json shapes, exit codes and completion; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, init, scaffold, starter project, plugin new, connector, TCK, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
+keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, init, scaffold, starter project, plugin new, connector, TCK, top, live view, rows per second, watermark delay, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
 related: [clients, http-api, subscriptions, lanes, authentication]
 ---
@@ -66,6 +66,7 @@ Run it again after an upgrade if you saved it to a file. Every `pravaha <command
 | `debug fork`, `checkpoints`, `step`, `state`, `inspect`, `view`, `fixture`, `sessions`, `end` | Flight | The time-travel debugger |
 | `status`, `health`, `version`, `metrics`, `plugins`, `sinks` | HTTP | The node |
 | `doctor` | both | Is this machine ready, and is the node well: one GREEN/YELLOW/RED line per check |
+| `top` | HTTP | The node's queries live: rows a second, watermark delay, state, subscribers ([Top](#top)) |
 | `completion bash`, `zsh`, `fish` | nothing | A shell completion script |
 | `context list`, `show`, `add`, `set`, `use`, `remove`, `current` | nothing | Named connections ([Contexts](#contexts)) |
 | `init` | nothing | A starter project: a stream, sample data, a first query, a `docker-compose.yml` ([Starting a project](#starting-a-project)) |
@@ -246,6 +247,7 @@ deliberate act, and this table changes with it.
 | `queries` | the Python SDK's `RegisteredQuery`, in snake_case: `[{name, state, sql, fingerprint, rows_in, key_columns, sink, retention, feed, feed_stop, sink_state, sink_failure, owner}]`; `feed_stop` is `{code, message, where, at}` or `null`, `sink_failure` `{code, message}` or `null`, `rows_in` `-1` when withheld |
 | `version` | `{cli, server, serverError}`; `server` and `serverError` are `null` when not asked or not answered |
 | `doctor` | a list of checks: `[{name, status, detail, fix}]`, `status` one of `GREEN`, `YELLOW`, `RED`, `SKIPPED` |
+| `top --once` | `{intervalSeconds, sort, queries: [{name, state, lane, rowsIn, rowsPerSecond, watermark, watermarkDelaySeconds, stateHeld, stateCeiling, stateBytes, viewRows, subscribers}]}`; without `--once`, one such object per line, a frame each |
 | `init` | `{directory, dryRun, files: [{path, why}], next, context, image, query: {name, sqlFile, keys}}` |
 | `plugin new` | `{directory, dryRun, files: [{path, why}], next, plugin: {name, kind, package, class, pravahaVersion}}` |
 | a failure, on stderr | `{"error": {code, message, exit, status?}}`: `code` the `PRV-nnnn` or `null`, `status` the HTTP status on an HTTP failure; an assistant failure adds its normalised fields |
@@ -660,6 +662,39 @@ doctor: 0 red, 1 yellow
 <!-- /capture -->
 
 `--json` prints the same checks as a list (see [JSON output](#json-output)).
+
+## Top
+
+```text
+pravaha top [--interval S] [--sort name|rate|rows|lag|state|subs] [--once] [--json]
+```
+
+The node's continuous queries, live, redrawn every `--interval` seconds (default 2) until Ctrl-C,
+which exits `0` with the cursor shown again. Every number is the HTTP API's: `GET /api/v1/queries`
+for the name, state, lane and rows in, and each query's `GET /api/v1/queries/{name}/plan` for what
+the engine measures for it.
+
+| Column | What it is |
+|---|---|
+| `ROWS IN`, `ROWS/S` | rows the query has taken in, and how many a second between the last two samples (none on the first frame; `-` where the count is withheld from you) |
+| `WM DELAY` | how far the query's event-time watermark trails this machine's clock — late data, or a source that has stopped, shows as a delay that grows; `-` before the first advance |
+| `STATE ROWS`, `STATE BYTES` | groups held against the query's state ceiling, and the bytes its operators' state stores hold (heap state has no byte count) |
+| `VIEW ROWS`, `SUBS` | rows in its view, and live subscriptions |
+
+On a terminal the screen is cleared and redrawn with plain ANSI; piped or redirected, each frame is
+printed after the last with no escape codes, and `--json` prints one JSON line a frame. `--sort`
+orders by name or, largest first, by rate, rows in, watermark delay, state held or subscribers.
+`--once` takes two samples `--interval` apart, prints one frame and exits — the scriptable form,
+with `--json` one object:
+
+<!-- capture: top-once -->
+```text
+$ pravaha top --once --interval 1
+pravaha top  http://localhost:18080  1 query  sorted by name
+NAME             STATE    LANE  ROWS IN  ROWS/S  WM DELAY  STATE ROWS  STATE BYTES  VIEW ROWS  SUBS
+spend_by_minute  RUNNING  own   0        0.0     -         0/2000000   -            0          0
+```
+<!-- /capture -->
 
 ## Starting a project
 

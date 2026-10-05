@@ -79,6 +79,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `plugin new NAME --kind source|sink` writes a Maven connector project as the connector guide lays
   one out — `pravaha-api` at `provided` scope, the `META-INF/services` registration, Java 21 — with
   `SourcePluginTck` or `SinkPluginTck` wired in; a test builds both kinds offline and the TCK passes.
+  `pravaha top` shows the node's queries live — rows a second from successive samples, watermark
+  delay, state held and its bytes, view rows, subscribers — redrawn with plain ANSI on a terminal
+  and as plain frames or JSON lines elsewhere; `--once` (with `--json`) is one frame for a script.
   Fixed on the way: `doctor` said "1 continuous queries".
 
 ---
