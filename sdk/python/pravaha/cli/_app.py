@@ -30,7 +30,16 @@ from typing import Any, NoReturn, Optional, Sequence, TextIO
 
 import pravaha
 from pravaha.assist.errors import AssistConfigError, AssistError
-from pravaha.cli import _alerts, _assist, _catalog, _flight, _http, _identity, _policy
+from pravaha.cli import (
+    _alerts,
+    _assist,
+    _catalog,
+    _doctor,
+    _flight,
+    _http,
+    _identity,
+    _policy,
+)
 from pravaha.cli._common import (
     EXIT_OK,
     EXIT_REFUSED,
@@ -330,6 +339,12 @@ def build_parser() -> _Parser:
     p.add_argument("--grep", metavar="TEXT", help="only lines containing this")
     b.add("plugins", _http.plugins, "Every plugin the node can load.")
     b.add("sinks", _http.sinks, "The sinks the node binds.")
+    p = b.add("doctor", _doctor.doctor,
+              "Check this machine and the node: Python, pyarrow, Java, the token file, HTTP, "
+              "Flight, TLS, who you are. Exit 1 on any RED.")
+    p.add_argument("--local", action="store_true",
+                   help="also say whether the default ports 18080, 19090 and 17070 are in use "
+                        "(always, when --http names this machine)")
 
     p = b.add("streams", _http.streams, "List, describe or declare streams.")
     add = b.verbs(p, _http.streams)
