@@ -77,9 +77,30 @@ The real example is the query lifecycle: `routes/api_routes.py` `POST /api/v1/qu
 | Template | `web/templates/<screen>.html`, extending `base.html` | Every state a screen can be in is drawn — the eight states of design §23.12, whose macros are in `_states.html`, and which `test_browser_states.py` photographs screen by screen |
 | Island (if interactive) | `web/static/app/<screen>.js`, registered in `base.html`'s import map | Preact + `htm`, no JSX, no bundler, no CDN: anything new is vendored under `web/static/vendor/` with its licence and a row in `THIRD-PARTY-NOTICES.md` |
 | Strings | `web/i18n/en.json`, `t('key')` in templates and islands | `tests/i18n_scan.py` finds English that bypasses the catalogue |
-| Help | `core/help_catalog.py` `SCREEN_HELP["<screen>"]`, and `screenhelp('<screen>')` / `helplink('<screen>')` in the template | At most `SCREEN_CARDS` (3) topics; every topic and `#section` must exist; every screen a template names must have help and vice versa (`test_help.py`) |
+| Help | `core/help_catalog.py` `SCREEN_HELP["<screen>"]`, and `helplink('<screen>')` beside the heading | At most `SCREEN_CARDS` (3) topics; every topic and `#section` must exist; every screen a template names must have help and vice versa (`test_help.py`) |
+| About this page | `core/page_help.py` (`TEMPLATES`, `TILES`) and `page.<screen>.*` in `web/i18n/en.json` | Every page ends with one, drawn by `base.html` — see [below](#about-this-page); `test_page_help.py` walks every page route and fails on a page without one |
 | Security headers | `routes/security_headers.py` | No inline script: the Content-Security-Policy refuses it, and the browser tests fail on any CSP violation |
 | Screenshot baselines | `tests/browser_harness.py` `PAGES` | A new page joins the visual, accessibility and state tests by being listed here |
+
+### About this page
+
+Every page ends with **About this page**, MAYA's panel: a one-line summary of what the page is for, two
+to four tiles (what you can do there, the idea that makes sense of it, the thing people trip on) and
+**More in Help** — the screen's `SCREEN_HELP` topics. It is drawn once, by `base.html`
+(`_page_help.html`), open by default and collapsible; closed once, it stays closed on that browser; the
+**?** in the top bar jumps to it. A page does not ask for it: `Routes.page()` resolves the template it
+renders to a screen. To give a new page its panel:
+
+1. `core/page_help.py`: add the template to `TEMPLATES` (`"<template>.html": "<screen>"`) and the screen's
+   tile icons to `TILES` — two to four Bootstrap Icons names, one per tile.
+2. `web/i18n/en.json`, under `page`: `<screen>.what` (one line) and `<screen>.points.<n>.heading` / `.text`
+   for each tile, numbered from 1. Short — the topics are the full account; link, don't repeat.
+3. `core/help_catalog.py`: the screen's topics in `SCREEN_HELP`, which become **More in Help**.
+
+`tests/test_page_help.py` walks every GET page route (a route with a parameter needs a real object in its
+`SAMPLES`) and fails on a page without exactly one panel, a template with no screen, a screen with no
+words or tiles, and words for a screen no page shows. Help's own pages are exempt (`EXEMPT`): each topic
+already ends with its own footer, and a second would say the same thing twice.
 
 ## 4. Adding a help topic
 

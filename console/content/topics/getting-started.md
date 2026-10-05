@@ -638,7 +638,8 @@ the top holds the mark and the three brand lines, then five menus, each opening 
 | **Help** | Concepts and topics, guides, tutorials, case studies; get started, the command line, error codes, search; About |
 
 On a wide screen a panel opens when you point at its menu; on a phone the whole menu sits behind
-the ☰ button. On the right are the search (it opens the command palette, **Ctrl-K**), alerts, the
+the ☰ button. On the right are the search (it opens the command palette, **Ctrl-K**), the **?**
+that jumps to the page's *About this page*, alerts, the
 **theme menu** and your **user menu** — your account, your password, the persona you land as,
 *Compact rows*, and Sign out. Signed out, the bar is the public one: Help, About, the theme menu
 and Sign in.
@@ -806,8 +807,12 @@ Reading the trail is itself audited.
 
 ### Help, everywhere
 
-- Every screen has a **?** beside its title, opening the help topic for that screen, and up to three
-  help cards at the bottom for the questions it usually raises.
+- Every page ends with **About this page**: one line on what the page is for, a few tiles on what
+  you can do there and the idea behind it, and **More in Help** — up to three topics for the
+  questions it usually raises. It is open until you close it, and stays closed in this browser
+  once you do; the **?** in the top bar opens it and takes you to it. Help's own pages end with
+  their own footer instead.
+- Every screen also has a **?** beside its title, opening the help topic for that screen.
 - Every `PRV-nnnn` anywhere in the console is a link to that code's page.
 - **Ctrl-K / ⌘K** opens a command palette on every page: jump to any query, view, stream or page;
   pause or resume a query (only the actions its state allows); open a query in the workbench;

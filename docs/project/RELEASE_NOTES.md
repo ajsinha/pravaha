@@ -10,6 +10,17 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **Console: "About this page" on every page.** Each page of the console ends with a short panel —
+  what the page is for, two to four tiles on what you can do there and the idea behind it, and
+  *More in Help*, the screen's help topics — open by default, collapsible, remembered closed per
+  browser, and reached from a new **?** in the top bar. It replaces the strip of help cards some
+  screens carried; Help's own pages keep their footer. A test walks every page route and fails on a
+  page without one ([how to add one](../development/guides/CONSOLE_DEVELOPMENT.md#about-this-page)).
+
+---
+
 ## 2.3.0 — 2026-10-04
 
 **Java 21 or later.** 2.3.0 runs on any JDK or JRE from 21 up — 21, 22, 23, 24, 25 and later — where

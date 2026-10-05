@@ -545,9 +545,9 @@ What is still English in code:
 - **Documentation**: help topics, guides, tutorials and the About page's prose are authored English
   — markdown under `content/`, the repository's own documents, and the README sections About quotes
   — and stay English. Everything around them is in the catalog: the help index, search, the guides
-  and codes browsers, the topic page's chrome and footer, the contextual help cards, and every
+  and codes browsers, the topic page's chrome and footer, every page's *About this page* panel (`page.*`), and every
   heading, label and caption on About (`help.*`, `about.*`). A topic's title and summary are content
-  too, so the contextual cards on a screen show them in English.
+  too, so the *More in Help* links on a screen show them in English.
 
 Some keys are fragments — a sentence split around inline markup, or prose that keeps its line
 breaks so the rendered page stayed identical — and read oddly out of context; a translator will want
@@ -572,7 +572,11 @@ Three kinds of help, each with one home, and the index built from them:
 
 `core/help_catalog.py` owns the categories and their order, the cards a category carries that are
 not topics (a guide, the code browser), the topics each product screen offers (`SCREEN_HELP`) —
-rendered as the cards at the foot of the screen and the **?** beside its heading — and the search.
+rendered as **More in Help** in the screen's *About this page* panel and the **?** beside its
+heading — and the search. `core/page_help.py` gives every page that panel, drawn once by
+`base.html` at the foot of the page: a one-line summary and two to four tiles whose words are
+`page.<screen>.*` in the string catalog, with the **?** in the top bar jumping to it
+([how to add one](../docs/development/guides/CONSOLE_DEVELOPMENT.md#about-this-page)).
 Every `PRV-nnnn` in a rendered page links to its own page, outside code blocks. A relative link to
 an ADR opens it at `/help/decisions/…`.
 
