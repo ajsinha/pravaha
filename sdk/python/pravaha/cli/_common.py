@@ -25,6 +25,9 @@ EXIT_REFUSED = 1
 EXIT_USAGE = 2
 #: The engine could not be reached: nothing answered at the address.
 EXIT_UNREACHABLE = 3
+#: Interrupted (Ctrl-C) before the command finished: 128 + SIGINT, as a shell reports it.
+#: ``subscribe`` is the exception: a subscription is ended by Ctrl-C, so it exits 0.
+EXIT_INTERRUPTED = 130
 
 
 class UsageError(Exception):

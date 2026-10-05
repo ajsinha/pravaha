@@ -4,10 +4,10 @@ slug: cli-reference
 category: reference
 order: 50
 icon: terminal
-summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit, identity and the assistant — with output, --json, exit codes and its refusals; and pravaha-engine for SQL with no server."
+summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, doctor, lanes, identity, the assistant — with output, --json shapes, exit codes and completion; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
+keywords: [cli, pravaha, pravaha-engine, command line, doctor, completion, shell completion, bash, zsh, fish, json shape, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
 related: [clients, http-api, subscriptions, lanes, authentication]
 ---
@@ -36,6 +36,22 @@ command says `pip install "pravaha[flight]"` and exits `2`. From a checkout, `bi
 installed `pravaha` if there is one, and otherwise the CLI from `sdk/python` (with that directory's
 `.venv` when it exists, else `python3`). `python -m pravaha.cli` is the same program.
 
+### Shell completion
+
+`pravaha completion bash|zsh|fish` prints a completion script made, when you ask for it, from the
+CLI's own parser — every command, verb, flag and a flag's choices (`--overflow`, `--backfill`, …) —
+so it is never behind the version you have installed.
+
+```bash
+source <(pravaha completion bash)        # this shell; add the line to ~/.bashrc to keep it
+pravaha completion bash > ~/.local/share/bash-completion/completions/pravaha
+source <(pravaha completion zsh)         # in ~/.zshrc, after compinit (it uses bashcompinit)
+pravaha completion fish > ~/.config/fish/completions/pravaha.fish
+```
+
+Run it again after an upgrade if you saved it to a file. Every `pravaha <command> --help` ends with
+`examples:` — one to three real invocations of that command.
+
 ## At a glance
 
 | Command | Talks to | Does |
@@ -49,6 +65,8 @@ installed `pravaha` if there is one, and otherwise the CLI from `sdk/python` (wi
 | `dlq list`, `show`, `replay`, `count` | Flight (`count`: HTTP) | Dead letters |
 | `debug fork`, `checkpoints`, `step`, `state`, `inspect`, `view`, `fixture`, `sessions`, `end` | Flight | The time-travel debugger |
 | `status`, `health`, `version`, `metrics`, `plugins`, `sinks` | HTTP | The node |
+| `doctor` | both | Is this machine ready, and is the node well: one GREEN/YELLOW/RED line per check |
+| `completion bash`, `zsh`, `fish` | nothing | A shell completion script |
 | `streams`, `views`, `describe`, `plan` | HTTP | The catalogue, one query in full, a running plan |
 | `validate`, `explain` | HTTP | Plan SQL against the node, which knows its own streams |
 | `lanes`, `lanes rebalance` | HTTP | Where every query runs; an administrator's rebalance |
@@ -129,13 +147,15 @@ mode is one JSON object on stderr:
 
 ## Exit codes
 
+This table is the contract scripts rely on, pinned by `sdk/python/tests/test_cli_contract.py`.
+
 | Exit | Means |
 |---|---|
-| `0` | Done. Also: a destructive command without `--yes` that only printed what it would do, and `subscribe` stopped with Ctrl-C or `--limit` |
-| `1` | **The engine refused.** Its code and message are on stderr, then a line saying where the code is explained. Also: `health` not `UP`/`DEGRADED`, `validate` of invalid SQL, a `dlq replay` in which a record failed again |
-| `2` | **Usage.** An unknown command, a missing or malformed flag, a setting refused before anything was sent (PRV-1031, PRV-1032, PRV-1053), an offline command asked of this tool, a Flight command without pyarrow |
+| `0` | Done. Also: a destructive command without `--yes` that only printed what it would do, `subscribe` stopped with Ctrl-C or `--limit`, `version` when the node did not answer (a note says so), and `doctor` with no RED line |
+| `1` | **The engine refused.** Its code and message are on stderr, then a line saying where the code is explained. Also: `health` not `UP`/`DEGRADED`, `validate` of invalid SQL, a `dlq replay` in which a record failed again, an assistant model that failed, and `doctor` with any RED line — even when the RED is that nothing answered |
+| `2` | **Usage.** An unknown command, a missing or malformed flag, a setting refused before anything was sent (PRV-1031, PRV-1032, PRV-1053), a wrong assistant configuration, an offline command asked of this tool, a Flight command without pyarrow |
 | `3` | **Unreachable.** Nothing answered at `--url` or `--http` (PRV-1040); the message names the address it tried |
-| `130` | Interrupted |
+| `130` | Interrupted (Ctrl-C), except `subscribe`, which Ctrl-C ends with `0` |
 
 A refusal prints the engine's own words:
 
@@ -146,6 +166,55 @@ PRV-8002  no continuous query is registered under 'spend_by_hour'
 
 With `PRAVAHA_DOCS_BASE_URL` set, the second line is that base followed by the code.
 `PRAVAHA_CLI_TRACE=1` adds the stack trace.
+
+## JSON output
+
+`--json` puts one JSON document on stdout (JSON lines for `subscribe`) and, on a failure, one error
+object on stderr. There are two kinds of shape. An HTTP command that shows something the node answered
+prints **the node's document unchanged**, in the HTTP API's camelCase; the others are the CLI's own.
+The top-level keys below are pinned by `sdk/python/tests/test_cli_contract.py`: changing one is a
+deliberate act, and this table changes with it.
+
+| Command | stdout |
+|---|---|
+| `status` | the node's document: `{instanceId, version, engineState, uptimeSeconds, registeredQueries, plugins: [{name, version, health, detail}], streams, stoppedFeeds, flight}` |
+| `health` | the node's document: `{status, components?: {<name>: {status}}}`, `status` one of `UP`, `DEGRADED`, `OUT_OF_SERVICE`, `DOWN` |
+| `whoami` | the node's document: `{username, principal, tenant, roles, via, displayName, email, mustChangePassword, passwordExpiresAt}`, `via` one of `session`, `key`, `token` |
+| `describe <query>` | the node's document: `{name, state, sql, fingerprint, sharedWith, keyColumns: [{name, ordinal}], retention, sink, rowsIn, countsWithheld, registeredAt, failure, reads, feed, execution, lane, sharedLane, readsFrom, dependants, accessPaths, owner, checkpoint}` |
+| `streams [list]` | a list of the node's stream documents: `[{name, version, fieldCount, fields: [{name, type, nullable, ordinal}], eventTime, outOfOrderness, source, allowedLateness}]`; `streams describe` prints one of them |
+| `views describe <view>` | the node's document: `{name, schema: [{name, type, nullable, ordinal}], keyColumns, retention, sink, fingerprint}` |
+| `views [list]` | the CLI's rows: `[{name, state, key, retention, sink, fingerprint}]`, `key` the key columns' names comma-joined |
+| `queries` | the Python SDK's `RegisteredQuery`, in snake_case: `[{name, state, sql, fingerprint, rows_in, key_columns, sink, retention, feed, feed_stop, sink_state, sink_failure, owner}]`; `feed_stop` is `{code, message, where, at}` or `null`, `sink_failure` `{code, message}` or `null`, `rows_in` `-1` when withheld |
+| `version` | `{cli, server, serverError}`; `server` and `serverError` are `null` when not asked or not answered |
+| `doctor` | a list of checks: `[{name, status, detail, fix}]`, `status` one of `GREEN`, `YELLOW`, `RED`, `SKIPPED` |
+| a failure, on stderr | `{"error": {code, message, exit, status?}}`: `code` the `PRV-nnnn` or `null`, `status` the HTTP status on an HTTP failure; an assistant failure adds its normalised fields |
+
+Every other HTTP listing (`plugins`, `sinks`, `lanes`, `audit`, `user list`, `catalog ls` …) is the
+node's own JSON for its endpoint; see [HTTP API](/help/topics/http-api).
+
+```bash
+pravaha queries --json
+```
+
+```json
+[
+  {
+    "name": "spend",
+    "state": "RUNNING",
+    "sql": "SELECT 1",
+    "fingerprint": "fp1",
+    "rows_in": 12,
+    "key_columns": [0],
+    "sink": "out",
+    "retention": "P7D",
+    "feed": "STOPPED",
+    "feed_stop": {"code": "PRV-5040", "message": "bad record", "where": "ev#0", "at": "t0"},
+    "sink_state": "DETACHED",
+    "sink_failure": {"code": "PRV-8009", "message": "refused"},
+    "owner": "ann"
+  }
+]
+```
 
 ## Reading and registering
 
@@ -447,6 +516,60 @@ streams        2
 stopped feeds  0
 flight         grpc://node-1:19090
 ```
+
+## Doctor
+
+```text
+pravaha doctor [--local] [--timeout S] [--json]     and the connection options
+```
+
+Run it first when something does not work. One line per check — `GREEN` (fine), `YELLOW` (works,
+but something is missing, unusual or about to expire) or `RED` (will not work) — and under each that
+is not green the `fix:` that makes it so; then `doctor: N red, M yellow`. It exits `1` on any RED and
+`0` otherwise, so it serves as a pre-flight step in a script. Nothing is changed: the token file's
+mode is read, never set, and no line ever holds the token.
+
+| Check | GREEN, YELLOW, RED |
+|---|---|
+| `python` | the interpreter against the package's `requires-python`; RED if older |
+| `cli` | the CLI's own version and where it is installed |
+| `pyarrow` | installed, with Flight; YELLOW if missing (the HTTP commands still work) |
+| `java` | `JAVA_HOME` (its `release` file), else `java` on `PATH`: Java 21 or later. YELLOW if there is none, since only `pravaha-engine` and a local node need one; RED if older than 21 |
+| `token file` | `~/.config/pravaha/token` (or `$PRAVAHA_CONFIG_DIR/token`), and where the token in use came from; RED if others may read it, fixed by `chmod 600` |
+| `tls http`, `tls flight` | with `https://` or `grpc+tls://`: the node's certificate is trusted (as `--tls-ca` and the other TLS options say), names the host, and when it expires: YELLOW within 30 days, RED once expired |
+| `http` | `GET /actuator/health` and how long it took: `UP` GREEN, `DEGRADED` YELLOW, anything else or no answer RED |
+| `version` | the node's version (`GET /api/v1/status`) against the CLI's: YELLOW if the minor differs or is not known, RED if the major differs |
+| `flight` | a list of the continuous queries over Flight and how long it took; YELLOW if the node answered with a refusal |
+| `auth` | `whoami`: who, which tenant, how signed in, which roles. YELLOW with no token, RED if the token is refused |
+| `token expiry` | a session's expiry (`GET /api/v1/sessions`): YELLOW within a day, RED once past |
+| `port 18080`, `port 19090`, `port 17070` | with `--local`, or when `--http` names this machine: whether the default HTTP, Flight and console ports are in use (information only) |
+
+A node that does not answer still gets a whole report: `http` is RED and `auth` is `SKIPPED`. Each
+call waits at most `--timeout` seconds — 10 by default here, not the 60 a query may need.
+
+Captured against a fake node (the SDK tests' harness, on 127.0.0.1) with a token file left readable
+by others; the home directory is shortened to `~` and the checkout's path to `sdk/python`:
+
+```text
+GREEN    python        Python 3.14.4 (sdk/python/.venv/bin/python); needs >=3.9
+GREEN    cli           pravaha 2.3.1 (sdk/python/pravaha)
+GREEN    pyarrow       pyarrow 25.0.1, with Flight
+GREEN    java          JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64: Java 21
+RED      token file    ~/.config/pravaha/token is mode 0644: others on this machine may read your token; token from this file
+                       fix: chmod 600 ~/.config/pravaha/token
+GREEN    http          http://127.0.0.1:28181 answered in 4 ms: health UP
+GREEN    version       cli 2.3.1, node 2.3.1
+GREEN    flight        grpc://127.0.0.1:29191 answered in 6 ms: 0 continuous queries you may see
+GREEN    auth          ann (tenant acme), via session, roles analyst,operator
+YELLOW   token expiry  expires 2026-10-06T09:00:00+00:00 (in 10.6 h)
+                       fix: pravaha login --user <name> --save   before it does
+GREEN    port 18080    free (the node's HTTP API's default)
+GREEN    port 19090    free (the node's Flight port's default)
+GREEN    port 17070    free (the console's default)
+doctor: 1 red, 1 yellow
+```
+
+`--json` prints the same checks as a list (see [JSON output](#json-output)).
 
 ## The catalogue and one query
 

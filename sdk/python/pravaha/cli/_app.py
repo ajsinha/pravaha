@@ -8,7 +8,11 @@ Exit codes are a contract scripts rely on:
 * ``0`` -- done;
 * ``1`` -- the engine refused, and its ``PRV-nnnn`` code and message are on stderr;
 * ``2`` -- the command line or a setting was wrong, and nothing was sent;
-* ``3`` -- nothing answered at the engine's address.
+* ``3`` -- nothing answered at the engine's address;
+* ``130`` -- interrupted (Ctrl-C), except ``subscribe``, which Ctrl-C ends with ``0``.
+
+``doctor`` and ``health`` are probes: ``1`` means a RED check or an unhealthy node, even when the
+node did not answer. docs: the console's CLI reference, "Exit codes" and "JSON output".
 
 The assistant's commands (``ask``, ``explain-sql``, ``why``, ``assist``) keep the contract: a
 model that failed exits ``1`` with the normalised error, a wrong assistant configuration exits
@@ -30,8 +34,20 @@ from typing import Any, NoReturn, Optional, Sequence, TextIO
 
 import pravaha
 from pravaha.assist.errors import AssistConfigError, AssistError
-from pravaha.cli import _alerts, _assist, _catalog, _flight, _http, _identity, _policy
+from pravaha.cli import (
+    _alerts,
+    _assist,
+    _catalog,
+    _completion,
+    _doctor,
+    _examples,
+    _flight,
+    _http,
+    _identity,
+    _policy,
+)
 from pravaha.cli._common import (
+    EXIT_INTERRUPTED,
     EXIT_OK,
     EXIT_REFUSED,
     EXIT_UNREACHABLE,
@@ -72,8 +88,16 @@ The assistant (ask, explain-sql, why, assist) asks a configured model, with the 
 judge; see docs/guides/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
 when the engine still refuses the draft after its repair turns. Only --register registers.
 
-pravaha <command> --help prints one command's flags without contacting anything.
-Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine.
+pravaha <command> --help prints one command's flags, and examples, without contacting anything.
+Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine,
+130 interrupted. `pravaha doctor` checks this machine and the node first.
+
+examples:
+  pravaha doctor
+  pravaha login --user ann --save
+  pravaha queries
+  pravaha query --sql "SELECT * FROM spend_by_hour" --json
+  source <(pravaha completion bash)
 """
 
 
@@ -92,6 +116,16 @@ class _Parser(argparse.ArgumentParser):
 
     def _command_path(self) -> str:
         return " ".join(self.prog.split()[1:])
+
+
+class _HelpFormatter(argparse.HelpFormatter):
+    """argparse's own formatting -- the description wrapped to the terminal as before -- except
+    that an ``examples:`` epilog keeps its lines, each a command a person may paste whole."""
+
+    def _fill_text(self, text: str, width: int, indent: str) -> str:
+        if text.startswith("examples:"):
+            return "".join(indent + line for line in text.splitlines(keepends=True))
+        return super()._fill_text(text, width, indent)
 
 
 def _global_options(parser: argparse.ArgumentParser, *, suppress: bool) -> None:
@@ -159,7 +193,8 @@ class _Builder:
 
     def add(self, name: str, run: Command, summary: str, **kwargs: Any) -> _Parser:
         parser: _Parser = self.commands.add_parser(
-            name, help=summary, description=summary, allow_abbrev=False, **kwargs
+            name, help=summary, description=summary, allow_abbrev=False,
+            epilog=_examples.epilog(name), formatter_class=_HelpFormatter, **kwargs
         )
         parser.set_defaults(run=run)
         self.made.append(parser)
@@ -170,8 +205,11 @@ class _Builder:
         verbs.required = required
 
         def add(name: str, summary: str) -> _Parser:
-            verb: _Parser = verbs.add_parser(name, help=summary, description=summary,
-                                             allow_abbrev=False)
+            verb: _Parser = verbs.add_parser(
+                name, help=summary, description=summary, allow_abbrev=False,
+                epilog=_examples.epilog(f"{parser._command_path()} {name}"),
+                formatter_class=_HelpFormatter,
+            )
             verb.set_defaults(run=run)
             self.made.append(verb)
             return verb
@@ -330,6 +368,18 @@ def build_parser() -> _Parser:
     p.add_argument("--grep", metavar="TEXT", help="only lines containing this")
     b.add("plugins", _http.plugins, "Every plugin the node can load.")
     b.add("sinks", _http.sinks, "The sinks the node binds.")
+    p = b.add("doctor", _doctor.doctor,
+              "Check this machine and the node: Python, pyarrow, Java, the token file, HTTP, "
+              "Flight, TLS, who you are. Exit 1 on any RED.")
+    p.add_argument("--local", action="store_true",
+                   help="also say whether the default ports 18080, 19090 and 17070 are in use "
+                        "(always, when --http names this machine)")
+    p = b.add("completion", _completion.completion,
+              "Print a shell completion script, made from this CLI's own commands and flags: "
+              "source <(pravaha completion bash); zsh the same; fish into "
+              "~/.config/fish/completions/pravaha.fish.")
+    p.add_argument("shell", choices=_completion.SHELLS, metavar="bash|zsh|fish",
+                   help="the shell to complete for")
 
     p = b.add("streams", _http.streams, "List, describe or declare streams.")
     add = b.verbs(p, _http.streams)
@@ -799,12 +849,21 @@ def main(
         ctx = Context(args, out, settings)
         return int(args.run(ctx))
     except KeyboardInterrupt:
-        return 130
+        return EXIT_INTERRUPTED
     except ImportError as exc:
-        out.warn(
-            f"this command speaks Arrow Flight and needs pyarrow: {exc}. Install it with\n"
-            '    pip install "pravaha[flight]"'
-        )
+        missing = str(getattr(exc, "name", "") or "")
+        if missing.split(".")[0] in ("pyarrow", ""):
+            words = (f"this command speaks Arrow Flight and needs pyarrow: {exc}. Install it with\n"
+                     '    pip install "pravaha[flight]"')
+        else:
+            # Not pyarrow: say what is missing rather than send the person to install the wrong thing.
+            words = f"a module this command needs is not installed: {exc}"
+        if out.json_mode:
+            # --json promises a JSON error on stderr, whatever failed.
+            body = {"code": None, "message": words, "exit": EXIT_USAGE}
+            print(to_json({"error": body}, indent=None), file=out.err)
+        else:
+            out.warn(words)
         return EXIT_USAGE
     except BrokenPipeError:  # pragma: no cover - `pravaha ... | head`
         return EXIT_OK

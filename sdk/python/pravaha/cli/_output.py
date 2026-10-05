@@ -135,6 +135,9 @@ class Output:
     def bad(self, text: str) -> str:
         return self._style("31", text)
 
+    def caution(self, text: str) -> str:
+        return self._style("33", text)
+
     # ------------------------------------------------------------------ writing
 
     def line(self, text: str = "") -> None:

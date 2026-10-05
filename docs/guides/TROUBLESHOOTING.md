@@ -412,6 +412,13 @@ field is enough to lose the file. Route genuinely binary payloads through a sour
 
 ## Connection problems
 
+**Run `pravaha doctor` first.** It checks, in a few seconds and changing nothing, what most of this
+section is about: whether the node answers on HTTP and on Flight (and how fast), whether its
+certificate is trusted, names the host and has not expired, whether the CLI and the node are the same
+version, whether your token is accepted (and when it expires), whether the token file is readable by
+others, and whether Java 21+ and pyarrow are there. Each line that is not GREEN carries its fix; see
+the console's CLI reference, section *Doctor*.
+
 **The Aerospike cluster is at 200–300% CPU and nothing is changing in the set.** One continuous
 query used to scan the set as fast as the cluster would answer, for ever — there was no scan
 interval. There is one now: `scan.interval.ms`, one second by default, under the source's `options`.

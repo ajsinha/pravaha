@@ -15,9 +15,16 @@ The offline commands -- planning and running SQL with no server -- belong to the
 """
 
 from pravaha.cli._app import build_parser, main, run
-from pravaha.cli._common import EXIT_OK, EXIT_REFUSED, EXIT_UNREACHABLE, EXIT_USAGE
+from pravaha.cli._common import (
+    EXIT_INTERRUPTED,
+    EXIT_OK,
+    EXIT_REFUSED,
+    EXIT_UNREACHABLE,
+    EXIT_USAGE,
+)
 
 __all__ = [
+    "EXIT_INTERRUPTED",
     "EXIT_OK",
     "EXIT_REFUSED",
     "EXIT_UNREACHABLE",
