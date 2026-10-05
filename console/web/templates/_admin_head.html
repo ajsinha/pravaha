@@ -6,8 +6,8 @@
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('admin.kicker') }}</p>
-    {% set screen = 'admin-' ~ tab %}
-    <h1>{{ heading }}{{ helplink(screen if help_for(screen) else 'admin') }}</h1>
+    {% set screen = 'ai-models' if tab == 'ai-models' else 'admin-' ~ tab %}
+    <h1>{{ heading }}{{ helplink(screen) }}</h1>
   </div>
 </div>
 <div class="rule"></div>

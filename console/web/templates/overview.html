@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% from "_queries_table.html" import rows %}
 {% block title %}{{ t('overview.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -39,6 +39,5 @@
   <thead><tr><th>{{ t('queries.col.name') }}</th><th>{{ t('queries.col.state') }}</th><th class="num">{{ t('queries.col.rows_in') }}</th><th>{{ t('queries.col.shared') }}</th></tr></thead>
   <tbody>{{ rows(queries, wide=False) }}</tbody>
 </table></div></div>
-{{ screenhelp('overview') }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/overview.js"></script>{% endblock %}

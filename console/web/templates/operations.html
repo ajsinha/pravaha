@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('operations.title') }} — {{ app_name }}{% endblock %}
 {% macro pct(v) %}{% if v is none %}—{% else %}{{ '%.0f'|format(v * 100) }}%{% endif %}{% endmacro %}
@@ -148,6 +148,5 @@
 </div>
 </div>
 <script type="application/json" id="ops-initial">{{ snapshot_data|tojson }}</script>
-{{ screenhelp('operations') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/ops.js?v={{ asset_version }}"></script>{% endblock %}

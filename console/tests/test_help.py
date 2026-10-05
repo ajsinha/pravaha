@@ -612,7 +612,7 @@ def test_the_product_screens_stay_behind_the_gate(anonymous):
 SCREENS = {"/workbench": "workbench", "/catalog": "catalog", "/views": "views",
            "/views/big_txn": "view", "/views/big_txn/live": "live", "/operations": "operations",
            "/queries": "queries", "/queries/big_txn": "query", "/plugins": "plugins",
-           "/admin/access": "admin", "/admin/audit": "admin", "/catalog/streams/txn": "stream",
+           "/admin/access": "admin-access", "/admin/audit": "admin-audit", "/catalog/streams/txn": "stream",
            "/overview": "overview", "/queries/big_txn/dead-letters": "dead-letters",
            "/queries/big_txn/replacement": "replacement", "/alerts": "alerts",
            "/admin/lanes": "admin-lanes", "/admin/grants": "admin-grants",
@@ -627,12 +627,15 @@ def test_every_screen_a_template_names_has_help_and_every_screen_with_help_is_na
     named: set[str] = set()
     for template in (CONSOLE_ROOT / "web" / "templates").glob("*.html"):
         text = template.read_text(encoding="utf-8")
-        named |= set(re.findall(r"(?:helplink|screenhelp)\('([a-z-]+)'\)", text))
+        named |= set(re.findall(r"helplink\('([a-z-]+)'\)", text))
         # The admin screens' shared head asks for admin-<tab>, falling back to admin.
         if "admin_head(" in text and template.name != "_admin_head.html":
             named |= {f"admin-{tab}" for tab in re.findall(r"admin_head\('([a-z-]+)'", text)}
     missing = sorted(s for s in named if s not in SCREEN_HELP and not s.startswith("admin-"))
     assert not missing, f"templates name screens with no help: {missing}"
+    # Every page's "About this page" panel links its screen's topics (core/page_help.py).
+    from core import page_help
+    named |= set(page_help.TEMPLATES.values())
     unused = sorted(s for s in SCREEN_HELP if s not in named)
     assert not unused, f"help declared for screens no template shows: {unused}"
 

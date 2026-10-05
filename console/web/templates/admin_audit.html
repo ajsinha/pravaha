@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% from "_admin_head.html" import admin_head with context %}
-{% from "_helpcards.html" import screenhelp, helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('admin.audit.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -92,5 +91,4 @@
   <li>{{ t('admin.audit.about_recorded') }}</li>
   <li>{{ t('admin.audit.about_window') }}</li>
 </ul>
-{{ screenhelp('admin') }}
 {% endblock %}

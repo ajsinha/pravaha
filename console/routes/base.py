@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
+from core import page_help
 from core.i18n import Messages
 from core.observability import correlation
 from core.services import ServiceError
@@ -348,6 +349,9 @@ class Routes:
         variable in the template plus a response code taken from a domain word.
         """
         brand = self.brand(request)
+        # "About this page" (core/page_help.py): the screen whose panel base.html draws at the
+        # foot, resolved from the template, so no route has to remember to ask for it.
+        brand["page_screen"] = page_help.screen_for(template)
         # A page may not shadow a brand key. Whichever wins, one of the two
         # readers is getting the other's value, and nothing raises: shadowing is
         # simply what a merged dict does.

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('views.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -51,7 +51,6 @@
 <p class="small text-muted mt-2" id="views-count" data-all="{{ t('views.count_other', n='{n}') }}"
    data-match="{{ t('views.count_match', shown='{shown}', n='{n}', needle='{needle}') }}">{{ t('views.count_one', n=queries|length) if queries|length == 1 else t('views.count_other', n=queries|length) }}</p>
 {% endif %}
-{{ screenhelp('views') }}
 {% endblock %}
 {% block scripts %}<script type="module" nonce="{{ csp_nonce }}">
 /* Filter as you type. The list is small enough to filter in place; the server already sent it. */

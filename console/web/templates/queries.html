@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% from "_queries_table.html" import rows %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('queries.title') }} — {{ app_name }}{% endblock %}
@@ -68,6 +68,5 @@
      href="/queries?search={{ search }}&state={{ state_filter }}&sort={{ sort }}&offset={{ offset + page_size }}">{{ t('queries.next') }}</a>
 </div>
 {% endif %}
-{{ screenhelp('queries') }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/queries.js"></script>{% endblock %}

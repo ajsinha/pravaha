@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% import "_assist.html" as assist with context %}
 {% block title %}{{ query.name }} — {{ app_name }}{% endblock %}
@@ -175,7 +175,6 @@
 <div class="tail" id="tail" role="log" aria-live="polite" aria-label="{{ t('query.tail_label') }}"
      data-view="{{ query.name }}"><p class="tail-empty text-muted small mb-0" id="tail-empty">{{ t('query.tail_empty') }}</p></div>
 <p class="small text-muted mt-2">{{ t('query.tail_note') }}</p>
-{{ screenhelp('query') }}
 {% endblock %}
 {# tail.js defines window.PravahaLiveTail, which query-detail.js constructs. It was never
    included, so on every query page the script threw before it wired the live tail or the

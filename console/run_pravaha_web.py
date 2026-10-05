@@ -39,6 +39,7 @@ if str(ROOT) not in sys.path:
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.library import ContentLibrary
 from core.engine import Engine
+from core import page_help
 from core.help_catalog import HelpCatalog
 from core.i18n import Messages
 from core.observability import RequestContext, configure_logging
@@ -163,6 +164,8 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     # Contextual help: a screen asks the catalog which topics answer the question it provokes,
     # so the cards and the screen's "?" link cannot name a page the help does not have.
     templates.env.globals["help_for"] = help_catalog.for_screen
+    # "About this page": each screen's tiles, drawn once by base.html (core/page_help.py).
+    templates.env.globals["page_tiles"] = page_help.tiles
 
     @app.exception_handler(HTTPException)
     async def problem(_request: Request, exc: HTTPException):

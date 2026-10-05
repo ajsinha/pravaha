@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('view.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -107,6 +107,5 @@
 
 <h2>{{ t('view.definition') }}</h2>
 <pre>{{ query.sql }}</pre>
-{{ screenhelp('view') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/views.js?v={{ asset_version }}"></script>{% endblock %}

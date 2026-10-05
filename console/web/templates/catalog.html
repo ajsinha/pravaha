@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('catalog.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -138,5 +138,4 @@
   <p class="small text-muted mt-2">{{ t('catalog.sinks.note_promises') }} (<a href="/help/codes/PRV-2041">PRV-2041</a>); {{ t('catalog.sinks.note_shape') }} (<a href="/help/codes/PRV-8010">PRV-8010</a>).</p>
   {% endif %}
 {% endif %}
-{{ screenhelp('catalog') }}
 {% endblock %}

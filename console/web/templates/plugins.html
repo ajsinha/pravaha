@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('plugins.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -115,5 +115,4 @@
   <thead><tr><th scope="col">{{ t('plugins.not_exposed.what') }}</th><th scope="col">{{ t('plugins.not_exposed.needs') }}</th></tr></thead>
   <tbody>{% for item in inventory.not_exposed %}<tr><td>{{ item.what }}</td><td class="mono">{{ item.needs }}</td></tr>{% endfor %}</tbody>
 </table></div></div>
-{{ screenhelp('plugins') }}
 {% endblock %}

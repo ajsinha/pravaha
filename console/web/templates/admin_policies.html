@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp %}
 {% from "_admin_head.html" import admin_head with context %}
 {% import "_states.html" as states %}
 {% import "_people.html" as people %}
@@ -87,5 +86,4 @@
   <div class="form-text small" id="policy-note">{{ t('governance.policies.expression_note') }}</div>
 </div></form>
 {% endif %}
-{{ screenhelp('admin-policies') }}
 {% endblock %}

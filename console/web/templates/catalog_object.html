@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% block title %}{{ t('governance.object.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {#- ADR-059: one object as the engine's catalogue shows it to this person -- its metadata, the
@@ -98,5 +98,4 @@
   {% endif %}
 </div></div>
 {% endif %}
-{{ screenhelp('catalog-object') }}
 {% endblock %}

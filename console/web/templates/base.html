@@ -66,7 +66,10 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
     · {{ t('shell.banner.console') }} <strong>{{ version }}</strong></div>
   {% endif %}
   {% if signed_in or not engine_up %}</aside>{% endif %}
-  <main class="pv-content{% block main_class %}{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
+  <main class="pv-content{% block main_class %}{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}
+  {# "About this page" (core/page_help.py): what this page is for, its tiles and its help topics,
+     drawn once here for every page but Help's own, which end with their own footer. #}
+  {% if page_screen %}{% include "_page_help.html" %}{% endif %}</main>
   {# The slogan closes every page, as MAYA's closes every one of its own: it is what the product
      claims about itself, and a claim belongs where the work is, not only on the way in. #}
   <footer class="pv-foot">

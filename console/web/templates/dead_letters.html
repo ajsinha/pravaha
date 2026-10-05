@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('dlq.title', name=name) }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -93,5 +93,4 @@
 {% endif %}
 {% endif %}
 
-{{ screenhelp('dead-letters') }}
 {% endblock %}

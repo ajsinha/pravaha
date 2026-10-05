@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('cutover.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -315,6 +315,5 @@
 {% endif %}
 <script type="application/json" id="rep-initial">{{ replacement|tojson }}</script>
 {% endif %}
-{{ screenhelp('replacement') }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/replacement.js"></script>{% endblock %}

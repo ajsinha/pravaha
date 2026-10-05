@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('debug.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
@@ -347,6 +347,5 @@
 </form>
 </div>
 {% endif %}
-{{ screenhelp('debug') }}
 {% endblock %}
 {% block scripts %}<script src="/static/js/debug.js"></script>{% endblock %}

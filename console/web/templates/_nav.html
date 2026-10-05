@@ -108,6 +108,8 @@
               title="{{ t('shell.palette_title') }}" aria-label="{{ t('shell.palette_open') }}">
         <i class="bi bi-search" aria-hidden="true"></i><span class="ph">{{ t('shell.search') }}</span><kbd>Ctrl K</kbd></button>
       <div class="pv-tools">
+        {# "About this page": jumps to the panel at the foot and opens it (theme.js). #}
+        {% if page_screen %}<a class="tool" href="#page-help" data-page-help aria-label="{{ t('shell.page_help') }}" title="{{ t('shell.page_help') }}"><i class="bi bi-question-circle" aria-hidden="true"></i></a>{% endif %}
         <a class="tool" href="/alerts" aria-label="{{ t('shell.alerts') }}" title="{{ t('shell.alerts') }}"><i class="bi bi-bell" aria-hidden="true"></i></a>
         {% include "_theme_menu.html" %}
         <div class="dropdown">
