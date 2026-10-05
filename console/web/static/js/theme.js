@@ -32,6 +32,7 @@
   var THEMES = ["light", "dark", "blue", "green"];
   var DENSITY_KEY = "pravaha.density";
   var DENSITIES = ["comfortable", "compact"];
+  var PAGE_HELP_KEY = "pravaha.pageHelp";
 
   function stored() {
     try {
@@ -137,6 +138,30 @@
         timer = setTimeout(function () { dd.hide(); }, 180);
       });
     });
+
+    /* "About this page" (_page_help.html): closed once, it stays closed on this browser; the ? in
+       the top bar opens it, brings it into view, moves focus to it and flashes its tiles. A
+       private window may refuse storage, which only means it is not remembered. */
+    var pageHelp = document.getElementById("page-help");
+    if (pageHelp) {
+      try { if (localStorage.getItem(PAGE_HELP_KEY) === "closed") pageHelp.open = false; } catch (e) { /* private window */ }
+      pageHelp.addEventListener("toggle", function () {
+        try { localStorage.setItem(PAGE_HELP_KEY, pageHelp.open ? "open" : "closed"); } catch (e) { /* private window */ }
+      });
+      document.querySelectorAll("[data-page-help]").forEach(function (link) {
+        link.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          pageHelp.open = true;
+          var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          pageHelp.scrollIntoView({behavior: still ? "auto" : "smooth", block: "start"});
+          var summary = pageHelp.querySelector("summary");
+          if (summary) summary.focus({preventScroll: true});
+          pageHelp.classList.remove("ph-flash");
+          void pageHelp.offsetWidth;
+          pageHelp.classList.add("ph-flash");
+        });
+      });
+    }
 
     document.addEventListener("keydown", function (event) {
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable) return;

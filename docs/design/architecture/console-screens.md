@@ -28,6 +28,8 @@ product tests use, so the names and numbers are the fake's (`big_txn`, `hot`), n
 
 **Help** — topics by category, the long-form guides (this page's siblings among them) and every code.
 
-Each screen offers its own help cards (`SCREEN_HELP` in `console/core/help_catalog.py`); the
+Every screen ends with **About this page** — what it is for, a few tiles on what you can do there and
+the idea behind it, and its help topics (`console/core/page_help.py`, and `SCREEN_HELP` in
+`console/core/help_catalog.py`); the **?** in the top bar jumps to it. The
 [console developer guide](../../development/guides/CONSOLE_DEVELOPMENT.md) says how a screen is added and
 how these images were taken.

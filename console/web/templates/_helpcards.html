@@ -2,32 +2,14 @@
 
    A new user should reach a running query in under five minutes (design 23.20),
    and the documentation is no use to them if finding it is a separate act of
-   navigation from the thing they are stuck on. The bar carries Help; these carry
-   the topics that answer the question this page provokes.
+   navigation from the thing they are stuck on. The bar carries Help; the "?" beside
+   a heading opens the topic that answers the question this page provokes, and the
+   "About this page" panel at the foot of every page (_page_help.html, drawn by
+   base.html) carries the rest of the screen's topics under "More in Help".
 
    Which topics, per screen, is declared once in core/help_catalog.py (SCREEN_HELP)
-   and read through `help_for(screen)`, so a card cannot name a page the help does
+   and read through `help_for(screen)`, so a link cannot name a page the help does
    not have: the catalog test fails first. #}
-{% macro screenhelp(screen) -%}
-{% set cards = help_for(screen) %}
-{% if cards %}
-<section class="card mt-4 helpcards" aria-label="{{ t('help.screen_help') }}"><div class="card-body py-3">
-  <div class="section-label mt-0 mb-2">{{ t('nav.help') }}</div>
-  <div class="row g-2">
-    {% for card in cards %}
-    <div class="col-md-4">
-      <a class="d-block text-decoration-none border rounded p-2 h-100"
-         style="border-color:var(--rule)!important" href="{{ card.href }}">
-        <div class="serif fw-semibold small"><i class="bi bi-{{ card.icon }}" aria-hidden="true" style="color:var(--flow)"></i> {{ card.title }}</div>
-        <div class="small text-muted">{{ card.summary }}</div>
-        <div class="small mt-1" style="color:var(--flow)">{{ t('help.read_more') }} &rarr;</div>
-      </a>
-    </div>
-    {% endfor %}
-  </div>
-</div></section>
-{% endif %}
-{%- endmacro %}
 
 {# The "?" beside a screen's heading: its first help topic, one click away. #}
 {% macro helplink(screen) -%}

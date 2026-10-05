@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% block title %}{{ t('start.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -46,6 +46,5 @@
   </div>
   <p class="small text-muted mt-2">{{ t('start.templates_note') }}</p>
 </div>
-{{ screenhelp('start') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/start.js?v={{ asset_version }}"></script>{% endblock %}

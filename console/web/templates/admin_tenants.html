@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% from "_admin_head.html" import admin_head with context %}
-{% from "_helpcards.html" import screenhelp, helplink %}
 {% import "_states.html" as states %}
 {#- ADR-050: each tenant's use against its admission quotas, and the registrations refused for
     it. A limit the engine sends as null is no limit, never zero: it is drawn as "no limit" and
@@ -77,5 +76,4 @@
   <li>{{ t('admin.tenants.about_null') }}</li>
   <li>{{ t('admin.tenants.about_sharing') }}</li>
 </ul>
-{{ screenhelp('admin') }}
 {% endblock %}

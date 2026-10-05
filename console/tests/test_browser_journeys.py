@@ -537,17 +537,37 @@ def test_a_code_on_a_help_page_opens_its_own_page(page, console):
 
 def test_a_screen_s_question_mark_opens_its_help(page, console):
     """Contextual help: the "?" beside the workbench's heading opens the topic that answers the
-    question the workbench provokes, and the cards at its foot are real topics."""
+    question the workbench provokes, and the "More in Help" links in the "About this page" panel
+    at its foot are real topics."""
     sign_in(page, console)
     page.goto(console.url("/workbench"))
     settled(page)
     href = page.eval("document.querySelector('h1 .screen-help').getAttribute('href')")
     assert href == "/help/topics/sql-reference"
-    cards = page.eval("[...document.querySelectorAll('.helpcards a')].map(a => a.getAttribute('href'))")
+    cards = page.eval("[...document.querySelectorAll('#page-help .ph-links a')].map(a => a.getAttribute('href'))")
     assert len(cards) == 3 and all(c.startswith("/help/topics/") for c in cards)
     assert "/help/topics/backfill-cutover#comparing-two-versions" in cards, "the Compare panel's section"
     page.wait_for_navigation(lambda: page.click("h1 .screen-help"))
     assert page.url().endswith(href)
+
+
+def test_the_top_bar_question_mark_opens_about_this_page_and_its_state_is_remembered(page, console):
+    """MAYA's "About this page": closed, it stays closed on this browser; the ? in the top bar
+    opens it again and brings it into view. With storage refused it still works."""
+    sign_in(page, console)
+    page.goto(console.url("/catalog"))
+    settled(page)
+    assert page.eval("document.getElementById('page-help').open") is True
+    page.click("#page-help > summary")
+    assert page.eval("document.getElementById('page-help').open") is False
+    page.wait_for("localStorage.getItem('pravaha.pageHelp') === 'closed'")
+    page.goto(console.url("/queries"))
+    settled(page)
+    assert page.eval("document.getElementById('page-help').open") is False, "closed once, closed everywhere"
+    page.click("[data-page-help]")
+    assert page.eval("document.getElementById('page-help').open") is True
+    assert page.eval("document.activeElement === document.querySelector('#page-help > summary')")
+    page.wait_for("localStorage.getItem('pravaha.pageHelp') === 'open'")
 
 
 # ============================================================ the other six journeys of design 23.18

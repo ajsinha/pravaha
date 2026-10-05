@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% block title %}{{ t('live.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/views/{{ query.name }}">&larr; {{ query.name }}</a></p>
@@ -87,6 +87,5 @@
       <p class="chart-caption mb-0" id="chart-caption">{{ t('live.chart.caption') }}</p>
     </div></div>
 </div>
-{{ screenhelp('live') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/live.js?v={{ asset_version }}"></script>{% endblock %}

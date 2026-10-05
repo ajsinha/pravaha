@@ -236,3 +236,43 @@ tr.retracted td{text-decoration:line-through;color:var(--muted);}
 .tenant-bar span{display:block;height:100%;background:var(--flow);}
 .tenant-use[data-state=near] .tenant-bar span{background:var(--warn);}
 .tenant-use[data-state=full] .tenant-bar span,.tenant-use[data-state=over] .tenant-bar span{background:var(--bad);}
+
+/* "About this page" (core/page_help.py, _page_help.html): MAYA's panel at the foot of every page,
+   in the console's tokens: a summary line that opens and closes it, tiles drawn as the cards are,
+   and the screen's help topics as chips. Density moves its spacing; on the gradient of a bare
+   page (sign-in) it stands on a surface of its own so its text keeps its contrast. */
+.page-help{margin:var(--section-gap) 0 .5rem;padding-top:var(--gutter);border-top:1px solid var(--rule);}
+.page-help>summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;gap:.3rem .8rem;
+  margin-bottom:var(--gutter);border-radius:6px;}
+.page-help>summary::-webkit-details-marker{display:none;}
+.page-help:not([open])>summary{margin-bottom:0;}
+.page-help .ph-title{font-size:1.1rem;font-weight:750;letter-spacing:-.01em;color:var(--pv-heading);white-space:nowrap;}
+.page-help .ph-title .bi{color:var(--flow);}
+.page-help .ph-title::after{content:"\F282";font-family:"bootstrap-icons";font-size:.8rem;margin-left:.4rem;display:inline-block;
+  color:var(--muted);transition:transform .15s;}
+.page-help:not([open]) .ph-title::after{transform:rotate(-90deg);}
+.page-help .ph-what{color:var(--muted);flex:1 1 20rem;}
+.page-help .ph-grid{display:grid;gap:var(--gutter);grid-template-columns:repeat(3,minmax(0,1fr));}
+.page-help .ph-grid.ph-n2{grid-template-columns:repeat(2,minmax(0,1fr));}
+.page-help .ph-grid.ph-n4{grid-template-columns:repeat(4,minmax(0,1fr));}
+.page-help .ph-tile{background:var(--surface);border:1px solid color-mix(in srgb,var(--rule) 70%,transparent);border-radius:14px;
+  overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px -14px color-mix(in srgb,var(--pv-nav-to) 45%,transparent);}
+.page-help .ph-head{display:flex;align-items:center;gap:.55rem;padding:var(--card-cap-y) var(--card-pad);font-weight:650;
+  color:var(--ink);background:linear-gradient(90deg,var(--pv-crimson-tint),transparent);}
+.page-help .ph-head .bi{display:inline-grid;place-items:center;flex:none;width:24px;height:24px;border-radius:7px;
+  background:var(--flow);color:var(--pv-on-crimson);font-size:.8rem;}
+.page-help .ph-tile p{margin:0;padding:.5rem var(--card-pad) var(--card-pad);font-size:.93rem;}
+.page-help .ph-more{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem .8rem;margin-top:var(--gutter);}
+.page-help .ph-more-label{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--flow);}
+.page-help .ph-links{display:flex;flex-wrap:wrap;gap:.45rem;list-style:none;padding:0;margin:0;}
+.page-help .ph-links a{display:inline-flex;align-items:center;gap:.4rem;font-size:.86rem;padding:.2rem .75rem;border:1px solid var(--rule);
+  border-radius:999px;text-decoration:none;color:var(--ink);background:var(--surface);}
+.page-help .ph-links a:hover,.page-help .ph-links a:focus-visible{border-color:var(--flow);}
+.page-help .ph-links .bi{color:var(--flow);}
+.page-help.ph-flash .ph-tile{animation:ph-flash 1.2s ease-out;}
+@keyframes ph-flash{from{box-shadow:0 0 0 3px color-mix(in srgb,var(--flow) 45%,transparent);}}
+.pv-public .page-help{background:var(--surface);color:var(--ink);border:0;border-radius:18px;padding:var(--gutter) 1.2rem;
+  max-width:72rem;margin-left:auto;margin-right:auto;}
+@media (prefers-reduced-motion:reduce){.page-help.ph-flash .ph-tile{animation:none;}.page-help .ph-title::after{transition:none;}}
+@media (max-width:991.98px){.page-help .ph-grid.ph-n4{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:767.98px){.page-help .ph-grid,.page-help .ph-grid.ph-n2,.page-help .ph-grid.ph-n4{grid-template-columns:minmax(0,1fr);}}

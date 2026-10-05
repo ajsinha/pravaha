@@ -12,7 +12,9 @@
       <li class="nav-item"><a class="nav-link{{ ' active' if path.startswith('/about') else '' }}" href="/about"
         {% if path == '/about' %}aria-current="page"{% endif %}><i class="bi bi-info-circle" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ t('nav.about') }}</span><span class="visually-hidden d-sm-none">{{ t('nav.about') }}</span></a></li>
     </ul>
-    <div class="d-flex align-items-center gap-2">{% include "_theme_menu.html" %}
+    <div class="d-flex align-items-center gap-2">
+      {% if page_screen %}<a class="tool" href="#page-help" data-page-help aria-label="{{ t('shell.page_help') }}" title="{{ t('shell.page_help') }}"><i class="bi bi-question-circle" aria-hidden="true"></i></a>{% endif %}
+      {% include "_theme_menu.html" %}
       <a class="btn btn-light btn-sm fw-bold pv-signin" href="/login" title="{{ t('shell.sign_in_title') }}"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> {{ t('shell.sign_in') }}</a></div>
   </div>
 </nav>

@@ -452,9 +452,9 @@ def test_every_page_offers_contextual_help(client):
     try:
         for path in ["/overview", "/queries", "/queries/helpful", "/workbench"]:
             page = client.get(path).text
-            assert "helpcards" in page, f"{path} has no help card"
-            # Each card points at the document that says the rest.
-            assert "read more" in page
+            # "About this page" (core/page_help.py), with the topics that say the rest.
+            assert 'id="page-help"' in page, f"{path} has no 'About this page'"
+            assert "More in Help" in page
     finally:
         client.post("/queries/helpful/drop")
 

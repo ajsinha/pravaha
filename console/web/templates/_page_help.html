@@ -1,0 +1,32 @@
+{#- "About this page": what this page is for, as two to four tiles, and the help topics that say
+    the rest. Drawn once, by base.html, at the foot of every page (core/page_help.py says which
+    screen a template is). Native <details>, so it opens and closes with scripting off; theme.js
+    remembers it closed for this browser and lets the ? in the top bar bring it into view.
+    Expects `page_screen`. -#}
+{% set cards = help_for(page_screen) %}
+<details class="page-help" id="page-help" data-screen="{{ page_screen }}" open>
+  <summary>
+    <span class="ph-title"><i class="bi bi-compass" aria-hidden="true"></i> {{ t('shell.page_help') }}</span>
+    <span class="ph-what">{{ t('page.' ~ page_screen ~ '.what') }}</span>
+  </summary>
+  {% set points = page_tiles(page_screen) %}
+  <div class="ph-grid ph-n{{ points|length }}">
+    {% for n, icon in points %}
+    {% set key = 'page.' ~ page_screen ~ '.points.' ~ n %}
+    <div class="ph-tile">
+      <div class="ph-head"><i class="bi bi-{{ icon }}" aria-hidden="true"></i>{{ t(key ~ '.heading') }}</div>
+      <p>{{ t(key ~ '.text') }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% if cards %}
+  <nav class="ph-more" aria-label="{{ t('shell.page_help_more_label') }}">
+    <span class="ph-more-label">{{ t('shell.page_help_more') }}</span>
+    <ul class="ph-links">
+      {% for card in cards %}
+      <li><a href="{{ card.href }}"><i class="bi bi-{{ card.icon }}" aria-hidden="true"></i>{{ card.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+</details>

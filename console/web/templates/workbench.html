@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import screenhelp, helplink %}
+{% from "_helpcards.html" import helplink %}
 {% import "_assist.html" as assist with context %}
 {% block title %}{{ t('workbench.title') }} — {{ app_name }}{% endblock %}
 {% block main_class %} pv-content-wide{% endblock %}
@@ -144,7 +144,6 @@
   </section>
 </div>
 <script type="application/json" id="wb-library">{{ library|tojson }}</script>
-{{ screenhelp('workbench') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/workbench.js?v={{ asset_version }}"></script>
 {{ assist.script() }}{% endblock %}

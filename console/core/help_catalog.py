@@ -238,7 +238,6 @@ SCREEN_HELP: dict[str, list[str]] = {
     "debug": ["time-travel-debugger", "checkpoints-recovery", "zset-weights"],
     "dead-letters": ["dead-letters", "sources-overview", "observability"],
     "plugins": ["sources-overview", "sinks-overview", "connector-security"],
-    "admin": ["authorization", "audit", "authentication"],
     "admin-users": ["authentication", "catalog-and-grants#user-attributes-as-claims", "audit"],
     "admin-keys": ["authentication", "authorization", "audit"],
     "admin-sessions": ["authentication", "audit", "authorization"],
@@ -248,6 +247,22 @@ SCREEN_HELP: dict[str, list[str]] = {
     # ADR-058 phase 3: Admin · AI models, and an assist answer drawn as a page of its own.
     "ai-models": ["assistant#admin-ai-models", "assistant", "observability"],
     "assistant": ["assistant", "sql-refusals", "create-continuous-query"],
+    # The rest of the pages, for their "About this page" panel (core/page_help.py), whose
+    # "More in Help" links are these.
+    "alert": ["alerts", "views-and-keys", "subscriptions"],
+    "admin-access": ["authorization", "authentication", "catalog-and-grants"],
+    "admin-audit": ["audit", "authorization", "authentication"],
+    "admin-tenants": ["configuration", "sharing", "audit"],
+    "components": ["getting-started#the-console-screen-by-screen"],
+    "landing": ["getting-started", "zset-weights", "views-and-keys"],
+    "login": ["authentication"],
+    "login-reset": ["authentication"],
+    "account": ["authentication", "authorization", "clients"],
+    "account-password": ["authentication"],
+    "about": ["getting-started", "faq", "glossary"],
+    "competitive": ["faq", "glossary"],
+    "not-found": ["getting-started", "faq"],
+    "refused": ["errors-overview", "sql-refusals", "authorization"],
 }
 
 #: Topics that were merged into another, and where each one's content now is. The old address

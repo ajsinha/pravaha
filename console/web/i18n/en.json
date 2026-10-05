@@ -44,7 +44,10 @@
       "environment": "Environment",
       "console": "Console",
       "label": "This deployment"
-    }
+    },
+    "page_help": "About this page",
+    "page_help_more": "More in Help",
+    "page_help_more_label": "Help topics for this page"
   },
   "nav": {
     "workbench": "Workbench",
@@ -1823,7 +1826,6 @@
     "empty": "No content found. Expected markdown files under",
     "open_sibling": "Open {title}",
     "on_this_page": "On this page",
-    "read_more": "read more",
     "code": {
       "every_code": "Every code",
       "kicker": "ERROR CODE",
@@ -3210,6 +3212,643 @@
       "search": "Find any topic, guide or code",
       "about": "What it is, the name, version and licence",
       "competitive": "How Pravaha compares, scored"
+    }
+  },
+  "page": {
+    "start": {
+      "what": "A guided first run: pick a stream, choose what to ask of it, register the question, and watch its view change.",
+      "points": {
+        "1": {
+          "heading": "Four steps, all real",
+          "text": "Each step calls the engine's own API. What you register here keeps running until you drop it."
+        },
+        "2": {
+          "heading": "Templates open in the workbench",
+          "text": "A template is validated there as you type and registered from the Register panel."
+        },
+        "3": {
+          "heading": "No stream yet?",
+          "text": "With scripting on, this page can declare one; otherwise declare it in the engine's configuration."
+        }
+      }
+    },
+    "overview": {
+      "what": "The engine at a glance: how many queries are registered, running and sharing, and which are busiest.",
+      "points": {
+        "1": {
+          "heading": "The four counts",
+          "text": "Registered queries, those maintaining a view, names on a shared computation, and the engine subscriptions this console holds."
+        },
+        "2": {
+          "heading": "Sharing",
+          "text": "Two names whose plans normalise to the same plan are one computation with one copy of the state."
+        },
+        "3": {
+          "heading": "When the engine is down",
+          "text": "This page says so and keeps working. Check that the engine is started and that its Flight port matches."
+        }
+      }
+    },
+    "workbench": {
+      "what": "Write continuous SQL, check it as you type, see its plan, run it once, and register it.",
+      "points": {
+        "1": {
+          "heading": "Running is not registering",
+          "text": "Run returns rows now. Nothing is registered until you register it, under a name and its key columns."
+        },
+        "2": {
+          "heading": "A refusal carries its reason",
+          "text": "SQL the engine cannot keep bounded or exact is refused at plan time, with a PRV code that says why."
+        },
+        "3": {
+          "heading": "No rows from a stream?",
+          "text": "Often the window has not closed: it closes when event time passes it, not when the clock does."
+        }
+      }
+    },
+    "catalog": {
+      "what": "What exists and what reads it: streams, registered queries, sinks and, with the catalogue on, the governed objects you may use.",
+      "points": {
+        "1": {
+          "heading": "Streams",
+          "text": "A stream is declared with a schema, an event-time column and how late a row may arrive, and is bound to a source plugin."
+        },
+        "2": {
+          "heading": "Shared queries",
+          "text": "Two names on one fingerprint are one computation. Dropping one leaves the other running."
+        },
+        "3": {
+          "heading": "Sinks",
+          "text": "A query that revises its answer needs a sink that accepts revisions; an append-only sink refuses it with PRV-2041."
+        }
+      }
+    },
+    "catalog-object": {
+      "what": "One governed object: what it is, who owns it, the grants on it, the row filters and masks that reach it, and why someone may use it or not.",
+      "points": {
+        "1": {
+          "heading": "Grants",
+          "text": "A grant gives a user or role a privilege on this object. They are changed on Admin · Grants, by somebody with MANAGE."
+        },
+        "2": {
+          "heading": "Filters and masks",
+          "text": "A grant decides whether someone may read; a policy decides which rows and which values they are shown."
+        },
+        "3": {
+          "heading": "Why, or why not?",
+          "text": "Ask the engine whether a person may do something here, and it answers with the reason."
+        }
+      }
+    },
+    "stream": {
+      "what": "One stream: its schema, its event time and lateness, the source that feeds it, and the queries that read it.",
+      "points": {
+        "1": {
+          "heading": "Event time and lateness",
+          "text": "Lateness is how long a window waits for a late row. A stream with no event-time column has no window that can close."
+        },
+        "2": {
+          "heading": "Where rows come from",
+          "text": "A stream bound to a source plugin is fed by it. One that is not bound gets rows only if something writes them."
+        },
+        "3": {
+          "heading": "Who reads it",
+          "text": "The registered queries whose plans read this stream, as the engine reports them, or matched by name when it does not."
+        }
+      }
+    },
+    "views": {
+      "what": "Every view a registered query maintains: what your services can read, already correct when it is read.",
+      "points": {
+        "1": {
+          "heading": "Read, not re-run",
+          "text": "Each continuous query keeps one view. A read looks up the answer the engine maintains, by key or by SQL."
+        },
+        "2": {
+          "heading": "Every way in reads the same view",
+          "text": "Flight SQL, the SDKs, the CLI and the PostgreSQL gateway all read the one maintained answer."
+        },
+        "3": {
+          "heading": "From here",
+          "text": "Open a view to point-query it, watch it change live, or copy the client code that reads it."
+        }
+      }
+    },
+    "view": {
+      "what": "One view: its schema and keys, a point read or a scan, and the client code that does the same from a service.",
+      "points": {
+        "1": {
+          "heading": "Point reads",
+          "text": "Pick a key column and a value to look one row up, or leave the column empty to scan the view."
+        },
+        "2": {
+          "heading": "Empty is still an answer",
+          "text": "The view is correct as of its last commit. A row appears when the data that makes it arrives."
+        },
+        "3": {
+          "heading": "Snippets hold no secret",
+          "text": "The code reads its token from the environment, so it can be pasted into a service as it is."
+        }
+      }
+    },
+    "live": {
+      "what": "Every change the view commits, as the engine publishes it, with the rows it now holds and a chart of one column.",
+      "points": {
+        "1": {
+          "heading": "+1 and −1",
+          "text": "A row arriving is +1 and a row withdrawn is −1. A correction is both, so the rows shown are a running sum, never a count of messages."
+        },
+        "2": {
+          "heading": "Filtered at the engine",
+          "text": "A filter here is applied at the engine's tap, so rows you did not ask for never cross the network."
+        },
+        "3": {
+          "heading": "Quiet or stopped?",
+          "text": "The two look alike, so the connection's state is shown. Live changes need scripting; the view's page answers point reads without it."
+        }
+      }
+    },
+    "operations": {
+      "what": "Is everything healthy, and if not, where: throughput, state against its ceiling, event-time lag, lanes and checkpoints, per query.",
+      "points": {
+        "1": {
+          "heading": "The state ceiling",
+          "text": "At 100 % of its ceiling a query is refused (PRV-4001) unless spilling is on."
+        },
+        "2": {
+          "heading": "Lanes and backpressure",
+          "text": "Queries on a shared lane queue behind one inbox, so a query can look blocked because a neighbour's writer is waiting."
+        },
+        "3": {
+          "heading": "Absent is not zero",
+          "text": "What the engine does not measure is shown as absent. A query registered a moment ago shows “not published yet” for up to 15 s."
+        }
+      }
+    },
+    "alerts": {
+      "what": "The alerts this engine serves: each watches a continuous query's view and notifies its channels when a key fires.",
+      "points": {
+        "1": {
+          "heading": "Fires and clears",
+          "text": "A key fires when its row enters the view's answer and clears when it leaves."
+        },
+        "2": {
+          "heading": "Quiet changes what is said",
+          "text": "Pausing, snoozing and dedupe change what is sent, never what is true."
+        },
+        "3": {
+          "heading": "Making one",
+          "text": "CREATE ALERT <name> ON <view> NOTIFY <channel>, in the workbench or with pravaha alert create."
+        }
+      }
+    },
+    "alert": {
+      "what": "One alert: its condition and options, the keys firing now, and every notification it has sent.",
+      "points": {
+        "1": {
+          "heading": "A view, watched",
+          "text": "The condition is a continuous query's view: a key fires while its row is in the answer."
+        },
+        "2": {
+          "heading": "Acknowledge, pause, snooze",
+          "text": "Each needs MODIFY on the alert, and the engine decides. None of them changes what the view holds."
+        },
+        "3": {
+          "heading": "What was sent",
+          "text": "Every notification, per channel, with its outcome. When nothing is owed, every channel is up to date."
+        }
+      }
+    },
+    "queries": {
+      "what": "Every registered continuous query, its state and throughput. The filters are in the address, so a filtered list can be pasted into a ticket.",
+      "points": {
+        "1": {
+          "heading": "Registered once",
+          "text": "A query is maintained until it is dropped. Pausing stops the work and keeps the state."
+        },
+        "2": {
+          "heading": "Shared names",
+          "text": "Names whose plans normalise alike share one computation; dropping one leaves the others running."
+        },
+        "3": {
+          "heading": "Replacing one",
+          "text": "Open a query and choose Replace: the new version backfills beside the old one, and you cut over when it has caught up."
+        }
+      }
+    },
+    "query": {
+      "what": "One query: its SQL, plan and fingerprint, its keys, sinks and feeds, its controls, and the changes it commits.",
+      "points": {
+        "1": {
+          "heading": "Pause, resume, drop",
+          "text": "Pausing keeps the state, and the view answers at the frontier it reached. Dropping the last name on a computation discards its state for good."
+        },
+        "2": {
+          "heading": "The fingerprint",
+          "text": "The canonical plan the name resolves to. Names with the same fingerprint are one computation."
+        },
+        "3": {
+          "heading": "Who may act",
+          "text": "The owner, a principal with MODIFY or MANAGE on it, or an administrator may pause, replace or drop it. Reading it needs none of that."
+        }
+      }
+    },
+    "replacement": {
+      "what": "A blue/green replacement: a new version runs beside the running one, backfills, and takes the name when you cut over.",
+      "points": {
+        "1": {
+          "heading": "No ETA, on purpose",
+          "text": "A source does not say how much history it holds, so progress is measured — rows, rate, partitions on the live stream, lag — never a percentage."
+        },
+        "2": {
+          "heading": "The cutover",
+          "text": "The name moves at a position both versions have consumed exactly. Open subscriptions end with PRV-4019 and subscribe again."
+        },
+        "3": {
+          "heading": "The rollback window",
+          "text": "The replaced version is retained until the window closes; until then, rolling back puts it back."
+        }
+      }
+    },
+    "debug": {
+      "what": "The time-travel debugger: fork a query from a checkpoint this node retains, and step it under inspection.",
+      "points": {
+        "1": {
+          "heading": "A fork, not the query",
+          "text": "A second copy with no sink, a view nothing can read, and lanes of its own. The query it forked from runs untouched."
+        },
+        "2": {
+          "heading": "Steps and breakpoints",
+          "text": "Step by a row, N rows, a commit or a watermark, or until a view column meets a value. Each step shows what came in, what every operator did, and the view."
+        },
+        "3": {
+          "heading": "A test from a session",
+          "text": "Export the session as a JUnit fixture that reproduces it without this node."
+        }
+      }
+    },
+    "dead-letters": {
+      "what": "Records this query's sources could not decode, kept with their bytes and the reason, so the source reads on.",
+      "points": {
+        "1": {
+          "heading": "Replay",
+          "text": "A replayed record is a new row at the query's current frontier, not a rewind. One that fails again goes back on the queue as a new entry."
+        },
+        "2": {
+          "heading": "Retention",
+          "text": "Bounded by pravaha.dlq.max-bytes, max-entries and max-age. Past the bound the oldest are evicted, and counted."
+        },
+        "3": {
+          "heading": "Switched off",
+          "text": "Without pravaha.dlq.directory, a record that cannot be decoded stops its source instead of being kept."
+        }
+      }
+    },
+    "plugins": {
+      "what": "Every plugin the engine can load, as its manifest and code declare it, with the bindings you can see.",
+      "points": {
+        "1": {
+          "heading": "“Bound as” and “can be”",
+          "text": "“Bound as” is what the configuration uses a plugin for; “can be” is what its code implements."
+        },
+        "2": {
+          "heading": "Not loaded",
+          "text": "A binding that names a plugin missing from the node's classpath cannot run."
+        },
+        "3": {
+          "heading": "Never a binding's options",
+          "text": "Options are where credentials live, so the engine never includes them in its answer."
+        }
+      }
+    },
+    "assistant": {
+      "what": "An assistant's answer, as a page: a drafted query, a query explained in plain English, or a refusal explained.",
+      "points": {
+        "1": {
+          "heading": "The engine still decides",
+          "text": "Whatever the assistant writes is planned, checked and refused by the engine like any other SQL."
+        },
+        "2": {
+          "heading": "Which model answers",
+          "text": "An administrator chooses the models and their order on Admin · AI models."
+        }
+      }
+    },
+    "components": {
+      "what": "The component gallery: every component and state the screens use, drawn with the console's own classes. A development aid.",
+      "points": {
+        "1": {
+          "heading": "Themes and density",
+          "text": "Press t to switch the theme and d the density, and review each component in each."
+        },
+        "2": {
+          "heading": "Eight states",
+          "text": "Every data-bearing component implements all eight, drawn by the same functions in states.js that the screens call."
+        }
+      }
+    },
+    "admin-access": {
+      "what": "What the engine's policy lets you, the person signed in, do. Asked of the engine, and read-only.",
+      "points": {
+        "1": {
+          "heading": "As you",
+          "text": "Every call carries your own session, so these are your permissions, and what you do is audited as you."
+        },
+        "2": {
+          "heading": "Absent, not denied",
+          "text": "What you may not see is not listed at all, because listing it would disclose that it exists."
+        },
+        "3": {
+          "heading": "Nothing to edit here",
+          "text": "Grants live wherever the configured policy gets them; with the catalogue on, they are edited on Admin · Grants."
+        }
+      }
+    },
+    "admin-audit": {
+      "what": "Every decision the engine's policy made, allows as well as denials, newest first.",
+      "points": {
+        "1": {
+          "heading": "Filters are links",
+          "text": "Every filter is in the address, so a filtered trail can be shared as a link."
+        },
+        "2": {
+          "heading": "A permission of its own",
+          "text": "Reading the trail needs its own permission, and every read of it is recorded in it."
+        },
+        "3": {
+          "heading": "A bounded window",
+          "text": "Only recent decisions are readable here. With audit set to file, older ones are in the audit file on the node."
+        }
+      }
+    },
+    "admin-tenants": {
+      "what": "Each tenant's use against its admission quotas, and the registrations refused for going over them.",
+      "points": {
+        "1": {
+          "heading": "Checked at registration",
+          "text": "A quota is checked when a query is registered; nothing already running is stopped by it."
+        },
+        "2": {
+          "heading": "Names and computations",
+          "text": "Queries held counts names; computations counts the distinct ones behind them, shared within a tenant, never across tenants."
+        },
+        "3": {
+          "heading": "Set in configuration",
+          "text": "Limits are under pravaha.tenancy and read-only here. Unset is no limit; zero is a limit."
+        }
+      }
+    },
+    "admin-users": {
+      "what": "The engine's accounts: who can sign in, their roles and attributes, and password resets.",
+      "points": {
+        "1": {
+          "heading": "Disabled, never deleted",
+          "text": "The audit trail and the registry name owners by id, so a person is disabled rather than removed."
+        },
+        "2": {
+          "heading": "Roles and attributes",
+          "text": "Roles decide what the engine lets someone do. Attributes such as region=EU travel as claims a policy reads with session_attribute()."
+        },
+        "3": {
+          "heading": "Resets",
+          "text": "A reset token works once, for an hour. Hand it to the person directly."
+        }
+      }
+    },
+    "admin-keys": {
+      "what": "Every API key the engine holds, by its key id: the handle the audit trail uses.",
+      "points": {
+        "1": {
+          "heading": "Never the secret",
+          "text": "A key's secret is shown once, to whoever made it; the engine keeps only a hash of it."
+        },
+        "2": {
+          "heading": "Made by their owners",
+          "text": "People make and rotate their own keys on their account page, and a key never carries more than its owner's roles."
+        }
+      }
+    },
+    "admin-sessions": {
+      "what": "Everyone signed in, and where.",
+      "points": {
+        "1": {
+          "heading": "Ending a session",
+          "text": "Takes effect on that person's next request."
+        },
+        "2": {
+          "heading": "How long one lasts",
+          "text": "A session ends after 30 minutes idle or 12 hours, and a person has at most three open at once."
+        }
+      }
+    },
+    "admin-lanes": {
+      "what": "Where each registered query runs, on a lane of its own or sharing one, and rebalancing.",
+      "points": {
+        "1": {
+          "heading": "Auto",
+          "text": "Under auto, a node's first queries each own a lane and later ones share. Nothing is moved while it runs."
+        },
+        "2": {
+          "heading": "Rebalance",
+          "text": "Moves shared queries, oldest first, onto lanes of their own, one at a time, as a blue/green replacement with the SQL unchanged."
+        },
+        "3": {
+          "heading": "Administrators only",
+          "text": "Only an administrator can rebalance. Until then, room freed by dropped queries goes to new registrations."
+        }
+      }
+    },
+    "admin-grants": {
+      "what": "Who may do what, to which object: the grants the engine's catalogue holds.",
+      "points": {
+        "1": {
+          "heading": "Asked as you",
+          "text": "Each change is asked of the engine as you, needs MANAGE on the object, and is recorded in the audit trail."
+        },
+        "2": {
+          "heading": "Naming an object",
+          "text": "A full name (acme.sales.revenue), a namespace, or a view as you would write it."
+        },
+        "3": {
+          "heading": "Catalogue off?",
+          "text": "Then the configured policy decides, and there are no grants to show or change."
+        }
+      }
+    },
+    "admin-policies": {
+      "what": "Row filters and masks: what someone is shown once a grant lets them read.",
+      "points": {
+        "1": {
+          "heading": "Grant or policy",
+          "text": "A grant says whether someone may read; a policy says which rows and which values they see."
+        },
+        "2": {
+          "heading": "Nothing until bound",
+          "text": "A policy narrows nothing until it is bound: to an object (MANAGE on it) or to a tag (every object carrying it, now and later)."
+        },
+        "3": {
+          "heading": "The expression",
+          "text": "Columns, pure functions, CASE, CAST, session_attribute('claim'), current_user() and is_member('role'). The engine checks it."
+        }
+      }
+    },
+    "ai-models": {
+      "what": "The models the assistant asks: providers, models, profiles and their chains, budgets and usage.",
+      "points": {
+        "1": {
+          "heading": "Changed while running",
+          "text": "A change is checked in full, saved, and used by the very next request."
+        },
+        "2": {
+          "heading": "Chains",
+          "text": "A task asks for a profile, whose chain is tried in order: the next model is asked only when one is unavailable or rate-limited."
+        },
+        "3": {
+          "heading": "Keys by name",
+          "text": "Name the environment variable or file that holds a provider's key, never the key. A value shaped like a key is refused."
+        }
+      }
+    },
+    "landing": {
+      "what": "Pravaha in one page: what a continuous query is, how its answer is kept, and where to begin.",
+      "points": {
+        "1": {
+          "heading": "Register once",
+          "text": "A question registered once has its answer kept correct as the data changes, by exactly what each row changes."
+        },
+        "2": {
+          "heading": "Weights",
+          "text": "+1 for a row that arrives, −1 for one taken back. A correction is a retraction and an insert, never a rescan."
+        },
+        "3": {
+          "heading": "Where to begin",
+          "text": "Sign in for the console, or start with the quick start and the tutorials in Help."
+        }
+      }
+    },
+    "login": {
+      "what": "Sign in to the console with the account the engine holds.",
+      "points": {
+        "1": {
+          "heading": "The engine checks",
+          "text": "Your password is checked by the engine. The console keeps only the engine's session, and acts, and is audited, as you."
+        },
+        "2": {
+          "heading": "Locked out?",
+          "text": "Ask an administrator for a reset token, then set a new password with it."
+        }
+      }
+    },
+    "login-reset": {
+      "what": "Set a new password with the reset token an administrator gave you.",
+      "points": {
+        "1": {
+          "heading": "Once, for an hour",
+          "text": "A reset token works once and expires after an hour."
+        },
+        "2": {
+          "heading": "Every session ends",
+          "text": "Setting a password with it ends every session you had open."
+        },
+        "3": {
+          "heading": "The policy decides",
+          "text": "The engine's password policy decides what it accepts: by default 12 characters, from three kinds, and none of your last five."
+        }
+      }
+    },
+    "account": {
+      "what": "Your account: who the engine says you are, where signing in takes you, your API keys and your sessions.",
+      "points": {
+        "1": {
+          "heading": "Your landing",
+          "text": "Picks the screen signing in takes you to, on this browser. It grants nothing."
+        },
+        "2": {
+          "heading": "API keys",
+          "text": "A key acts as you, with roles chosen from your own. It is shown once, and rotating it keeps the old one working for 7 days."
+        },
+        "3": {
+          "heading": "Sessions",
+          "text": "End one you do not recognise. A session ends by itself after 30 minutes idle or 12 hours."
+        }
+      }
+    },
+    "account-password": {
+      "what": "Change your password.",
+      "points": {
+        "1": {
+          "heading": "The policy decides",
+          "text": "The engine's password policy decides what it accepts: by default 12 characters, from three kinds, and none of your last five."
+        },
+        "2": {
+          "heading": "When it must change",
+          "text": "If the engine requires a new password, nothing else can be done until it is set."
+        }
+      }
+    },
+    "about": {
+      "what": "What Pravaha is, how it works, what is built and measured, what is not, and who made it.",
+      "points": {
+        "1": {
+          "heading": "Read from the repository",
+          "text": "What is built and what is new are read from the repository, so this page cannot claim more than the code does."
+        },
+        "2": {
+          "heading": "Numbers with caveats",
+          "text": "Every figure says what it is and where it was taken; none is a benchmark on reference hardware."
+        },
+        "3": {
+          "heading": "Further reading",
+          "text": "The research paper, the deck and the competitive landscape, from here."
+        }
+      }
+    },
+    "competitive": {
+      "what": "Where Pravaha sits among the products that keep answers current and the catalogues that govern data, scored by category, not vendor.",
+      "points": {
+        "1": {
+          "heading": "Where it shines",
+          "text": "What Pravaha does that the others do not, and how it does it."
+        },
+        "2": {
+          "heading": "Where it is behind",
+          "text": "Where it is partial or behind, and why — stated so nobody has to discover it."
+        },
+        "3": {
+          "heading": "One node",
+          "text": "It is one node, not a cluster, and not a catalogue for an estate: it works beside both."
+        }
+      }
+    },
+    "not-found": {
+      "what": "Nothing is registered or filed under that name.",
+      "points": {
+        "1": {
+          "heading": "Names are exact",
+          "text": "A name may have been misspelt; open the list the link came from to see what exists."
+        },
+        "2": {
+          "heading": "Dropped is gone",
+          "text": "A dropped query's name stops resolving, and its view goes with it unless another name shares the computation."
+        }
+      }
+    },
+    "refused": {
+      "what": "The engine refused what was asked, and this page shows its reason.",
+      "points": {
+        "1": {
+          "heading": "A refusal is an answer",
+          "text": "Shown whole, in the engine's words, because they name the cause and the fix."
+        },
+        "2": {
+          "heading": "The PRV code",
+          "text": "Every code has a page of its own under Help · Error codes: what it means and what to do."
+        },
+        "3": {
+          "heading": "Quotas",
+          "text": "A refusal for going over a tenant's quota links to Admin · Tenants, where its use is shown."
+        }
+      }
     }
   }
 }
