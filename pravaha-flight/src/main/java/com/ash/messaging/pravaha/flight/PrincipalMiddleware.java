@@ -47,6 +47,8 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
     /** The key the producer uses to read the principal off a call. */
     public static final Key<PrincipalMiddleware> KEY = Key.of("pravaha-principal");
 
+    private static final System.Logger LOG = System.getLogger(PrincipalMiddleware.class.getName());
+
     private static final String HEADER = "authorization";
     private static final String BEARER = "bearer ";
 
@@ -163,6 +165,19 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
                 // The verifier's message, not the exception's cause: the contract on TokenVerifier
                 // is that the message says the credential was rejected and not why.
                 throw FlightErrors.failureOf(CallStatus.UNAUTHENTICATED, e).toRuntimeException();
+            } catch (RuntimeException failed) {
+                // J21-1: Arrow catches only FlightRuntimeException here, so a verifier that failed
+                // other than by refusing reached the client as UNKNOWN with no code. Closed, as the
+                // per-call recheck above already is; the failure itself stays in the log.
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "the token verifier failed rather than refusing; the call is refused as unauthenticated",
+                        failed);
+                throw FlightErrors.failureOf(
+                                CallStatus.UNAUTHENTICATED,
+                                SecurityErrors.UNAUTHENTICATED,
+                                "the credential presented could not be verified")
+                        .toRuntimeException();
             }
         }
     }
