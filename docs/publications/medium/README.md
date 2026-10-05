@@ -19,7 +19,7 @@ the console's crimson identity, every diagram inlined (as its SVG), to send, att
 is generated, never edited:
 
 ```bash
-console/.venv/bin/python tools/medium-page/render.py     # any Python with the markdown package
+pravaha-console/.venv/bin/python tools/medium-page/render.py     # any Python with the markdown package
 ```
 
 Every number, name and code sample in the post comes from this repository: the root README,
@@ -52,7 +52,7 @@ goes in Medium's subtitle field (the second line of a new story, styled as a kic
 
 ## Re-exporting the images
 
-The SVGs use the console's palette and fonts (`console/web/templates/base.html`): crimson
+The SVGs use the console's palette and fonts (`pravaha-console/web/templates/base.html`): crimson
 `#A51C30` with `#8A1626` and `#C4384B`, the `#F7F5F2` canvas, `#1A1A1A` ink, `#293352` for a −1, and
 the Source family (Source Sans 3, Source Serif 4 for titles, Source Code Pro). Machines without those
 fonts fall back to Inter or another sans, and a serif such as Charis SIL or Georgia. The canvas is

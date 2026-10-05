@@ -276,8 +276,8 @@ writable, so the kernel enforces the layout too. Its header has the four command
 It passes `systemd-analyze verify` (checked with the paths pointed at the unpacked distribution
 above); it has not been run under systemd on this machine.
 
-**The console without Docker** runs from a checkout (`console/`, `make run`) or its wheel, with the
-same convention if you want it: `--config console/config/application.yaml,$PRAVAHA_HOME/conf/console.yaml`,
+**The console without Docker** runs from a checkout (`pravaha-console/`, `make run`) or its wheel, with the
+same convention if you want it: `--config pravaha-console/config/application.yaml,$PRAVAHA_HOME/conf/console.yaml`,
 `CONSOLE_LOG_FILE=$PRAVAHA_HOME/logs/pravaha-console.log` and `PRAVAHA_CONFIG_DIR=$PRAVAHA_HOME/data/console`.
 [`../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/setup/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) walks the whole
 no-Docker route, build and tests included.
@@ -531,7 +531,7 @@ node would go on running the old one — an upgrade reporting success and changi
 Every one of the reactor's **40 poms** (2026-10-02) carries the version as a literal — the root as
 `<project><version>`, each child as `<parent><version>`. There is no `${revision}` property, no
 `flatten-maven-plugin`, and no `<distributionManagement>`. Two wheels
-(`sdk/python/pyproject.toml`, `console/pyproject.toml`) and the chart's `appVersion` carry it too.
+(`sdk/python/pyproject.toml`, `pravaha-console/pyproject.toml`) and the chart's `appVersion` carry it too.
 Forty files, and they have to agree or the reactor will not resolve.
 
 ```bash
@@ -596,7 +596,7 @@ the shape a release tag takes from here.
 | `matrix` | Spring Boot 3.5 | Command yes |
 | `matrix` | Spring Boot 3.4 | Command yes (on JDK 25, 2026-10-01, 41 tests). Workflow no. 3.2 and 3.3 are not tested: out of open-source support, and not brought back ([ADR-062](../design/adr/062-java-21-or-later.md)) |
 | `suites` | Python SDK | Command yes (`make -C sdk/python test`). Workflow no |
-| `suites` | console, headless Chrome | Command yes (`make -C console test`). Workflow no |
+| `suites` | console, headless Chrome | Command yes (`make -C pravaha-console test`). Workflow no |
 | `packaging` | versions, CI helpers, chart, image | Every command green on the development machine; **no** workflow run |
 
 **This machine's CI is not exercised.** Each workflow says so in its own header, with what is

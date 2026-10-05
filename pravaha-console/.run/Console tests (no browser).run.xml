@@ -5,7 +5,7 @@
 -->
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Console tests (no browser)" type="tests" factoryName="py.test">
-    <module name="console" />
+    <module name="pravaha-console" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />

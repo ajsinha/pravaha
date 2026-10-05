@@ -146,5 +146,5 @@ what changed and why. docs/project/qa/FINDINGS.md status lines come next. This f
   /tmp is a tmpfs with a per-user quota other sessions share; when it fills,
   even the shell fails (EDQUOT). Put temp files on disk:
       export TMPDIR=$HOME/.cache/pravaha-tmp MAVEN_OPTS=-Djava.io.tmpdir=$HOME/.cache/pravaha-tmp
-  Console:  (cd console && JAVA_HOME=... make test), after
+  Console:  (cd pravaha-console && JAVA_HOME=... make test), after
       ./mvnw -o -pl pravaha-flight -am test-compile

@@ -17,7 +17,7 @@ that breaks one fails the build rather than a review.
 | A connector (source, sink, lookup, notifier) | `plugins/<name>`, `pravaha-api` for the SPI | [Connector development](CONNECTOR_DEVELOPMENT.md) |
 | SQL: a function, an operator, a refusal | `pravaha-sql`, `pravaha-runtime`, `pravaha-codegen` | [Engine development](ENGINE_DEVELOPMENT.md) |
 | A client call, a Flight action, a REST endpoint, a CLI verb | `pravaha-api` (`ControlWire`), `pravaha-flight`, `pravaha-server`, `sdk/*` | [Client development](CLIENT_DEVELOPMENT.md) |
-| A console screen, a help topic | `console/` | [Console development](CONSOLE_DEVELOPMENT.md) |
+| A console screen, a help topic | `pravaha-console/` | [Console development](CONSOLE_DEVELOPMENT.md) |
 | Who may do what | `pravaha-security`, `pravaha-catalog`, `pravaha-identity` | [Security extensions](SECURITY_EXTENSIONS.md) |
 | Embedding the engine in an application | — | [`USER_GUIDE.md` §9–§10](../../guides/USER_GUIDE.md#9-embed-the-engine-in-your-application) |
 | An assistant provider | `sdk/python/pravaha/assist` | [`ASSIST.md`, *Writing a provider plugin*](../../guides/ASSIST.md#writing-a-provider-plugin) |
@@ -36,7 +36,7 @@ How the components fit is [`ARCHITECTURE.md`](../../design/ARCHITECTURE.md).
 - **Only `com.ash.messaging.pravaha.common.memory` names a low-level memory API.** Everything else goes
   through `MemoryAccess` / `MemoryRegion`.
 - **No `java.io.Serializable` as a transport.** Use the row format, `ControlWire` or JSON.
-- **The console reaches the engine only through the Python SDK** (`console/core/engine.py`). If the
+- **The console reaches the engine only through the Python SDK** (`pravaha-console/core/engine.py`). If the
   console needs something the SDK cannot do, add it to the engine's public API and the SDK first.
 
 ## 3. Error codes
@@ -51,7 +51,7 @@ How the components fit is [`ARCHITECTURE.md`](../../design/ARCHITECTURE.md).
 - **Document it** in the same change: a row in [`TROUBLESHOOTING.md`](../../guides/TROUBLESHOOTING.md)'s
   code table (`ErrcCrossCuttingTest`, in `pravaha-cli`, fails if the table and the declarations disagree
   either way), and an explanation on the console's errors topic for its range
-  (`console/content/topics/errors-*.md`; `test_help.py` fails otherwise).
+  (`pravaha-console/content/topics/errors-*.md`; `test_help.py` fails otherwise).
 - The message says what happened, why it matters, and what to do — and may name a setting only if
   `application.yaml` declares it (`DocumentationFreshnessTest.everySettingAnErrorMessageTellsYouToChangeExists`).
 
@@ -110,7 +110,7 @@ tools/worktree-build.sh -Pep -DskipTests clean test-compile # Error Prone and Nu
 In the main checkout the same commands are `./mvnw ...`. Run the tests for what you changed while you
 work, one verification of your change before you hand it on, and leave the whole-reactor gate to whoever
 merges the batch. The console's and the SDK's tests are `pytest` from their own virtual environments
-(`console/.venv`, `sdk/python/.venv`); browser tests only when pages change.
+(`pravaha-console/.venv`, `sdk/python/.venv`); browser tests only when pages change.
 
 **Seed a bug before trusting a test**: break the code, see the test fail, restore it
 ([`HANDOVER.md` §2](../HANDOVER.md#2-working-practices--please-keep-these) has the cases that made this

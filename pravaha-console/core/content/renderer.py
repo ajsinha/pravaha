@@ -87,7 +87,7 @@ class MarkdownRenderer:
         "observability-and-packaging.md": "/help/architecture-observability-packaging",
     }
 
-    #: A help topic linked from a document as its file -- ``../console/content/topics/event-time-watermarks.md#late-data``
+    #: A help topic linked from a document as its file -- ``../pravaha-console/content/topics/event-time-watermarks.md#late-data``
     #: -- is served at /help/topics/<its stem>; the file link is the right one on GitHub.
     _TOPIC = re.compile(r"(?:^|/)content/topics/([a-z0-9-]+)\.md$")
 

@@ -550,10 +550,10 @@ the source is better: it then arrives in order.
 
 The bytes are a row of the source, so they are authorized like one: a caller reading the view through
 a row filter is given the count, the code and the offset and not the record, and replaying needs the
-same permission as `DROP`. See [Dead letters](../../console/content/topics/dead-letters.md) and
+same permission as `DROP`. See [Dead letters](../../pravaha-console/content/topics/dead-letters.md) and
 [OPERATIONS](../operations/OPERATIONS.md#running-with-a-dead-letter-queue).
 
-The [console](../../console/) shows all of this in a browser, including which computations are shared.
+The [console](../../pravaha-console/) shows all of this in a browser, including which computations are shared.
 
 ### Changing a running query: replace, cut over, roll back
 
@@ -659,12 +659,12 @@ running N copies of something that could be one".
 ## 8. Run the console
 
 ```bash
-cd console && make install && make run
+cd pravaha-console && make install && make run
 ```
 
 Then <http://127.0.0.1:17070>. (Not 18080 — that is the engine's own actuator port, and
 following this line to 18080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
-[its README](../../console/README.md) for what that means and what it does not do. What its screens look
+[its README](../../pravaha-console/README.md) for what that means and what it does not do. What its screens look
 like is [the console's screens](../design/architecture/console-screens.md).
 
 ## 9. Embed the engine in your application

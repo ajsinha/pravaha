@@ -136,7 +136,7 @@ conventions a contributor follows are in [`CONTRIBUTING.md`](../../development/g
 | Only one package names a low-level memory API | `ArchitectureRulesTest.onlyTheMemoryPackageNamesALowLevelMemoryApi` |
 | No `java.io.Serializable` as a transport | `ArchitectureRulesTest.nothingIsJavaSerializable` |
 | The Java SDK pulls in no engine, Netty, Calcite or Spring | the enforcer in `sdk/pravaha-sdk-java/pom.xml` |
-| Source files under 1,500 lines | `SourceFileSizeTest` (Java, and the Python under `sdk/python` and `console/`), `console/tests/test_file_sizes.py` |
+| Source files under 1,500 lines | `SourceFileSizeTest` (Java, and the Python under `sdk/python` and `pravaha-console/`), `pravaha-console/tests/test_file_sizes.py` |
 | Every source file carries the proprietary notice | `LicenceHeaderTest`, `LicenseHeaderTest` |
 | Error codes are unique, and the troubleshooting table matches them | `ErrorCodeUniquenessTest`, `ErrcCrossCuttingTest` |
 | No production class reachable only from tests | `OrphanedClassTest` |

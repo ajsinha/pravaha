@@ -669,8 +669,8 @@ class DocumentationFreshnessTest {
 
         String operations =
                 Files.readString(repoRoot().resolve("docs/operations/OPERATIONS.md"), StandardCharsets.UTF_8);
-        String topic =
-                Files.readString(repoRoot().resolve("console/content/topics/configuration.md"), StandardCharsets.UTF_8);
+        String topic = Files.readString(
+                repoRoot().resolve("pravaha-console/content/topics/configuration.md"), StandardCharsets.UTF_8);
         List<String> undocumented = declared.stream()
                 .filter(key -> !operations.contains(key) || !topic.contains(key))
                 .sorted()
@@ -875,9 +875,10 @@ class DocumentationFreshnessTest {
      * Words shaped like a module name that are not one. The bootstrap admin's published password
      * (ADR-052) is written out where a reader needs it, and is a password, not missing code. {@code
      * pravaha-engine} is a command -- {@code bin/pravaha-engine}, the {@code pravaha-cli} module's
-     * jar -- not a module.
+     * jar -- not a module. {@code pravaha-console} is the console's directory, a Python project
+     * rather than a Maven module.
      */
-    private static final Set<String> NOT_MODULES = Set.of("pravaha-dev-admin", "pravaha-engine");
+    private static final Set<String> NOT_MODULES = Set.of("pravaha-dev-admin", "pravaha-engine", "pravaha-console");
 
     private static Set<String> mavenModules() throws IOException {
         String pom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);

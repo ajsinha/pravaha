@@ -1490,7 +1490,7 @@ pravaha:
   that cannot be honoured as written.
 
 `iceberg-sink` keeps an Apache Iceberg table on the local filesystem equal to the view, one snapshot
-per checkpoint ([the help page](../../console/content/topics/sink-iceberg.md) has every option). Two
+per checkpoint ([the help page](../../pravaha-console/content/topics/sink-iceberg.md) has every option). Two
 things to size and to know:
 
 - **Upsert mode holds a checkpoint interval's changes in memory**, collapsed by key, until the
@@ -2377,7 +2377,7 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
 | Container | `deploy/docker/` | The same server, packaged: a non-root image on a Java 21 glibc base, built from artefacts the reactor already produced ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
 | Kubernetes | `deploy/helm/pravaha/` | **One** node as a StatefulSet, because of the state claim below. More replicas are refused at render time |
-| Console | `console/`, separate process | Operator UI, talks only to the public API |
+| Console | `pravaha-console/`, separate process | Operator UI, talks only to the public API |
 
 > **Getting a node running somewhere — the image, the chart, the volumes, the ports, the
 > environment, upgrading a node, the release procedure — is

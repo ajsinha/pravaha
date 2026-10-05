@@ -117,7 +117,7 @@ instances need sticky sessions.
 | The Python SDK | The public names in `pravaha` (everything not starting with `_`), excluding `pravaha.assist` — see below. | [../guides/PYTHON_API_GUIDE.md](../guides/PYTHON_API_GUIDE.md) |
 | The HTTP API | Every path and field under `/api/v1`; fields may be added, never removed or retyped. | the checked-in OpenAPI lock (OPENAPILOCK-1) |
 | Arrow Flight SQL | The ticket verbs and control actions, and the columns of their results; a new column is appended, never inserted. | `ControlWire` |
-| The PostgreSQL gateway | What a psql, pgjdbc, Npgsql or psycopg client may send today keeps working. | [the pgwire help topic](../../console/content/topics/pgwire.md) |
+| The PostgreSQL gateway | What a psql, pgjdbc, Npgsql or psycopg client may send today keeps working. | [the pgwire help topic](../../pravaha-console/content/topics/pgwire.md) |
 | Error codes | A `PRV-nnnn` code keeps its meaning and its SQLSTATE; new codes may be added; a code is never reused. | `ErrorCodeUniquenessTest`; [../guides/TROUBLESHOOTING.md](../guides/TROUBLESHOOTING.md) |
 | The command lines | `pravaha` and `pravaha-engine` subcommands, flags and exit codes; JSON output fields may be added. | [../guides/CLI.md](../guides/CLI.md) |
 | Configuration | Every documented `pravaha.*` key; a key is deprecated for at least one minor release, with a warning at start, before it is removed in the next major. | [OPERATIONS.md](OPERATIONS.md) |

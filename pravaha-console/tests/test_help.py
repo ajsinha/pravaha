@@ -11,7 +11,7 @@ here are about the page being *true*, not about it existing:
 * every page renders, and every internal link on every help page -- topics, guides, the code
   browser, decision records, About -- resolves, anchors included;
 * every SQL example is marked for what it is; pravaha-it's ``HelpExamplesSqlTest`` then plans
-  each one against the real engine (``console/content/examples/*.properties`` declare the
+  each one against the real engine (``pravaha-console/content/examples/*.properties`` declare the
   streams and views), so here the marking and the fixture are checked, and there the SQL;
 * every ``pravaha.*`` setting a page names exists in the engine's shipped application.yaml,
   and every connector option a binding example uses is one its plugin reads;
@@ -363,8 +363,8 @@ def test_every_sql_example_is_marked_for_what_it_is():
 def test_the_engine_side_check_reads_these_pages_and_this_fixture():
     java = (REPO_ROOT / "pravaha-it" / "src" / "test" / "java" / "com" / "ash" / "messaging" / "pravaha"
             / "it" / "HelpExamplesSqlTest.java").read_text(encoding="utf-8")
-    assert '"console/content/topics"' in java
-    assert '"console/content/examples"' in java
+    assert '"pravaha-console/content/topics"' in java
+    assert '"pravaha-console/content/examples"' in java
     for kind in KINDS:
         assert f'"{kind}"' in java, f"the Java check does not know the marker {kind}"
 

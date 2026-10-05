@@ -127,4 +127,4 @@ ann's next read, `CatalogPolicy.mayRead(ann, "big_txn")` asks `CatalogAccess` fo
 `USE` on her tenant's `default` namespace is always hers, the role grant supplies the rest — and the
 verdict's `via` names the grant, which is what `pravaha access why` and `GET /api/v1/catalog/access`
 show. The statement grammar is `CatalogStatements`' class comment; worked statements are in the
-[catalog and grants](../../../console/content/topics/catalog-and-grants.md) help topic.
+[catalog and grants](../../../pravaha-console/content/topics/catalog-and-grants.md) help topic.

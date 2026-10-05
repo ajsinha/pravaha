@@ -5,7 +5,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 
 ``SourceFileSizeTest`` holds every Java file under 1,500 lines; nothing held the Python, and
 ``pravaha/client.py`` had reached 1,782. The same ceiling here, with no allow-list: split,
-don't exempt. The console's tests hold ``console/`` to the same rule, and
+don't exempt. The console's tests hold ``pravaha-console/`` to the same rule, and
 ``SourceFileSizeTest`` holds both trees in the Maven gate.
 """
 

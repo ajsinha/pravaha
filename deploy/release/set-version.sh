@@ -20,7 +20,7 @@
 # WHAT IT TOUCHES
 #   */pom.xml                          the reactor, root and every module
 #   sdk/python/pyproject.toml          the Python SDK wheel
-#   console/pyproject.toml             the console wheel
+#   pravaha-console/pyproject.toml             the console wheel
 #   deploy/helm/pravaha/Chart.yaml     appVersion (the chart's OWN version is separate; see below)
 #   README.md, docs/guides/USER_GUIDE.md and five console help pages: the versions they show
 #
@@ -112,7 +112,7 @@ done
 
 # ---------------------------------------------------------------- the wheels
 
-for toml in sdk/python/pyproject.toml console/pyproject.toml; do
+for toml in sdk/python/pyproject.toml pravaha-console/pyproject.toml; do
   file="$root/$toml"
   [[ -f "$file" ]] || { problem "$toml is missing"; continue; }
   found="$(awk -F'"' '/^version = "/ { print $2; exit }' "$file")"
@@ -128,34 +128,34 @@ done
 
 # ---------------------------------------------------------------- the console's displayed version
 #
-# console/config/application.yaml's app.version is what the console shows on its landing page and
+# pravaha-console/config/application.yaml's app.version is what the console shows on its landing page and
 # its About page. It was not in this list, so a release moved the wheel and left the page saying the
 # previous version: 0.1.0 on a 0.1.1 build.
 
-console_cfg="$root/console/config/application.yaml"
+console_cfg="$root/pravaha-console/config/application.yaml"
 if [[ -f "$console_cfg" ]]; then
   found="$(awk -F'"' '/^  version: "/ { print $2; exit }' "$console_cfg")"
   if [[ "$check_only" == 1 ]]; then
-    [[ "$found" == "$python_version" ]] || problem "console/config/application.yaml app.version is $found, not $python_version"
+    [[ "$found" == "$python_version" ]] || problem "pravaha-console/config/application.yaml app.version is $found, not $python_version"
   elif [[ "$found" != "$python_version" ]]; then
     perl -0pi -e "s|^  version: \"\Q$found\E\"|  version: \"$python_version\"|m" -- "$console_cfg"
     changed=$((changed + 1))
-    note "console/config/application.yaml app.version  $found -> $python_version"
+    note "pravaha-console/config/application.yaml app.version  $found -> $python_version"
   fi
 else
-  problem "console/config/application.yaml is missing"
+  problem "pravaha-console/config/application.yaml is missing"
 fi
 
 # ---------------------------------------------------------------- the pages that show a version
 #
 # A <dependency> block, an artifact version or an example response copied from the docs has to
-# resolve against the build it came with (console/tests/test_help_accuracy.py checks it). Only
+# resolve against the build it came with (pravaha-console/tests/test_help_accuracy.py checks it). Only
 # these shapes, in these files, are rewritten: history -- the release notes, the findings -- is left
 # as it was written.
 
-doc_pages=(README.md docs/guides/USER_GUIDE.md console/content/topics/clients.md
-           console/content/topics/spring-boot-starter.md console/content/topics/embedded-engine.md
-           console/content/topics/http-api.md console/content/topics/cli-reference.md
+doc_pages=(README.md docs/guides/USER_GUIDE.md pravaha-console/content/topics/clients.md
+           pravaha-console/content/topics/spring-boot-starter.md pravaha-console/content/topics/embedded-engine.md
+           pravaha-console/content/topics/http-api.md pravaha-console/content/topics/cli-reference.md
            docs/operations/DEPLOYMENT.md)
 if [[ "$check_only" == 0 && "$current" != "$target" ]]; then
   current_python="${current%-SNAPSHOT}"

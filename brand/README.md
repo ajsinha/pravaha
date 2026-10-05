@@ -54,7 +54,7 @@ frame, rotate the mark, place it on a busy photograph, or apply a drop shadow.
 
 Chosen by the owner on 2026-09-28: the console is drawn in the design language of **MAYA**, the
 sibling product -- MAYA's tokens, its four themes, its fixed top bar with mega-menu panels, its
-banners, flashes and footer. `console/web/static/css/tokens.css` and `theme.css` are MAYA's files
+banners, flashes and footer. `pravaha-console/web/static/css/tokens.css` and `theme.css` are MAYA's files
 with the names changed (`--maya-*` → `--pv-*`); where a value departs from MAYA's, the file says
 why beside it.
 
@@ -62,7 +62,7 @@ why beside it.
 
 The palette is crimson, MAYA's Harvard crimson, in four themes: **Crimson** (the light theme),
 **Dark**, **Blue** (the SAJHA server's #0079C1 / #003168) and **Green** (Rolex #006039 on cream).
-The console's `console/web/static/css/tokens.css` is the only place a colour is defined.
+The console's `pravaha-console/web/static/css/tokens.css` is the only place a colour is defined.
 
 | Token | Crimson | Dark | Use |
 |---|---|---|---|

@@ -1,12 +1,12 @@
 <!--
   Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
   Proprietary and confidential; see the LICENSE file in the root of this repository.
-  The console from IntelliJ, for the compound "Pravaha server + console": console/.venv's Python, as
-  console/Makefile's `make run` starts it. To debug the console, use PyCharm's console/.run configuration.
+  The console from IntelliJ, for the compound "Pravaha server + console": pravaha-console/.venv's Python, as
+  pravaha-console/Makefile's `make run` starts it. To debug the console, use PyCharm's pravaha-console/.run configuration.
 -->
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Pravaha console (shell)" type="ShConfigurationType">
-    <option name="SCRIPT_TEXT" value="console/.venv/bin/python console/run_pravaha_web.py" />
+    <option name="SCRIPT_TEXT" value="pravaha-console/.venv/bin/python pravaha-console/run_pravaha_web.py" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="" />
     <option name="SCRIPT_OPTIONS" value="" />

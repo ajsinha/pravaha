@@ -41,6 +41,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   browser, and reached from a new **?** in the top bar. It replaces the strip of help cards some
   screens carried; Help's own pages keep their footer. A test walks every page route and fails on a
   page without one ([how to add one](../development/guides/CONSOLE_DEVELOPMENT.md#about-this-page)).
+- **The console's source directory is now `pravaha-console/`** (was `console/`), matching its wheel's
+  name. A checkout's old `console/.venv` does not move with it: recreate it with
+  `make -C pravaha-console install`, and point PyCharm at `pravaha-console/` and
+  `pravaha-console/.venv`. No runtime, image, configuration or API change — the image still keeps the
+  console at `/opt/pravaha/console` and is still `pravaha/pravaha-console`.
 
 ---
 
@@ -1345,7 +1350,7 @@ Everything since 0.2.0:
   `ORDER BY`, joins, float aggregates and date functions are still refused by the planner, each by
   name. `NpgsqlClientTest` drives the gateway with the real Npgsql 4.0.17 (skipped without a dotnet
   SDK); `PowerBiGatewayTest` replays the same texts everywhere. Power BI Desktop itself was not run.
-  New help topic: [Power BI](../../console/content/topics/power-bi.md), including a Microsoft Fabric
+  New help topic: [Power BI](../../pravaha-console/content/topics/power-bi.md), including a Microsoft Fabric
   real-time path through `kafka-sink` that is **not verified against Azure**.
 - **The assistant, phase 1 (ADR-058): `pravaha explain-sql` and `pravaha why`, through any model,
   with the engine as the judge.** `pravaha.assist` in the Python SDK, standard library only: a

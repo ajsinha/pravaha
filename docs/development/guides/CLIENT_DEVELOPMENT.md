@@ -152,7 +152,7 @@ report rather than retry.
 | REST | `RegistryEndpointsTest`, `HttpAuthorizationTest`, `AdminEndpointsTest` (`pravaha-server`) | MockMvc over the real controllers |
 | Java SDK | `sdk/pravaha-sdk-java-flight` tests | an in-process Flight server (test-scoped `pravaha-flight`) |
 | Python SDK and CLI | `sdk/python/tests/test_client.py`, `test_cli_flight.py`, `test_api.py`, `test_rest.py` | `com.ash.messaging.pravaha.flight.TestFlightServerMain`, a real Java server started from the Maven build — `./mvnw -o -pl pravaha-flight -am test-compile` first |
-| Console | `console/tests/test_product.py` (fake engine), `test_console.py` (a real server) | see the console guide |
+| Console | `pravaha-console/tests/test_product.py` (fake engine), `test_console.py` (a real server) | see the console guide |
 
 ```bash
 tools/worktree-build.sh -o -pl pravaha-flight test -Dtest=FlightRegistryTest

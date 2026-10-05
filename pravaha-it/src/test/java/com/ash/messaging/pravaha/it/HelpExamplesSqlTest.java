@@ -53,9 +53,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Every SQL example in the console's help pages is planned against the real engine.
  *
  * <p>The same mechanism as {@link CaseStudySqlTest}, extended to the help: a declared set of
- * streams ({@code console/content/examples/streams.properties}, one schema grammar with the node's
+ * streams ({@code pravaha-console/content/examples/streams.properties}, one schema grammar with the node's
  * own), the views a deployment would have ({@code views.properties}), and every {@code ```sql} block
- * under {@code console/content/topics/} planned through the planner and plan builder that
+ * under {@code pravaha-console/content/topics/} planned through the planner and plan builder that
  * {@code POST /api/v1/queries/validate} uses. A help page is the first thing somebody copies from, so
  * an example that reads plausibly and is refused is the worst thing it can hold.
  *
@@ -102,11 +102,11 @@ class HelpExamplesSqlTest {
     }
 
     private static Path topics() {
-        return repoRoot().resolve("console/content/topics");
+        return repoRoot().resolve("pravaha-console/content/topics");
     }
 
     private static Path fixture(String name) {
-        return repoRoot().resolve("console/content/examples").resolve(name);
+        return repoRoot().resolve("pravaha-console/content/examples").resolve(name);
     }
 
     // ------------------------------------------------------------------------------------ tests

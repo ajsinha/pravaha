@@ -5,7 +5,7 @@
 # THE CONSOLE'S CONFIGURATION FOR THE COMPOSE STACK: $PRAVAHA_HOME/conf/console.yaml.
 #
 # Read after the console's own defaults inside the image, and wins key by key: any key of
-# console/config/application.yaml can be set here. tools/docker-env.sh writes it once, generating the
+# pravaha-console/config/application.yaml can be set here. tools/docker-env.sh writes it once, generating the
 # session secret, and never overwrites it. Mode 0600. No password and no engine credential: people
 # sign in as themselves, against the engine's users (ADR-052).
 

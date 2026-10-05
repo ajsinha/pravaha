@@ -77,7 +77,7 @@ def documents(include_historical: bool = False) -> Iterator[tuple[str, str]]:
                 if target.exists():
                     yield source, target.read_text(encoding="utf-8")
             else:
-                yield f"console/content/{area}/{path.name}", body
+                yield f"pravaha-console/content/{area}/{path.name}", body
 
 
 def _without_html_comments(text: str) -> str:
@@ -271,7 +271,7 @@ def test_every_setting_a_guide_or_tutorial_names_exists():
     sdk = REPO_ROOT / "sdk" / "python"
     unknown = []
     for label, text in documents():
-        if label.startswith("console/content/topics/"):
+        if label.startswith("pravaha-console/content/topics/"):
             continue
         for name in set(re.findall(r"`(pravaha\.[a-z][a-z0-9.-]*[a-z0-9])(?:[=:][^`]*)?`", text)):
             if name.startswith(USER_NAMED) or name.endswith(".*") or \

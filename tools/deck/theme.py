@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see LICENSE at the repository root.
 """
-The deck design system: the console's crimson (console/web/templates/base.html:
+The deck design system: the console's crimson (pravaha-console/web/templates/base.html:
 accent #A51C30, #8A1626, #6E1120, tint #F6E6E9, ink #1A1A1A, canvas #F7F5F2) and its
 Source Sans 3 for headings and text; Consolas for code -- with
 the layout primitives every slide is drawn with.
@@ -12,7 +12,7 @@ refuse, so a slide that would overflow fails the build rather than the reader.
 
 The alert colour is semantic only (brand/README.md), so it never decorates a
 slide. A retraction is not an error: where a -1 is drawn it wears the indigo the
-console gives retractions (console/web/templates/base.html, ``--retract``).
+console gives retractions (pravaha-console/web/templates/base.html, ``--retract``).
 
 Project Pravaha -- Ask once. Answer always.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
