@@ -6,7 +6,9 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 The script is generated, at the moment it is asked for, by walking the argparse tree -- commands,
 their verbs, every option, the choices of an option or a positional that has them -- so it cannot
 fall behind the CLI: a command added to ``_app.py`` completes the next time the script is sourced.
-A hidden option (``help=argparse.SUPPRESS``) is not offered. zsh uses the bash script through
+A hidden option (``help=argparse.SUPPRESS``) is not offered. Context names are the one thing
+asked for when completing -- ``pravaha context list --names`` -- after ``--context`` and after
+``context use|show|set|remove``, so a context added a moment ago completes. zsh uses the bash script through
 ``bashcompinit``; fish gets its own ``complete`` lines.
 
 Install::
@@ -88,6 +90,8 @@ _pravaha_complete() {{
 {nl.join(opts)}
   esac
   case "$path|$prev" in
+    *"|--context"|"context show|show"|"context use|use"|"context set|set"|"context remove|remove")
+      choices="$({PROG} context list --names 2>/dev/null)" ;;
 {nl.join(values)}
     *) choices="" ;;
   esac
@@ -156,6 +160,8 @@ function __pravaha_at
 end
 complete -c {PROG} -f
 {nl.join(lines)}
+complete -c {PROG} -l context -x -a '({PROG} context list --names 2>/dev/null)'
+complete -c {PROG} -n '__pravaha_at "context use"; or __pravaha_at "context show"; or __pravaha_at "context set"; or __pravaha_at "context remove"' -a '({PROG} context list --names 2>/dev/null)'
 '''
 
 

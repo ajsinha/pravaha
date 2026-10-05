@@ -16,7 +16,13 @@ import sys
 from typing import Any, Optional
 
 from pravaha.cli._common import EXIT_OK, Context, UsageError, csv
-from pravaha.cli._settings import forget_token, save_token, token_file
+from pravaha.cli._settings import (
+    forget_context_token,
+    forget_token,
+    save_context_token,
+    save_token,
+    token_file,
+)
 from pravaha.errors import PravahaError
 
 
@@ -59,7 +65,9 @@ def login(ctx: Context) -> int:
         )
     saved: Optional[str] = None
     if ctx.arg("save"):
-        saved = str(save_token(token))
+        # Into the context in use, when there is one: its token is for its node, not the default's.
+        context = ctx.settings.context
+        saved = save_context_token(context, token) if context else str(save_token(token))
     if ctx.out.json_mode:
         shown = dict(answer)
         if saved:
@@ -92,13 +100,15 @@ def logout(ctx: Context) -> int:
             # The file goes either way: a token the engine will not end is still not one to keep.
             code = getattr(exc, "engine_code", None) or f"PRV-{exc.code}"
             problem = f"{code}  {getattr(exc, 'message', None) or exc}"
-    removed = forget_token()
+    context = ctx.settings.context
+    removed = forget_context_token(context) if context else forget_token()
+    where = f"the token saved in context {context}" if context else str(token_file())
     if ctx.out.json_mode:
         ctx.out.json({"sessionEnded": ended, "tokenFileRemoved": removed, "error": problem})
     else:
         ctx.out.line(
             ("session ended" if ended else "no session was ended")
-            + (f"; removed {token_file()}" if removed else "; no saved token to remove")
+            + (f"; removed {where}" if removed else "; no saved token to remove")
         )
         if problem:
             ctx.out.warn(problem)

@@ -87,6 +87,26 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "pravaha completion zsh > ~/.zfunc/_pravaha        # zsh, with fpath+=~/.zfunc",
         "pravaha completion fish > ~/.config/fish/completions/pravaha.fish",
     ),
+    "context": (
+        "pravaha context add prod --url grpc+tls://node-1:19090 --http https://node-1:18080 "
+        "--tls-ca ca.pem --use",
+        "pravaha context use prod",
+        "pravaha context show staging",
+    ),
+    "context list": ("pravaha context list", "pravaha context list --names"),
+    "context show": ("pravaha context show prod", "pravaha context show --json"),
+    "context add": (
+        "pravaha context add prod --url grpc+tls://node-1:19090 --http https://node-1:18080 "
+        "--tls-ca ca.pem",
+        "pravaha context add local --url grpc://localhost:19090 --http http://localhost:18080 --use",
+    ),
+    "context set": (
+        "pravaha context set prod --timeout 60",
+        "pravaha context set prod --unset tls-no-verify",
+    ),
+    "context use": ("pravaha context use prod",),
+    "context remove": ("pravaha context remove staging",),
+    "context current": ("pravaha context current", "PRAVAHA_CONTEXT=staging pravaha context current"),
     "streams": ("pravaha streams", "pravaha streams describe trades"),
     "streams list": ("pravaha streams list --json",),
     "streams describe": ("pravaha streams describe trades",),
