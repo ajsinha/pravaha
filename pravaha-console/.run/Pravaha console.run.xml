@@ -1,13 +1,13 @@
 <!--
   Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
   Proprietary and confidential; see the LICENSE file in the root of this repository.
-  The console, for PyCharm opened on console/: run_pravaha_web.py on console/.venv (`make install`
+  The console, for PyCharm opened on pravaha-console/: run_pravaha_web.py on pravaha-console/.venv (`make install`
   creates it), against an engine on the defaults (grpc://localhost:19090, http://localhost:18080).
   docs/development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md
 -->
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Pravaha console" type="PythonConfigurationType" factoryName="Python">
-    <module name="console" />
+    <module name="pravaha-console" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />

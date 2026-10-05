@@ -101,21 +101,21 @@ jobs:
         run: ./mvnw -B -q -DskipTests package
 
       - name: Install the console and the SDK it is built on
-        run: make -C console install
+        run: make -C pravaha-console install
 
       - name: Lint
-        run: make -C console lint
+        run: make -C pravaha-console lint
 
       - name: Type check
-        run: make -C console typecheck
+        run: make -C pravaha-console typecheck
 
       # -rs prints the reason for every skip, which is what makes the next step's check
       # readable when it fires.
       # working-directory, not --rootdir: pytest's markers and testpaths live in
-      # console/pyproject.toml, and a run started from the repository root does not read them --
+      # pravaha-console/pyproject.toml, and a run started from the repository root does not read them --
       # `-m browser` would then be an unknown marker and select nothing.
       - name: Tests, browser included
-        working-directory: console
+        working-directory: pravaha-console
         env:
           PRAVAHA_BROWSER_TESTS: '1'
         run: .venv/bin/python -m pytest tests -q -rs
@@ -125,7 +125,7 @@ jobs:
       # them skipped. Without it, a runner image that drops Chrome turns this whole job into a
       # tick that means "we did not look".
       - name: The browser tests must actually have run
-        working-directory: console
+        working-directory: pravaha-console
         env:
           PRAVAHA_BROWSER_TESTS: '1'
         run: |
@@ -148,5 +148,5 @@ jobs:
         if: failure()
         with:
           name: console-visual-failures
-          path: console/tests/visual/failures/**
+          path: pravaha-console/tests/visual/failures/**
           retention-days: 14

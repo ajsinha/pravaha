@@ -395,12 +395,12 @@ empty and the case says so rather than passing.
 
 ## In the console
 
-Phase 3 puts the assistant in the console (`console/`), which is the SDK's first consumer here too:
+Phase 3 puts the assistant in the console (`pravaha-console/`), which is the SDK's first consumer here too:
 `core/assist.py` holds everything, `routes/assist_routes.py` the screens, and nothing in the engine
 changes.
 
 **One router, following the file.** The console process builds one `ModelRouter` from a
-`FileConfigStore` — `assist.config` in `console/config/application.yaml` (`PRAVAHA_ASSIST_CONFIG`;
+`FileConfigStore` — `assist.config` in `pravaha-console/config/application.yaml` (`PRAVAHA_ASSIST_CONFIG`;
 empty is the SDK's own default, so the console and `pravaha assist` share one file) — and calls
 `router.follow(store)`, polling every `assist.watch_seconds`. A stored configuration that does not
 validate when the console starts is not applied; the console starts with no model and says why.
@@ -417,7 +417,7 @@ was drawn from:
    changed it and when — and nothing is overwritten;
 2. `AssistAdmin` builds the change, validates it with the console's own environment, saves it
    against that version, and calls `router.reconfigure` — so **the very next assist request uses
-   it**, with no restart (`console/tests/test_assist.py` switches a chain through the form and sees
+   it**, with no restart (`pravaha-console/tests/test_assist.py` switches a chain through the form and sees
    the next request answered by the other model; and has a second process's `set_chain` picked up
    by the watch);
 3. the `AuditRecord` — who, what, before and after, the version — is appended to the console's

@@ -141,8 +141,8 @@ if [[ -z "$missing" ]]; then ok "all 15 shipped plugins load inside the image"
 else bad "plugins the image cannot load:$missing"; fi
 
 step "the console, pointed at that node"
-if [[ ! -x "$root/console/.venv/bin/python" ]]; then
-  bad "no console virtualenv at console/.venv -- see console/README.md"
+if [[ ! -x "$root/pravaha-console/.venv/bin/python" ]]; then
+  bad "no console virtualenv at pravaha-console/.venv -- see pravaha-console/README.md"
   exit 1
 fi
 # `exec`, so that $! is the console itself and not the subshell around it. Without it the
@@ -151,7 +151,7 @@ fi
 # reports the failed sign-in as five broken pages. Found exactly that way.
 # No password and no engine token for the console: it holds neither (ADR-052).
 (
-  cd "$root/console"
+  cd "$root/pravaha-console"
   exec env PRAVAHA_ENGINE="grpc://localhost:$flight_port" \
       PRAVAHA_ENGINE_HTTP="http://localhost:$http_port" \
       CONSOLE_SESSION_SECRET="qa-smoke-secret" \

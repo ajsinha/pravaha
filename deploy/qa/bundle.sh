@@ -94,9 +94,9 @@ if ! compgen -G "$wheels/pravaha-$version-*.whl" >/dev/null || ! compgen -G "$wh
     || { echo "bundle.sh: no tag v$version to build the wheels from" >&2; exit 1; }
   echo "bundle.sh: building the $version wheels from v$version"
   rm -rf "$root/target/release-src" && mkdir -p "$root/target/release-src" "$wheels"
-  git -C "$root" archive "v$version" sdk/python console | tar -x -C "$root/target/release-src"
+  git -C "$root" archive "v$version" sdk/python pravaha-console | tar -x -C "$root/target/release-src"
   "$docker_bin" run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$root/target:/w" python:3.13-slim sh -c \
-    'pip install -q --user hatchling && for p in sdk/python console; do python -m pip wheel -q --no-deps --no-build-isolation -w /w/wheels /w/release-src/$p || exit 1; done'
+    'pip install -q --user hatchling && for p in sdk/python pravaha-console; do python -m pip wheel -q --no-deps --no-build-isolation -w /w/wheels /w/release-src/$p || exit 1; done'
 fi
 label="sdk wheel";   take "$wheels"/pravaha-"$version"-*.whl
 label="console wheel"; take "$wheels"/pravaha_console-"$version"-*.whl

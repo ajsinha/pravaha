@@ -49,7 +49,7 @@ flowchart LR
     end
 
     subgraph consoleproc["Console process (Python)"]
-        console["FastAPI + Jinja + islands<br/>(console/)"]
+        console["FastAPI + Jinja + islands<br/>(pravaha-console/)"]
     end
 
     subgraph node["pravaha-server (one JVM)"]
@@ -220,7 +220,7 @@ Four things the graph says, each enforced by the build rather than by habit
 | Reading answers | `pravaha-serving`, `pravaha-flight`, `pravaha-pgwire` | [serving](architecture/serving.md) |
 | Who may do what | `pravaha-security`, `pravaha-identity`, `pravaha-catalog` | [governance](architecture/governance.md) |
 | Hosts | `pravaha-server`, `pravaha-embedded`, `pravaha-spring-boot-starter`, `pravaha-cli`, `pravaha-cluster`, `plugins/pravaha-cluster-zookeeper` | [hosts](architecture/hosts.md) |
-| Clients and the console | `sdk/pravaha-sdk-java`, `sdk/pravaha-sdk-java-flight`, `sdk/python`, `console/`, the assistant | [clients and console](architecture/clients-and-console.md) |
+| Clients and the console | `sdk/pravaha-sdk-java`, `sdk/pravaha-sdk-java-flight`, `sdk/python`, `pravaha-console/`, the assistant | [clients and console](architecture/clients-and-console.md) |
 | Running and proving it | observability, `deploy/` (Docker, Helm, distribution), `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`, `pravaha-bom` | [observability and packaging](architecture/observability-and-packaging.md) |
 
 The plugins, one line each — their options are in [`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md)
@@ -245,7 +245,7 @@ The plugins, one line each — their options are in [`../guides/CONTINUOUS_QUERI
 ## 3. Trace one: a Kafka record becomes a change a subscriber sees, and a row a `psql` user reads
 
 Take a node with this binding and registration (the shapes are the real ones; the Kafka options are
-in [`../../console/content/topics/source-kafka.md`](../../console/content/topics/source-kafka.md)):
+in [`../../pravaha-console/content/topics/source-kafka.md`](../../pravaha-console/content/topics/source-kafka.md)):
 
 ```yaml
 pravaha:

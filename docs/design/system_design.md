@@ -2853,7 +2853,7 @@ The console serves audiences with genuinely different jobs. A single undifferent
 |---|---|---|
 | Console process | **Python 3.13 + FastAPI**, Uvicorn | A separate runtime makes the API boundary unviolable (§23.2a); and the console is then built on the published SDK, which proves the integration story rather than asserting it |
 | Engine API | **Spring Boot 3.5** (Java 21 *(25 in 2.0.0, ADR-061; 21 again, ADR-062)*), WebMVC on virtual threads, Spring Security + OIDC, springdoc-openapi | Serves the public REST and gRPC surface, plus a minimal server-rendered status page that works when the console is down |
-| Console-to-engine | **`pravaha` Python SDK** over Flight; the engine's **published REST endpoints** (`/api/v1/streams`, `/queries/validate`, `/queries/explain`, `/status`) and **Prometheus text** over HTTP | The console is the SDK's first real consumer. The Python SDK speaks Flight only, so the few REST calls live in the one engine adapter (`console/core/engine.py`) — the same public endpoints a third party calls, and the calls the SDK should grow |
+| Console-to-engine | **`pravaha` Python SDK** over Flight; the engine's **published REST endpoints** (`/api/v1/streams`, `/queries/validate`, `/queries/explain`, `/status`) and **Prometheus text** over HTTP | The console is the SDK's first real consumer. The Python SDK speaks Flight only, so the few REST calls live in the one engine adapter (`pravaha-console/core/engine.py`) — the same public endpoints a third party calls, and the calls the SDK should grow |
 | Live updates | **SSE** for the result tap (one engine subscription fanned out by the BFF) and the operations dashboard (one scrape a second, fanned out) | SSE is one-directional, reconnects by itself and passes proxies that mangle upgrades. A WebSocket is reserved for the debugger, the one genuinely bidirectional surface, which is not built |
 | Page shell and public pages | **Jinja2 templates**, server-rendered (§23.4a) | Renders the theme into the markup, so no flash; works with JavaScript disabled. The pattern is proven in the owner's other Python web applications |
 | Application surfaces | **No-build islands**: plain ES modules with **Preact + htm**, resolved by an import map, mounted over server-rendered pages | See below |
@@ -2870,7 +2870,7 @@ The console serves audiences with genuinely different jobs. A single undifferent
 **Why no-build islands, not the React + Vite + TanStack stack this table first named.** Three
 constraints decided it, each on its own sufficient:
 
-- **Air-gapped.** Everything the console loads is a file in `console/web/static/`, vendored with its
+- **Air-gapped.** Everything the console loads is a file in `pravaha-console/web/static/`, vendored with its
   licence (§23.4a). A bundler adds nothing to that and a build step that fetches packages is one more
   thing that must work behind a customer's proxy.
 - **No Node toolchain.** Pravaha builds with a JDK and a Python; nothing on the build machines runs
@@ -3047,8 +3047,8 @@ during an incident.
 | elkjs 0.12 | ~1.6 MB, loaded only when a plan is drawn |
 | Preact 10 + hooks, htm 3 | ~20 KB, every page (the command palette) |
 
-Vendored assets live under `console/web/static/vendor/`, are checked in with their licences, and
-are listed in `THIRD-PARTY-NOTICES.md`. A test (`console/tests/test_product.py`) fails on any
+Vendored assets live under `pravaha-console/web/static/vendor/`, are checked in with their licences, and
+are listed in `THIRD-PARTY-NOTICES.md`. A test (`pravaha-console/tests/test_product.py`) fails on any
 template, island or stylesheet that makes the browser fetch from another host, and on any rendered
 page whose `<script>`, `<link>` or `<img>` points off the console — the rule is mechanical, because
 it is the kind that erodes one convenient exception at a time.
@@ -3375,7 +3375,7 @@ class QueryController {
 
 > **Status (2026-09).** The tools in the table are replaced by what runs without a Node toolchain
 > (§23.3): the console's tests drive a real headless Chrome over the DevTools protocol from
-> Python (`console/tests/cdp.py`), against the real console with the engine adapter faked, and
+> Python (`pravaha-console/tests/cdp.py`), against the real console with the engine adapter faked, and
 > skip with their reason where no Chrome is installed. **Visual regression**: 23 pages and one
 > designed refusal state, light and dark, 1280×800 and 390×844, against committed baselines with a pixel tolerance and a diff image
 > on failure, and compact density photographed the same way (240 baselines in all). **Accessibility**: vendored axe-core, zero
@@ -3390,7 +3390,7 @@ class QueryController {
 > initial JavaScript, time to interactive, route transitions, main-thread blocking and lazy
 > loading of Monaco and ECharts, asserted per page. **Unit / component** (Vitest) and
 > **contract** (generated types) have no equivalent: there is no build step to generate into.
-> Status per item in `console/README.md`.
+> Status per item in `pravaha-console/README.md`.
 
 ### 23.19 Build and packaging
 
@@ -3401,10 +3401,10 @@ class QueryController {
 > exists, and the contradiction with §23.2a is why this section is rewritten rather than deleted:
 > a plan that reads as current is worse than one plainly marked dead.
 
-The console is a **separate Python process** under `console/`, not a Maven module:
+The console is a **separate Python process** under `pravaha-console/`, not a Maven module:
 
 ```
-console/
+pravaha-console/
 ├── pyproject.toml               pravaha-console; Python >= 3.11, FastAPI + Uvicorn
 ├── Makefile                     install / run / run-against / test / lint / typecheck / clean
 ├── run_pravaha_web.py           entry point
@@ -3414,7 +3414,7 @@ console/
 └── tests/
 ```
 
-- `make -C console run` installs into a local `.venv` and starts it; `make -C console test` runs its
+- `make -C pravaha-console run` installs into a local `.venv` and starts it; `make -C pravaha-console test` runs its
   tests. The Java reactor never builds it, so backend work never waits on a Python toolchain — which
   is the benefit the old `-Pui` profile was reaching for, obtained by separation instead of a flag.
 - It talks to the engine over the **published Python SDK and the public API only** (ADR-023,
@@ -3436,7 +3436,7 @@ Not a feeling. A release gate.
 > six journeys that need a DLQ, backfill, blue/green, backpressure sampling, the debugger and role
 > grants. The audit read API now exists (`GET /api/v1/audit`, behind `SecurityPolicy.mayReadAudit`)
 > and the console has Admin · Audit and Admin · Access (screens 21 read-only, 22). Not attempted: the eight-states audit, onboarding timed with real
-> people, Storybook. Item by item, with the test that proves each: `console/README.md`.
+> people, Storybook. Item by item, with the test that proves each: `pravaha-console/README.md`.
 
 - [ ] Every screen implements all eight states of §23.12
 - [ ] Light and dark both designed and visually regression-tested; both densities likewise

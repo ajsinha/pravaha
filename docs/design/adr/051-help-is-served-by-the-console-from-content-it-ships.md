@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; built — `console/core/content/library.py` (`include:`), `deploy/docker/console/Dockerfile` (the content it copies, and the build check that every include resolves) |
+| Status | Accepted; built — `pravaha-console/core/content/library.py` (`include:`), `deploy/docker/console/Dockerfile` (the content it copies, and the build check that every include resolves) |
 | Date | 2026-09-26 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-024 (the console is a separate process that reaches the engine only through its public API), IMG-1 |
@@ -28,7 +28,7 @@ settings in force — read through the public API the console already uses (`/ap
 
 The Markdown stays in the repository as the one source; a console page names it with `include:`
 rather than copying it. The console image copies the included trees to the paths `include:`
-resolves to, and its build fails if any include under `console/content` does not resolve.
+resolves to, and its build fails if any include under `pravaha-console/content` does not resolve.
 
 ## Why not a documentation service on the engine
 
@@ -48,7 +48,7 @@ resolves to, and its build fails if any include under `console/content` does not
 
 ## Consequences
 
-- Adding a help page means adding Markdown under `docs/` or `console/content/` and, for an
+- Adding a help page means adding Markdown under `docs/` or `pravaha-console/content/` and, for an
   `include:`, nothing else: the image carries it and the build proves it resolves.
 - A console installed some other way than the image (from the wheel, outside the checkout) has no
   included content; the image is the supported way to run it outside the repository.

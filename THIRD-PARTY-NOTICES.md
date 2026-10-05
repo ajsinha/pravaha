@@ -85,7 +85,7 @@ native libraries; they are not redistributed, and a deployment that adds one tak
 
 ## Console browser assets — vendored and redistributed
 
-The console (`console/`) serves every script, stylesheet and font from its own
+The console (`pravaha-console/`) serves every script, stylesheet and font from its own
 `web/static/vendor/` directory, so it renders with no network access (design §23.4a).
 These files are redistributed unmodified, except that Monaco is a subset of its `min/`
 build (the editor core, its contributions chunk, its loader and its editor worker; the language workers and
@@ -110,12 +110,12 @@ repository above.
 ## Console test tools — vendored, never served
 
 The console's browser tests inject one third-party script into the pages they audit. It
-lives under `console/tests/vendor/`, is not part of the console's wheel and is never sent
+lives under `pravaha-console/tests/vendor/`, is not part of the console's wheel and is never sent
 to a browser by the console itself.
 
 | Component | Version | Licence | Licence file | Project |
 |---|---|---|---|---|
-| axe-core | 4.13.0 | Mozilla Public License 2.0 (bundles code under the MIT licence, listed in its third-party file) | `console/tests/vendor/axe-core/LICENSE`, `console/tests/vendor/axe-core/LICENSE-3RD-PARTY.txt` | https://github.com/dequelabs/axe-core |
+| axe-core | 4.13.0 | Mozilla Public License 2.0 (bundles code under the MIT licence, listed in its third-party file) | `pravaha-console/tests/vendor/axe-core/LICENSE`, `pravaha-console/tests/vendor/axe-core/LICENSE-3RD-PARTY.txt` | https://github.com/dequelabs/axe-core |
 
 **axe-core note.** `axe.min.js` is the unmodified file from the npm tarball
 `axe-core-4.13.0.tgz` (sha512 `UzGt8zg7…Kcy0A==`, as published in the registry's
@@ -126,7 +126,7 @@ and its source is the upstream repository above.
 
 The Pravaha name, flow mark and slogan are proprietary to Ashutosh Sinha and are not
 licensed for third-party use. The console's typefaces — Source Sans 3, Source Serif 4
-and Source Code Pro, vendored under `console/web/static/vendor/fonts/` — and IBM Plex,
+and Source Code Pro, vendored under `pravaha-console/web/static/vendor/fonts/` — and IBM Plex,
 referenced by the design system, are licensed under the SIL Open Font License 1.1.
 
 ## Reporting

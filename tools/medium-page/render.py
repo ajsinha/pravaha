@@ -2,8 +2,8 @@
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 """Render docs/publications/medium/pravaha-medium-post.md as one self-contained page in the console's crimson identity.
 
-    console/.venv/bin/python tools/medium-page/render.py            # docs/publications/medium/pravaha-medium-post.html
-    console/.venv/bin/python tools/medium-page/render.py OUT.html
+    pravaha-console/.venv/bin/python tools/medium-page/render.py            # docs/publications/medium/pravaha-medium-post.html
+    pravaha-console/.venv/bin/python tools/medium-page/render.py OUT.html
 
 Every diagram is inlined as a data URI -- the SVG, which is the source (docs/publications/medium/README.md) -- so the
 page is one file that can be sent, attached or opened offline. The page is generated, never edited:

@@ -238,7 +238,7 @@ the decision rules are `CatalogAccess`'s ([governance](../../design/architecture
 |---|---|
 | A policy's decisions through every surface | `HttpAuthorizationTest`, `RegistryEndpointsTest` (`pravaha-server`), `FlightRegistryTest` (`pravaha-flight`) as patterns |
 | The codes a refusal carries | `ErrcSecurityTest` (`pravaha-cli`) |
-| The catalogue | `pravaha-catalog`'s own tests; `console/tests/test_catalog_governance.py`, `test_catalog_policies.py` for the screens |
+| The catalogue | `pravaha-catalog`'s own tests; `pravaha-console/tests/test_catalog_governance.py`, `test_catalog_policies.py` for the screens |
 | Identity | `pravaha-identity`'s tests; `sdk/python/tests/test_authentication.py` against `TestFlightServerMain` |
 | Beans on a node, the embedded hook | `CustomPolicyBeanTest`, `SecurityExtensionNodeTest` (`pravaha-server`), `EmbeddedSecurityHookTest` (`pravaha-embedded`) |
 

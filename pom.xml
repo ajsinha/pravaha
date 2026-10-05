@@ -861,11 +861,11 @@
           activation, because activation does not interpolate this property and a profile that
           silently never fires is worse than one that is explicit.
 
-          Requires `make install` in sdk/python and in console first. Override with
+          Requires `make install` in sdk/python and in pravaha-console first. Override with
           -Dpython.executable=... to use an interpreter of your own.
         -->
         <python.executable>${maven.multiModuleProjectDirectory}/sdk/python/.venv/bin/python</python.executable>
-        <console.executable>${maven.multiModuleProjectDirectory}/console/.venv/bin/python</console.executable>
+        <console.executable>${maven.multiModuleProjectDirectory}/pravaha-console/.venv/bin/python</console.executable>
       </properties>
     </profile>
 

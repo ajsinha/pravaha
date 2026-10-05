@@ -16,7 +16,7 @@ Pravaha has two command-line tools, and which one you want depends on whether th
 
 The full per-command reference — every flag, sample output, and the refusal codes each command
 meets — is the console's help page **CLI reference**, whose source is
-[`console/content/topics/cli-reference.md`](../../console/content/topics/cli-reference.md). This page is
+[`pravaha-console/content/topics/cli-reference.md`](../../pravaha-console/content/topics/cli-reference.md). This page is
 the repository's guide to the same program: how it is configured, how it behaves, how it is built, and
 the command map.
 

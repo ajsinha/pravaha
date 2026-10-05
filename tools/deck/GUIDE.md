@@ -84,7 +84,7 @@ where they are either the output of a real run or answers the build checks
 | File | Purpose |
 |---|---|
 | `metrics.py` | The text estimator: greedy word-wrap simulation and paragraph heights. Shared by the builder and the audit, so the builder never believes a box fits that the audit then reports |
-| `theme.py` | The design system of the console (`console/web/templates/base.html`) — crimson (`#A51C30`, `#8A1626`, `#6E1120`, tint `#F6E6E9`, ink `#1A1A1A`, canvas `#F7F5F2`) and Source Sans 3 for headings and text — plus the flow mark drawn as shapes, tables, cards, stat bars, code panels, and `fitted()`, which shrinks a text block until it fits or raises `DoesNotFit` |
+| `theme.py` | The design system of the console (`pravaha-console/web/templates/base.html`) — crimson (`#A51C30`, `#8A1626`, `#6E1120`, tint `#F6E6E9`, ink `#1A1A1A`, canvas `#F7F5F2`) and Source Sans 3 for headings and text — plus the flow mark drawn as shapes, tables, cards, stat bars, code panels, and `fitted()`, which shrinks a text block until it fits or raises `DoesNotFit` |
 | `layouts.py` | Slide kinds drawn from plain dictionaries: `title`, `divider`, `bullets`, `table`, `cards`, `stats`, `split`, `flow`, `code`, `context`. A spec's `source` becomes the slide's speaker notes |
 | `pravaha_deck.py`, `deck_part1.py` … `deck_part4.py` | The deck, as data: the title slide and the 2.x release slide in `pravaha_deck.py`, the twelve parts in order in the four part modules. Split only to keep each file short; they are one deck and are meant to be read in order |
 | `build.py` | Builds the deck and sets the document properties (author, title, subject) explicitly |

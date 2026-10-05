@@ -8,7 +8,7 @@
 # `docker compose restart console` in /opt/pravaha. The same path on the host and in the container.
 #
 # It is read AFTER the console's own defaults, which ship inside the image, and wins key by key --
-# so any key of console/config/application.yaml can be set here, and one that is not keeps the
+# so any key of pravaha-console/config/application.yaml can be set here, and one that is not keeps the
 # product's value. Everything an operator would change is written out below.
 #
 # install.sh writes this file once, generating the session secret into it, and never overwrites it

@@ -240,7 +240,7 @@
             <configuration>
               <skip>${pravaha.console.tests.skip}</skip>
               <executable>${console.executable}</executable>
-              <workingDirectory>${project.basedir}/../console</workingDirectory>
+              <workingDirectory>${project.basedir}/../pravaha-console</workingDirectory>
               <arguments>
                 <argument>-m</argument>
                 <argument>pytest</argument>

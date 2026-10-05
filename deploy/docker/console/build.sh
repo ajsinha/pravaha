@@ -8,7 +8,7 @@
 #   deploy/docker/console/build.sh                    # -> pravaha/pravaha-console:<console version>
 #   deploy/docker/console/build.sh --tag pravaha-console:local
 #
-# The tag defaults to the version in console/pyproject.toml, which deploy/release/set-version.sh
+# The tag defaults to the version in pravaha-console/pyproject.toml, which deploy/release/set-version.sh
 # keeps in step with the engine's. On a machine reaching the daemon through a group:
 #   sg docker -c "deploy/docker/console/build.sh"
 set -euo pipefail
@@ -25,8 +25,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/console/pyproject.toml")"
-[[ -n "$version" ]] || { echo "build.sh: no version in console/pyproject.toml" >&2; exit 1; }
+version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/pravaha-console/pyproject.toml")"
+[[ -n "$version" ]] || { echo "build.sh: no version in pravaha-console/pyproject.toml" >&2; exit 1; }
 tag="${tag:-pravaha/pravaha-console:$version}"
 
 # What the image says it is, as the engine's image does (org.opencontainers.image.* labels).

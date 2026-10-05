@@ -1,6 +1,6 @@
 ---
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. A fixed fixture (ABOUTBASE-1):
-# the real topic is console/content/topics/getting-started.md, which every other test reads. The two
+# the real topic is pravaha-console/content/topics/getting-started.md, which every other test reads. The two
 # sections the start and overview screens' help cards open keep their anchors and first paragraphs.
 title: Getting started
 slug: getting-started

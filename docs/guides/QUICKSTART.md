@@ -319,7 +319,7 @@ The landing page, the documentation and the health probes stay open, because an 
 the console during an incident needs it to load and say what is wrong before signing in.
 
 ```bash
-cd console
+cd pravaha-console
 make install          # .venv, the Pravaha Python SDK, and the console
 make run              # http://127.0.0.1:17070, engine at grpc://localhost:19090
 ```
@@ -372,7 +372,7 @@ Server-rendered HTML with small script islands and **no build step**: the vendor
 editor in the workbench, a plan graph and the time-travel debugger are files under `web/static`, not
 the output of a bundler. Its browser suites — journeys, the eight states of design §23.12, an
 accessibility check with axe, performance budgets and visual-regression screenshots — run in a real
-headless Chrome (`console/tests`).
+headless Chrome (`pravaha-console/tests`).
 
 ## 8. Clean up
 

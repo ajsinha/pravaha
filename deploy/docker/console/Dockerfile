@@ -11,7 +11,7 @@
 # The same PRAVAHA_HOME layout as the engine's image, rooted at /opt/pravaha
 # (docs/operations/RUNNING_IN_DOCKER.md, "The layout"):
 #
-#   console/ docs/ examples/     the console's code and the documentation it serves (the image's)
+#   pravaha-console/ docs/ examples/     the console's code and the documentation it serves (the image's)
 #   conf/console.yaml            the deployment's configuration: any key, and it wins (mounted)
 #   data/console/                the assistant's configuration, usage ledger and log (PRAVAHA_CONFIG_DIR)
 #   logs/pravaha-console.log     the console's log, rotated; standard error as well
@@ -59,7 +59,7 @@ RUN pip install --no-cache-dir "/tmp/sdk[flight]" && rm -rf /tmp/sdk
 # So a deployment's file names only what it changes, and the version and the rest of the product's
 # own keys still come from the image a release ships -- a copied-out file cannot pin a stale one.
 WORKDIR /opt/pravaha/console
-COPY console /opt/pravaha/console
+COPY pravaha-console /opt/pravaha/console
 
 # The documentation the console serves but does not own. A guide, a tutorial, the code browser, the
 # decision records and the About page's "what is built" all read files that live at the repository

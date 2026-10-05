@@ -141,8 +141,8 @@ run_console() {
   echo "docker-test.sh: the console's pytest suite" >&2
   in_runner sh -ec "
     [ -x '$cache/venv-console/bin/python' ] || python3 -m venv '$cache/venv-console'
-    '$cache/venv-console/bin/pip' install --quiet --disable-pip-version-check -e 'sdk/python[flight]' -e 'console[dev]'
-    cd console && '$cache/venv-console/bin/python' -m pytest -q -p no:cacheprovider tests"
+    '$cache/venv-console/bin/pip' install --quiet --disable-pip-version-check -e 'sdk/python[flight]' -e 'pravaha-console[dev]'
+    cd pravaha-console && '$cache/venv-console/bin/python' -m pytest -q -p no:cacheprovider tests"
 }
 
 case "$suite" in

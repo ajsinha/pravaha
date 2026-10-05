@@ -2,7 +2,7 @@
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 """Render docs/guides/PYTHON_API_GUIDE.md as one self-contained page in the console's crimson identity.
 
-    console/.venv/bin/python tools/guide-page/render.py OUT.html tools/guide-page/template.html
+    pravaha-console/.venv/bin/python tools/guide-page/render.py OUT.html tools/guide-page/template.html
 
 The published page is generated, never edited: docs/guides/PYTHON_API_GUIDE.md is the source of truth, and
 the console serves the same file at /help/python-api-guide.

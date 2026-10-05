@@ -5,7 +5,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 Part of [clients and the console](clients-and-console.md#the-console).
 The screens here are captured from the console with its browser-test harness
-(`console/tests/browser_harness.py`): the real application, real Chrome, and the **fake engine** the
+(`pravaha-console/tests/browser_harness.py`): the real application, real Chrome, and the **fake engine** the
 product tests use, so the names and numbers are the fake's (`big_txn`, `hot`), not a live node's.
 
 | | |
@@ -29,7 +29,7 @@ product tests use, so the names and numbers are the fake's (`big_txn`, `hot`), n
 **Help** — topics by category, the long-form guides (this page's siblings among them) and every code.
 
 Every screen ends with **About this page** — what it is for, a few tiles on what you can do there and
-the idea behind it, and its help topics (`console/core/page_help.py`, and `SCREEN_HELP` in
-`console/core/help_catalog.py`); the **?** in the top bar jumps to it. The
+the idea behind it, and its help topics (`pravaha-console/core/page_help.py`, and `SCREEN_HELP` in
+`pravaha-console/core/help_catalog.py`); the **?** in the top bar jumps to it. The
 [console developer guide](../../development/guides/CONSOLE_DEVELOPMENT.md) says how a screen is added and
 how these images were taken.

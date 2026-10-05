@@ -40,11 +40,11 @@ build_fixture() {
         mkdir -p "$dst/$(dirname "$pom")"
         cp "$root/$pom" "$dst/$pom"
       done
-  mkdir -p "$dst/sdk/python" "$dst/console/config" "$dst/deploy/helm/pravaha" "$dst/deploy/release"
+  mkdir -p "$dst/sdk/python" "$dst/pravaha-console/config" "$dst/deploy/helm/pravaha" "$dst/deploy/release"
   cp "$root/sdk/python/pyproject.toml"      "$dst/sdk/python/pyproject.toml"
-  cp "$root/console/pyproject.toml"         "$dst/console/pyproject.toml"
+  cp "$root/pravaha-console/pyproject.toml"         "$dst/pravaha-console/pyproject.toml"
   # set-version.sh keeps the console's displayed version in step too, and refuses a tree without it.
-  cp "$root/console/config/application.yaml" "$dst/console/config/application.yaml"
+  cp "$root/pravaha-console/config/application.yaml" "$dst/pravaha-console/config/application.yaml"
   cp "$root/deploy/helm/pravaha/Chart.yaml" "$dst/deploy/helm/pravaha/Chart.yaml"
   cp "$here/set-version.sh" "$here/version.sh" "$dst/deploy/release/"
   chmod +x "$dst/deploy/release/"*.sh
@@ -71,7 +71,7 @@ grep -q '37 poms' <<<"$out" || grep -q 'poms, 2 wheels and the chart all say 0.2
 $out"
 [[ "$("$fixture/deploy/release/version.sh" "$fixture")" == "0.2.0" ]] || fail "the root pom is not 0.2.0"
 grep -q '^version = "0.2.0"$' "$fixture/sdk/python/pyproject.toml" || fail "the Python SDK wheel is not 0.2.0"
-grep -q '^version = "0.2.0"$' "$fixture/console/pyproject.toml"    || fail "the console wheel is not 0.2.0"
+grep -q '^version = "0.2.0"$' "$fixture/pravaha-console/pyproject.toml"    || fail "the console wheel is not 0.2.0"
 grep -q '^appVersion: "0.2.0"$' "$fixture/deploy/helm/pravaha/Chart.yaml" || fail "the chart's appVersion is not 0.2.0"
 grep -q '^version: 0.1.0$' "$fixture/deploy/helm/pravaha/Chart.yaml" \
   || fail "the CHART's own version moved. It is not the engine's and must not follow it without --chart-version."

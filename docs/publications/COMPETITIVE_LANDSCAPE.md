@@ -109,7 +109,7 @@ as windowed, which was not verified here, hence Partial.
 - `SELECT user_id, COUNT(*) FROM txn GROUP BY user_id` is refused `PRV-2050`, and the refusal names
   the fix: `GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id`
   ([`CONTINUOUS_QUERIES.md` §13](../guides/CONTINUOUS_QUERIES.md#why-an-unwindowed-group-by-is-refused),
-  [SQL refusals](../../console/content/topics/sql-refusals.md)).
+  [SQL refusals](../../pravaha-console/content/topics/sql-refusals.md)).
 - The support matrix that lists each refusal is checked against the planner by
   `ContinuousQueriesClaimsTest`.
 
@@ -132,7 +132,7 @@ incident is debugged from logs and a copy of production.
 - It steps by one row, N rows, to the next commit, to a watermark, or until a column crosses a value,
   and each step reports every operator's rows in and out and the view's changes with their weights:
   `pravaha debug step --session "$SESSION" --step until:total:<:0`
-  ([time-travel debugger](../../console/content/topics/time-travel-debugger.md)).
+  ([time-travel debugger](../../pravaha-console/content/topics/time-travel-debugger.md)).
 - The session exports as a self-contained JUnit test whose expectation is rehearsed, and
   `DebugFixtureExportTest` compiles and runs one.
 
@@ -154,7 +154,7 @@ documented as meeting the running version at an exact input position.
   version beside the old, replays the source from the beginning, splices onto the live stream at the
   exact position the running version has reached, and takes the name only when both have consumed
   the same input ([ADR-046](../design/adr/046-a-replacement-meets-the-running-version-at-a-position.md),
-  [backfill and cutover](../../console/content/topics/backfill-cutover.md)).
+  [backfill and cutover](../../pravaha-console/content/topics/backfill-cutover.md)).
 - Subscribers are told the view was replaced (`PRV-4019`); a sink follows the name at a checkpoint
   boundary and is sent only the difference; the replaced version is kept for an hour, so a rollback
   is one step. A replacement in flight survives a restart (`QueryReplacementTest`,
@@ -175,8 +175,8 @@ the indexes of its own structures, not those of an external store.
 
 - Filters are pushed into JDBC and Aerospike, and into Cassandra on the key; projections into all
   three; and a continuous `COUNT`/`SUM` into a JDBC poll as one pre-combined partial per page
-  ([README](../../README.md), "Sources"; [the JDBC source](../../console/content/topics/source-jdbc.md),
-  [the Aerospike source](../../console/content/topics/source-aerospike.md)). `PushdownEquivalenceTest`,
+  ([README](../../README.md), "Sources"; [the JDBC source](../../pravaha-console/content/topics/source-jdbc.md),
+  [the Aerospike source](../../pravaha-console/content/topics/source-aerospike.md)). `PushdownEquivalenceTest`,
   `SourcePushdownEquivalenceTest` and `PartialAggregatePushdownEquivalenceTest` hold a pushed query
   to the same answer as an unpushed one.
 - A source declares what it can evaluate, and the planner pushes only that
@@ -204,8 +204,8 @@ structures, readable by key.
   a snapshot with none lost between, and read over the PostgreSQL wire protocol when
   `pravaha.pgwire.enabled` is on ([ADR-014](../design/adr/014-serve-maintained-views.md),
   [ADR-030](../design/adr/030-flight-sql-as-the-client-protocol.md),
-  [point reads](../../console/content/topics/views-and-keys.md#point-reads),
-  [the PostgreSQL gateway](../../console/content/topics/pgwire.md)).
+  [point reads](../../pravaha-console/content/topics/views-and-keys.md#point-reads),
+  [the PostgreSQL gateway](../../pravaha-console/content/topics/pgwire.md)).
 - An equality index over a column outside the key answers a read by that column without a scan
   ([ADR-055](../design/adr/055-an-equality-index-over-a-column-outside-the-key.md)).
 - From Python: `client.query("SELECT total FROM user_volume WHERE user_id = ?", "u42")`.
@@ -226,7 +226,7 @@ sharing matched on two users' identical queries.
   parameters and the row filters and masks that apply to whoever registered it — not the SQL text — so
   differences of layout and alias share, and anything that changes the answer does not
   ([ADR-025](../design/adr/025-registration-and-subscription-separated.md),
-  [sharing](../../console/content/topics/sharing.md), `SharingIdentityTest`).
+  [sharing](../../pravaha-console/content/topics/sharing.md), `SharingIdentityTest`).
 - A tenant shares only with itself
   ([ADR-050](../design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
 - `pravaha queries` shows two names on one fingerprint and one `ROWS IN` counter.
@@ -250,12 +250,12 @@ is per topic.
   owners, tags and allow-only grants inherited down namespaces, changed by SQL, REST, CLI or the
   console with no restart, every change journalled and audited
   ([ADR-059](../design/adr/059-the-pravaha-catalog-governs-live-answers.md),
-  [catalogue and grants](../../console/content/topics/catalog-and-grants.md), `CatalogServiceTest`).
+  [catalogue and grants](../../pravaha-console/content/topics/catalog-and-grants.md), `CatalogServiceTest`).
 - Row filters and column masks are catalogue objects: `CREATE ROW FILTER` and `CREATE MASK`, bound to
   one object or to every object carrying a tag, now and later. They are enforced on Flight reads,
   point reads, pgwire, subscriptions, registrations and alerts, and carried into the plan and the
   fingerprint of every query built on the view
-  ([row filters and masks](../../console/content/topics/row-filters-and-masks.md),
+  ([row filters and masks](../../pravaha-console/content/topics/row-filters-and-masks.md),
   `CatalogPoliciesEndToEndTest`, `PgNarrowingTest`, `AlertNarrowingTest`).
 - **Revocation reaches an open stream.** A revoked `SUBSCRIBE` ends the subscription already running,
   within seconds, with `PRV-7002`; a changed filter or mask ends the affected subscriptions with
@@ -281,7 +281,7 @@ hence Partial.
 - Authentication and authorization happen in Pravaha on every read, against the streams a view derives
   from; a policy may return a row filter, which is injected into the plan and into the sharing
   fingerprint ([ADR-031](../design/adr/031-authorization-at-the-pravaha-layer.md),
-  [`../operations/SECURITY.md`](../operations/SECURITY.md), [row filters](../../console/content/topics/row-filters-and-masks.md),
+  [`../operations/SECURITY.md`](../operations/SECURITY.md), [row filters](../../pravaha-console/content/topics/row-filters-and-masks.md),
   `ViewQueryAuthorizationTest`).
 - A filter may read the reader's claims — `session_attribute('region')`, `current_user()`,
   `is_member('role')` — and a store user carries attributes presented as claims.
@@ -303,7 +303,7 @@ Kafka-native engines, libraries and catalogues leave alerting to another system.
 - `CREATE ALERT` follows one view's answer: a key **fires** when its row enters the view and
   **clears** when it leaves — deleted, or updated back across the `WHERE`. Clearing is honest because
   the view is fed retractions ([ADR-057](../design/adr/057-alerts.md),
-  [alerts](../../console/content/topics/alerts.md), `AlertServiceTest`,
+  [alerts](../../pravaha-console/content/topics/alerts.md), `AlertServiceTest`,
   `RetailLowStockAlertEndToEndTest`).
 - What is true (`fire_after`, `clear_after`) and what is said (dedupe, pause, snooze, reminders until
   `ACK`) are kept apart, so muting a notification never changes the state.
@@ -327,8 +327,8 @@ govern what a BI tool reads through a warehouse engine, but are not the endpoint
 
 - With `pravaha.pgwire.enabled`, `psql`, DBeaver, Grafana and **Power BI** (Import and DirectQuery,
   through its own PostgreSQL connector) read a maintained view: simple and extended protocol, text and
-  binary results, `\d`, TLS ([the PostgreSQL gateway](../../console/content/topics/pgwire.md),
-  [Power BI](../../console/content/topics/power-bi.md), `PowerBiGatewayTest`, `PgPowerBiTextTest`).
+  binary results, `\d`, TLS ([the PostgreSQL gateway](../../pravaha-console/content/topics/pgwire.md),
+  [Power BI](../../pravaha-console/content/topics/power-bi.md), `PowerBiGatewayTest`, `PgPowerBiTextTest`).
 - The same authentication, grants, row filters and masks apply as on Flight — text and binary
   results alike (`PgNarrowingTest`); writes are refused.
 
@@ -349,7 +349,7 @@ ship none.
   *Describe it* on the console's workbench. The draft is planned by the engine under the caller's own
   credentials, fingerprinted, and repaired at most three times without changing what it reads; it is
   registered only when a person says so ([ADR-058](../design/adr/058-plain-english-to-continuous-sql.md),
-  [the assistant](../../console/content/topics/assistant.md), [`../guides/ASSIST.md`](../guides/ASSIST.md)).
+  [the assistant](../../pravaha-console/content/topics/assistant.md), [`../guides/ASSIST.md`](../guides/ASSIST.md)).
 - **Any model.** Providers plug in behind one protocol by entry point — Anthropic, OpenAI, Azure
   OpenAI, Bedrock, Vertex, Ollama and any OpenAI-compatible server are built in — with fallback
   chains, per-user budgets and runtime switching in Admin · AI models.
@@ -373,8 +373,8 @@ exact position.
 
 - Lane sharing is `auto` by default: a node's first 64 queries each own a lane, so a failing query takes
   down only itself, and registrations after them share, saving about 1 MiB per idle query
-  ([lane sharing](../../console/content/topics/lanes.md#sharing-lanes),
-  [sizing lanes](../../console/content/topics/lanes.md#sizing-lanes), `NodeLaneSharingTest`).
+  ([lane sharing](../../pravaha-console/content/topics/lanes.md#sharing-lanes),
+  [sizing lanes](../../pravaha-console/content/topics/lanes.md#sizing-lanes), `NodeLaneSharingTest`).
 - `WITH (lane = 'dedicated')` puts one query on a lane of its own whatever the mode, and
   `CREATE OR REPLACE` moves a running query between a shared lane and its own at a lossless cutover
   (`DedicatedLaneTest`).
@@ -399,9 +399,9 @@ change capture has been Debezium-based, hence Partial.
   replication API: an insert at `+1`, a delete as the whole old row at `−1`, an update as both, whole
   transactions, exactly once — the slot is confirmed only at checkpoints — with an initial snapshot that
   resumes exactly mid-read ([ADR-041](../design/adr/041-change-data-capture-without-debezium.md),
-  [PostgreSQL CDC](../../console/content/topics/source-postgres-cdc.md), `PostgresCdcSnapshotTest`).
+  [PostgreSQL CDC](../../pravaha-console/content/topics/source-postgres-cdc.md), `PostgresCdcSnapshotTest`).
 - `mysql-cdc` reads the row-based binlog as a replica, with the same weights, exactly once from a binlog
-  file and offset ([MySQL CDC](../../console/content/topics/source-mysql-cdc.md)).
+  file and offset ([MySQL CDC](../../pravaha-console/content/topics/source-mysql-cdc.md)).
 - The limits are stated: MySQL has no initial snapshot yet, and a CDC binding feeds one query — a
   second, different query over it is refused (`PRV-8028`) ([README](../../README.md), "What is not built").
 
@@ -420,7 +420,7 @@ testing rather than as an embedding; streaming databases are servers. Catalogues
 - `PravahaEngine.createDefault()` runs the whole loop in process — streams, bindings, continuous
   queries, pushed rows, SQL reads, subscriptions, journal and checkpoints — with no Spring and no
   network ([ADR-019](../design/adr/019-spring-free-engine-core.md),
-  [embedded engine](../../console/content/topics/embedded-engine.md)).
+  [embedded engine](../../pravaha-console/content/topics/embedded-engine.md)).
 - `pravaha-spring-boot-starter` makes it a bean, with `@PravahaListener`
   ([ADR-020](../design/adr/020-spring-boot-starter.md)). The same engine runs as a server.
 - No Spring in the engine core is enforced by `ArchitectureRulesTest`.
@@ -440,11 +440,11 @@ the windows.
 
 - A query's watermark is the newest event time seen minus the stream's out-of-orderness, a quiet
   partition stops holding the rest back, and a window publishes when the watermark passes its end
-  ([event time and watermarks](../../console/content/topics/event-time-watermarks.md)).
+  ([event time and watermarks](../../pravaha-console/content/topics/event-time-watermarks.md)).
 - With `allowed-lateness: 5m` on the `txn` stream, a late row reopens a published window as a
   retraction of the old answer and the corrected one, in one commit
   ([`CONTINUOUS_QUERIES.md` §6](../guides/CONTINUOUS_QUERIES.md#6-corrections-and-why-the-answer-can-go-backwards),
-  [late data](../../console/content/topics/event-time-watermarks.md#late-data), `LateDataTest`). Allowed lateness is zero by
+  [late data](../../pravaha-console/content/topics/event-time-watermarks.md#late-data), `LateDataTest`). Allowed lateness is zero by
   default.
 
 **Why it matters.** Real inputs arrive out of order. An engine that drops late rows publishes a
@@ -461,7 +461,7 @@ Differential Dataflow are built on it; the embeddable JVM category is not an inc
 
 - Every change is a Z-set delta with a weight — `+1` a row appears, `−1` a row is withdrawn — through
   the engine, across the wire and into both SDKs ([ADR-013](../design/adr/013-zsets-and-dbsp.md),
-  [weights and retractions](../../console/content/topics/zset-weights.md), `ZSetTest`).
+  [weights and retractions](../../pravaha-console/content/topics/zset-weights.md), `ZSetTest`).
 - An update is `−1` of the old row and `+1` of the new, in one commit.
 
 **Why it matters.** It is what makes an answer cheap to keep current, and what lets a consumer apply a
@@ -481,7 +481,7 @@ and product. Differential Dataflow leaves output to the application.
 - `jdbc-sink`, `kafka-sink`, `delta-sink` and `iceberg-sink` stage a checkpoint's changes and commit
   them once the checkpoint is durable; an idempotent upsert such as `aerospike-sink` is effectively
   once, a plain append at least once, and the guarantee is stated at registration
-  ([delivery guarantees](../../console/content/topics/delivery-guarantees.md),
+  ([delivery guarantees](../../pravaha-console/content/topics/delivery-guarantees.md),
   `TransactionalSinkDeliveryTest`).
 - It costs a second write and output trails the view by up to a checkpoint interval
   ([README](../../README.md), "What is not built").
@@ -501,8 +501,8 @@ operational numbers.
 - Prometheus per query — rows in, view size, state against its ceiling, watermark lag, checkpoint
   health, commit latency, backpressure in time — and, with `pravaha.metrics.operators` on, rows in and
   out, state bytes and self time per plan node, naming the bottleneck operator
-  ([observability](../../console/content/topics/observability.md),
-  [metrics and alerts](../../console/content/topics/observability.md), `PravahaMetricsTest`).
+  ([observability](../../pravaha-console/content/topics/observability.md),
+  [metrics and alerts](../../pravaha-console/content/topics/observability.md), `PravahaMetricsTest`).
 - Metrics for alerts, the catalogue and Flight; four Grafana dashboards and Prometheus rules under
   `deploy/observability/`; JSON logs with correlation, trace and span ids; OpenTelemetry tracing
   (off by default) with spans per request, registration, replacement, checkpoint and notification,
@@ -548,10 +548,10 @@ reach.
 
 - `delta-sink` keeps a Delta table equal to the view by key, or writes a changelog of every change with
   its weight, one Delta commit per checkpoint, on Delta Kernel and not Spark
-  ([the Delta sink](../../console/content/topics/sink-delta.md)).
+  ([the Delta sink](../../pravaha-console/content/topics/sink-delta.md)).
 - `iceberg-sink` keeps an Iceberg table equal to the view through equality deletes, or writes a
   changelog, one snapshot per checkpoint, on iceberg-core and not Spark
-  ([the Iceberg sink](../../console/content/topics/sink-iceberg.md), `IcebergSinkPluginTest`).
+  ([the Iceberg sink](../../pravaha-console/content/topics/sink-iceberg.md), `IcebergSinkPluginTest`).
 - **Partial**, because Iceberg is local-filesystem tables only: no object stores, catalog services,
   partitioned tables or schema evolution yet ([README](../../README.md), "What is not built").
 
@@ -630,7 +630,7 @@ catalogues as services, with years of production behind them.
 **How Pravaha does it.**
 
 - **No.** One node. A standby takes over when a node's claim on its state goes stale
-  ([standby](../../console/content/topics/standby.md)); multi-node execution is designed
+  ([standby](../../pravaha-console/content/topics/standby.md)); multi-node execution is designed
   ([ADR-045](../design/adr/045-cluster-mode-assigns-queries-not-rows.md)) and **on hold by the owner**, and a node
   refuses `PARTITIONED` mode with `PRV-9002` rather than pretend ([`../development/REMAINING.md`](../development/REMAINING.md)).
 - **The scaling gate is not reached**: eight-lane efficiency measured **28–42 % of linear** against a
@@ -651,7 +651,7 @@ organisation's identity provider, with multi-factor authentication; self-run eng
 - **No, by decision.** The engine keeps its own users, Argon2id passwords, scoped expiring API keys and
   sessions, and the console signs each person in against it
   ([ADR-052](../design/adr/052-the-engine-is-the-identity-authority.md),
-  [authentication](../../console/content/topics/authentication.md)). MFA and single sign-on were dropped
+  [authentication](../../pravaha-console/content/topics/authentication.md)). MFA and single sign-on were dropped
   by the owner ([README](../../README.md), "What is not built").
 
 **Why it matters.** An organisation that requires its identity provider in front of every tool will
@@ -728,7 +728,7 @@ data, with materialized views triggered on insert rather than retracting.
 | Calcite, as Flink and others use it | Parse and optimise with Calcite, execute with operators of one's own | [ADR-002](../design/adr/002-calcite-as-compiler.md) |
 | Kafka Streams, Hazelcast Jet | A stream engine that is a library inside a JVM application | [ADR-019](../design/adr/019-spring-free-engine-core.md), [ADR-020](../design/adr/020-spring-boot-starter.md) |
 | ksqlDB | Two ways to ask: a read of the answer, and a subscription to its changes | [ADR-026](../design/adr/026-one-subscription-model-three-carriers.md) |
-| Materialize, RisingWave | The PostgreSQL wire protocol, so existing tools read a view | [the PostgreSQL gateway](../../console/content/topics/pgwire.md) |
+| Materialize, RisingWave | The PostgreSQL wire protocol, so existing tools read a view | [the PostgreSQL gateway](../../pravaha-console/content/topics/pgwire.md) |
 | Debezium | Change data capture from PostgreSQL's logical replication — reimplemented, not depended on | [ADR-041](../design/adr/041-change-data-capture-without-debezium.md) |
 | Trino | Connectors that say what they can evaluate, so the planner pushes only that | [connector guide §4](../development/guides/CONNECTOR_DEVELOPMENT.md#4-capabilities-claim-the-weakest-thing-that-is-true) |
 | Unity Catalog | Namespaced objects, owners, tags, inherited grants, row filters and column masks as objects | [ADR-059](../design/adr/059-the-pravaha-catalog-governs-live-answers.md) |

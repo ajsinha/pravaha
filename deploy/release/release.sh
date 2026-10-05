@@ -138,8 +138,8 @@ fi
 # ---------------------------------------------------------------- 7. commit and tag
 
 step "commit and tag"
-run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
-    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics docs/operations/DEPLOYMENT.md
+run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml pravaha-console/pyproject.toml pravaha-console/config/application.yaml \
+    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md pravaha-console/content/topics docs/operations/DEPLOYMENT.md
 run git -C "$root" commit -m "Release $version"
 run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 
@@ -147,8 +147,8 @@ run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 
 step "back to $next"
 run "$here/set-version.sh" "$next"
-run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
-    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics docs/operations/DEPLOYMENT.md
+run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml pravaha-console/pyproject.toml pravaha-console/config/application.yaml \
+    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md pravaha-console/content/topics docs/operations/DEPLOYMENT.md
 run git -C "$root" commit -m "Back to $next"
 
 # ---------------------------------------------------------------- what is left for a person
@@ -171,7 +171,7 @@ What a person still has to do, and why this script will not:
   helm push target/pravaha-*.tgz oci://<registry>/charts
                                           likewise
   (cd sdk/python && python -m build)     no index and no credential here
-  (cd console && python -m build)        likewise
+  (cd pravaha-console && python -m build)        likewise
 
 There is no \`mvn deploy\`: the root pom has no <distributionManagement>. Adding one is a
 decision with consequences beyond this script -- see docs/operations/DEPLOYMENT.md, "Release".

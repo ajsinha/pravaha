@@ -160,9 +160,9 @@ without building the server; install the wheel from there with `pip install
 ## 6. The console's tests
 
 ```bash
-make -C console install
-make -C console test-fast       # everything but the browser
-make -C console test            # the browser suites too: journeys, states, axe, visual, performance
+make -C pravaha-console install
+make -C pravaha-console test-fast       # everything but the browser
+make -C pravaha-console test            # the browser suites too: journeys, states, axe, visual, performance
 ```
 
 ```
@@ -170,8 +170,8 @@ make -C console test            # the browser suites too: journeys, states, axe,
 ```
 
 That was the first run: the 16 were the query page's screenshots, out of date since the page gained
-an Owner row. After reviewing `console/tests/visual/failures/*.diff.png` and retaking those
-baselines (`make -C console baselines` retakes all of them; `PRAVAHA_UPDATE_BASELINES=1
+an Owner row. After reviewing `pravaha-console/tests/visual/failures/*.diff.png` and retaking those
+baselines (`make -C pravaha-console baselines` retakes all of them; `PRAVAHA_UPDATE_BASELINES=1
 .venv/bin/python -m pytest tests/test_browser_visual.py -k query-` only the query page's), the
 visual suite ran 790 passed. The one skip is `test_observability.py`'s `promtool` check.
 
@@ -267,7 +267,7 @@ INFO:     Uvicorn running on http://127.0.0.1:37070 (Press CTRL+C to quit)
 ```
 
 Open `http://127.0.0.1:37070/login` and sign in as `admin` / `pravaha-dev-admin`. (With the default
-ports, `make -C console run` is enough.) Before signing in, `/api/v1/health` says the engine wants a
+ports, `make -C pravaha-console run` is enough.) Before signing in, `/api/v1/health` says the engine wants a
 credential — that is the console reporting the engine correctly, not a fault:
 
 ```

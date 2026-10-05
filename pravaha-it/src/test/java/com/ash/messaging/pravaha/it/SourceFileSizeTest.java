@@ -77,7 +77,7 @@ class SourceFileSizeTest {
 
     /**
      * CONSOLESIZE-1: the same ceiling for the Python -- the console and the SDK -- which nothing held
-     * until {@code console/core/services.py} passed it. The console's and the SDK's own pytest suites
+     * until {@code pravaha-console/core/services.py} passed it. The console's and the SDK's own pytest suites
      * check it too ({@code test_file_sizes.py}); this is where the gate sees it.
      */
     @Test
@@ -97,7 +97,7 @@ class SourceFileSizeTest {
                 .isEmpty();
         assertThat(pythonSources())
                 .as("the Python rule scans the console and the SDK")
-                .anyMatch(p -> p.endsWith(Path.of("console", "core", "services.py")))
+                .anyMatch(p -> p.endsWith(Path.of("pravaha-console", "core", "services.py")))
                 .anyMatch(p -> p.endsWith(Path.of("sdk", "python", "pravaha", "client.py")));
     }
 

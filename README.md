@@ -276,7 +276,7 @@ with interactive islands in plain ES modules — no bundler, no Node toolchain �
 Monaco, ECharts and ELK included, vendored so it runs air-gapped.
 
 ```bash
-cd console && make install && make run     # :17070, engine Flight at :19090 and HTTP at :18080
+cd pravaha-console && make install && make run     # :17070, engine Flight at :19090 and HTTP at :18080
 ```
 
 Each persona lands on its own screen. An analyst gets a **SQL Workbench**: Monaco with catalog-aware
@@ -303,7 +303,7 @@ lowered, and a cutover and a rollback each confirmed by the typed name, with the
 shown as a time and said to have closed when it has.
 All eight §23.18 journeys run in headless Chrome, end to end; light, dark and compact
 density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not done.
-[How it is built →](console/README.md)
+[How it is built →](pravaha-console/README.md)
 
 ## Documentation
 
@@ -401,7 +401,7 @@ Python and console suites: [docs/development/TESTING.md](docs/development/TESTIN
 
 **SDKs:** [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java),
 [`sdk/pravaha-sdk-java-flight`](sdk/pravaha-sdk-java-flight), [`sdk/python`](sdk/python). The
-console is its own artefact in [`console`](console).
+console is its own artefact in [`pravaha-console`](pravaha-console).
 
 ## Roadmap
 

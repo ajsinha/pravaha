@@ -154,4 +154,4 @@ user name is informational, because the credential decides the principal. The st
 `PgWireConnection`, which verifies the credential, then calls
 `ViewQuery.execute(...)` — a whole-key probe on `txn_id` — and answers `RowDescription`, one `DataRow` and
 `CommandComplete`. The connection's options and what each driver needs are
-[`../../../console/content/topics/pgwire.md`](../../../console/content/topics/pgwire.md).
+[`../../../pravaha-console/content/topics/pgwire.md`](../../../pravaha-console/content/topics/pgwire.md).

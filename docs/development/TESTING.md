@@ -35,7 +35,7 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 | Container-backed `pravaha-it` | `AerospikeContinuousQueryIT`, `AerospikeSourceScaleIT` | Docker | as above, `-pl pravaha-it` | 3 tests, 56 s |
 | Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 21 or later, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **re-measured on JDK 25 on 2026-10-04** ([gate pack](../project/gates/measured-2026-10-04-jdk25/README.md)), all but the spill tier's |
 | Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s (432 collected on 2026-10-02) |
-| Console | `console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C console test` / `make -C console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)); 1,957 collected on 2026-10-02 |
+| Console | `pravaha-console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C pravaha-console test` / `make -C pravaha-console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)); 1,957 collected on 2026-10-02 |
 | SDK, standalone | `tools/sdk-standalone-check.sh`, after `tools/build-sdk.sh` | Docker (or a running node), Maven, Python with venv or uv | `sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` | four clients outside the repository (Maven, `-all` jar, wheel with and without `[flight]`), green on 2026-09-30 ([below](#the-sdks-on-their-own)) |
 | Deck | `tests/deck` | `tools/deck/.venv` (python-pptx) | `tools/deck/.venv/bin/python -m pytest -q tests/deck` | 5 passed, 1 s |
 | The gate | whole reactor | JDK 21 or later, the shared `~/.m2` | `tools/verify-clean.sh` | **not run in this pass**; its header records 5 min 50 s for 2,274 tests |
@@ -416,14 +416,14 @@ against the Flight server this build just compiled, adding about 2.5 minutes. It
 `sdk/python/.venv`, or `PRAVAHA_SDK_PYTHON=<interpreter>`; a missing interpreter, or one without
 pytest and pyarrow, fails the gate by name before anything is built. `PRAVAHA_GATE_SDK=0` leaves the
 suite out and says so. The console's suite, whose browser tests need Chrome and about half an hour,
-is not gated: run it with `./mvnw -Ppython verify` or from `console/` directly.
+is not gated: run it with `./mvnw -Ppython verify` or from `pravaha-console/` directly.
 
 ## Console
 
 ```bash
-make -C console install         # .venv, the SDK from ../sdk/python with 'flight', the console's dev extras
-make -C console test-fast       # everything except the browser suites (PRAVAHA_BROWSER_TESTS=0)
-make -C console test            # all of it; needs Chrome or Chromium
+make -C pravaha-console install         # .venv, the SDK from ../sdk/python with 'flight', the console's dev extras
+make -C pravaha-console test-fast       # everything except the browser suites (PRAVAHA_BROWSER_TESTS=0)
+make -C pravaha-console test            # all of it; needs Chrome or Chromium
 ```
 
 | Suite | Files | What it proves |
@@ -432,14 +432,14 @@ make -C console test            # all of it; needs Chrome or Chromium
 | help accuracy | `test_help.py`, `test_help_accuracy.py` | the help topics render, their includes resolve, and what they claim about the engine matches it |
 | browser journeys, states, performance | `test_browser_journeys.py`, `test_browser_states.py`, `test_browser_performance.py` | real headless Chrome over the DevTools protocol (`tests/cdp.py`), keyboard paths, the eight states, a page-weight budget |
 | accessibility | `test_browser_accessibility.py` | zero axe-core 4.13 violations (vendored under `tests/vendor/axe-core`) on every page, in every theme |
-| visual | `test_browser_visual.py` | screenshots against `tests/visual` baselines; `make -C console baselines` retakes them, **only after reviewing** `tests/visual/failures/*.diff.png` |
+| visual | `test_browser_visual.py` | screenshots against `tests/visual` baselines; `make -C pravaha-console baselines` retakes them, **only after reviewing** `tests/visual/failures/*.diff.png` |
 | lint, types, contrast, file sizes, i18n | `test_lint.py`, `test_typecheck.py`, `test_contrast.py`, `test_file_sizes.py`, `i18n_scan.py` | ruff, mypy, WCAG contrast of the themes, size budgets, untranslated strings |
 
 A browser test **skips** when no Chrome is found. CI's `suites` workflow runs the `browser`-marked
 tests on their own and fails if any skipped (`pytest -m browser -rs`), for the same reason as the
 container floor above.
 
-Measured: `make -C console test`'s pytest, browser suites included, headless Google Chrome —
+Measured: `make -C pravaha-console test`'s pytest, browser suites included, headless Google Chrome —
 **1,937 passed, 1 skipped (`promtool` not installed) in 31 min 27 s** once the query page's
 baselines were retaken (the first run had 16 visual failures, below). The visual suite alone:
 790 passed, 13 min 24 s. The browser suites are most of the time; `test-fast` leaves them out.
@@ -519,7 +519,7 @@ this step by step with the output it printed. In short:
    with a `filesystem` source that follows a CSV, a registry journal and a checkpoint directory.
 2. `pravaha login --user admin --password-stdin --save`, then `pravaha register`, `pravaha query`.
 3. The Python SDK with the saved token; pgwire with the token as the password.
-4. `make -C console run` (or `run_pravaha_web.py` with `PRAVAHA_ENGINE`, `PRAVAHA_ENGINE_HTTP`,
+4. `make -C pravaha-console run` (or `run_pravaha_web.py` with `PRAVAHA_ENGINE`, `PRAVAHA_ENGINE_HTTP`,
    `CONSOLE_PORT`), sign in as `admin`.
 5. Stop the node, append rows, start it again: the registry journal restores the query, the
    checkpoint restores the view, and the source resumes from its offset.
@@ -542,7 +542,7 @@ own check ([Deployment](../operations/DEPLOYMENT.md#tests)).
 |---|---|---|
 | Every commit, locally | the changed modules' tests (`tools/worktree-build.sh -o test -pl <module>`), plus the modules that depend on what changed | seconds to a few minutes |
 | Every push (the `fast` workflow) | `./mvnw -B -T1C clean verify -DskipITs` — unit, property, `pravaha-it` in-process, the documentation checks | a few minutes |
-| Every push touching `sdk/` or `console/` (the `suites` workflow) | `make -C sdk/python test lint typecheck`; `make -C console test` with a browser, and the browser suites alone with `-rs`, failing on any skip | SDK 1.5 min; console 31 min with the browser |
+| Every push touching `sdk/` or `pravaha-console/` (the `suites` workflow) | `make -C sdk/python test lint typecheck`; `make -C pravaha-console test` with a browser, and the browser suites alone with `-rs`, failing on any skip | SDK 1.5 min; console 31 min with the browser |
 | Before a merge to `develop` | `tools/verify-clean.sh` in the main checkout | ~6 min (its header) |
 | Nightly (the `verify` workflow) | `./mvnw -B clean verify -Pit` with Docker, then `deploy/ci/assert-suite-ran.sh failsafe 20`; also check the Kafka and Postgres-CDC classes report no skips | ~10 min for the six container plugins run one after another |
 | Before a release | the nightly set, `tools/qa-smoke.sh`, `deploy/docker/smoke.sh`, `deploy/helm/test.sh` | |

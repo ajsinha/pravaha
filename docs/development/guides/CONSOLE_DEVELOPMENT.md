@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 How to change the console: add or change a screen, add an engine call, add a help topic, and test all of
-it. **The console's own [`README.md`](../../../console/README.md) is the canonical description** of its
+it. **The console's own [`README.md`](../../../pravaha-console/README.md) is the canonical description** of its
 layout, its design rules (MAYA), its vendored libraries, its help system and its test tiers; this guide is
 the task-by-task path through it and does not repeat it. Running it from PyCharm is
 [`RUNNING_IN_INTELLIJ_AND_PYCHARM.md`](../setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md#the-console-in-pycharm); where it sits in the system
@@ -46,7 +46,7 @@ browser does, an island knows only the console's own `/api/v1`.
 ## 1. Running it
 
 ```bash
-cd console
+cd pravaha-console
 make install                 # .venv, the Python SDK and the console
 make run                     # http://127.0.0.1:17070, engine at grpc://localhost:19090 and http://localhost:18080
 python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:19090 --engine.http_url=http://staging:18080

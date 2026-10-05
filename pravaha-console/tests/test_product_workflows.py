@@ -1043,7 +1043,7 @@ def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):
     # console reads, rather than typed into the test: it said "0.1.0" and failed the day the
     # release script moved the console to 0.1.1, in a test whose subject is not typing numbers in.
     configured = re.search(r'^  version: "([^"]+)"', (CONSOLE_ROOT / "config" / "application.yaml").read_text(), re.MULTILINE)
-    assert configured, "console/config/application.yaml declares app.version"
+    assert configured, "pravaha-console/config/application.yaml declares app.version"
     version = configured.group(1)
     assert Messages()("landing.instance.console", version=version) == f"console {version}"
     assert f"console {version}" in page

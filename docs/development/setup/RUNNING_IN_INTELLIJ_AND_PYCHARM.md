@@ -9,13 +9,13 @@ there. This is the developer's loop, not a deployment: a deployment is a contain
 ([`DEPLOYMENT.md`](../../operations/DEPLOYMENT.md)).
 
 The repository carries the run configurations, so neither IDE needs setting up by hand:
-[`.run/`](../../../.run) for IntelliJ and [`console/.run/`](../../../console/.run) for PyCharm
+[`.run/`](../../../.run) for IntelliJ and [`pravaha-console/.run/`](../../../pravaha-console/.run) for PyCharm
 ([below](#the-shared-run-configurations)).
 
 **Checked on 2026-10-04, on JDK 21** (OpenJDK 21.0.12.1), by starting both exactly as the run
 configurations do: the server from its compiled classes with the configuration's main class, VM
-options, profiles and working directory, and the console with `console/.venv`'s Python from
-`console/`. The server logged `Starting PravahaServerApplication using Java 21.0.12.1` and served on
+options, profiles and working directory, and the console with `pravaha-console/.venv`'s Python from
+`pravaha-console/`. The server logged `Starting PravahaServerApplication using Java 21.0.12.1` and served on
 18080 and 19090; the console signed in as `admin`, showed `engine up`, listed the streams the server
 declared, and had the server explain a query (the screenshots below are from that run). The
 `pravaha-engine explain` configuration printed its logical and physical plans. Neither IDE's own
@@ -28,7 +28,7 @@ screen is shown here: the IDEs were not driven, the processes they start were.
 | JDK | **21 or later**; CI tests 21 and 25 | Temurin or OpenJDK ([COMPATIBILITY.md](../../operations/COMPATIBILITY.md#java-21-or-later), [ADR-062](../../design/adr/062-java-21-or-later.md)). Every module compiles with `--release 21`; the Maven enforcer refuses an older JDK |
 | Maven | none to install | the wrapper, `./mvnw`, fetches 3.9 |
 | IntelliJ IDEA | Community or Ultimate, 2024.1 or later | Ultimate adds the Spring Boot run type; Community's **Application** type is all the server needs |
-| Python | **3.11 or later** for the console; 3.9 or later for the Python SDK alone | from `requires-python` in [`console/pyproject.toml`](../../../console/pyproject.toml) and [`sdk/python/pyproject.toml`](../../../sdk/python/pyproject.toml) |
+| Python | **3.11 or later** for the console; 3.9 or later for the Python SDK alone | from `requires-python` in [`pravaha-console/pyproject.toml`](../../../pravaha-console/pyproject.toml) and [`sdk/python/pyproject.toml`](../../../sdk/python/pyproject.toml) |
 | PyCharm | Community or Professional | IntelliJ Ultimate with the Python plugin works the same way |
 | Chrome or Chromium | any recent | only for the console's browser suites (below) |
 
@@ -48,7 +48,7 @@ what each step prints, is in [Build and test without Docker](GUIDE_BUILD_AND_TES
 .venv`, then editable installs). Both are git-ignored.
 
 ```bash
-cd console && make install && cd ..       # console/.venv: ../sdk/python[flight] editable, then the console with [dev]
+cd pravaha-console && make install && cd ..       # pravaha-console/.venv: ../sdk/python[flight] editable, then the console with [dev]
 cd sdk/python && make install && cd ../.. # sdk/python/.venv: the SDK with [dev]; only to work on the SDK itself
 ```
 
@@ -210,29 +210,29 @@ IntelliJ plugin and enable it for this project, so the IDE formats as the build 
 
 ### Open the project and choose the interpreter
 
-1. Create `console/.venv` first ([What you need](#what-you-need): `cd console && make install`).
-2. **File → Open…** and choose the **`console/`** directory (not the repository root): PyCharm then
-   reads the run configurations in `console/.run/`, and `run_pravaha_web.py`'s imports (`core`,
+1. Create `pravaha-console/.venv` first ([What you need](#what-you-need): `cd pravaha-console && make install`).
+2. **File → Open…** and choose the **`pravaha-console/`** directory (not the repository root): PyCharm then
+   reads the run configurations in `pravaha-console/.run/`, and `run_pravaha_web.py`'s imports (`core`,
    `routes`) resolve from the project root.
 3. **Settings → Project → Python Interpreter → Add Interpreter → Add Local Interpreter → Select
-   existing**, and choose `console/.venv/bin/python` (on Windows `console\.venv\Scripts\python.exe`).
+   existing**, and choose `pravaha-console/.venv/bin/python` (on Windows `pravaha-console\.venv\Scripts\python.exe`).
 
 ### The run configuration: `Pravaha console`
 
-Committed as [`console/.run/Pravaha console.run.xml`](../../../console/.run/Pravaha%20console.run.xml).
+Committed as [`pravaha-console/.run/Pravaha console.run.xml`](../../../pravaha-console/.run/Pravaha%20console.run.xml).
 Made by hand it is **Run → Edit Configurations… → + → Python**:
 
 | Field | Value |
 |---|---|
 | Name | `Pravaha console` |
-| Script | `run_pravaha_web.py` (in `console/`) |
-| Working directory | `console/` (`$PROJECT_DIR$`) |
-| Python interpreter | `console/.venv/bin/python` (`$PROJECT_DIR$/.venv/bin/python`) |
+| Script | `run_pravaha_web.py` (in `pravaha-console/`) |
+| Working directory | `pravaha-console/` (`$PROJECT_DIR$`) |
+| Python interpreter | `pravaha-console/.venv/bin/python` (`$PROJECT_DIR$/.venv/bin/python`) |
 | Environment variables | `PYTHONUNBUFFERED=1`; nothing else against an engine on the default ports |
 
 The console is a FastAPI application served by uvicorn from inside `run_pravaha_web.py`, which is why
 a plain Python configuration runs it, the same command as `make run`. It reads
-[`console/config/application.yaml`](../../../console/config/application.yaml), whose defaults are the
+[`pravaha-console/config/application.yaml`](../../../pravaha-console/config/application.yaml), whose defaults are the
 server's: Flight at `grpc://localhost:19090`, HTTP at `http://localhost:18080`, and the console itself
 on `127.0.0.1:17070`. Change them with these variables (under **Environment variables**) or as
 parameters (`--server.port=17071`, `--engine.url=grpc://localhost:19091`):
@@ -244,7 +244,7 @@ parameters (`--server.port=17071`, `--engine.url=grpc://localhost:19091`):
 | `CONSOLE_PORT` | `17070` | 17070 is taken |
 | `CONSOLE_SESSION_SECRET` | generated at each start | sign-ins should survive a console restart |
 
-Machine-local values that should not be committed go in `console/config/application.local.yaml`, which
+Machine-local values that should not be committed go in `pravaha-console/config/application.local.yaml`, which
 git ignores and the console reads straight after `application.yaml`. The console needs no token or
 password of its own: it keeps none, and acts as whoever signs in.
 
@@ -271,7 +271,7 @@ child process the debugger does not follow.
 
 ### Running tests
 
-[`console/.run/Console tests (no browser).run.xml`](../../../console/.run/Console%20tests%20%28no%20browser%29.run.xml)
+[`pravaha-console/.run/Console tests (no browser).run.xml`](../../../pravaha-console/.run/Console%20tests%20%28no%20browser%29.run.xml)
 runs every suite except the Chrome-driven ones (`PRAVAHA_BROWSER_TESTS=0`, as `make test-fast`). Or
 right-click `tests/` → **Run 'pytest in tests'**. What the suites need:
 
@@ -280,7 +280,7 @@ right-click `tests/` → **Run 'pytest in tests'**. What the suites need:
 - `test_console.py`'s real-engine tests start a Java server from `pravaha-flight`'s test classes:
   they need `JAVA_HOME` on a JDK 21 or later and the reactor built, and skip with the reason otherwise.
 - The `test_browser_*.py` suites (journeys, accessibility, visual baselines, performance) drive
-  **Chrome or Chromium** over the DevTools protocol ([`tests/cdp.py`](../../../console/tests/cdp.py)).
+  **Chrome or Chromium** over the DevTools protocol ([`tests/cdp.py`](../../../pravaha-console/tests/cdp.py)).
   Playwright is not used and no browser download is needed: Chrome on `PATH`, or `PRAVAHA_CHROME=<path>`.
 - `make baselines` retakes the visual baselines. Run it only after reviewing the differences.
 
@@ -310,23 +310,23 @@ and the call reaches the server and stops at an IntelliJ breakpoint in `pravaha-
 registry. While IntelliJ holds the server paused, the console's request waits on it.
 
 **From IntelliJ alone.** The compound **`Pravaha server + console`** starts the server and, through
-`Pravaha console (shell)`, the console from `console/.venv` (the same command as `make run`). Use it
+`Pravaha console (shell)`, the console from `pravaha-console/.venv` (the same command as `make run`). Use it
 to run both from one window; debug the console from PyCharm.
 
 ## The shared run configurations
 
 `.idea/` is git-ignored, so configurations live in `.run/` directories, which the IDEs read on their
-own: IntelliJ reads `.run/` at the project root, and PyCharm opened on `console/` reads
-`console/.run/`. They use `$PROJECT_DIR$` and relative paths only, and carry no secrets.
+own: IntelliJ reads `.run/` at the project root, and PyCharm opened on `pravaha-console/` reads
+`pravaha-console/.run/`. They use `$PROJECT_DIR$` and relative paths only, and carry no secrets.
 
 | File | IDE | What it runs |
 |---|---|---|
 | [`.run/Pravaha server.run.xml`](../../../.run/Pravaha%20server.run.xml) | IntelliJ | the server from compiled classes: `PravahaServerApplication`, `dev,users`, the launcher's VM options, working directory the repository root |
 | [`.run/pravaha-engine explain.run.xml`](../../../.run/pravaha-engine%20explain.run.xml) | IntelliJ | the in-process CLI (`PravahaCli`) on example 01's query |
-| [`.run/Pravaha console (shell).run.xml`](../../../.run/Pravaha%20console%20%28shell%29.run.xml) | IntelliJ | the console from `console/.venv`, as a shell script |
+| [`.run/Pravaha console (shell).run.xml`](../../../.run/Pravaha%20console%20%28shell%29.run.xml) | IntelliJ | the console from `pravaha-console/.venv`, as a shell script |
 | [`.run/Pravaha server + console.run.xml`](../../../.run/Pravaha%20server%20%2B%20console.run.xml) | IntelliJ | the two above, together |
-| [`console/.run/Pravaha console.run.xml`](../../../console/.run/Pravaha%20console.run.xml) | PyCharm | `run_pravaha_web.py` on `console/.venv`, debuggable |
-| [`console/.run/Console tests (no browser).run.xml`](../../../console/.run/Console%20tests%20%28no%20browser%29.run.xml) | PyCharm | the console's pytest suites without the browser ones |
+| [`pravaha-console/.run/Pravaha console.run.xml`](../../../pravaha-console/.run/Pravaha%20console.run.xml) | PyCharm | `run_pravaha_web.py` on `pravaha-console/.venv`, debuggable |
+| [`pravaha-console/.run/Console tests (no browser).run.xml`](../../../pravaha-console/.run/Console%20tests%20%28no%20browser%29.run.xml) | PyCharm | the console's pytest suites without the browser ones |
 
 To change one for yourself, copy it in the IDE (**Edit Configurations… → Copy**) and untick **Store as
 project file** on the copy, so it stays in your `.idea/`. Edit a shared one only for a change everyone

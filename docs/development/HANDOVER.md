@@ -412,7 +412,7 @@ undemonstrated.
 | Subscriptions over the Flight wire | ✅ a Flight ticket that holds a stream open; commits arrive as Arrow batches, so a batch boundary is a commit boundary. Tap filters travel in the ticket |
 | Register/subscribe in **both SDKs** | ✅ `register`, `queries`, `pause`, `resume`, `drop`, `subscribe(view, filters)` in Java and Python, same surface, tested against the real server |
 | Registry over the wire | ✅ Flight *actions* — `pravaha.register`, `.list`, `.pause`, `.resume`, `.drop`. Flight SQL has no vocabulary for standing up a computation, and actions are the extension it provides |
-| The console (ADR-024) | ✅ `console/` — a separate FastAPI process reaching the engine only through the published Python SDK. Server-rendered, no build step, ~400 lines. **Functional admin scope on purpose**, which the implementation plan names as a legitimate trade to make deliberately. Surfaces two things nothing else does: which computations are *shared*, and a live tail rather than a poll |
+| The console (ADR-024) | ✅ `pravaha-console/` — a separate FastAPI process reaching the engine only through the published Python SDK. Server-rendered, no build step, ~400 lines. **Functional admin scope on purpose**, which the implementation plan names as a legitimate trade to make deliberately. Surfaces two things nothing else does: which computations are *shared*, and a live tail rather than a poll |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
 **`docs/guides/CONTINUOUS_QUERIES.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
@@ -561,7 +561,7 @@ read thirteen files and no anchors). `ContinuousQueriesClaimsTest` and `Document
 studies alongside the guides. Rendered from `docs/` rather than copied, so it cannot drift.
 
 When you add a document, add it to `DocumentationFreshnessTest`'s list and to `docs/README.md`; when
-you add a page worth reading in the console, add a topic under `console/content/help/` carrying
+you add a page worth reading in the console, add a topic under `pravaha-console/content/help/` carrying
 `include: docs/YOUR_DOC.md` — the console renders the repository's file rather than a copy of it, so
 there is nothing to keep in step.
 
@@ -720,7 +720,7 @@ Made late in the session, so they may not be reflected everywhere yet:
 
 ### Built since those decisions
 
-**The FastAPI console exists** and is in `console/` — a Python process on the published SDK, with
+**The FastAPI console exists** and is in `pravaha-console/` — a Python process on the published SDK, with
 (2026-10-02) 1,957 tests of its own, browser suites included. This section read *"not yet built from those decisions: the FastAPI console"*
 through the whole of Waves 7, 8 and 9, which is what a note headed "may not be reflected everywhere
 yet" becomes when nothing makes it expire. What it is *not* is the §23.20 product surface: no

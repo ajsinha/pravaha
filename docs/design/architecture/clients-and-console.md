@@ -27,7 +27,7 @@ flowchart LR
         assist --> client
         assist --> api
     end
-    subgraph consoleapp["console/ (FastAPI)"]
+    subgraph consoleapp["pravaha-console/ (FastAPI)"]
         eng["core/engine.py<br/>(the only module touching the engine)"]
         svc["core/services.py and friends"]
         routes["routes/"]
@@ -78,7 +78,7 @@ through `EngineApi` over HTTP (`GET /api/v1/status`). The SDK's own README is
 replacement, the debugger, dead letters, administration, and the help — a separate Python process that
 reaches the engine only through the SDK ([ADR-024](../adr/024-console-as-a-separate-process.md),
 [ADR-033](../adr/033-the-ui-ships-as-its-own-artefact.md)). Its own README —
-[`../../../console/README.md`](../../../console/README.md) — is the canonical description of its layout,
+[`../../../pravaha-console/README.md`](../../../pravaha-console/README.md) — is the canonical description of its layout,
 design rules, help system and tests; this is the summary.
 
 **Layers, each knowing only the one below:** `core/engine.py` (the SDK, Flight and REST) →
