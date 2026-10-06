@@ -10,7 +10,23 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.4.1 — 2026-10-06
+
+**No finding open.** 2.4.1 fixes the last four from the ADV-JDK21 pass — the read admission queue
+and lease release are atomic under contention, the file audit sink handles a broken stream under
+the lock that guards it, and RUNNING_IN_DOCKER.md says how to take a thread dump from the JRE image
+— and makes a source checkout of the SDK report its own version. Nothing changes for a client or a
+deployment except two things below.
+
+**Read before upgrading from 2.4.0.**
+
+- **The compose stack's engine mounts a tmpfs at `/tmp`,** so a `jcmd` sidecar can attach to it for
+  a thread dump; the Helm chart already did.
+- **Under contention, `pravaha.serving.read.max-queued` is now exact:** a burst that used to queue a
+  few reads past the limit has those refused `PRV-4026`, as the setting promised.
+- **Open:** none.
+
+What changed, in detail:
 
 - **A source checkout of the SDK reports its own version.** Imported from the repository (an editable
   install), `pravaha.__version__` is read from the tree's `pyproject.toml` rather than the install's
