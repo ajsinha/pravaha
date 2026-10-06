@@ -10,6 +10,17 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **A burst of reads can no longer queue past `pravaha.serving.read.max-queued`** (J21-4). The
+  queue depth was read and then incremented, so arrivals landing together could each see room; the
+  waiting place is now reserved with a compare-and-set, and given back on every way out of the wait
+  (admitted, timed out, interrupted). The refusal is unchanged: `PRV-4026`.
+
+---
+
+Register: **582 findings — 560 fixed, 3 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.4.0 — 2026-10-05
 
 **The command line grows up, the console explains itself, and Java 21 is guarded.** 2.4.0 adds

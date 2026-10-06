@@ -132,7 +132,7 @@ public final class ReadAdmission {
             if (permits.tryAcquire()) {
                 acquired = true;
             } else {
-                if (queued.get() >= maxQueued) {
+                if (!reserveQueueSlot()) {
                     rejected.incrementAndGet();
                     throw new PravahaException(
                             ServingErrors.READ_REJECTED,
@@ -140,7 +140,7 @@ public final class ReadAdmission {
                                     + " waiting, and is refusing rather than queueing deeper. A queue "
                                     + "longer than the client's timeout is work nobody is waiting for");
                 }
-                queued.incrementAndGet();
+                // The slot is already ours (reserveQueueSlot); every path out of the wait gives it back.
                 try {
                     acquired = permits.tryAcquire(queueTimeoutNanos, TimeUnit.NANOSECONDS);
                 } catch (InterruptedException e) {
@@ -163,6 +163,24 @@ public final class ReadAdmission {
         } finally {
             if (!acquired) {
                 held.decrementAndGet();
+            }
+        }
+    }
+
+    /**
+     * Takes one of the {@code maxQueued} waiting places, or says there is none.
+     *
+     * <p>A compare-and-set, not a read then an increment: with the two separate, a burst of arrivals
+     * could each see room and together queue past the limit (J21-4).
+     */
+    private boolean reserveQueueSlot() {
+        while (true) {
+            int depth = queued.get();
+            if (depth >= maxQueued) {
+                return false;
+            }
+            if (queued.compareAndSet(depth, depth + 1)) {
+                return true;
             }
         }
     }
