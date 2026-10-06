@@ -679,9 +679,9 @@ right, and both fail with the same message,
   10001` alone is group 0, and the kernel then refuses the sidecar the node's `/proc/1/root`.
 - **The node's `/tmp` is writable.** HotSpot opens its attach socket in `/tmp`, not in
   `java.io.tmpdir`, so under `--read-only` the node needs `--tmpfs /tmp:rw,mode=1777` from the start
-  (compose: `tmpfs: [/tmp]` on the service; the Helm chart mounts one for this). The compose stack's
-  engine has none, so use `SIGQUIT` there. A failed `jcmd` is not wasted: the signals it sent while
-  trying printed dumps to `docker logs`.
+  (compose: `tmpfs: [/tmp]` on the service, which the compose stack's engine carries; the Helm chart
+  mounts one too). A failed `jcmd` is not wasted: the signals it sent while trying printed dumps to
+  `docker logs`.
 
 **Kubernetes: an ephemeral debug container.** The standard approach, with the same two rules:
 

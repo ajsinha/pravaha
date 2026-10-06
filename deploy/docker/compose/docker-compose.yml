@@ -66,6 +66,8 @@ services:
       - ${PRAVAHA_HOME_DIR}/data:/opt/pravaha/data
       - ${PRAVAHA_HOME_DIR}/logs:/opt/pravaha/logs
       - ${PRAVAHA_HOME_DIR}/tmp:/opt/pravaha/tmp
+    tmpfs:
+      - /tmp                               # HotSpot's attach socket: lets a jcmd sidecar take a thread dump
     healthcheck:
       # bin/pravaha-health, the image's own bash-only probe: the JRE base carries no wget.
       test: ["CMD", "bin/pravaha-health", "/actuator/health/readiness"]

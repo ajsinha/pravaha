@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **582 findings carrying a
-status — 559 FIXED, 4 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 4 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 563 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7816,23 +7816,19 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 
 ### J21-4 (LOW) — read admission's queue-depth check can let a burst queue past max-queued
 
-> **Status:** OPEN — ReadAdmission reads the queue depth and then increments it, so concurrent arrivals can each see room and together exceed pravaha.serving.read.max-queued by a few. Fix: reserve the slot with a compare-and-set (or under the admission lock) before queueing, with a concurrent test.
-> **Disposition:** POST-GA — the overshoot is bounded by the number of simultaneous arrivals, and the default is no queue.
+> **Status:** FIXED — ReadAdmission read the queue depth and then incremented it, so a burst could each see room and together queue past max-queued. The waiting place is now reserved with a compare-and-set before waiting and given back on every way out (admitted, timed out, interrupted); a refusal never takes one. ReadAdmissionTest#aBurstOfArrivalsNeverQueuesPastMaxQueued (32 latch-gated arrivals, max-queued 3: exactly 3 wait, 29 PRV-4026, ten rounds; the old code failed it) and #queueSlotsComeBackAfterTimeoutsAndInterrupts.
 
 ### J21-5 (LOW) — a read lease closed twice from two threads could release two permits
 
-> **Status:** OPEN — ReadAdmission.Lease.close guards against a second release with a plain field, so two threads closing the same lease at once could both release. The engine's callers close each lease once (try-with-resources); a plugin or future caller sharing one could inflate the permits. Fix: an AtomicBoolean (getAndSet) guard, with a test.
-> **Disposition:** POST-GA — no caller in the engine does this.
+> **Status:** FIXED — Lease.close checked and set a plain boolean, so two threads closing one lease could both release the permit and the tenant's count. Now an AtomicBoolean compareAndSet. ReadAdmissionTest#closingOneLeaseFromManyThreadsAtOnceHandsBackOnePermit (16 concurrent closers, 200 rounds: in-flight stays 0, the tenant's share is four of four then PRV-4028).
 
 ### J21-6 (LOW) — the file audit sink handles a broken stream outside the monitor that guards it
 
-> **Status:** OPEN — FileAuditSink's drainForever handles a write failure (streamBroken) outside the monitor that guards the output stream, so a concurrent rotation or reopen can interleave with it. Fix: take the same monitor, with a test that fails writes during a rotation.
-> **Disposition:** POST-GA — found by review; no lost or doubled event was observed under load.
+> **Status:** FIXED — drainForever handled a write or flush failure after leaving the monitor guarding the stream, so a concurrent flush() or close() could reopen it in between and have the good stream closed and a finished failure reported. The write, flush and streamBroken are now one synchronized block; AUDITROTATE-1's behaviour is unchanged. FileAuditSinkTest#writesFailingWhileTheTrailRotatesAreEachWrittenOnceOrCountedLost (four producers, 4 KiB rotation, directory and file flipping unwritable every millisecond, a concurrent flusher: every event written once or counted lost, the audit.lost counts equal lostEvents, the sink ends healthy) guards the invariants; the exact interleaving cannot be forced through permissions.
 
 ### J21-7 (LOW) — the image has no jcmd and RUNNING_IN_DOCKER.md does not say how to take a thread dump
 
-> **Status:** OPEN — the image is a JRE, so a stalled node cannot be dumped from inside it. A sidecar sharing its PID namespace works (`docker run --pid container:<node> --user 10001` with a JDK), but the guide does not say so. Fix: a "Diagnosing a stall" section in RUNNING_IN_DOCKER.md (and the Kubernetes equivalent, an ephemeral debug container).
-> **Disposition:** POST-GA — documentation; the workaround is standard.
+> **Status:** FIXED — RUNNING_IN_DOCKER.md, "Diagnosing a stall: thread dumps": docker kill --signal=QUIT (the dump in docker logs; the node keeps running), a jcmd sidecar (docker run --rm --pid container:<node> --user 10001:10001 eclipse-temurin:21-jdk jcmd 1 Thread.print -l), and kubectl debug --target (not verified on a cluster). Verified against the 2.4.0 image: the sidecar needs the node's user and group (--user 10001 alone is gid 0 and is refused /proc/1/root) and a writable /tmp, where HotSpot opens the attach socket — the compose stack's engine now mounts a tmpfs there, as the Helm chart does. Linked from TROUBLESHOOTING and OPERATIONS.
 
 ## Found building the CLI's doctor and JSON contract (2026-10-05), 1 finding
 
