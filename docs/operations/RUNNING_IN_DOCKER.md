@@ -292,9 +292,12 @@ exactly this, with no Docker.
 | `prometheus` | `observability` | `prom/prometheus:v2.53.2` | 29190 (`PRAVAHA_PROMETHEUS_PORT`) | volume `prometheus-data` |
 | `grafana` | `observability` | `grafana/grafana:11.2.0` | 23030 (`PRAVAHA_GRAFANA_PORT`) | volume `grafana-data` |
 
-Every port is published on `127.0.0.1` only (`PRAVAHA_BIND`), and none is a product's usual default,
-so a PostgreSQL on 5432, a Kafka on 9092 or a Grafana on 3000 already on the machine keeps its port.
-Change any of them in `.env`.
+Every port but the console's is published on `127.0.0.1` only (`PRAVAHA_BIND`); the console's is
+published on every interface (`PRAVAHA_CONSOLE_BIND`, default `0.0.0.0`), so another machine or a
+phone on the network can open it — every page but the landing page and the docs needs a sign-in.
+Set `PRAVAHA_CONSOLE_BIND=127.0.0.1` to keep it to this machine. None of the ports is a product's
+usual default, so a PostgreSQL on 5432, a Kafka on 9092 or a Grafana on 3000 already on the machine
+keeps its port. Change any of them in `.env`.
 
 The engine and the console run with `user: ${PRAVAHA_UID}:${PRAVAHA_GID}` and `read_only: true`.
 The only places either can write are the `pravaha-home` directories mounted onto the same names under

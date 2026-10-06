@@ -34,8 +34,10 @@
 # stack itself proves nothing is written outside /opt/pravaha. Kafka, the databases and the
 # monitoring keep their state in named volumes of this project, owned by their own images' users.
 #
-# PORTS. Published on ${PRAVAHA_BIND:-127.0.0.1} only, and chosen away from the usual defaults so a
-# PostgreSQL, Kafka or Grafana already on this machine keeps its port. Each is a variable in .env.
+# PORTS. Published on ${PRAVAHA_BIND:-127.0.0.1} only -- all but the console's, on
+# ${PRAVAHA_CONSOLE_BIND:-0.0.0.0} so another machine or a phone can open it (it requires a sign-in) --
+# and chosen away from the usual defaults so a PostgreSQL, Kafka or Grafana already on this machine
+# keeps its port. Each is a variable in .env.
 #
 # The project is called pravaha-stack: `docker compose ls`, `docker ps --filter
 # label=com.docker.compose.project=pravaha-stack`, and `down` touch only its own containers,
@@ -87,7 +89,7 @@ services:
       pravaha-server:
         condition: service_started
     ports:
-      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_CONSOLE_PORT:-17070}:17070"
+      - "${PRAVAHA_CONSOLE_BIND:-0.0.0.0}:${PRAVAHA_CONSOLE_PORT:-17070}:17070"   # every interface: a phone can open it; sign-in required
     volumes:
       # Its own file only: the engine's application.yaml holds the engine's credentials.
       - ${PRAVAHA_HOME_DIR}/conf/console.yaml:/opt/pravaha/conf/console.yaml:ro

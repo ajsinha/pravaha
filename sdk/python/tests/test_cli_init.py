@@ -93,7 +93,7 @@ def test_the_yaml_parses_and_compose_runs_the_engine_image_on_the_standard_ports
         assert app["streams"]["txn"]["event-time"] == "event_time"
         assert app["sources"]["txn"]["plugin"] == "filesystem"
     for needle in ("image: pravaha/pravaha-server:", '"127.0.0.1:18080:18080"',
-                   '"127.0.0.1:19090:19090"', '"127.0.0.1:17070:17070"', "profiles: [console]",
+                   '"127.0.0.1:19090:19090"', '"0.0.0.0:17070:17070"', "profiles: [console]",
                    "./conf/application.yaml:/opt/pravaha/conf/application.yaml:ro"):
         assert needle in compose_text, needle
     assert "\t" not in compose_text + app_text

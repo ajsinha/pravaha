@@ -98,8 +98,9 @@ def compose_yaml(project: str, tag: str) -> str:
 #   docker compose up -d                                   # the engine
 #   PRAVAHA_PROFILES=dev,users docker compose --profile console up -d   # and the console
 #
-# Ports are the standard ones, on 127.0.0.1 only: 18080 HTTP (REST API, probes), 19090 Flight SQL
-# (the CLI and the SDKs), 17070 the console. Engine state lives in the named volume pravaha-data,
+# Ports are the standard ones: 18080 HTTP (REST API, probes) and 19090 Flight SQL (the CLI and the
+# SDKs) on 127.0.0.1 only; 17070 the console on every interface, so a phone can open it (sign-in).
+# Engine state lives in the named volume pravaha-data,
 # so `docker compose down` keeps it and `down -v` starts over.
 
 name: {project}
@@ -140,7 +141,7 @@ services:
       PRAVAHA_ENGINE: grpc://pravaha-server:19090
       PRAVAHA_ENGINE_HTTP: http://pravaha-server:18080
     ports:
-      - "127.0.0.1:17070:17070"
+      - "0.0.0.0:17070:17070"
 
 volumes:
   pravaha-data: {{}}

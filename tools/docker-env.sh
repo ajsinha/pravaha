@@ -93,6 +93,7 @@ port() { local v; v="$(existing "$1")"; echo "${v:-$2}"; }
 project="$(port COMPOSE_PROJECT_NAME pravaha-stack)"
 tag="$(port PRAVAHA_TAG local)"
 bind="$(port PRAVAHA_BIND 127.0.0.1)"
+console_bind="$(port PRAVAHA_CONSOLE_BIND 0.0.0.0)"
 http_port="$(port PRAVAHA_HTTP_PORT 18080)"
 flight_port="$(port PRAVAHA_FLIGHT_PORT 19090)"
 pgwire_port="$(port PRAVAHA_PGWIRE_PORT 15432)"
@@ -107,7 +108,7 @@ grafana_port="$(port PRAVAHA_GRAFANA_PORT 23030)"
 
 # Lines you added that this script does not write (COMPOSE_PROFILES, say) are carried over as they are.
 managed='COMPOSE_PROJECT_NAME|PRAVAHA_UID|PRAVAHA_GID|PRAVAHA_HOME_DIR|PRAVAHA_SEED_TOKEN|POSTGRES_PASSWORD'
-managed+='|MYSQL_ROOT_PASSWORD|PRAVAHA_CDC_PASSWORD|GRAFANA_ADMIN_PASSWORD|PRAVAHA_TAG|PRAVAHA_BIND'
+managed+='|MYSQL_ROOT_PASSWORD|PRAVAHA_CDC_PASSWORD|GRAFANA_ADMIN_PASSWORD|PRAVAHA_TAG|PRAVAHA_BIND|PRAVAHA_CONSOLE_BIND'
 managed+='|PRAVAHA_(HTTP|FLIGHT|PGWIRE|CONSOLE|KAFKA|POSTGRES|MYSQL|AEROSPIKE|CASSANDRA|PROMETHEUS|GRAFANA)_PORT'
 yours=""
 if [[ -f "$env_file" ]]; then
@@ -133,6 +134,7 @@ GRAFANA_ADMIN_PASSWORD=$grafana_password
 
 PRAVAHA_TAG=$tag
 PRAVAHA_BIND=$bind
+PRAVAHA_CONSOLE_BIND=$console_bind
 PRAVAHA_HTTP_PORT=$http_port
 PRAVAHA_FLIGHT_PORT=$flight_port
 PRAVAHA_PGWIRE_PORT=$pgwire_port

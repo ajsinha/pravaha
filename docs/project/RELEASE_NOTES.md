@@ -17,6 +17,8 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   image already did. Every page but the landing page and the docs needs a sign-in; set
   `CONSOLE_HOST=127.0.0.1` to keep it to the machine it runs on, and put a TLS terminator in front
   before exposing it beyond a trusted network.
+  The compose stack publishes the console's port the same way (`PRAVAHA_CONSOLE_BIND`, default
+  `0.0.0.0`); the engine's and the stores' ports stay on `127.0.0.1` (`PRAVAHA_BIND`).
 
 ---
 
