@@ -19,6 +19,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   before exposing it beyond a trusted network.
   The compose stack publishes the console's port the same way (`PRAVAHA_CONSOLE_BIND`, default
   `0.0.0.0`); the engine's and the stores' ports stay on `127.0.0.1` (`PRAVAHA_BIND`).
+- **The console works on a phone.** Every page at 360 and 390 px wide: nothing scrolls the page
+  sideways, tables scroll inside their box with the name column held still and long SQL cut to one
+  line, every control is a 40×40 target, text is at least 12px and a text field 16px (no zoom on
+  focus), and the collapsed menu, its panels and the theme and account menus fit and work by tap. A
+  browser test (`tests/test_browser_mobile.py`) holds all of it on every page.
 
 ---
 

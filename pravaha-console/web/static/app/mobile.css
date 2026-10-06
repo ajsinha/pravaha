@@ -1,0 +1,120 @@
+/*
+ * Pravaha console -- the console on a phone.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+ * Proprietary and confidential. See LICENSE at the repository root.
+ *
+ * Every rule here is a pattern, written once, that tests/test_browser_mobile.py holds on every
+ * page at 360 and 390 px: nothing scrolls the page sideways (wide content scrolls in a box of its
+ * own), every control is a 40x40 target, text is at least 12px (code 11px) and a text field 16px,
+ * which stops iOS zooming the page when the field takes focus. Each rule is scoped to the narrow
+ * breakpoints Bootstrap already uses (below 768 px; the bar's below 992 px, where it collapses),
+ * so the wide layout is the one it was. Colour comes only from the tokens, as everywhere else.
+ */
+
+/* ------------------------------------------------------------------ the bar, collapsed */
+@media (max-width: 991.98px) {
+  .pv-nav .navbar-toggler { min-width: 44px; min-height: 44px; }
+  .pv-tools .tool, .pv-nav .tool { min-width: 40px; flex-shrink: 0; min-height: 40px; justify-content: center; }
+  .pv-nav .pv-search { min-height: 40px; }
+  /* The theme and account menus open in the flow of the open menu, full width, rather than where
+     Popper would hang them off a 40px button at the bar's left edge, half off the screen. */
+  .pv-nav .pv-tools .dropdown-menu.show { position: static !important; inset: auto !important;
+    transform: none !important; margin-top: .35rem !important; width: 100%; min-width: 0; }
+  .pv-nav .pv-tools .dropdown:has(> .dropdown-menu.show) { flex-basis: 100%; }
+  .pv-nav .dropdown-item { min-height: 40px; display: flex; align-items: center; }
+}
+
+@media (max-width: 767.98px) {
+  /* The public bar never collapses: at phone width its links and Sign in are icons (their names
+     stay for a screen reader), and it gives up padding rather than run off the edge. */
+  .pv-nav.navbar-expand { padding: 0 .25rem; }
+  .pv-nav.navbar-expand > .container-fluid { padding-left: .4rem; padding-right: .4rem; }
+  .pv-nav.navbar-expand .d-flex.gap-2 { gap: .25rem !important; }
+  .pv-nav.navbar-expand .pv-brand { margin-right: .25rem; gap: .45rem; }
+  .pv-nav.navbar-expand .nav-link { min-width: 44px; display: flex; align-items: center; justify-content: center; }
+  .pv-nav.navbar-expand .nav-link i { margin-right: 0; }
+  .pv-nav .pv-signin { min-width: 44px; }
+  .pv-nav kbd { display: none; }
+
+  /* -------------------------------------------------------------- the banner under the bar
+     "engine up · Engine grpc://… · Console x.y.z": the address gives way, not the line. */
+  .pv-banner { padding-left: var(--pv-pad-x, .9rem); padding-right: var(--pv-pad-x, .9rem); }
+  .pv-banner .pv-seg { white-space: nowrap; }
+  .pv-banner code { display: inline-block; max-width: 13rem; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; vertical-align: bottom; }
+
+  /* -------------------------------------------------------------- prose
+     A long identifier breaks rather than pushing the page wider; a table's columns are not
+     squeezed by it (break-word does not change a cell's minimum width). */
+  main { overflow-wrap: break-word; }
+
+  /* -------------------------------------------------------------- data tables
+     One pattern for every table: it scrolls sideways inside its own box (Bootstrap's
+     .table-responsive, which every console table sits in), the first column -- the name -- stays
+     put while it does, and a shadow at the right edge says there is more. The shadow is the
+     scrolling-shadow technique: a cover in the box's own colour scrolls with the content and hides
+     the shadow once the last column is in view, so it shows only while there is more to see. */
+  .table-responsive { position: relative;
+    background:
+      linear-gradient(to left, var(--pv-surface) 40%, transparent) right center / 2rem 100% no-repeat local,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--pv-ink) 28%, transparent), transparent)
+        right center / .8rem 100% no-repeat scroll; }
+  .table-responsive > .table > :is(thead, tbody, tfoot) > tr > :first-child:not([colspan]) {
+    position: sticky; left: 0; z-index: 1; max-width: 11rem; background-color: var(--pv-surface);
+    box-shadow: inset -1px 0 0 var(--pv-border); }
+  .table-responsive > .table > thead > tr > :first-child { z-index: 2; }
+  /* Long SQL and expressions: one line, cut with an ellipsis; the whole text is the cell's title
+     and its own page. Never one word per line. */
+  .table-responsive td code, .table-responsive td.mono { white-space: nowrap; }
+  .table-responsive td code { display: inline-block; max-width: 14rem; overflow: hidden; text-overflow: ellipsis;
+    vertical-align: middle; }
+  /* A link alone in a cell is a row's way in: a full-size target. */
+  :is(td, th, dd) > a:not(.btn), .crumbs a, .toc a, .list-unstyled > li > a:not(.btn), .cap-list li > a {
+    display: inline-flex; align-items: center; min-height: 40px; min-width: 40px; flex-shrink: 0; }
+
+  /* -------------------------------------------------------------- links standing alone
+     A link alone on its line ("← Back to views") grows to a 40px target with padding above and
+     below; it is inline, so the padding moves nothing. A link inside a sentence is held to the
+     line's height, as WCAG 2.5.8 holds it, and the padding only makes it easier to hit. */
+  :is(p, figcaption, .small, .card-body) > a:not(.btn) { padding-block: calc(20px - .5em); }
+  /* In a flex row a link is a box of its own, so it takes the target's height outright. */
+  main :is(.d-flex, .page-head) > a:not(.btn), .on-gradient > a {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 40px; min-width: 40px; flex-shrink: 0; }
+
+  /* -------------------------------------------------------------- controls */
+  .btn, .btn.p-0 { min-height: 40px; min-width: 40px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: .3rem; }
+  .btn.d-block, .btn.w-100 { display: flex; }
+  .form-control, .form-select { min-height: 40px; }
+  /* A field in a table cell keeps a usable width; the table scrolls instead. */
+  .table-responsive td .form-control, .table-responsive td .form-select { min-width: 9rem; }
+  /* 16px or iOS zooms the page when the field takes focus. */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]), select, textarea,
+  .monaco-editor textarea { font-size: 16px !important; }
+  .form-check { min-height: 40px; display: flex; align-items: center; gap: .5rem; padding-left: 0; }
+  .form-check .form-check-input { float: none; margin: 0; flex: none; }
+  .form-check-label { min-height: 40px; display: inline-flex; align-items: center; }
+  summary { min-height: 40px; display: flex; align-items: center; }
+  /* A filter row: every control takes its share of the line, and wraps whole. */
+  form.row > .col-auto { flex: 1 1 auto; }
+  form.row > .col-auto > .btn { width: 100%; }
+
+  /* -------------------------------------------------------------- tabs and chips
+     They wrap within their row; every one is a 40px target. */
+  .tabs-bar a, .tabs-bar button, .panel-tabs button, .nav-tabs .nav-link, .wb-tab,
+  .ph-links a, .chip-links a, .cat-chips a, .rail a, #client-tabs a {
+    min-height: 40px; min-width: 40px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .rail .inner { gap: .1rem .6rem; }
+
+  /* -------------------------------------------------------------- readable text
+     The quiet labels -- kickers, section labels, column heads, counts -- are 12px at the least on
+     a phone; code 11px. Each of these is smaller than that everywhere it is used. */
+  .small, small { font-size: max(12px, .875em); }
+  .kicker, .section-label, .page-help .ph-more-label, .mega-title, .dropdown-header, thead th, caption,
+  .crumbs, .toc a, .chip-links a, .cat-chips a, .help-card .s, .help-card .go, .help-companion .sub,
+  .pager-topics .dir, .stat .where, .stat .k, .steps li, .choice .s, .validity, .wb-toolbar .status,
+  .wb-tab, .panel-tabs button, .chart-caption, .live-counters, .plan-legend, .weight, .finding .small,
+  .cat-chips .n, details summary .count, .help-quick dt, .finding, .search-results .where, .result .where, .badge-help {
+    font-size: 12px !important; }
+  .field-type, .fig-caption, kbd, pre.small { font-size: 11px !important; }
+}
