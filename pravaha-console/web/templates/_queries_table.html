@@ -12,7 +12,7 @@
     <td class="num">{{ "{:,}".format(q.rows_in) }}</td>
     <td>{% if q.shared %}<span class="chip warn" title="{{ t('queries.shared_title') }}">{{ t('queries.shared') }}</span>{% endif %}</td>
     {% if wide %}
-    <td><code>{{ q.sql[:64] }}{{ '…' if q.sql|length > 64 else '' }}</code></td>
+    <td><code title="{{ q.sql }}">{{ q.sql[:64] }}{{ '…' if q.sql|length > 64 else '' }}</code></td>
     <td><a href="/queries/{{ q.name }}">{{ t('queries.open') }}</a></td>
     {% endif %}
   </tr>

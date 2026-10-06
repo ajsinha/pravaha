@@ -46,7 +46,7 @@
         ? '<span class="chip warn" title="' + api.escapeHtml(t("queries.shared_title")) + '">' +
           api.escapeHtml(t("queries.shared")) + "</span>"
         : "") + "</td>" +
-      "<td><code>" + api.escapeHtml(sql) + "</code></td>" +
+      "<td><code title=\"" + api.escapeHtml(q.sql) + "\">" + api.escapeHtml(sql) + "</code></td>" +
       "<td><a href=\"/queries/" + encodeURIComponent(q.name) + "\">" + api.escapeHtml(t("queries.open")) +
       "</a></td></tr>";
   }

@@ -36,6 +36,8 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
 <link href="/static/css/theme.css?v={{ asset_version }}" rel="stylesheet">
 <link href="/static/app/product.css?v={{ asset_version }}" rel="stylesheet">
 {% block head %}{% endblock %}
+{# Last, so its narrow-screen rules settle what a page's own stylesheet left (static/app/mobile.css). #}
+<link href="/static/app/mobile.css?v={{ asset_version }}" rel="stylesheet">
 </head>
 {% set bare = bare_page is defined and bare_page and not signed_in %}
 <body class="{{ 'pv-public' if bare else 'pv-app' }}">
@@ -61,9 +63,9 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
     {% if signed_in %} · <code>{{ engine_url }}</code>{% if engine_error %} · {{ engine_error }}{% endif %}{% endif %}</div>
   {% elif signed_in %}
   <div class="pv-banner info" id="banner-info"><span class="pv-state"><span class="dot" aria-hidden="true"></span>{{ t('shell.engine_up') }}</span>
-    · {{ t('shell.banner.engine') }} <code>{{ engine_url }}</code>
-    {% if environment %} · {{ t('shell.banner.environment') }} <strong>{{ environment }}</strong>{% endif %}
-    · {{ t('shell.banner.console') }} <strong>{{ version }}</strong></div>
+    · <span class="pv-seg">{{ t('shell.banner.engine') }} <code>{{ engine_url }}</code></span>
+    {% if environment %} · <span class="pv-seg">{{ t('shell.banner.environment') }} <strong>{{ environment }}</strong></span>{% endif %}
+    · <span class="pv-seg">{{ t('shell.banner.console') }} <strong>{{ version }}</strong></span></div>
   {% endif %}
   {% if signed_in or not engine_up %}</aside>{% endif %}
   <main class="pv-content{% block main_class %}{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}
