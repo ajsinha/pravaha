@@ -22,10 +22,15 @@ import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -304,6 +309,123 @@ class FileAuditSinkTest {
                     .contains("after the trail is writable again");
             assertThat(problems.get(problems.size() - 1)).contains("is being written again");
         }
+    }
+
+    @Test
+    void writesFailingWhileTheTrailRotatesAreEachWrittenOnceOrCountedLost(@TempDir Path root) throws Exception {
+        // J21-6. A write failure in the writer thread was handled outside the monitor guarding the
+        // stream, so a concurrent flush() or close() could reopen it in between. Here the trail
+        // rotates every few dozen events while its directory and file flip unwritable and back, and
+        // another thread flushes throughout: every event must be written exactly once or counted
+        // lost, every lost one must reach the file as an audit.lost count, and the sink must end
+        // healthy.
+        Path directory = Files.createDirectory(root.resolve("trail"));
+        assumeTrue(permissionsBite(directory), "POSIX permissions, and not root");
+        Path trail = directory.resolve("audit.jsonl");
+        int producers = 4;
+        int perProducer = 500;
+        // Enough generations that none is deleted: every line ever written is still on disk.
+        try (FileAuditSink sink = new FileAuditSink(trail, 4096, 10_000, message -> {}, Duration.ZERO)) {
+            AtomicBoolean running = new AtomicBoolean(true);
+            Thread flipper = Thread.ofPlatform().start(() -> {
+                while (running.get()) {
+                    flip(directory, trail, READ_ONLY_DIRECTORY, READ_ONLY_FILE);
+                    pause();
+                    flip(directory, trail, WRITABLE_DIRECTORY, WRITABLE_FILE);
+                    pause();
+                }
+            });
+            Thread flusher = Thread.ofPlatform().start(() -> {
+                while (running.get()) {
+                    sink.flush(Duration.ofMillis(1));
+                }
+            });
+            List<Thread> threads = new ArrayList<>();
+            for (int p = 0; p < producers; p++) {
+                String producer = "p" + p;
+                threads.add(Thread.ofPlatform().start(() -> {
+                    for (int i = 0; i < perProducer; i++) {
+                        sink.record(read("payroll", AccessDecision.allow(), "event " + producer + "-" + i));
+                        if (i % 50 == 0) {
+                            pause();
+                        }
+                    }
+                }));
+            }
+            for (Thread t : threads) {
+                t.join();
+            }
+            sink.flush(Duration.ofSeconds(10));
+            running.set(false);
+            flipper.join();
+            flusher.join();
+            flip(directory, trail, WRITABLE_DIRECTORY, WRITABLE_FILE);
+
+            sink.record(read("payroll", AccessDecision.allow(), "event final"));
+            sink.flush(Duration.ofSeconds(10));
+
+            int total = producers * perProducer + 1;
+            // Both paths ran: some events were written and some could not be (about a quarter and
+            // three quarters respectively, when this was written).
+            assertThat(sink.writtenEvents()).isPositive();
+            assertThat(sink.lostEvents()).as("the flips made writes fail").isPositive();
+            assertThat(sink.writtenEvents() + sink.lostEvents() + sink.droppedEvents())
+                    .as("every event accounted for")
+                    .isEqualTo(total);
+            assertThat(sink.failure()).as("the stream ends open and healthy").isEmpty();
+
+            List<String> lines = new ArrayList<>();
+            try (Stream<Path> files = Files.list(directory)) {
+                for (Path file : files.toList()) {
+                    lines.addAll(Files.readAllLines(file, StandardCharsets.UTF_8));
+                }
+            }
+            List<String> events = lines.stream()
+                    .filter(line -> line.contains("\"principal\""))
+                    .toList();
+            assertThat(events).as("written once each, none doubled").doesNotHaveDuplicates();
+            assertThat(events).hasSize((int) sink.writtenEvents());
+            assertThat(markerCount(lines, "audit.lost"))
+                    .as("every lost event is in the file as a count")
+                    .isEqualTo(sink.lostEvents());
+            assertThat(markerCount(lines, "audit.dropped")).isEqualTo(sink.droppedEvents());
+            assertThat(Files.readAllLines(trail, StandardCharsets.UTF_8))
+                    .last()
+                    .asString()
+                    .contains("event final");
+        } finally {
+            flip(directory, trail, WRITABLE_DIRECTORY, WRITABLE_FILE);
+        }
+    }
+
+    private static void flip(
+            Path directory, Path trail, Set<PosixFilePermission> directoryMode, Set<PosixFilePermission> fileMode) {
+        try {
+            Files.setPosixFilePermissions(directory, directoryMode);
+            Files.setPosixFilePermissions(trail, fileMode);
+        } catch (java.io.IOException racedWithARotation) {
+            // The file was moved aside between the two calls; the next flip catches up.
+        }
+    }
+
+    private static void pause() {
+        try {
+            Thread.sleep(1);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static long markerCount(List<String> lines, String event) {
+        Pattern marker = Pattern.compile("\"event\":\"" + Pattern.quote(event) + "\",\"count\":(\\d+)");
+        long sum = 0;
+        for (String line : lines) {
+            Matcher matcher = marker.matcher(line);
+            if (matcher.find()) {
+                sum += Long.parseLong(matcher.group(1));
+            }
+        }
+        return sum;
     }
 
     @Test

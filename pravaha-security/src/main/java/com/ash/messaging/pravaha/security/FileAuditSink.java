@@ -305,27 +305,27 @@ public final class FileAuditSink implements AuditSink, AutoCloseable {
 
     private void drainForever() {
         while (!closed.get()) {
+            AuditEvent event;
             try {
-                AuditEvent event = pending.poll(200, TimeUnit.MILLISECONDS);
-                if (event == null) {
-                    synchronized (this) {
-                        if (out != null) {
-                            out.flush();
-                        }
-                    }
-                    continue;
-                }
-                synchronized (this) {
-                    writeLine(lineOf(event));
-                    if (pending.isEmpty() && out != null) {
-                        out.flush();
-                    }
-                }
+                event = pending.poll(200, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
-            } catch (IOException | RuntimeException e) {
-                streamBroken(e);
+            }
+            // A failure is handled inside the monitor that guards the stream, as everywhere else.
+            // Handled after leaving it, a close() or flush() could reopen the stream in between and
+            // streamBroken would then close the good one and report a failure that was over (J21-6).
+            synchronized (this) {
+                try {
+                    if (event != null) {
+                        writeLine(lineOf(event));
+                    }
+                    if ((event == null || pending.isEmpty()) && out != null) {
+                        out.flush();
+                    }
+                } catch (IOException | RuntimeException e) {
+                    streamBroken(e);
+                }
             }
         }
     }

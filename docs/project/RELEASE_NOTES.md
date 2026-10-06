@@ -18,10 +18,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   (admitted, timed out, interrupted). The refusal is unchanged: `PRV-4026`.
 - **A read lease closed from two threads at once hands back one permit, not two** (J21-5). The
   guard against a second release was a plain field; it is now a compare-and-set.
+- **The file audit sink handles a failed write under the lock that guards its stream** (J21-6).
+  The writer thread handled the failure after leaving it, so a concurrent flush or close could reopen
+  the stream in between and have the good stream closed and a finished failure reported. Nothing
+  else changes: a query is never failed, lost events are counted and written as `audit.lost`, the
+  file is reopened on the next event, and health reads DEGRADED while it cannot be written.
 
 ---
 
-Register: **582 findings — 561 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **582 findings — 562 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.4.0 — 2026-10-05
 
