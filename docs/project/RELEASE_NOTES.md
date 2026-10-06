@@ -12,6 +12,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+- **A source checkout of the SDK reports its own version.** Imported from the repository (an editable
+  install), `pravaha.__version__` is read from the tree's `pyproject.toml` rather than the install's
+  metadata, which kept the version it was installed at: after a release moved the tree on,
+  `pravaha doctor` reported a version mismatch against a node built from the same tree. An installed
+  wheel still reports its own metadata.
 - **A burst of reads can no longer queue past `pravaha.serving.read.max-queued`** (J21-4). The
   queue depth was read and then incremented, so arrivals landing together could each see room; the
   waiting place is now reserved with a compare-and-set, and given back on every way out of the wait
