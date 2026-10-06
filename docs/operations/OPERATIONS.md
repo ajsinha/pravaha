@@ -1028,7 +1028,9 @@ runs backwards, and those need different responses:
 `pravaha_query_watermark_idle_exclusions_total` rising steadily is the second;
 `pravaha_query_watermark_regressions_total` non-zero at all is the third. `WatermarkTracker` has
 answered all three since it was written and until now none of them reached any surface, so a
-stalled query and a healthy one looked alike on a live node.
+stalled query and a healthy one looked alike on a live node. When it is the node that has stalled —
+no metric moving at all — take thread dumps: [`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md),
+"Diagnosing a stall: thread dumps" (the image is a JRE, without `jcmd`).
 
 **Without this, state is unbounded.** Windows then close only when the input ends, joins never
 evict, and views never forget. Correct over a file; fatal over a stream.
