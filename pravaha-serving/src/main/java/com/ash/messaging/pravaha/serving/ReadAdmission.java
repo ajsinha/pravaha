@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -132,7 +133,7 @@ public final class ReadAdmission {
             if (permits.tryAcquire()) {
                 acquired = true;
             } else {
-                if (queued.get() >= maxQueued) {
+                if (!reserveQueueSlot()) {
                     rejected.incrementAndGet();
                     throw new PravahaException(
                             ServingErrors.READ_REJECTED,
@@ -140,7 +141,7 @@ public final class ReadAdmission {
                                     + " waiting, and is refusing rather than queueing deeper. A queue "
                                     + "longer than the client's timeout is work nobody is waiting for");
                 }
-                queued.incrementAndGet();
+                // The slot is already ours (reserveQueueSlot); every path out of the wait gives it back.
                 try {
                     acquired = permits.tryAcquire(queueTimeoutNanos, TimeUnit.NANOSECONDS);
                 } catch (InterruptedException e) {
@@ -163,6 +164,24 @@ public final class ReadAdmission {
         } finally {
             if (!acquired) {
                 held.decrementAndGet();
+            }
+        }
+    }
+
+    /**
+     * Takes one of the {@code maxQueued} waiting places, or says there is none.
+     *
+     * <p>A compare-and-set, not a read then an increment: with the two separate, a burst of arrivals
+     * could each see room and together queue past the limit (J21-4).
+     */
+    private boolean reserveQueueSlot() {
+        while (true) {
+            int depth = queued.get();
+            if (depth >= maxQueued) {
+                return false;
+            }
+            if (queued.compareAndSet(depth, depth + 1)) {
+                return true;
             }
         }
     }
@@ -206,7 +225,7 @@ public final class ReadAdmission {
     public final class Lease implements AutoCloseable {
 
         private final AtomicInteger tenantCount;
-        private boolean released;
+        private final AtomicBoolean released = new AtomicBoolean();
 
         private Lease(AtomicInteger tenantCount) {
             this.tenantCount = tenantCount;
@@ -215,11 +234,11 @@ public final class ReadAdmission {
         @Override
         public void close() {
             // Idempotent, because a caller that closes in a finally *and* on an error path should
-            // not hand the node a permit it never had.
-            if (released) {
+            // not hand the node a permit it never had. Atomic, because a plain flag let two threads
+            // closing one lease at once both release (J21-5).
+            if (!released.compareAndSet(false, true)) {
                 return;
             }
-            released = true;
             tenantCount.decrementAndGet();
             permits.release();
         }

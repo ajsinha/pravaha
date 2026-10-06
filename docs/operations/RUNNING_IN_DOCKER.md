@@ -644,6 +644,58 @@ gained a key in a new version is merged by hand — `diff` your `conf/applicatio
 
 ---
 
+## Diagnosing a stall: thread dumps
+
+When a node stops answering — health times out, the metrics stop moving, a watermark freezes — a
+thread dump says what every thread is waiting on. The image is a Java 21 **JRE**: it carries no
+`jcmd` or `jstack`, so a dump is taken one of two ways, neither of which changes the image. Take two
+or three, a few seconds apart: a thread in the same place in all of them is the stall.
+
+**With no tools at all: `SIGQUIT`.** The JVM answers `SIGQUIT` (`kill -3`) by printing a full thread
+dump, with any deadlock it finds, to its standard output — the container's log — and carries on
+running. The engine is process 1 of its container:
+
+```bash
+docker kill --signal=QUIT <node>          # the compose stack: $C kill -s QUIT pravaha-server
+docker logs --since 1m <node>             # the dump starts at "Full thread dump OpenJDK ..."
+```
+
+**With `jcmd`: a sidecar in the node's PID namespace.** A JDK image run beside the node, sharing its
+processes, as the node's user and group:
+
+```bash
+docker run --rm --pid container:<node> --user 10001:10001 \
+  eclipse-temurin:21-jdk jcmd 1 Thread.print -l > threads.txt
+```
+
+`-l` adds the `java.util.concurrent` locks each thread holds — most of the engine's locks are
+`ReentrantLock`s since ADR-062, and a plain dump does not name their owners. Two things must be
+right, and both fail with the same message,
+`Unable to open socket file /tmp/.java_pid1: target process 1 doesn't respond`:
+
+- **The user *and* group are the node's.** `10001:10001` is the image's own; a node started with
+  `--user`, or by the compose stack (as you), runs as someone else, and
+  `--user "$(docker inspect -f '{{.Config.User}}' <node>)"` is always the right value. `--user
+  10001` alone is group 0, and the kernel then refuses the sidecar the node's `/proc/1/root`.
+- **The node's `/tmp` is writable.** HotSpot opens its attach socket in `/tmp`, not in
+  `java.io.tmpdir`, so under `--read-only` the node needs `--tmpfs /tmp:rw,mode=1777` from the start
+  (compose: `tmpfs: [/tmp]` on the service; the Helm chart mounts one for this). The compose stack's
+  engine has none, so use `SIGQUIT` there. A failed `jcmd` is not wasted: the signals it sent while
+  trying printed dumps to `docker logs`.
+
+**Kubernetes: an ephemeral debug container.** The standard approach, with the same two rules:
+
+```bash
+kubectl debug -it <pod> --image=eclipse-temurin:21-jdk --target=<container> -- jcmd 1 Thread.print -l
+```
+
+`--target` puts the debug container in the engine container's process namespace. The pod's
+security context applies to it: the chart's (`podSecurityContext`, `10001:10001`) matches the image,
+and a pod spec of your own must match the user and group the engine runs as in the same way. The
+chart's `/tmp` is an `emptyDir`, so the attach socket can be opened.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause, and the fix |
@@ -661,6 +713,7 @@ gained a key in a new version is merged by hand — `diff` your `conf/applicatio
 | `PRV-5112 ... has no CREATE on database` from postgres-cdc | the role cannot create the publication: `GRANT CREATE ON DATABASE <db> TO <role>` (the stack's init script does). Before 2026-09-30 the same thing surfaced as `PRV-5111 ... permission denied for database` |
 | Aerospike restarts in a loop, `1024 system file descriptors not enough` | its `nofile` limit; the compose file raises it — keep `ulimits` if you copy the service |
 | a port is already taken | change its variable in `.env` (`PRAVAHA_HTTP_PORT`, ...) and `up -d` again |
+| `jcmd`: `Unable to open socket file /tmp/.java_pid1` | the sidecar's `--user` is not the node's user *and* group, or the node's `/tmp` is read-only. See "Diagnosing a stall: thread dumps"; `docker kill --signal=QUIT` needs neither |
 | the console says the engine is unreachable | `$C ps`: is `pravaha-server` healthy? The console reaches it as `pravaha-server:19090` on the compose network |
 
 ## Where next

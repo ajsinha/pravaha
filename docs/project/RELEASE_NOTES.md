@@ -10,6 +10,29 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **A burst of reads can no longer queue past `pravaha.serving.read.max-queued`** (J21-4). The
+  queue depth was read and then incremented, so arrivals landing together could each see room; the
+  waiting place is now reserved with a compare-and-set, and given back on every way out of the wait
+  (admitted, timed out, interrupted). The refusal is unchanged: `PRV-4026`.
+- **A read lease closed from two threads at once hands back one permit, not two** (J21-5). The
+  guard against a second release was a plain field; it is now a compare-and-set.
+- **The file audit sink handles a failed write under the lock that guards its stream** (J21-6).
+  The writer thread handled the failure after leaving it, so a concurrent flush or close could reopen
+  the stream in between and have the good stream closed and a finished failure reported. Nothing
+  else changes: a query is never failed, lost events are counted and written as `audit.lost`, the
+  file is reopened on the next event, and health reads DEGRADED while it cannot be written.
+- **How to take a thread dump from the JRE image** (J21-7). RUNNING_IN_DOCKER.md gains "Diagnosing a
+  stall: thread dumps": `docker kill --signal=QUIT` with no tools at all, a `jcmd` sidecar in the
+  node's PID namespace (which needs the node's user *and* group, and a writable `/tmp` — the compose
+  stack's engine has none, so `SIGQUIT` there), and `kubectl debug --target`. Linked from
+  TROUBLESHOOTING and OPERATIONS.
+
+---
+
+Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.4.0 — 2026-10-05
 
 **The command line grows up, the console explains itself, and Java 21 is guarded.** 2.4.0 adds

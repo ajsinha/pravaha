@@ -16,11 +16,15 @@
 package com.ash.messaging.pravaha.serving;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
@@ -166,6 +170,111 @@ class ReadAdmissionTest {
     }
 
     @Test
+    void aBurstOfArrivalsNeverQueuesPastMaxQueued() throws Exception {
+        // J21-4. The queue depth was read and then incremented, so arrivals landing together could
+        // each see room and together queue past the limit. One permit, held; a latch-gated burst of
+        // arrivals, each from its own tenant so the per-tenant share does not refuse them first.
+        int maxQueued = 3;
+        int arrivals = 32;
+        for (int round = 0; round < 10; round++) {
+            ReadAdmission admission = new ReadAdmission(1, maxQueued, 1.0, Duration.ofSeconds(60));
+            ReadAdmission.Lease held = admission.acquire(ACME);
+            CountDownLatch go = new CountDownLatch(1);
+            Map<String, AtomicInteger> outcomes = new ConcurrentHashMap<>();
+            List<Thread> threads = new ArrayList<>();
+            for (int i = 0; i < arrivals; i++) {
+                Principal caller = new Principal("u" + i, "tenant-" + i, Set.of("analyst"), Map.of());
+                threads.add(Thread.ofPlatform().start(() -> {
+                    try {
+                        go.await();
+                        admission.acquire(caller).close();
+                        outcomes.computeIfAbsent("admitted", k -> new AtomicInteger())
+                                .incrementAndGet();
+                    } catch (PravahaException e) {
+                        outcomes.computeIfAbsent(e.errorCode().code(), k -> new AtomicInteger())
+                                .incrementAndGet();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+            }
+            go.countDown();
+
+            // Every arrival has decided -- queued, or refused -- before the permit comes back.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            while (admission.rejectedCount() + admission.waiting() < arrivals && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(admission.waiting()).isEqualTo(maxQueued);
+            assertThat(admission.rejectedCount()).isEqualTo(arrivals - maxQueued);
+
+            held.close();
+            for (Thread t : threads) {
+                t.join();
+            }
+            assertThat(outcomes).containsOnlyKeys("admitted", "PRV-4026");
+            assertThat(outcomes.get("admitted")).hasValue(maxQueued);
+            assertThat(outcomes.get("PRV-4026")).hasValue(arrivals - maxQueued);
+            assertThat(admission.waiting()).isZero();
+            assertThat(admission.inFlight()).isZero();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("try") // the resource is only held, never referenced
+    void queueSlotsComeBackAfterTimeoutsAndInterrupts() throws Exception {
+        // J21-4. A reserved slot is returned on every way out of the wait; a leak would turn the
+        // second batch's PRV-4027 (waited, gave up) into PRV-4026 (refused, never waited).
+        int maxQueued = 4;
+        ReadAdmission admission = new ReadAdmission(1, maxQueued, 1.0, Duration.ofMillis(50));
+        try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
+            for (int batch = 0; batch < 2; batch++) {
+                List<Thread> threads = new ArrayList<>();
+                List<String> codes = Collections.synchronizedList(new ArrayList<>());
+                for (int i = 0; i < maxQueued; i++) {
+                    // A tenant each, so the per-tenant share (one, of one permit) does not refuse first.
+                    Principal caller = new Principal("u" + i, "tenant-" + i, Set.of("analyst"), Map.of());
+                    threads.add(Thread.ofPlatform().start(() -> {
+                        try {
+                            admission.acquire(caller).close();
+                            codes.add("admitted");
+                        } catch (PravahaException e) {
+                            codes.add(e.errorCode().code());
+                        }
+                    }));
+                }
+                for (Thread t : threads) {
+                    t.join();
+                }
+                assertThat(codes).hasSize(maxQueued).containsOnly("PRV-4027");
+                assertThat(admission.waiting()).isZero();
+            }
+        }
+
+        // Interrupted while waiting: the slot comes back too.
+        ReadAdmission patient = new ReadAdmission(1, 1, 1.0, Duration.ofSeconds(60));
+        try (ReadAdmission.Lease ignored = patient.acquire(ACME)) {
+            AtomicReference<String> code = new AtomicReference<>();
+            Thread waiter = Thread.ofPlatform().start(() -> {
+                try {
+                    patient.acquire(OTHER).close();
+                } catch (PravahaException e) {
+                    code.set(e.errorCode().code());
+                }
+            });
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            while (patient.waiting() == 0 && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            waiter.interrupt();
+            waiter.join();
+            assertThat(code.get()).isEqualTo("PRV-4027");
+            assertThat(patient.waiting()).isZero();
+            assertThat(patient.rejectedCount()).isZero();
+        }
+    }
+
+    @Test
     @SuppressWarnings("try") // the resource is only held, never referenced
     void closingTwiceDoesNotHandBackAPermitTwice() {
         ReadAdmission admission = new ReadAdmission(1, 0, 1.0, Duration.ZERO);
@@ -179,6 +288,45 @@ class ReadAdmissionTest {
         assertThat(admission.inFlight()).isZero();
         try (ReadAdmission.Lease ignored = admission.acquire(ACME)) {
             assertThatThrownBy(() -> admission.acquire(OTHER)).isInstanceOf(PravahaException.class);
+        }
+    }
+
+    @Test
+    void closingOneLeaseFromManyThreadsAtOnceHandsBackOnePermit() throws Exception {
+        // J21-5. The guard was a plain field, so two threads closing the same lease together could
+        // both see it unset and both release. An over-release shows as a negative in-flight count.
+        int closers = 16;
+        for (int round = 0; round < 200; round++) {
+            ReadAdmission admission = new ReadAdmission(4, 0, 1.0, Duration.ZERO);
+            ReadAdmission.Lease lease = admission.acquire(ACME);
+            CountDownLatch go = new CountDownLatch(1);
+            List<Thread> threads = new ArrayList<>();
+            for (int i = 0; i < closers; i++) {
+                threads.add(Thread.ofPlatform().start(() -> {
+                    try {
+                        go.await();
+                        lease.close();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+            }
+            go.countDown();
+            for (Thread t : threads) {
+                t.join();
+            }
+
+            assertThat(admission.inFlight()).as("round %d", round).isZero();
+            // And acme's share came back once, not sixteen times: four of four, then the tenant
+            // refusal -- a tenant count driven negative would let the fifth past it.
+            List<ReadAdmission.Lease> leases = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                leases.add(admission.acquire(ACME));
+            }
+            assertThatThrownBy(() -> admission.acquire(ACME))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-4028");
+            leases.forEach(ReadAdmission.Lease::close);
         }
     }
 

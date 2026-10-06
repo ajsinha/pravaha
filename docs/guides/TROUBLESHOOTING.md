@@ -264,6 +264,12 @@ commit that a crash aborted and the restart redid, twice; exactly once is promis
 **Did a filter silently match nothing?** `WHERE tier = ?` bound to `NULL` matches **no rows**, because
 `x = NULL` is UNKNOWN under SQL's three-valued logic. `IS NULL` is what finds the empty ones.
 
+**Has the node itself stopped?** If health stops answering and no metric moves, it is not the data:
+take two or three thread dumps a few seconds apart and see what the threads are waiting on. The
+image has no `jcmd`; [`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md),
+"Diagnosing a stall: thread dumps", has the `SIGQUIT` that needs nothing, the `jcmd` sidecar, and
+the Kubernetes debug container.
+
 ## "It is running, but it cannot keep up"
 
 Different from the above: rows *are* arriving and the query *is* answering, just not as fast as the
