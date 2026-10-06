@@ -235,7 +235,7 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/sta
 ```json
 {
   "instanceId": "pravaha-node-01",
-  "version": "2.4.0",
+  "version": "2.4.1-SNAPSHOT",
   "engineState": "RUNNING",
   "uptimeSeconds": 8123,
   "registeredQueries": 2,
