@@ -327,7 +327,7 @@ the console during an incident needs it to load and say what is wrong before sig
 ```bash
 cd pravaha-console
 make install          # .venv, the Pravaha Python SDK, and the console
-make run              # http://127.0.0.1:17070, engine at grpc://localhost:19090
+make run              # http://localhost:17070 (every interface), engine at grpc://localhost:19090
 ```
 
 `make install` creates `.venv` with `python3 -m venv`. On Debian and Ubuntu that needs the

@@ -48,7 +48,7 @@ browser does, an island knows only the console's own `/api/v1`.
 ```bash
 cd pravaha-console
 make install                 # .venv, the Python SDK and the console
-make run                     # http://127.0.0.1:17070, engine at grpc://localhost:19090 and http://localhost:18080
+make run                     # http://localhost:17070 (every interface), engine at grpc://localhost:19090 and http://localhost:18080
 python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:19090 --engine.http_url=http://staging:18080
 ```
 

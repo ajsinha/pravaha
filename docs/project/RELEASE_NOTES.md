@@ -10,6 +10,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **The console listens on every interface by default** (`server.host` / `CONSOLE_HOST`, now
+  `0.0.0.0`; was `127.0.0.1`), so a phone or another machine on the network can open it, as the
+  image already did. Every page but the landing page and the docs needs a sign-in; set
+  `CONSOLE_HOST=127.0.0.1` to keep it to the machine it runs on, and put a TLS terminator in front
+  before exposing it beyond a trusted network.
+
+---
+
+Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.4.1 — 2026-10-06
 
 **No finding open.** 2.4.1 fixes the last four from the ADV-JDK21 pass — the read admission queue

@@ -39,7 +39,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 |---|---|---|---|
 | `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* (generated at start) | Signs the session cookie. The cookie carries an opaque id; the engine session token it stands for stays in the console's memory (COOKIETOKEN-1), so a restart signs everybody out of the console whatever this is. Set it so cookies stay verifiable across instances that share sticky sessions. |
 | `console.secure_cookies` | `CONSOLE_SECURE_COOKIES` | `false` | Marks the session cookie `Secure` always. Without it the cookie is `Secure` exactly when the request reached the console over https; set it behind a proxy that terminates TLS without saying so. |
-| `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
+| `server.host` | `CONSOLE_HOST` | `0.0.0.0` | Every interface by default, so a phone or another machine on the network can open the console; every page but the landing page and the docs needs a sign-in. Set `127.0.0.1` to keep it to this machine, and put a TLS terminator in front before exposing it beyond a trusted network. |
 | `server.port` | `CONSOLE_PORT` | `17070` | |
 | `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:19090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
 | `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |

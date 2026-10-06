@@ -217,7 +217,7 @@ def main() -> None:
                       max_bytes=config.get_int("logging.max_bytes", 50 * 1024 * 1024),
                       backups=config.get_int("logging.backups", 10))
 
-    host = config.get("server.host", "127.0.0.1")
+    host = config.get("server.host", "0.0.0.0")
     port = config.get_int("server.port", 17070)
     app = create_app(config)
 

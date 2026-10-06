@@ -89,8 +89,8 @@ if missing:
 print("every console include resolves")
 CHECK
 
-# CONSOLE_HOST only for the defaults above, which read ${CONSOLE_HOST:127.0.0.1}: inside a container
-# the console must listen beyond loopback. A mounted configuration that names server.host decides.
+# CONSOLE_HOST is the default (${CONSOLE_HOST:0.0.0.0}) said out loud: inside a container the console
+# must listen beyond loopback. A mounted configuration that names server.host decides.
 # The rest put every file the console, Python or the SDK would write under /opt/pravaha.
 ENV PRAVAHA_HOME=/opt/pravaha \
     CONSOLE_HOST=0.0.0.0 \

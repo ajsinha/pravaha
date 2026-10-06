@@ -234,7 +234,7 @@ The console is a FastAPI application served by uvicorn from inside `run_pravaha_
 a plain Python configuration runs it, the same command as `make run`. It reads
 [`pravaha-console/config/application.yaml`](../../../pravaha-console/config/application.yaml), whose defaults are the
 server's: Flight at `grpc://localhost:19090`, HTTP at `http://localhost:18080`, and the console itself
-on `127.0.0.1:17070`. Change them with these variables (under **Environment variables**) or as
+on `0.0.0.0:17070` (every interface; `CONSOLE_HOST=127.0.0.1` keeps it to this machine). Change them with these variables (under **Environment variables**) or as
 parameters (`--server.port=17071`, `--engine.url=grpc://localhost:19091`):
 
 | Variable | Default | Set it when |
@@ -248,7 +248,7 @@ Machine-local values that should not be committed go in `pravaha-console/config/
 git ignores and the console reads straight after `application.yaml`. The console needs no token or
 password of its own: it keeps none, and acts as whoever signs in.
 
-Press **Run**. The log says `console on http://127.0.0.1:17070 — engine expected at
+Press **Run**. The log says `console on http://0.0.0.0:17070 — engine expected at
 grpc://localhost:19090`. The console starts whether or not the server is up yet and says so on every
 page; start order does not matter.
 
