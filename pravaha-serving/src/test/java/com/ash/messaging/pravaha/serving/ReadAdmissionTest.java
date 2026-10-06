@@ -292,6 +292,45 @@ class ReadAdmissionTest {
     }
 
     @Test
+    void closingOneLeaseFromManyThreadsAtOnceHandsBackOnePermit() throws Exception {
+        // J21-5. The guard was a plain field, so two threads closing the same lease together could
+        // both see it unset and both release. An over-release shows as a negative in-flight count.
+        int closers = 16;
+        for (int round = 0; round < 200; round++) {
+            ReadAdmission admission = new ReadAdmission(4, 0, 1.0, Duration.ZERO);
+            ReadAdmission.Lease lease = admission.acquire(ACME);
+            CountDownLatch go = new CountDownLatch(1);
+            List<Thread> threads = new ArrayList<>();
+            for (int i = 0; i < closers; i++) {
+                threads.add(Thread.ofPlatform().start(() -> {
+                    try {
+                        go.await();
+                        lease.close();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+            }
+            go.countDown();
+            for (Thread t : threads) {
+                t.join();
+            }
+
+            assertThat(admission.inFlight()).as("round %d", round).isZero();
+            // And acme's share came back once, not sixteen times: four of four, then the tenant
+            // refusal -- a tenant count driven negative would let the fifth past it.
+            List<ReadAdmission.Lease> leases = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                leases.add(admission.acquire(ACME));
+            }
+            assertThatThrownBy(() -> admission.acquire(ACME))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-4028");
+            leases.forEach(ReadAdmission.Lease::close);
+        }
+    }
+
+    @Test
     @SuppressWarnings("try") // the resource is only held, never referenced
     void aShareThatRoundsToZeroDoesNotRefuseEveryRead() {
         // 1% of four permits is 0.04. Rounding that down would refuse every read from every tenant,

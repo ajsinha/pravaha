@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -224,7 +225,7 @@ public final class ReadAdmission {
     public final class Lease implements AutoCloseable {
 
         private final AtomicInteger tenantCount;
-        private boolean released;
+        private final AtomicBoolean released = new AtomicBoolean();
 
         private Lease(AtomicInteger tenantCount) {
             this.tenantCount = tenantCount;
@@ -233,11 +234,11 @@ public final class ReadAdmission {
         @Override
         public void close() {
             // Idempotent, because a caller that closes in a finally *and* on an error path should
-            // not hand the node a permit it never had.
-            if (released) {
+            // not hand the node a permit it never had. Atomic, because a plain flag let two threads
+            // closing one lease at once both release (J21-5).
+            if (!released.compareAndSet(false, true)) {
                 return;
             }
-            released = true;
             tenantCount.decrementAndGet();
             permits.release();
         }

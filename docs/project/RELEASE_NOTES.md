@@ -16,10 +16,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   queue depth was read and then incremented, so arrivals landing together could each see room; the
   waiting place is now reserved with a compare-and-set, and given back on every way out of the wait
   (admitted, timed out, interrupted). The refusal is unchanged: `PRV-4026`.
+- **A read lease closed from two threads at once hands back one permit, not two** (J21-5). The
+  guard against a second release was a plain field; it is now a compare-and-set.
 
 ---
 
-Register: **582 findings — 560 fixed, 3 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **582 findings — 561 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.4.0 — 2026-10-05
 
