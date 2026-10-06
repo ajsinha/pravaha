@@ -10,7 +10,29 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.4.0 — 2026-10-05
+
+**The command line grows up, the console explains itself, and Java 21 is guarded.** 2.4.0 adds
+`pravaha doctor`, shell completion, named connection contexts, `--dry-run` on every destructive
+command, `pravaha top`, and two scaffolds that build as generated (`pravaha init` for a project,
+`pravaha plugin new` for a connector with its TCK wired); every command's help carries examples,
+and the CLI's exit codes and JSON shapes are a tested contract. Every console page ends with
+"About this page". The build now refuses a dependency compiled for a Java newer than 21, the
+production JVM. And the ADV-JDK21 adversarial pass found the Java 21 lock conversion sound and
+fixed three defects it found elsewhere.
+
+**Read before upgrading from 2.3.0.**
+
+- **A custom `TokenVerifier` that returns null or `Principal.ANONYMOUS`, or throws, is now refused**
+  `PRV-7001` on HTTP too (401), as Flight and pgwire already did; before, HTTP let `ANONYMOUS`
+  through as the anonymous caller (J21-1). Only nodes with a verifier bean of their own are affected.
+- **The console's source directory is `pravaha-console/`.** Nothing changes at runtime or in the
+  image; developers recreate the venv with `make -C pravaha-console install`.
+- **The CLI keeps its old behaviour by default:** contexts are opt-in (no `contexts.json`, nothing
+  changes), and the exit codes are the ones it already used, now documented.
+- **Open:** four LOW findings, all POST-GA (J21-4 to J21-7).
+
+What changed, in detail:
 
 - **The brand leads to the landing page, and back.** Signed in, the Pravaha name and logo in the
   console's bar now open the landing page, as they do for a visitor, instead of your home screen;

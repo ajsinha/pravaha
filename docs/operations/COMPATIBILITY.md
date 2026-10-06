@@ -95,6 +95,12 @@ for one node, and a deployment past them meets `PRV-6216`, `PRV-1054` or `PRV-10
 carries the engine token, so a console restart signs everyone out of it and several console
 instances need sticky sessions.
 
+## 2.4.0: fixes that change behaviour
+
+| What 2.3.0 did | What 2.4.0 does | Finding |
+|---|---|---|
+| Over HTTP, a custom `TokenVerifier` returning `Principal.ANONYMOUS` admitted the caller as anonymous; one returning null or throwing was a 500 with no code | Refused `PRV-7001`, 401, as Flight and pgwire already refused it | J21-1 |
+
 ## 2.2.0: fixes that change behaviour
 
 | What 2.1.0 did | What 2.2.0 does | Finding |
