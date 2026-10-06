@@ -102,6 +102,25 @@ renders to a screen. To give a new page its panel:
 words or tiles, and words for a screen no page shows. Help's own pages are exempt (`EXEMPT`): each topic
 already ends with its own footer, and a second would say the same thing twice.
 
+### Mobile
+
+Every page must work on a phone. `tests/test_browser_mobile.py` loads every page in `PAGES` (plus the
+menu-only screens in its `EXTRA_PAGES`, and the public pages signed out) at 360×740 and 390×844 and
+fails on: a page that scrolls sideways, an element wider than the viewport outside a scroll box (named in
+the message), a tap target under 40×40 CSS px, text under 12px (code 11px), a text field under 16px (iOS
+zooms on focus), and a collapsed menu whose entries cannot all be reached by tap.
+
+- **Tables** sit in `.table-responsive` and scroll inside it: on a phone the first column (the name) is
+  sticky, a shadow at the right edge shows there is more, and a long SQL cell is one line with an ellipsis
+  and its full text as `title` — never one word per line. Don't stack rows into cards.
+- **Tap targets**: 40×40 for every visible `a`, `button`, `input`, `select`, `textarea`, `summary` and
+  `[role=button]`; a checkbox or radio counts with its label. A link that is `display: inline` inside
+  running text (its block has at least three letters that are not a control) is exempt, as WCAG 2.5.8
+  exempts it. Anything else excused goes in the test's `TARGET_ALLOWED`, with the reason.
+- **The rules** live in `web/static/app/mobile.css`, linked last from `base.html`, by pattern and under
+  `@media (max-width: 767.98px)` (the collapsed bar's under 991.98px), so the wide layout does not move.
+  A new screen built from the shared classes needs nothing; fix a failure there, not on the page.
+
 ## 4. Adding a help topic
 
 Topics are task-sized pages in `content/topics/<slug>.md`; nothing lists them by name, so adding one is

@@ -10,6 +10,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **The console works on a phone.** Every page at 360 and 390 px wide: nothing scrolls the page
+  sideways, tables scroll inside their box with the name column held still and long SQL cut to one
+  line, every control is a 40×40 target, text is at least 12px and a text field 16px (no zoom on
+  focus), and the collapsed menu, its panels and the theme and account menus fit and work by tap. A
+  browser test (`tests/test_browser_mobile.py`) holds all of it on every page.
+
+---
+
+Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.4.1 — 2026-10-06
 
 **No finding open.** 2.4.1 fixes the last four from the ADV-JDK21 pass — the read admission queue
