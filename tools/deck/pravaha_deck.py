@@ -86,7 +86,7 @@ OPENING: list[dict[str, Any]] = [
              "exactly-once sinks, blue/green replacement, a governed catalogue, a console, a CLI and "
              "Java and Python SDKs. 582 findings recorded, 0 open."),
             ("Where is it going?",
-             "Feature-complete for one node. Cluster mode is on hold by the owner's decision; what is "
+             "Feature-complete for one node. Cluster mode is deferred; what is "
              "left is the eight-lane scaling target, more Nexmark SQL and the first versions' follow-ups."),
         ],
         "q_w": 2.9,

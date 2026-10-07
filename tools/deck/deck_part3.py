@@ -97,7 +97,7 @@ SLIDES: list[dict[str, Any]] = [
             ("Headers on every response",
              "A CSP, frame-ancestors 'none', X-Frame-Options DENY, nosniff; HSTS over https."),
             ("Not built",
-             "MFA and single sign-on: dropped by the owner."),
+             "MFA and single sign-on: not in this release."),
         ],
         "size": 14,
         "takeaway": "The console holds no credential of its own: the engine checks every action, as you.",

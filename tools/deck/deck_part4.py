@@ -376,7 +376,7 @@ ROADMAP: list[dict[str, Any]] = [
         "title": "What is left — and what each item is",
         "rows": [
             ["Item", "Kind"],
-            ["Cluster mode (wave 11): multi-node execution", "On hold by the owner; membership, fenced leases "
+            ["Cluster mode (wave 11): multi-node execution", "Deferred; membership, fenced leases "
              "and rebalance are built as libraries no node consumes yet (PRV-9002)"],
             ["The eight-lane scaling criterion", "Not reached on a laptop; needs reference hardware"],
             ["Nexmark: 11 of 23 queries; the head-to-head against Flink", "Missing SQL, not speed"],
