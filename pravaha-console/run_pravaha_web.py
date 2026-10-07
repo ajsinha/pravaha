@@ -26,7 +26,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import URLSafeSerializer
@@ -137,6 +137,14 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     # streaming engine is deployed inside networks that do not reach the
     # internet far more often than not.
     app.mount("/static", StaticFiles(directory=str(ROOT / "web" / "static")), name="static")
+
+    # A browser asks for /favicon.ico whatever the page says (and a JSON or API-docs response says
+    # nothing): answer with the logo rather than a 404 in every log.
+    favicon = ROOT / "web" / "static" / "img" / "favicon.ico"
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon_ico() -> FileResponse:
+        return FileResponse(favicon, media_type="image/x-icon")
     templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
     templates.env.filters["thousands"] = _thousands
     templates.env.filters["truncate_sql"] = _truncate

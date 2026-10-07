@@ -31,6 +31,10 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   is going. Every figure is listed beside its source in `tools/deck/FACTS.md`, every slide carries a
   talk track in its notes, and a test fails on another product's or organisation's name or marking.
 
+- **The tab icon is the logo.** The console's favicon was an old blue mark; it is now the navigation
+  bar's three white streamlines on crimson, served as SVG, 32px PNG and `/favicon.ico`, with an Apple
+  touch icon and a web manifest (192 and 512px) so a phone's home-screen shortcut shows the logo too.
+
 ---
 
 Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.

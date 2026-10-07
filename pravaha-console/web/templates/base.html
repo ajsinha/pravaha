@@ -15,7 +15,11 @@
 {# The session's CSRF token, for api.js to send as X-CSRF-Token on every call it makes. #}
 <meta name="csrf-token" content="{{ csrf_token }}">
 <title>{% block title %}{{ app_name }}{% endblock %}</title>
-<link rel="icon" href="/static/img/pravaha-mark.svg">
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/static/img/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
+<link rel="manifest" href="/static/site.webmanifest">
+<meta name="theme-color" content="#8A1626">
 <!-- Vendored locally: no CDN, so the console renders in an air-gapped deployment. The same
      Bootstrap 5.3.8 and Bootstrap Icons build MAYA vendors. -->
 <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">

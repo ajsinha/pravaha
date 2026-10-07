@@ -1064,3 +1064,24 @@ def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):
     assert Messages()("landing.instance.console", version=version) == f"console {version}"
     assert f"console {version}" in page
     assert "FIG. 01" in page
+
+
+def test_the_tab_icon_is_the_logo(anonymous):
+    """The favicon is the navigation bar's mark -- three white streamlines on crimson -- in every
+    form a browser or a phone asks for, and /favicon.ico answers rather than 404."""
+    page = anonymous.get("/").text
+    for link in ('rel="icon" href="/static/img/favicon.svg"', 'href="/static/img/favicon-32.png"',
+                 'rel="apple-touch-icon" href="/static/img/apple-touch-icon.png"',
+                 'rel="manifest" href="/static/site.webmanifest"'):
+        assert link in page, link
+    svg = anonymous.get("/static/img/favicon.svg").text
+    mark = anonymous.get("/static/img/pravaha-mark-white.svg").text
+    for path in ('M4,18 Q16,6 28,18 T52,18', 'M4,32 Q16,20 28,32 T52,32', 'M4,46 Q16,34 28,46 T52,46'):
+        assert path in svg and path in mark, path
+    assert "#2E7FD0" not in svg  # not the old blue mark
+    ico = anonymous.get("/favicon.ico")
+    assert ico.status_code == 200 and ico.headers["content-type"] == "image/x-icon"
+    for asset in ("/static/img/favicon-32.png", "/static/img/apple-touch-icon.png",
+                  "/static/img/icon-192.png", "/static/img/icon-512.png", "/static/site.webmanifest"):
+        assert anonymous.get(asset).status_code == 200, asset
+

@@ -39,7 +39,7 @@ outer lines sit at 55% opacity to give depth without adding a fourth element.
 |---|---|
 | `mark.svg` | Primary icon, gradient. Anything 32px and larger. |
 | `mark-mono.svg` | Single colour, inherits `currentColor`. Themed UI, print, embroidery. |
-| `favicon.svg` | Tab icon. **Two** lines and a heavier stroke -- at 16px the three-line mark closes into a solid block. |
+| `favicon.svg` | Tab icon: the logo itself -- the three streamlines in white on a crimson tile, drawn a little heavier and inset so they stay apart at 16px. The console serves it, with PNG, `favicon.ico`, Apple touch and manifest sizes rendered from it (`pravaha-console/web/static/img/`). |
 | `logo.svg` | Horizontal lockup: mark, wordmark, slogan. |
 
 **Clear space:** at least the height of one streamline gap (7 units at the 64-unit
