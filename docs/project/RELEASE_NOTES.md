@@ -24,6 +24,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   line, every control is a 40×40 target, text is at least 12px and a text field 16px (no zoom on
   focus), and the collapsed menu, its panels and the theme and account menus fit and work by tap. A
   browser test (`tests/test_browser_mobile.py`) holds all of it on every page.
+- **The deck is rebuilt as a showcase** (`docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx`,
+  56 slides, from `tools/deck/`): an executive summary as five questions, then five acts — the idea
+  of continuous SQL before the product, Pravaha 2.4 with the console screen by screen and the CLI's
+  captured output, security drawn as flows, the evidence with a number in every title, and where it
+  is going. Every figure is listed beside its source in `tools/deck/FACTS.md`, every slide carries a
+  talk track in its notes, and a test fails on another product's or organisation's name or marking.
 
 ---
 

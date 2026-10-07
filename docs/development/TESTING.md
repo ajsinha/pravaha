@@ -37,7 +37,7 @@ surefire and failsafe reports), the SDK suite collects 432 tests and the console
 | Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s (432 collected on 2026-10-02) |
 | Console | `pravaha-console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C pravaha-console test` / `make -C pravaha-console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)); 1,957 collected on 2026-10-02 |
 | SDK, standalone | `tools/sdk-standalone-check.sh`, after `tools/build-sdk.sh` | Docker (or a running node), Maven, Python with venv or uv | `sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` | four clients outside the repository (Maven, `-all` jar, wheel with and without `[flight]`), green on 2026-09-30 ([below](#the-sdks-on-their-own)) |
-| Deck | `tests/deck` | `tools/deck/.venv` (python-pptx) | `tools/deck/.venv/bin/python -m pytest -q tests/deck` | 5 passed, 1 s |
+| Deck | `tests/deck` | `tools/deck/.venv` (python-pptx) | `tools/deck/.venv/bin/python -m pytest -q tests/deck` | 8 passed, 1 s |
 | The gate | whole reactor | JDK 21 or later, the shared `~/.m2` | `tools/verify-clean.sh` | **not run in this pass**; its header records 5 min 50 s for 2,274 tests |
 | A running stack | a real node, the console, the CLI, pgwire | the built jars (or Docker) | [End to end](#end-to-end-against-a-running-stack) | walked through, outside Docker |
 
@@ -449,11 +449,12 @@ baselines were retaken (the first run had 16 visual failures, below). The visual
 ```bash
 uv venv tools/deck/.venv --python 3.12
 uv pip install -p tools/deck/.venv -r tools/deck/requirements.txt
-tools/deck/.venv/bin/python -m pytest -q tests/deck     # 5 passed, 1 s
+tools/deck/.venv/bin/python -m pytest -q tests/deck     # 8 passed, 1 s
 ```
 
-The audit asserts the slide count, that every slide has a source, and the geometry (nothing off the
-page, nothing overlapping). [`tools/deck/GUIDE.md`](../../tools/deck/GUIDE.md) has the rest.
+The audit asserts the slide count, that every slide has a source and a talk track, the author footer
+on every content slide, that no other product's or organisation's name or marking appears anywhere in
+the deck, and the geometry (nothing off the page, nothing overlapping). [`tools/deck/GUIDE.md`](../../tools/deck/GUIDE.md) has the rest.
 
 ## Performance and measurement
 

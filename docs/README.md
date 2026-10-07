@@ -86,7 +86,7 @@ The documents are in six folders, by who reads them and when:
 | | |
 |---|---|
 | [Research paper](publications/research/continuous-queries-as-maintained-answers.pdf) · [article](publications/research/continuous-queries-as-maintained-answers-article.md) | *Continuous Queries as Maintained Answers*: Z-sets, and the four hand-overs made exact at a position — a subscription from a snapshot, a checkpoint, a shared reader, a replacement — with the test behind each claim, or "argued" where there is none. LaTeX source beside it; CC BY-NC-ND 4.0 |
-| [The deck](publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | *A continuous SQL engine: design and evidence*, 99 slides, generated from `tools/deck/` |
+| [The deck](publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | *Pravaha: continuous SQL where your data already lives*, 56 slides, generated from `tools/deck/` |
 | [The Medium post](publications/medium/) | *Keeping the Answer: Inside Pravaha*: the design decisions, what each costs, and the alternatives turned down |
 | [Competitive landscape](publications/COMPETITIVE_LANDSCAPE.md) | Where Pravaha stands among the products that do part of its job: scored by category, dated, and plain about where it loses |
 

@@ -371,9 +371,9 @@ READING: list[Reading] = [
             "listed assumptions, with a ledger of what is tested and what is argued.",
             "docs/publications/research/continuous-queries-as-maintained-answers.pdf",
             "continuous-queries-as-maintained-answers.pdf"),
-    Reading("file-earmark-slides", "A continuous SQL engine: design and evidence",
-            "The deck, 99 slides: why ask once, the vocabulary, a query's life, correctness, scale on one "
-            "node, connectors, security, operating it, and what is measured.",
+    Reading("file-earmark-slides", "Pravaha: continuous SQL where your data already lives",
+            "The deck, 56 slides: the idea before the product, Pravaha 2.4 screen by screen, security "
+            "drawn as flows, the evidence by the numbers, and where it is going.",
             "docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx",
             "pravaha-design-and-evidence.pptx"),
     Reading("journal-text", "Keeping the Answer: Inside Pravaha",
