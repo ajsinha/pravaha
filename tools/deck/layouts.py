@@ -8,11 +8,13 @@ content out of the drawing code is what lets one deck be assembled from several
 modules that share one set of layouts, and what keeps every layout short enough
 to read -- and to fit.
 
-Kinds: ``title``, ``divider``, ``bullets``, ``table``, ``cards``, ``stats``,
-``split``, ``flow``, ``context``, ``code``.
+Kinds: ``title``, ``act`` (and the older ``divider``), ``qa``, ``steps``, ``bullets``,
+``table``, ``cards``, ``stats``, ``split``, ``flow``, ``context``, ``code``, ``tree``, ``shot``,
+``shots``, ``thanks``.
 
-Every spec may carry ``source``: it becomes the slide's speaker notes, and names
-the file each figure and claim on the slide comes from.
+Every spec may carry ``source``: it begins the slide's speaker notes, and names
+the file each figure and claim on the slide comes from; ``talk`` follows it as the talk
+track. ``takeaway`` puts the slide's one-sentence key insight in a band above the footer.
 
 Project Pravaha -- Ask once. Answer always.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
@@ -72,8 +74,37 @@ def _intro(sl: Any, y: float, text: str | None) -> float:
     return y + used + GAP
 
 
-def _note(sl: Any, text: str | None) -> float:
-    """A crimson-ruled note pinned above the footer; returns its top."""
+def _takeaway(sl: Any, text: str) -> float:
+    """The slide's one-sentence takeaway, in a tinted band pinned above the footer; returns
+    the top of the space left above it."""
+    label = "Key insight  "
+    width = T.CW - 0.5
+    size = 14.0
+    while size > 10 and text_h(label + text, width * 0.94, size, True, SANS, 1.2) > 0.75:
+        size -= 0.5
+    h = text_h(label + text, width * 0.94, size, True, SANS, 1.2) + 0.24
+    top = T.BODY_BOTTOM - h
+    T.rect(sl, T.ML, top, T.CW, h, fill=T.WASH)
+    T.rect(sl, T.ML, top, 0.06, h, fill=T.ACCENT)
+    T.fitted(
+        sl,
+        T.ML + 0.28,
+        top + 0.12,
+        width,
+        h - 0.2,
+        lambda tf, s: T.runs(tf, [(label, T.ACCENT, True), (text, T.ACCENT_DD, True)], size=s,
+                             first=True, space_after=0, line=1.2),
+        size,
+        9.5,
+    )
+    return top - GAP
+
+
+def _note(sl: Any, text: str | None, takeaway: str | None = None) -> float:
+    """A crimson-ruled note pinned above the footer -- or, for a ``takeaway``, the key-insight
+    band; returns the top of the space left above it."""
+    if takeaway:
+        return _takeaway(sl, takeaway)
     if not text:
         return T.BODY_BOTTOM
     size = 12.0
@@ -152,36 +183,36 @@ def title(s: dict[str, Any]) -> None:
 
         T.fitted(sl, x0 + k * (colw + 0.2), 4.92, colw, 1.9, agenda, 11, 8.5)
     T.footer(sl)
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def divider(s: dict[str, Any]) -> None:
     sl = T.divider(s["num"], s["title"], s["sub"], s["points"])
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def bullets(s: dict[str, Any]) -> None:
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     T.fitted(sl, T.ML, y, T.CW, bottom - y, lambda tf, size: _items(tf, s["items"], size),
              s.get("size", 17), 9.5)
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def table(s: dict[str, Any]) -> None:
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     T.fitted_table(sl, s["rows"], T.ML, y, T.CW, bottom - y, s.get("col_w"),
                    start=s.get("size", 14), bold_col0=s.get("bold_col0", True))
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def cards(s: dict[str, Any]) -> None:
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     items = s["cards"]
     cols = s.get("cols", 3)
     rows = (len(items) + cols - 1) // cols
@@ -190,7 +221,7 @@ def cards(s: dict[str, Any]) -> None:
     for i, (num, head, body) in enumerate(items):
         r, c = divmod(i, cols)
         T.card(sl, T.ML + c * (cw + GAP), y + r * (ch + GAP), cw, ch, num, head, body)
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def stats(s: dict[str, Any]) -> None:
@@ -198,9 +229,9 @@ def stats(s: dict[str, Any]) -> None:
     y = _intro(sl, y, s.get("intro"))
     T.statbar(sl, y, s["stats"])
     y += 1.25 + GAP + 0.05
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     _body(sl, T.ML, y, T.CW, bottom - y, s, 16)
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def _column(sl: Any, x: float, y: float, w: float, h: float, col: dict[str, Any]) -> None:
@@ -215,18 +246,18 @@ def _column(sl: Any, x: float, y: float, w: float, h: float, col: dict[str, Any]
 def split(s: dict[str, Any]) -> None:
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     w = (T.CW - 0.4) / 2
     _column(sl, T.ML, y, w, bottom - y, s["left"])
     _column(sl, T.ML + w + 0.4, y, w, bottom - y, s["right"])
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def flow(s: dict[str, Any]) -> None:
     """Boxes in a row, joined by straight arrows; then optional items or a table beneath."""
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     steps = s["steps"]
     arrow = 0.30
     bw = (T.CW - arrow * (len(steps) - 1)) / len(steps)
@@ -238,7 +269,7 @@ def flow(s: dict[str, Any]) -> None:
             T.connect(sl, x - arrow + 0.04, y + bh / 2, x - 0.04, y + bh / 2, T.ACCENT, 2.0)
     top = y + bh + GAP + 0.05
     _body(sl, T.ML, top, T.CW, bottom - top, s, 15)
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def code(s: dict[str, Any]) -> None:
@@ -246,7 +277,7 @@ def code(s: dict[str, Any]) -> None:
     ``wide`` is set)."""
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     if s.get("wide"):
         used = T.code(sl, T.ML, y, T.CW, s.get("code_h", (bottom - y) * 0.55), s["code"],
                       s.get("code_size", 13))
@@ -258,7 +289,7 @@ def code(s: dict[str, Any]) -> None:
         T.code(sl, T.ML, y, cw, bottom - y, s["code"], s.get("code_size", 13))
         x = T.ML + T.CW * frac + 0.2
         _body(sl, x, y, T.ML + T.CW - x, bottom - y, s, 15)
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 def context(s: dict[str, Any]) -> None:
@@ -271,7 +302,7 @@ def context(s: dict[str, Any]) -> None:
     """
     sl, y = T.content(s["title"], s.get("kicker"))
     y = _intro(sl, y, s.get("intro"))
-    bottom = _note(sl, s.get("note"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
     x0, w0, h0 = T.ML, T.CW, bottom - y
 
     box: dict[str, tuple[float, float, float, float]] = {}
@@ -310,7 +341,170 @@ def context(s: dict[str, Any]) -> None:
     for n in s["nodes"]:
         bx, by, bw, bh = box[n["id"]]
         T.card(sl, bx, by, bw, bh, n.get("num", ""), n["head"], n.get("body", ""))
-    T.notes(sl, s.get("source"))
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def act(s: dict[str, Any]) -> None:
+    """A short act divider: a numbered disc, a title and one line."""
+    sl = T.act_divider(s["num"], s["title"], s["sub"])
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def _centre(sl: Any, top: float, h: float, used: float) -> None:
+    """Move the shape just drawn so its text sits in the middle of ``h``."""
+    from pptx.util import Inches
+
+    sl.shapes[-1].top = Inches(top + max(0.0, (h - used) / 2))
+
+
+def qa(s: dict[str, Any]) -> None:
+    """Questions and their short answers, one tinted row each (the executive summary)."""
+    sl, y = T.content(s["title"], s.get("kicker"))
+    y = _intro(sl, y, s.get("intro"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
+    rows = s["rows"]
+    gap = 0.14
+    rh = (bottom - y - gap * (len(rows) - 1)) / len(rows)
+    qw = s.get("q_w", 3.0)
+    for i, (q, a) in enumerate(rows):
+        top = y + i * (rh + gap)
+        T.rect(sl, T.ML, top, T.CW, rh, fill=T.WASH_L)
+        T.rect(sl, T.ML, top, qw, rh, fill=T.WASH)
+        T.rect(sl, T.ML, top, 0.06, rh, fill=T.ACCENT)
+        used = T.fitted(sl, T.ML + 0.25, top + 0.08, qw - 0.4, rh - 0.16,
+                        lambda tf, z, q=q: T.para(tf, q, size=z, color=T.ACCENT_D, bold=True,
+                                                  font=HEAD, first=True, space_after=0, line=1.1),
+                        s.get("q_size", 16), 10)
+        _centre(sl, top + 0.08, rh - 0.16, used)
+        x = T.ML + qw + 0.3
+        used = T.fitted(sl, x, top + 0.08, T.ML + T.CW - x - 0.2, rh - 0.16,
+                        lambda tf, z, a=a: T.para(tf, a, size=z, color=T.INK, first=True,
+                                                  space_after=0, line=1.18),
+                        s.get("size", 15), 9.5)
+        _centre(sl, top + 0.08, rh - 0.16, used)
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def _step_size(items: list[tuple[str, str]], width: float, height: float, start: float,
+               floor: float = 9.5) -> float:
+    """The largest size at which every numbered item fits its slot: one size for all, so the
+    list reads as one list."""
+    size = start
+    while size >= floor:
+        need = max(text_h(lead, width * 0.94, size + 1, True, HEAD, 1.1)
+                   + text_h(body, width * 0.94, size - 1, False, SANS, 1.2) + 0.08
+                   for lead, body in items)
+        if need <= height - 0.06:
+            return size
+        size -= 0.5
+    raise T.DoesNotFit(f"numbered items do not fit {width:.2f}x{height:.2f}")
+
+
+def steps(s: dict[str, Any]) -> None:
+    """Numbered items -- principles or the steps of a procedure -- each a disc, a bold lead
+    and a line or two under it, in one or two columns."""
+    sl, y = T.content(s["title"], s.get("kicker"))
+    y = _intro(sl, y, s.get("intro"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
+    items = s["items"]
+    cols = s.get("cols", 1)
+    per = (len(items) + cols - 1) // cols
+    colw = (T.CW - 0.4 * (cols - 1)) / cols
+    rh = (bottom - y) / per
+    d = min(0.5, rh - 0.12)
+    tw = colw - d - 0.25
+    size = _step_size(items, tw, rh - 0.1, s.get("size", 15.5))
+    for i, (lead, body) in enumerate(items):
+        c, r = divmod(i, per)
+        x = T.ML + c * (colw + 0.4)
+        top = y + r * rh
+        if r:
+            T.rect(sl, x + d + 0.25, top - 0.004, tw, 0.008, fill=T.RULE)
+        T.circle(sl, x, top + 0.06, d, str(i + 1), size=min(15, d * 30))
+
+        def write(tf: Any, z: float, lead: str = lead, body: str = body) -> None:
+            T.para(tf, lead, size=z + 1, color=T.INK, bold=True, font=HEAD, first=True,
+                   space_after=1, line=1.1)
+            T.para(tf, body, size=z - 1, color=T.SLATE, space_after=0, line=1.2)
+
+        T.fitted(sl, x + d + 0.25, top + 0.06, tw, rh - 0.1, write, size, 9)
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def shot(s: dict[str, Any]) -> None:
+    """A real screenshot, as large as the slide allows, with what to look at beside it."""
+    sl, y = T.content(s["title"], s.get("kicker"))
+    y = _intro(sl, y, s.get("intro"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
+    iw = T.CW * s.get("img_w", 0.66)
+    px, py, pw, ph = T.picture(sl, str(T.ROOT / s["image"]), T.ML, y, iw, bottom - y)
+    x = px + pw + 0.35
+    _body(sl, x, y, T.ML + T.CW - x, bottom - y, s, 14)
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def shots(s: dict[str, Any]) -> None:
+    """Two screenshots side by side, each with a bold caption and a line under it."""
+    sl, y = T.content(s["title"], s.get("kicker"))
+    y = _intro(sl, y, s.get("intro"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
+    w = (T.CW - 0.4) / 2
+    cap = s.get("cap_h", 1.0)
+    for i, (image, head, body) in enumerate(s["images"]):
+        x = T.ML + i * (w + 0.4)
+        px, py, pw, ph = T.picture(sl, str(T.ROOT / image), x, y, w, bottom - y - cap - 0.12)
+
+        def write(tf: Any, z: float, head: str = head, body: str = body) -> None:
+            T.para(tf, head, size=z + 1.5, color=T.ACCENT_D, bold=True, font=HEAD, first=True,
+                   space_after=2, line=1.1)
+            T.para(tf, body, size=z, color=T.SLATE, space_after=0, line=1.2)
+
+        T.fitted(sl, x, py + ph + 0.14, w, bottom - (py + ph + 0.14), write, 13.5, 9)
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def tree(s: dict[str, Any]) -> None:
+    """A flow drawn as a numbered step tree: who talks to whom in a band, the steps in a
+    code panel, and what follows from it beside them."""
+    sl, y = T.content(s["title"], s.get("kicker"))
+    y = _intro(sl, y, s.get("intro"))
+    bottom = _note(sl, s.get("note"), s.get("takeaway"))
+    frac = s.get("code_w", 0.62) if s.get("items") or s.get("rows") else 1.0
+    cw = T.CW * frac - (0.2 if frac < 1 else 0)
+    T.rect(sl, T.ML, y, cw, 0.42, fill=T.ACCENT_D)
+    tf = T.txt(sl, T.ML, y + 0.09, cw, 0.28, align=PP_ALIGN.CENTER)
+    T.para(tf, s["actors"], size=13, color=T.WHITE, bold=True, first=True, space_after=0)
+    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    top = y + 0.42
+    T.code(sl, T.ML, top, cw, bottom - top, s["code"], s.get("code_size", 12.5), steps=True)
+    if frac < 1:
+        x = T.ML + T.CW * frac + 0.2
+        _body(sl, x, y, T.ML + T.CW - x, bottom - y, s, 14)
+    T.notes(sl, s.get("source"), s.get("talk"))
+
+
+def thanks(s: dict[str, Any]) -> None:
+    """The closing slide."""
+    T._state["n"] += 1
+    sl = T.blank()
+    T.rect(sl, 0, 0, SW, SH, fill=T.ACCENT_D)
+    T.rect(sl, 0, 0, 0.20, SH, fill=T.ACCENT_DD)
+    T.mark(sl, (SW - 1.4) / 2, 1.0, 1.4, light=True)
+    tf = T.txt(sl, T.ML, 2.65, T.CW, 1.0, align=PP_ALIGN.CENTER)
+    T.para(tf, s["title"], size=48, color=T.WHITE, bold=True, font=HEAD, first=True,
+           space_after=0, line=1.05)
+    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    T.rect(sl, (SW - 1.7) / 2, 3.72, 1.7, 0.035, fill=T.ACCENT_L)
+    tf = T.txt(sl, T.ML, 3.95, T.CW, 0.55, align=PP_ALIGN.CENTER)
+    T.para(tf, s["sub"], size=24, color=T.WHITE, italic=True, font=HEAD, first=True,
+           space_after=0)
+    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    tf = T.txt(sl, T.ML, 4.85, T.CW, 1.3, align=PP_ALIGN.CENTER)
+    for i, line in enumerate(s["lines"]):
+        p = T.para(tf, line, size=18 if i == 0 else 13, color=T.WHITE if i == 0 else T.WASH,
+                   bold=i == 0, first=i == 0, space_after=3)
+        p.alignment = PP_ALIGN.CENTER
+    T.notes(sl, s.get("source"), s.get("talk"))
 
 
 KINDS = {
@@ -324,6 +518,13 @@ KINDS = {
     "flow": flow,
     "code": code,
     "context": context,
+    "act": act,
+    "qa": qa,
+    "steps": steps,
+    "shot": shot,
+    "shots": shots,
+    "tree": tree,
+    "thanks": thanks,
 }
 
 
