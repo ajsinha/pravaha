@@ -26,7 +26,7 @@ a data-platform lead or an SRE meeting the product for the first time. It teache
 it names the product, then shows the product as it is, draws security as flows, and ends on evidence
 and the road ahead. After a title slide and a **TL;DR** — an executive summary as five questions
 (what is continuous SQL, what is Pravaha, why it matters, what it does today, where it is going) —
-come five acts, each opened by a short crimson divider with a numbered disc:
+come five acts, each opened by a short crimson divider with its two-digit number (01–05) as a tone-on-tone watermark:
 
 1. **The idea: continuous SQL** (`deck_part1.py`) — what continuous SQL and incremental view
    maintenance are; the problem, in the case studies' own words; one engine instead of a job, a sink

@@ -345,7 +345,7 @@ def context(s: dict[str, Any]) -> None:
 
 
 def act(s: dict[str, Any]) -> None:
-    """A short act divider: a numbered disc, a title and one line."""
+    """A short act divider: the act number as a watermark, a title and one line."""
     sl = T.act_divider(s["num"], s["title"], s["sub"])
     T.notes(sl, s.get("source"), s.get("talk"))
 

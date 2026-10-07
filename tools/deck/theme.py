@@ -359,30 +359,35 @@ def divider(num: str, title: str, sub: str, points: list[str]) -> Any:
 
 
 def act_divider(num: str, title: str, sub: str) -> Any:
-    """A short crimson act divider: a numbered disc, the act's title and one line under it."""
+    """A crimson act divider: the act's number as a tone-on-tone watermark at the top right, the
+    title left-aligned under a short accent rule, and one line under it."""
     _state["n"] += 1
     sl = blank()
-    rect(sl, 0, 0, SW, SH, fill=ACCENT_D)
-    rect(sl, 0, 0, 0.18, SH, fill=ACCENT_DD)
-    mark(sl, ML + 0.25, 0.7, 0.75, light=True)
-    d = 1.45
-    circle(sl, (SW - d) / 2, 1.45, d, num, size=44, fill=WHITE, color=ACCENT_D)
+    rect(sl, 0, 0, SW, SH, fill=ACCENT_DD)
+    rect(sl, 0, 0, SW, 0.06, fill=ACCENT_D)
+    mark(sl, ML, 0.7, 0.75, light=True)
+    # The chapter number, two digits, drawn large in a crimson only a shade lighter than the
+    # ground: read as a watermark, not as a heading competing with the title.
+    label = f"{int(num):02d}" if num.isdigit() else num
+    tf = txt(sl, SW - ML - 4.6, 0.55, 4.6, 3.1, align=PP_ALIGN.RIGHT)
+    para(tf, label, size=170, color=ACCENT_D, font=HEAD, bold=True, first=True, space_after=0,
+         line=0.9)
+    tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
     tw = CW - 1.0
-    size = 38.0
+    size = 40.0
     while size > 24 and est_lines(title, tw * SAFETY, size, True, HEAD) > 1:
         size -= 2
     th = text_h(title, tw * SAFETY, size, True, HEAD, 1.05)
-    tf = txt(sl, ML + 0.5, 3.25, tw, th + 0.05, align=PP_ALIGN.CENTER)
+    rect(sl, ML, 2.95, 1.6, 0.05, fill=ACCENT_L)
+    tf = txt(sl, ML, 3.15, tw, th + 0.05)
     para(tf, title, size=size, color=WHITE, font=HEAD, bold=True, first=True, space_after=0,
          line=1.05)
-    ry = 3.25 + th + 0.28
-    rect(sl, (SW - 1.5) / 2, ry, 1.5, 0.035, fill=ACCENT_L)
+    sy = 3.15 + th + 0.3
 
     def write(tf: Any, s: float) -> None:
         para(tf, sub, size=s, color=WASH, italic=True, first=True, space_after=0, line=1.3)
-        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
 
-    fitted(sl, ML + 1.2, ry + 0.3, CW - 2.4, 1.4, write, 19, 12)
+    fitted(sl, ML, sy, CW - 2.0, 1.4, write, 19, 12)
     tf = txt(sl, ML, SH - 0.46, CW, 0.24, align=PP_ALIGN.RIGHT)
     para(tf, str(_state["n"]), size=8.5, color=WASH, first=True, space_after=0, bold=True)
     tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
