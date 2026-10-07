@@ -7,8 +7,10 @@ The deck, checked by the same tool that claims to check it.
 A gate wired into no test is a gate somebody forgets, so the deck in ``docs/`` is
 audited here, its slide count is asserted (a deck module that silently lost
 slides still builds), every slide is checked to name its source in its speaker
-notes, and the document properties are checked to name the author and nothing
-else.
+notes followed by its talk track, every content slide is checked to carry the
+author footer, the document properties are checked to name the author and nothing
+else, and no slide, table, note or property may name another product or
+organisation, or carry another organisation's marking (``FOREIGN``).
 
     tools/deck/.venv/bin/python -m pytest -q tests/deck
 
@@ -28,7 +30,13 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 AUDIT = ROOT / "tools" / "deck" / "audit.py"
 DECK = ROOT / "docs" / "publications" / "Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx"
-SLIDES = 99
+SLIDES = 56
+
+# Words that belong to other products and other organisations' decks, never to this one: the
+# deck's storytelling was modelled on another deck, and none of that deck's names or markings
+# may travel with it. Matched as whole words, ignoring case, in every slide's text, table,
+# notes and the document properties.
+FOREIGN = ("BMO", "ERPM", "SAJHA", "MCP", "Confidential")
 
 # Anywhere in the file: no tool or assistant credited as a maker of the deck.
 FORBIDDEN = (
@@ -88,6 +96,55 @@ def test_the_deck_names_its_author_and_no_tool():
                 text += " " + " ".join(c.text for r in shape.table.rows for c in r.cells)
     lowered = text.lower()
     assert not [w for w in FORBIDDEN if w in lowered]
+
+
+def _all_text(prs) -> list[tuple[int, str]]:
+    """Every piece of text a reader or presenter can see, with its slide number (0 for the
+    document properties)."""
+    props = prs.core_properties
+    found = [(0, " ".join(f or "" for f in (props.title, props.subject, props.comments,
+                                           props.keywords, props.category)))]
+    for i, slide in enumerate(prs.slides, 1):
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                found.append((i, shape.text_frame.text))
+            if getattr(shape, "has_table", False):
+                found.append((i, " ".join(c.text for r in shape.table.rows for c in r.cells)))
+        if slide.has_notes_slide:
+            found.append((i, slide.notes_slide.notes_text_frame.text))
+    return found
+
+
+def test_no_other_product_or_organisation_is_named():
+    import re
+
+    pattern = re.compile(r"\b(" + "|".join(FOREIGN) + r")\b", re.IGNORECASE)
+    hits = [(i, m.group(0)) for i, text in _all_text(_deck()) for m in pattern.finditer(text)]
+    assert not hits, f"foreign names or markings (slide, word): {hits}"
+
+
+def test_every_slide_has_a_talk_track():
+    missing = []
+    for i, slide in enumerate(_deck().slides, 1):
+        notes = slide.notes_slide.notes_text_frame.text if slide.has_notes_slide else ""
+        if "\n\nTalk track: " not in notes:
+            missing.append(i)
+    assert not missing, f"slides without a talk track in their notes: {missing}"
+
+
+def test_every_content_slide_carries_the_footer():
+    """Every slide but the act dividers and the closing slide -- the full-bleed crimson ones --
+    ends with the author line."""
+    prs = _deck()
+    missing = []
+    for i, slide in enumerate(prs.slides, 1):
+        first = slide.shapes[0]
+        dark = (first.width == prs.slide_width and first.height == prs.slide_height
+                and first.fill.type == 1 and str(first.fill.fore_color.rgb) == "8A1626")
+        texts = [s.text_frame.text for s in slide.shapes if s.has_text_frame]
+        if not dark and "Pravaha • Ashutosh Sinha" not in texts:
+            missing.append(i)
+    assert not missing, f"content slides without the footer: {missing}"
 
 
 def test_the_audit_can_see_tables_at_all():

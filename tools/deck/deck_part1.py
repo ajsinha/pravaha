@@ -1,10 +1,17 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
-The deck, as data. Parts 1 to 3: why ask once and answer always, the vocabulary
-from nothing, and a query's life from CREATE to a subscriber.
+The deck, as data. Act 1: the idea -- continuous SQL and incremental view maintenance,
+taught before the product is named.
 
-One deck split across several modules only to keep each file short; read them in
-order (see GUIDE.md). Each slide's ``source`` becomes its speaker notes and names
-where every figure and claim on it comes from.
+What a continuous query is and the problem it solves; one engine where there were a job,
+a sink and a second store; ten principles; what the field offers; the primitives; the
+architecture; how an application uses it in five steps; one query and one correction;
+the benefits.
+
+One deck split across several modules only to keep each file short; read them in order
+(see GUIDE.md). Each slide's ``source`` begins its speaker notes and names where every
+figure and claim on it comes from; ``talk`` is the talk track.
 
 Project Pravaha -- Ask once. Answer always.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
@@ -15,101 +22,275 @@ from __future__ import annotations
 
 from typing import Any
 
-PART1: list[dict[str, Any]] = [
+SLIDES: list[dict[str, Any]] = [
     {
-        "kind": "divider",
+        "kind": "act",
         "num": "1",
-        "title": "Why ask once, answer always",
-        "sub": "A batch answer is as old as its last run, and a poll pays for its freshness by "
-        "re-reading what it has already read. Pravaha inverts the arrangement: the question is "
-        "registered once, and the engine keeps its answer current as the data changes.",
-        "points": [
-            "What a batch answer costs, in the case studies' own words",
-            "What polling re-reads, and what it misses",
-            "The inversion: a computation, not a request",
-            "One query, end to end",
-            "Pravaha in one slide",
-        ],
-        "source": "Source: examples/case-studies/*/README.md (problem statements); docs/guides/CONCEPTS.md §1; "
-        "README.md 'What it is'.",
-    },
-    {
-        "kind": "table",
-        "kicker": "The problem with batch",
-        "title": "A batch answer is as old as the last run",
-        "intro": "Five of the thirteen case studies open with the same complaint. "
-        "Each quotation is from the study's own README.",
-        "rows": [
-            ["Study", "What the batch answer costs"],
-            ["Card authorisation velocity", "“The fraud is detected four minutes after the fourth "
-             "authorisation cleared.”"],
-            ["Intraday counterparty exposure", "“The number on the risk screen is as old as the last run.”"],
-            ["Checkout funnel", "The payment integration starts failing at 10:06; “the dashboard — "
-             "refreshed from the warehouse every hour — shows nothing until eleven.”"],
-            ["Call-detail-record fraud", "SIM-box bypass and revenue-share fraud: “a nightly batch over the "
-             "day's CDRs finds both, twelve hours and several thousand pounds late.”"],
-            ["Order revenue into Iceberg", "“By mid-morning the analysts are looking at yesterday.”"],
-        ],
-        "col_w": [1.0, 2.6],
-        "note": "Nobody in these studies is short of data. They are short of an answer that is "
-        "current when somebody needs to act on it.",
-        "source": "Source: examples/case-studies/banking-card-velocity/README.md, "
-        "finance-counterparty-exposure/README.md, ecommerce-checkout-funnel/README.md, "
-        "telecom-cdr-fraud/README.md, lakehouse-orders-iceberg/README.md (problem statements, quoted).",
-    },
-    {
-        "kind": "split",
-        "kicker": "The problem with polling",
-        "title": "Polling buys freshness by reading everything again",
-        "intro": "The usual fix for a stale answer is to ask more often. Two of the studies say "
-        "what that costs the database and what it still cannot see.",
-        "left": {
-            "head": "What a poll re-reads",
-            "items": [
-                ("Every row, every run, for ever",
-                 "“The interesting part is not that batch is slow — it is that the job re-reads rows "
-                 "it has already read, every run, forever.” (counterparty exposure)"),
-                ("A scan on the database that serves the tills",
-                 "Polling WHERE on_hand <= reorder_point “puts a scan on the database that serves the "
-                 "tills.” (stock levels from MySQL)"),
-            ],
-        },
-        "right": {
-            "head": "What a poll cannot see",
-            "items": [
-                ("A change between two polls",
-                 "The same poll “misses a line that dips and recovers between polls.”"),
-                ("A delete",
-                 "A poll with a watermark carries “the honest admission that deletes are invisible” "
-                 "(design §19)."),
-                ("Something that did not happen",
-                 "“‘No scan yet’ is not an event anything can react to.” (delivery SLA breaches)"),
-            ],
-        },
-        "source": "Source: examples/case-studies/finance-counterparty-exposure/README.md; "
-        "retail-inventory-mysql/README.md; logistics-delivery-sla/README.md; docs/design/system_design.md "
-        "§19 (connector shapes table, 'Poll with a watermark').",
+        "title": "The idea: continuous SQL",
+        "sub": "Register the question once. Let the engine keep the answer current.",
+        "source": "Source: docs/guides/CONCEPTS.md §1; README.md 'What it is'.",
+        "talk": "Before Pravaha, the category. Most people have met materialised views and stream "
+        "processors; fewer have met an engine whose whole job is to keep the answers to registered SQL "
+        "current, and to serve them.",
     },
     {
         "kind": "bullets",
-        "kicker": "The inversion",
-        "title": "A continuous query is a computation, not a request",
-        "intro": "A database answers a question when asked. Pravaha is told the question in advance "
-        "and maintains the answer, so asking is a hash probe rather than a scan.",
+        "kicker": "The category",
+        "title": "What is continuous SQL — incremental view maintenance?",
         "items": [
-            ("Register the SQL once",
-             "It keeps running, and keeps a view current, until somebody drops it."),
-            ("Registering is expensive; querying is cheap",
-             "A registration commits the node to memory and a share of a lane for as long as it "
-             "exists, which is why registering is authorised separately from reading."),
-            ("What one costs, measured",
-             "About 1 MiB off-heap idle, 1.3 MiB once rows move, ~65 KiB of heap, ~16 ms to register "
-             "(mostly planning), and no platform thread of its own."),
-            ("Two ways to take the answer",
-             "Read the view by key, or subscribe and receive every commit as weighted changes."),
+            ("A question registered once, not asked again and again",
+             "A continuous query is a computation, not a request: registered by name with the columns "
+             "its answer is keyed by, it keeps running until somebody drops it."),
+            ("The answer is a view the engine maintains",
+             "Each change in the input is applied as a change to the answer — a row appearing (+1) or "
+             "withdrawn (−1) — instead of recomputing the whole result."),
+            ("Reading is a lookup; following is a subscription",
+             "Read the view by key or with SQL, as a hash probe rather than a scan; or subscribe and "
+             "receive every commit as a batch of weighted changes."),
+            ("Correct in event time",
+             "Windows close because the data's own timestamps say so, and late data corrects a closed "
+             "window as a retraction plus the new answer."),
         ],
+        "takeaway": "Registering is the expensive act; asking becomes cheap — the opposite of a database.",
         "source": "Source: docs/guides/CONCEPTS.md §1 'A continuous query is a computation, not a request' "
-        "(costs measured by NodeScaleTest, per docs/operations/OPERATIONS.md 'Sizing a node for many queries').",
+        "(registering expensive, querying cheap, a hash probe), §2–§4 (event time, watermarks, weights); "
+        "README.md 'What it is' (registered by name with key columns; +1 / −1).",
+        "talk": "Define the words once. A continuous query is registered, not asked. Its answer is a view "
+        "the engine keeps current by applying deltas. You then read it by key, or subscribe to its "
+        "changes. Time is the data's time, so the same input gives the same answer however fast it "
+        "arrives.",
+    },
+    {
+        "kind": "split",
+        "kicker": "The problem",
+        "title": "A batch answer is as old as its last run; polling re-reads to stay fresh",
+        "left": {
+            "head": "Batch, in the case studies' own words",
+            "items": [
+                ("Card authorisation velocity",
+                 "“The fraud is detected four minutes after the fourth authorisation cleared.”"),
+                ("Intraday counterparty exposure",
+                 "“The number on the risk screen is as old as the last run.”"),
+                ("Order revenue into Iceberg",
+                 "“By mid-morning the analysts are looking at yesterday.”"),
+            ],
+            "size": 15,
+        },
+        "right": {
+            "head": "Polling, and what it still misses",
+            "items": [
+                ("Every row, every run, for ever",
+                 "“The job re-reads rows it has already read, every run, forever.”"),
+                ("A load on the database that serves the tills",
+                 "Polling for low stock “puts a scan on the database that serves the tills.”"),
+                ("What happens between two polls",
+                 "It “misses a line that dips and recovers between polls.”"),
+            ],
+            "size": 15,
+        },
+        "takeaway": "Nobody here is short of data — they are short of an answer that is current when "
+        "someone has to act on it.",
+        "source": "Source: examples/case-studies/banking-card-velocity/README.md, "
+        "finance-counterparty-exposure/README.md, lakehouse-orders-iceberg/README.md, "
+        "retail-inventory-mysql/README.md (problem statements, quoted).",
+        "talk": "These are quotations from the worked systems in the repository, not invented customers. "
+        "Batch is late by construction. Polling buys freshness by reading everything again, and still "
+        "cannot see what happened between two polls.",
+    },
+    {
+        "kind": "context",
+        "kicker": "The shape of the fix",
+        "title": "From a job, a sink and a second store — to one engine that keeps and serves",
+        "nodes": [
+            {"id": "s1", "x": 0.00, "y": 0.02, "w": 0.15, "h": 0.36, "head": "Your stores",
+             "body": "Tables, topics, change logs"},
+            {"id": "j", "x": 0.21, "y": 0.02, "w": 0.17, "h": 0.36, "head": "A job per question",
+             "body": "Computes, then writes"},
+            {"id": "k", "x": 0.44, "y": 0.02, "w": 0.17, "h": 0.36, "head": "A sink",
+             "body": "Where the answer lands"},
+            {"id": "d", "x": 0.67, "y": 0.02, "w": 0.15, "h": 0.36, "head": "Another store",
+             "body": "To serve the answer"},
+            {"id": "a1", "x": 0.88, "y": 0.02, "w": 0.12, "h": 0.36, "head": "The app"},
+            {"id": "s2", "x": 0.00, "y": 0.58, "w": 0.15, "h": 0.40, "head": "Your stores",
+             "body": "Read where they are"},
+            {"id": "p", "x": 0.21, "y": 0.58, "w": 0.61, "h": 0.40, "num": "PRAVAHA",
+             "head": "Maintains the answer and serves it by key",
+             "body": "Filters pushed into the store; one read shared by identical questions; the "
+             "view is the thing that is read"},
+            {"id": "a2", "x": 0.88, "y": 0.58, "w": 0.12, "h": 0.40, "head": "The app"},
+        ],
+        "edges": [("s1", "j"), ("j", "k"), ("k", "d"), ("d", "a1"), ("s2", "p"), ("p", "a2")],
+        "takeaway": "Dataflow engines compute and write; reading the answer means running another store. "
+        "Pravaha serves its own results.",
+        "source": "Source: docs/publications/COMPETITIVE_LANDSCAPE.md 'The landscape' (dataflow SQL engines "
+        "'compute and write: the answer goes to a sink, and reading it means running another store') and "
+        "'Serving its own results', 'Store-native pushdown', 'Sharing identical queries'; README.md 'What "
+        "it is' (the result needs no second database to live in).",
+        "talk": "The top row is the usual arrangement: every question gets a job, the job writes to a "
+        "sink, and something else has to serve the result. The bottom row is the arrangement this "
+        "category offers: one engine reads the stores where they are, keeps the answer, and serves it.",
+    },
+    {
+        "kind": "steps",
+        "kicker": "Ten principles",
+        "title": "Ten principles: why a live answer should be maintained, not recomputed",
+        "cols": 2,
+        "items": [
+            ("A query is a computation, not a request",
+             "Registered once, it keeps a view current; asking is a probe."),
+            ("Event time, not clock time",
+             "Same rows, any order or speed, same answer."),
+            ("Watermarks: “nothing earlier is coming”",
+             "Windows close because the data says so."),
+            ("Changes carry weights",
+             "A correction is a retraction (−1) plus an insert (+1)."),
+            ("Share by fingerprint, not by name",
+             "Identical plans are one computation, per tenant."),
+            ("One soundness rule",
+             "A filter applies only if the view keeps every column it names."),
+            ("Bounds belong in the query or the config",
+             "Retention changes meaning; a ceiling refuses loudly."),
+            ("Registration and subscription are separate",
+             "Many watchers, one computation, warm state."),
+            ("Governance is kept with the answer",
+             "Who may read, subscribe or build on a live view."),
+            ("Alerts say enter and leave",
+             "A row leaving the answer clears the alert."),
+        ],
+        "size": 14,
+        "source": "Source: docs/guides/CONCEPTS.md §1–§10 (one principle per section, in its order).",
+        "talk": "These ten come straight from the concepts guide, one per section. Most surprises a new "
+        "user meets are one of these working correctly — a window that has not closed because the "
+        "watermark has not passed, or a filter refused because the view aggregated its column away.",
+    },
+    {
+        "kind": "table",
+        "kicker": "What the field says · seven families of product",
+        "title": "Each family does part of the job, and is good at it",
+        "rows": [
+            ["Family", "Well-known examples", "What it leaves to you"],
+            ["Distributed dataflow SQL", "Flink SQL, Spark Structured Streaming, Arroyo",
+             "Computes and writes; another store serves the answer"],
+            ["Streaming databases", "Materialize, RisingWave, Feldera",
+             "A server you move data into, fed by change feeds and topics"],
+            ["Kafka-native", "ksqlDB, Kafka Streams", "Everything passes through a topic first"],
+            ["Dataflow libraries", "Timely and Differential Dataflow, DBSP",
+             "No SQL surface, connectors or operations"],
+            ["Embeddable JVM", "Hazelcast Jet", "Not an incremental view engine"],
+            ["Governance catalogues", "Unity Catalog, Polaris, Lake Formation",
+             "Governs data at rest, not an answer still being computed"],
+        ],
+        "col_w": [1.5, 2.2, 2.6],
+        "size": 14,
+        "takeaway": "The engines that keep an answer current do not govern it, and the catalogues that "
+        "govern data do not see an answer that is still moving.",
+        "source": "Source: docs/publications/COMPETITIVE_LANDSCAPE.md 'The landscape' (the seven families, "
+        "their examples and limits, and the closing pattern, quoted) and 'Disclaimer' (categories, not "
+        "vendors; no product measured). No quotation from a person is used: the repository cites none.",
+        "talk": "Instead of quotes from industry figures — the repository cites none, and we do not invent "
+        "them — here is the field as the competitive landscape describes it, by category, not vendor. "
+        "Every family is good at what it does; the gap is the combination.",
+    },
+    {
+        "kind": "table",
+        "kicker": "The primitives",
+        "title": "Eight primitives carry the whole model",
+        "rows": [
+            ["Primitive", "What it is", "Where you meet it"],
+            ["Stream and source", "A named, typed, unbounded sequence of rows, bound to a plugin "
+             "that produces them", "pravaha.streams / pravaha.sources"],
+            ["Continuous query", "A registered computation over one or more streams",
+             "CREATE CONTINUOUS QUERY … AS SELECT"],
+            ["View and key", "The query's answer, maintained incrementally; a row with the same key "
+             "replaces the last", "KEYED BY (…), RETAIN FOR"],
+            ["Event time and watermark", "The data's own timestamp; “no row earlier than T is coming”",
+             "event-time, out-of-orderness"],
+            ["Weight and commit", "+1 a row appears, −1 it is withdrawn; changes arrive per commit, "
+             "never per row", "Every subscription batch"],
+            ["Lane", "One thread at a time, one inbox, one arena: the unit of execution",
+             "WITH (lane = 'dedicated')"],
+            ["Sink", "Where every commit is also written, retractions included",
+             "pravaha register --sink"],
+            ["Subscription", "A consumer attached to a view, from a snapshot, nothing lost between",
+             "subscribe(snapshot=True)"],
+        ],
+        "col_w": [1.45, 3.2, 1.9],
+        "size": 13.5,
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §1 'The three nouns' and §2–§3; "
+        "docs/guides/CONCEPTS.md §2–§4, §8; docs/design/EXECUTION_MODEL.md §1 (lane); README.md "
+        "'Sinks', 'Serving', 'Lanes' (subscribeFromSnapshot, snapshot=True).",
+        "talk": "Eight words, and every later slide uses only these. A stream is bound to a source; a "
+        "continuous query reads streams; its answer is a keyed view; event time and the watermark decide "
+        "when windows close; every change carries a weight and arrives per commit; a lane runs it; a sink "
+        "receives it; a subscription follows it.",
+    },
+    {
+        "kind": "context",
+        "kicker": "Architecture",
+        "title": "How an application uses a maintained view",
+        "nodes": [
+            {"id": "k", "x": 0.00, "y": 0.00, "w": 0.21, "h": 0.22, "head": "Kafka",
+             "body": "One reader per partition"},
+            {"id": "c", "x": 0.00, "y": 0.26, "w": 0.21, "h": 0.22, "head": "CDC",
+             "body": "PostgreSQL and MySQL logs"},
+            {"id": "j", "x": 0.00, "y": 0.52, "w": 0.21, "h": 0.22, "head": "Databases",
+             "body": "JDBC, Aerospike, Cassandra"},
+            {"id": "f", "x": 0.00, "y": 0.78, "w": 0.21, "h": 0.22, "head": "Files · Delta",
+             "body": "Bounded or followed"},
+            {"id": "e", "x": 0.29, "y": 0.00, "w": 0.40, "h": 0.66, "num": "PRAVAHA ENGINE",
+             "head": "Plan once, run on lanes, keep state, checkpoint at one cut",
+             "body": "Calcite plans; Pravaha's own operators run over off-heap rows. Every read, "
+             "subscription and registration passes the same grants, row filters and masks."},
+            {"id": "v", "x": 0.29, "y": 0.76, "w": 0.40, "h": 0.24, "head": "Views, keyed and current",
+             "body": "Read by key, scanned with SQL, or followed per commit"},
+            {"id": "sdk", "x": 0.77, "y": 0.00, "w": 0.23, "h": 0.22, "head": "SDKs",
+             "body": "Java, Python, over Flight SQL"},
+            {"id": "pg", "x": 0.77, "y": 0.26, "w": 0.23, "h": 0.22, "head": "PostgreSQL wire",
+             "body": "psql, Power BI, Grafana"},
+            {"id": "ui", "x": 0.77, "y": 0.52, "w": 0.23, "h": 0.22, "head": "Console · CLI",
+             "body": "REST under /api/v1 too"},
+            {"id": "sk", "x": 0.77, "y": 0.78, "w": 0.23, "h": 0.22, "head": "Sinks",
+             "body": "Kafka, JDBC, Delta, Iceberg …"},
+        ],
+        "edges": [("k", "e"), ("c", "e"), ("j", "e"), ("f", "v"), ("e", "v"),
+                  ("e", "sdk"), ("e", "pg"), ("e", "ui"), ("v", "sk")],
+        "source": "Source: docs/design/ARCHITECTURE.md §1 'The system in one picture' and §2 (layers; "
+        "plugin table); README.md 'What works' (SQL, Sources, Serving, Sinks, Governed catalogue).",
+        "talk": "Left, the stores Pravaha reads where they are. Middle, the engine: plan once, run on lanes, "
+        "keep state off-heap, checkpoint everything at one cut, and govern every read. Right, the four "
+        "ways an application takes the answer: the SDKs over Flight SQL, any PostgreSQL client, the console "
+        "and CLI, and sinks.",
+    },
+    {
+        "kind": "steps",
+        "kicker": "In five steps",
+        "title": "How applications use Pravaha",
+        "items": [
+            ("Declare a stream, bind a source",
+             "A schema and its event-time column under pravaha.streams; a plugin and its options under "
+             "pravaha.sources — enough to plan with nothing attached."),
+            ("Register the question",
+             "CREATE CONTINUOUS QUERY name KEYED BY (…) AS SELECT … — from SQL, the CLI, an SDK, the "
+             "console or the embedded engine. What cannot work is refused here, by code."),
+            ("Read it, or subscribe",
+             "Point reads and SQL over the view; or a subscription from a snapshot, then every commit with "
+             "its weights, reconnecting across a restart."),
+            ("Change it safely",
+             "CREATE OR REPLACE runs the new version beside the old, replays, and swaps at the exact "
+             "position the running one reached — no gap, nothing counted twice."),
+            ("Operate it",
+             "pravaha doctor and top, per-query metrics and dashboards, alerts that fire and clear, and a "
+             "time-travel debugger that forks a query from a checkpoint."),
+        ],
+        "size": 15,
+        "takeaway": "The application never polls: it asks once, then reads or listens.",
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §2–§3 (declaring, registering); "
+        "docs/guides/USER_GUIDE.md 'Subscribing to a registered query', 'Surviving a restart: reconnect'; "
+        "README.md 'Blue/green replacement' (ADR-046), 'Observability', 'Alerts', 'Time-travel debugger'; "
+        "pravaha-console/content/topics/cli-reference.md 'Doctor', 'Top'.",
+        "talk": "This is the whole user journey. Declare, register, read or subscribe, change safely, "
+        "operate. Step four is where most systems cut over at a moment and silently lose or double "
+        "count; Pravaha meets the running version at a position.",
     },
     {
         "kind": "code",
@@ -136,147 +317,23 @@ PART1: list[dict[str, Any]] = [
              "A tumbling window, a temporal lookup join, a filter evaluated inside Aerospike rather "
              "than after the read, and two aggregates."),
             ("Run against a real Aerospike",
-             "By AerospikeContinuousQueryIT, over a binding with deletes: detect — without it a scan "
-             "re-reads an updated record as another row, and the aggregate is refused (PRV-2042)."),
+             "By AerospikeContinuousQueryIT, over a binding with deletes: detect — without it the "
+             "aggregate is refused (PRV-2042) rather than count a record twice."),
             ("Every query is continuous",
-             "SELECT STREAM is accepted and redundant. Registered as CREATE CONTINUOUS QUERY "
-             "txn_volume KEYED BY (window_end, user_id) AS SELECT …"),
+             "SELECT STREAM is accepted and redundant; registered as CREATE CONTINUOUS QUERY "
+             "txn_volume KEYED BY (window_end, user_id)."),
         ],
-        "size": 16,
+        "size": 15,
         "source": "Source: README.md 'What it is' (the query and its description, verbatim; "
         "AerospikeContinuousQueryIT needs Docker).",
-    },
-    {
-        "kind": "stats",
-        "kicker": "Pravaha in one slide",
-        "title": "Continuous SQL where your data already lives",
-        "stats": [
-            ("Java 21+", "One language. Calcite plans; Pravaha's own operators execute"),
-            ("10 plugins", "Source and sink connectors under plugins/, each its own jar"),
-            ("1 node", "Clustering is not built; a node refuses PARTITIONED mode (PRV-9002)"),
-            ("13 studies", "Worked systems, each run and checked by the build"),
-        ],
-        "items": [
-            ("What it is",
-             "An embeddable, store-native, incrementally-maintained SQL engine. It runs continuous "
-             "SQL over Aerospike, Cassandra, PostgreSQL or any JDBC database, MySQL, Kafka, files and "
-             "Delta tables, keeps each answer current, and serves it back by key — so the result needs "
-             "no second database to live in."),
-            ("How it is reached",
-             "Arrow Flight SQL and the PostgreSQL wire protocol for rows; REST under /api/v1 for "
-             "everything that manages the engine; Java and Python SDKs; a console; or in process."),
-        ],
-        "size": 16,
-        "source": "Source: README.md header, 'What it is', 'How it is built', 'Building' (plugin "
-        "list; plugins/ holds ten connector plugins plus pravaha-cluster-zookeeper), 'What is not built' "
-        "(PRV-9002); examples/case-studies/README.md (thirteen studies; CaseStudyRunTest).",
-    },
-]
-
-PART2: list[dict[str, Any]] = [
-    {
-        "kind": "divider",
-        "num": "2",
-        "title": "The vocabulary, from nothing",
-        "sub": "A handful of words carry the rest of this deck. Each is defined here before it is used, "
-        "and each definition is the one the engine's own documentation gives.",
-        "points": [
-            "Stream, continuous query, view",
-            "Source, binding, lookup",
-            "Event time and the watermark",
-            "A weight on every row, and the commit",
-            "Lane, checkpoint, sink",
-        ],
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §1–§2; docs/guides/CONCEPTS.md; docs/design/EXECUTION_MODEL.md §1.",
-    },
-    {
-        "kind": "flow",
-        "kicker": "Three nouns",
-        "title": "A stream becomes a query becomes a view",
-        "steps": [
-            ("Source", "A plugin that produces rows: a file, a table, a topic, a change log"),
-            ("Stream", "A named, typed, unbounded sequence of rows, bound to a source"),
-            ("Continuous query", "A registered computation over one or more streams"),
-            ("View", "The query's answer, maintained incrementally, readable by SQL"),
-            ("Read or subscribe", "SELECT by key, or a batch of weighted changes per commit"),
-        ],
-        "box_h": 1.95,
-        "rows": [
-            ["Noun", "Lives for", "Note"],
-            ["Stream", "The node's lifetime", "Declared with a schema and the column that carries its "
-             "event time"],
-            ["Continuous query", "Until dropped", "You do not ask it for an answer; you register it once "
-             "and it keeps one"],
-            ["View", "As long as its query", "Reading it is cheap, repeatable, and not the query "
-             "running again"],
-        ],
-        "col_w": [1.0, 1.1, 3.0],
-        "size": 15,
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §1 'The three nouns' (table and the source → "
-        "stream → continuous query → view → SELECT line).",
-    },
-    {
-        "kind": "code",
-        "kicker": "Where rows come from",
-        "title": "A stream is declared; a source is bound to it",
-        "code": [
-            "pravaha:",
-            "  streams:",
-            "    txn:",
-            "      schema: \"txn_id:INT64,user_id:STRING,",
-            "               amount:INT64,event_time:TIMESTAMP\"",
-            "      event-time: event_time",
-            "      out-of-orderness: 10s",
-            "  sources:",
-            "    txn:",
-            "      plugin: filesystem",
-            "      options:",
-            "        path: /opt/pravaha/data/incoming/txn.csv",
-            "        event.time: event_time",
-        ],
-        "code_w": 0.52,
-        "items": [
-            ("Stream: what it is",
-             "pravaha.streams.<name> — schema, event time, lateness. Enough to plan and validate a "
-             "query with nothing attached."),
-            ("Source binding: where rows come from",
-             "pravaha.sources.<name> — a plugin and its options, keyed by the stream it feeds. A "
-             "binding is per stream name, not per query: one reader per binding can feed every query."),
-            ("Lookup: a table a query may ask",
-             "pravaha.lookups.<name> — the right side of a temporal join. A source is consumed and "
-             "advances event time; a lookup is only asked."),
-        ],
-        "size": 16,
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §2 'Declaring a stream' (the three blocks and "
-        "the YAML, schema line wrapped for the slide); docs/guides/CONNECTORS.md §4 ('a binding is per "
-        "stream name, not per query'); README.md 'Sources' (one reader per source binding).",
-    },
-    {
-        "kind": "bullets",
-        "kicker": "Event time and the watermark",
-        "title": "A window closes because data said so, not because time passed",
-        "items": [
-            ("Event time",
-             "Every window, watermark and retention is measured in the timestamp in the data. Load "
-             "the same rows in any order, at any speed, tomorrow, and the answer is the same."),
-            ("Watermark: “nothing earlier is coming”",
-             "At a watermark T no row earlier than T will arrive, so everything ending at or before T "
-             "can be published. It closes windows and releases join state."),
-            ("How late is late belongs to the stream",
-             "Out-of-orderness is declared per stream; a stream that says nothing gets 10 seconds. "
-             "Each source partition contributes a watermark, the query takes the minimum, and a "
-             "partition that has gone quiet is excluded rather than holding everyone back."),
-            ("No event time, no window",
-             "A windowed query over a stream that declares no event-time column is refused at "
-             "registration (PRV-2002) — it would report RUNNING, ingest everything and emit nothing."),
-        ],
-        "source": "Source: docs/guides/CONCEPTS.md §2 'Event time, not clock time' and §3 'Watermarks' "
-        "(10-second default, minimum across partitions, idle exclusion, PRV-2002 / TIME-6).",
+        "talk": "One real statement, from the README, run by an integration test against a real Aerospike. "
+        "Note the filter: it is evaluated inside the store, so the engine never reads the rows it would "
+        "throw away.",
     },
     {
         "kind": "code",
         "kicker": "A weight on every row",
-        "title": "A change is a row with a weight; a correction is −1 then +1",
+        "title": "A late reading corrects a closed window: −1 then +1",
         "code": [
             "-- snapshot",
             "+1 {window_end 08:03, press-02, readings 6, max 980}",
@@ -284,207 +341,56 @@ PART2: list[dict[str, Any]] = [
             "-1 {window_end 08:03, press-02, readings 6, max 980}",
             "+1 {window_end 08:03, press-02, readings 7, max 991}",
         ],
-        "code_w": 0.5,
+        "wide": True,
+        "code_h": 1.6,
+        "code_size": 15,
         "items": [
             ("Weight: the Z-set row",
-             "+1 is a row appearing, −1 one being withdrawn. A row is present exactly while its "
-             "weights sum positive; a change of weight zero is never delivered."),
+             "+1 is a row appearing, −1 one being withdrawn; a change of weight zero is never "
+             "delivered."),
             ("Commit",
-             "The point at which the engine says a prefix of the input is fully processed. Changes "
-             "arrive per commit, never per row, so nobody acts on a total still being assembled."),
+             "Changes arrive per commit, never per row, so nobody acts on a total still being "
+             "assembled."),
             ("What a consumer does",
-             "Wants current values: ignore −1 and overwrite by key. Keeps its own aggregate: apply "
-             "the weights, or it drifts from the view the first time a window is corrected."),
+             "Wants current values: ignore −1 and overwrite by key. Keeps its own aggregate: apply the "
+             "weights, or it drifts the first time a window is corrected."),
         ],
-        "size": 16,
-        "note": "The panel is a real run: a late reading from press-02 corrected the 08:03 minute "
-        "(machine sensor anomalies, step 5), trimmed to the columns that changed.",
-        "source": "Source: docs/guides/CONCEPTS.md §4 'Changes carry weights' (STRM-1); docs/guides/USER_GUIDE.md "
-        "'Subscribing to a registered query' (per commit, never per row); "
-        "examples/case-studies/manufacturing-sensor-anomalies/README.md step 5 (the snapshot and "
-        "commit lines, columns trimmed; temperatures are deci-degrees).",
-    },
-    {
-        "kind": "cards",
-        "kicker": "Where it runs, and what survives",
-        "title": "Lane, checkpoint, sink",
-        "cols": 3,
-        "cards": [
-            ("LANE", "One thread at a time, one inbox, one arena",
-             "The unit of execution: a driver and the memory only it may touch — an off-heap inbox "
-             "ring, off-heap arena slabs and a compiled operator pipeline. One thread per core steps "
-             "many lanes; no locks in the steady state."),
-            ("CHECKPOINT", "Operator state, source offsets and the view, at one cut",
-             "Taken with every input held between rows, so the state and the offsets name the same "
-             "point (ADR-008). A restart resumes from it rather than replaying from scratch or "
-             "starting empty."),
-            ("SINK", "Where every commit of a view is also written",
-             "Named at registration and sent retractions too. Its delivery is stated up front: "
-             "exactly once to a transactional sink, effectively once to an idempotent upsert, at "
-             "least once to a plain append."),
-        ],
-        "source": "Source: docs/design/EXECUTION_MODEL.md §1–§2 ('One thread, one inbox, one arena, one "
-        "processor, one loop'); docs/design/adr/008-aligned-checkpoints.md; README.md 'Recovery', 'Sinks', "
-        "'How it is built' (Correctness).",
-    },
-]
-
-PART3: list[dict[str, Any]] = [
-    {
-        "kind": "divider",
-        "num": "3",
-        "title": "A query's life",
-        "sub": "From CREATE CONTINUOUS QUERY to a planned, fingerprinted computation on a lane, to a "
-        "view a reader asks by key and a subscriber follows commit by commit.",
-        "points": [
-            "Registering: the statement and its key",
-            "What happens at registration",
-            "Refused at registration, not discovered later",
-            "Reading the answer",
-            "Subscribing to the changes",
-        ],
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3–§4; docs/design/ARCHITECTURE.md §4, trace two.",
-    },
-    {
-        "kind": "code",
-        "kicker": "Register",
-        "title": "CREATE CONTINUOUS QUERY: a name, a key, a retention",
-        "code": [
-            "CREATE CONTINUOUS QUERY hourly_spend",
-            "    KEYED BY (user_id, window_end)",
-            "    RETAIN FOR P7D",
-            "AS",
-            "SELECT user_id,",
-            "       window_end,",
-            "       SUM(amount) AS spend",
-            "FROM TABLE(TUMBLE(TABLE txn,",
-            "     DESCRIPTOR(event_time), INTERVAL '1' HOUR))",
-            "GROUP BY user_id, window_start, window_end;",
-        ],
-        "code_w": 0.53,
-        "items": [
-            ("KEYED BY decides what a row replaces",
-             "A second row with the same key supersedes the first. Given by column name, resolved by "
-             "planning the SELECT; part of the query's identity."),
-            ("RETAIN FOR: event time the view keeps",
-             "Left out, the view keeps forever. Also part of the fingerprint, and journalled."),
-            ("From anywhere SQL arrives",
-             "Any Flight SQL client, the CLI, an SDK, the console, the embedded engine. SHOW, PAUSE, "
-             "RESUME and DROP CONTINUOUS QUERY manage what runs."),
-        ],
-        "size": 16,
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3 'Registering a continuous query' (the "
-        "statement verbatim, the TUMBLE line wrapped for the slide; --keys, --retain, TY-21).",
-    },
-    {
-        "kind": "flow",
-        "kicker": "What happens at registration",
-        "title": "Plan once, fingerprint, share or place, then serve",
-        "steps": [
-            ("Parse, validate", "Against the declared streams, by Calcite"),
-            ("Check sources and sink", "Does a source repeat rows? Can the sink take this changelog?"),
-            ("Plan and fingerprint", "Plan, row filters, key columns, retention — and the tenant"),
-            ("Share or place", "Same fingerprint running: join it. Otherwise a lane and a feed"),
-            ("Register the view", "In the catalogue; readable at once"),
-        ],
-        "box_h": 1.9,
-        "items": [
-            ("Why a thousand dashboards cost one computation",
-             "Identical fingerprints share one computation under many names. The match is on the "
-             "normalised plan, so whitespace and aliases do not matter — operand order does."),
-            ("Released only by its last name",
-             "Neither registrant knows the other exists, so dropping eagerly would be an outage "
-             "caused by somebody tidying up their own query."),
-        ],
-        "size": 16,
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3 'What happens at registration' (six steps, "
-        "condensed to five); docs/guides/CONCEPTS.md §5 'Sharing is by fingerprint'; "
-        "docs/design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md (tenant in the "
-        "fingerprint).",
+        "size": 15,
+        "note": "A real run: a late reading from press-02 corrected the 08:03 minute (machine sensor "
+        "anomalies, step 5), trimmed to the columns that changed.",
+        "source": "Source: docs/guides/CONCEPTS.md §4 'Changes carry weights'; docs/guides/USER_GUIDE.md "
+        "'Subscribing to a registered query' (per commit); examples/case-studies/"
+        "manufacturing-sensor-anomalies/README.md step 5 (snapshot and commit lines, columns trimmed).",
+        "talk": "This is incremental maintenance in one picture. The window had closed with six readings; "
+        "a late seventh arrives inside the allowed lateness; the old row is withdrawn and the new one "
+        "inserted, in one commit.",
     },
     {
         "kind": "table",
-        "kicker": "Refused by name",
-        "title": "What cannot work is refused at registration, before anything opens",
+        "kicker": "Benefits",
+        "title": "What maintaining the answer buys",
         "rows": [
-            ["Code", "Refuses", "Because"],
-            ["PRV-2002", "A windowed query over a stream with no event-time column",
-             "No watermark would advance, so no window could ever close"],
-            ["PRV-2050", "GROUP BY a key with no window", "One accumulator per key for ever: unbounded state"],
-            ["PRV-2042", "An aggregate or join over a source that repeats rows",
-             "It would count a re-read record twice; the fix is deletes: detect"],
-            ["PRV-2041", "A revising query into an append-only sink", "The sink cannot take a retraction"],
-            ["PRV-8010", "A sink whose columns or key differ from the query's", "Checked against the sink's declared schema() and keyColumns()"],
-            ["PRV-2020", "Session windows", "Not built; tumbling and hopping windows are"],
-            ["PRV-8020 · 8021", "A registration over its tenant's query or state quota",
-             "Admission is decided before a sink opens or a feed starts"],
+            ["Benefit", "What it means", "Held by"],
+            ["Current answers", "A view moves with every commit of its input", "Watermarks, per-commit delivery"],
+            ["No second database", "The answer is served by key where it is kept", "Flight SQL, pgwire"],
+            ["Cheap reads", "A point read is a hash probe, not a scan", "The maintained view"],
+            ["One computation per question", "Identical plans share state and one read of the source",
+             "Fingerprints (ADR-050)"],
+            ["Exact hand-overs", "Subscribers, restarts, sharing and replacement meet at a position",
+             "ADR-008, ADR-046, ADR-054"],
+            ["Refusal before the fact", "Unbounded state, unusable sinks, vacuous filters: refused by code",
+             "Registration checks"],
+            ["Governed where it lives", "Grants, row filters and masks on the live view and open stream",
+             "The catalogue (ADR-059)"],
+            ["Survives restart", "State, offsets and view at one cut; resume, not replay",
+             "Checkpoints (ADR-008)"],
         ],
-        "col_w": [0.9, 2.2, 2.2],
-        "size": 15,
-        "note": "A refusal names the setting to change. A query that could never answer is not "
-        "allowed to report RUNNING with an empty view.",
-        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §2 (PRV-2002, TIME-6), §3 steps 2 (PRV-2042, "
-        "PRV-2041); docs/guides/CONCEPTS.md §7 (PRV-2050); README.md 'Windows and event time' (PRV-2020), "
-        "'Sinks' (PRV-8010); docs/guides/CONNECTORS.md §1 (a sink reports schema() and keyColumns()); "
-        "docs/design/adr/050 §2 (PRV-8020, PRV-8021).",
-    },
-    {
-        "kind": "code",
-        "kicker": "Read",
-        "title": "Reading the answer is ordinary SQL over the view",
-        "code": [
-            "// Java SDK",
-            "try (QueryResult result = client.query(",
-            "    \"SELECT total_volume FROM user_volume\"",
-            "  + \" WHERE user_id = ?\", \"u42\")) {",
-            "  for (Row row : result) {",
-            "    long volume = row.getLong(\"total_volume\");",
-            "  }",
-            "}",
-            "",
-            "# Python SDK, against the same engine",
-            "for row in client.query(",
-            "    \"SELECT total_volume FROM user_volume\"",
-            "    \" WHERE user_id = ?\", \"u42\"):",
-            "    volume = row[\"total_volume\"]",
-        ],
-        "code_w": 0.52,
-        "items": [
-            ("The same planner and operators",
-             "A read is planned by the planner a continuous query uses, so a WHERE means exactly "
-             "what it means there rather than nearly. A lookup by key is a hash probe."),
-            ("Over Arrow Flight SQL",
-             "The Java and Python SDKs, the CLI and the console."),
-            ("Over the PostgreSQL wire protocol",
-             "Off by default (pravaha.pgwire.enabled): psql, DBeaver, Grafana and any Postgres "
-             "driver can read a view, with TLS."),
-        ],
-        "size": 16,
-        "source": "Source: README.md 'What it is' (both SDK snippets, string literal split across "
-        "lines for the slide) and 'Serving'; docs/design/ARCHITECTURE.md §3, trace one (the read).",
-    },
-    {
-        "kind": "bullets",
-        "kicker": "Subscribe",
-        "title": "A subscriber follows the view commit by commit",
-        "items": [
-            ("From a snapshot, with nothing lost between",
-             "The first batch is the view as a commit left it; every batch after is a later commit, "
-             "whole and in order. Applying the snapshot, then each commit by weight, gives the view."),
-            ("Registration and subscription are separate",
-             "Many subscribers share one computation, which outlives them all: a reconnecting "
-             "dashboard costs nothing. Each may tap its own filter — still one read, one state."),
-            ("A slow subscriber never blocks the engine",
-             "Its buffer is bounded and overflow is declared — CONFLATE, DROP_OLDEST or FAIL — and "
-             "whatever is lost is counted, and reaches the client over Flight."),
-            ("Its consumer runs on its own thread",
-             "A commit hands each subscriber the batch and returns; a slow consumer backs up its own "
-             "buffer, not the feed's publish timer."),
-        ],
-        "source": "Source: docs/guides/USER_GUIDE.md 'Subscribing to a registered query' (snapshot then "
-        "commits; CONFLATE, DROP_OLDEST, FAIL); docs/guides/CONCEPTS.md §8 (STRM-8); docs/operations/OPERATIONS.md "
-        "'What to watch' (dropped()/conflated(), ChangeBatch.droppedBefore, STRM-10).",
+        "col_w": [1.6, 3.2, 1.7],
+        "size": 13.5,
+        "source": "Source: docs/publications/COMPETITIVE_LANDSCAPE.md 'What the rows have in common'; "
+        "docs/guides/CONCEPTS.md §1, §5; README.md 'Serving', 'Recovery', 'Governed catalogue'; "
+        "docs/design/adr/008, 046, 050, 054, 059.",
+        "talk": "Each benefit on the left names the mechanism that holds it on the right, so none of them is "
+        "a slogan. That ends the idea. Next: the product.",
     },
 ]
-
-SLIDES = PART1 + PART2 + PART3

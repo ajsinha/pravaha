@@ -21,6 +21,7 @@ PROPRIETARY AND CONFIDENTIAL. See LICENSE at the repository root.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from pptx import Presentation
@@ -50,6 +51,7 @@ CODE_BG = RGBColor(0x1A, 0x1A, 0x1A)
 CODE_FG = RGBColor(0xF1, 0xEE, 0xE9)
 CODE_KW = RGBColor(0xE8, 0xB8, 0xC0)
 
+ROOT = Path(__file__).resolve().parents[2]
 ML = 0.85
 CW = SW - 2 * ML
 BODY_BOTTOM = FOOTER_Y - 0.12
@@ -75,8 +77,11 @@ def blank() -> Any:
     return prs.slides.add_slide(prs.slide_layouts[6])
 
 
-def notes(sl: Any, text: str | None) -> None:
-    """The speaker notes: where every figure and claim on the slide comes from."""
+def notes(sl: Any, text: str | None, talk: str | None = None) -> None:
+    """The speaker notes: where every figure and claim on the slide comes from, then the
+    talk track -- what the presenter says over the slide."""
+    if text and talk:
+        text = f"{text}\n\nTalk track: {talk}"
     if text:
         sl.notes_slide.notes_text_frame.text = text
 
@@ -245,6 +250,39 @@ def mark(sl: Any, x: float, y: float, size: float, light: bool = False) -> None:
             clr.append(a)
 
 
+def circle(sl: Any, x: float, y: float, d: float, label: str, size: float = 14,
+           fill: Any = ACCENT, color: Any = WHITE) -> None:
+    """A filled disc with a centred label: the numbered steps' and the dividers' marker."""
+    s = rect(sl, x, y, d, d, fill=fill, shape=MSO_SHAPE.OVAL)
+    tf = s.text_frame
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    tf.word_wrap = False
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    r = p.add_run()
+    r.text = label
+    r.font.size = Pt(size)
+    r.font.bold = True
+    r.font.color.rgb = color
+    r.font.name = HEAD
+
+
+def picture(sl: Any, path: str, x: float, y: float, w: float, h: float) -> tuple[float, float, float, float]:
+    """An image fitted inside ``w`` x ``h`` keeping its proportions, top-centred, in a hairline
+    frame. Returns the frame ``(x, y, w, h)`` actually used."""
+    from PIL import Image  # python-pptx depends on Pillow
+
+    with Image.open(path) as im:
+        iw, ih = im.size
+    aspect = iw / ih
+    pw, ph = (w, w / aspect) if w / aspect <= h else (h * aspect, h)
+    px = x + (w - pw) / 2
+    sl.shapes.add_picture(path, In(px), In(y), In(pw), In(ph))
+    rect(sl, px, y, pw, ph, line=RULE, lw=0.75)
+    return px, y, pw, ph
+
+
 def footer(sl: Any) -> None:
     rect(sl, ML, FOOTER_Y, CW, 0.008, fill=RULE)
     tf = txt(sl, ML, SH - 0.46, CW * 0.7, 0.24)
@@ -317,6 +355,37 @@ def divider(num: str, title: str, sub: str, points: list[str]) -> Any:
             para(tf, pnt, size=s, color=WASH, space_after=6, line=1.15, first=i == 0)
 
     fitted(sl, x, 2.4, CW * 0.34, 4.0, write, 12.5, 9)
+    return sl
+
+
+def act_divider(num: str, title: str, sub: str) -> Any:
+    """A short crimson act divider: a numbered disc, the act's title and one line under it."""
+    _state["n"] += 1
+    sl = blank()
+    rect(sl, 0, 0, SW, SH, fill=ACCENT_D)
+    rect(sl, 0, 0, 0.18, SH, fill=ACCENT_DD)
+    mark(sl, ML + 0.25, 0.7, 0.75, light=True)
+    d = 1.45
+    circle(sl, (SW - d) / 2, 1.45, d, num, size=44, fill=WHITE, color=ACCENT_D)
+    tw = CW - 1.0
+    size = 38.0
+    while size > 24 and est_lines(title, tw * SAFETY, size, True, HEAD) > 1:
+        size -= 2
+    th = text_h(title, tw * SAFETY, size, True, HEAD, 1.05)
+    tf = txt(sl, ML + 0.5, 3.25, tw, th + 0.05, align=PP_ALIGN.CENTER)
+    para(tf, title, size=size, color=WHITE, font=HEAD, bold=True, first=True, space_after=0,
+         line=1.05)
+    ry = 3.25 + th + 0.28
+    rect(sl, (SW - 1.5) / 2, ry, 1.5, 0.035, fill=ACCENT_L)
+
+    def write(tf: Any, s: float) -> None:
+        para(tf, sub, size=s, color=WASH, italic=True, first=True, space_after=0, line=1.3)
+        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+
+    fitted(sl, ML + 1.2, ry + 0.3, CW - 2.4, 1.4, write, 19, 12)
+    tf = txt(sl, ML, SH - 0.46, CW, 0.24, align=PP_ALIGN.RIGHT)
+    para(tf, str(_state["n"]), size=8.5, color=WASH, first=True, space_after=0, bold=True)
+    tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
     return sl
 
 
@@ -492,7 +561,7 @@ def statbar(sl: Any, y: float, stats: list[tuple[str, str]], h: float = 1.25) ->
 
 
 def code(sl: Any, x: float, y: float, w: float, h: float, lines: list[str], start: float = 13.0,
-         floor: float = 8.5) -> float:
+         floor: float = 8.5, steps: bool = False) -> float:
     """A dark code panel. Every line is its own paragraph and none may wrap: the
     size is the largest at which the longest line fits the width and all the
     lines fit the height. Returns the panel's height."""
@@ -512,9 +581,10 @@ def code(sl: Any, x: float, y: float, w: float, h: float, lines: list[str], star
     rect(sl, x, y, 0.05, need, fill=ACCENT_L)
     tf = txt(sl, x + pad, y + pad, inner_w, need - 2 * pad)
     for i, ln in enumerate(lines):
-        colour = CODE_KW if ln.lstrip().startswith(("--", "#", "//")) else CODE_FG
+        step = steps and ln[:1].isdigit()
+        colour = CODE_KW if step or ln.lstrip().startswith(("--", "#", "//")) else CODE_FG
         para(tf, ln if ln else " ", size=size, color=colour, font=MONO, first=i == 0,
-             space_after=0, line=1.0)
+             space_after=0, line=1.0, bold=step)
     return need
 
 
