@@ -133,14 +133,16 @@ def test_every_slide_has_a_talk_track():
 
 
 def test_every_content_slide_carries_the_footer():
-    """Every slide but the act dividers and the closing slide -- the full-bleed crimson ones --
+    """Every slide but the act dividers (#6E1120) and the closing slide (#8A1626) -- the full-bleed
+    crimson ones --
     ends with the author line."""
     prs = _deck()
     missing = []
     for i, slide in enumerate(prs.slides, 1):
         first = slide.shapes[0]
         dark = (first.width == prs.slide_width and first.height == prs.slide_height
-                and first.fill.type == 1 and str(first.fill.fore_color.rgb) == "8A1626")
+                and first.fill.type == 1
+                and str(first.fill.fore_color.rgb) in ("8A1626", "6E1120"))
         texts = [s.text_frame.text for s in slide.shapes if s.has_text_frame]
         if not dark and "Pravaha • Ashutosh Sinha" not in texts:
             missing.append(i)
