@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
+{% import "_ai.html" as ai with context %}
 {% block title %}{{ t('view.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/views">&larr; {{ t('view.back') }}</a></p>
@@ -23,6 +24,9 @@
   <span class="chip info" title="{{ t('view.fingerprint_title') }}">{{ t('view.fingerprint', fingerprint=query.fingerprint[:12]) }}</span>
   {% if siblings %}<span class="chip warn">{{ t('view.shared_with', names=siblings|join(', ')) }}</span>{% endif %}
 </div>
+{# Ask your data, scoped to this view; and "Why did this change?" (explain, kind=change). #}
+{% if ai_can(request, 'ask') %}{{ ai.ask_box(view=query.name) }}{% endif %}
+{% if ai_can(request, 'explain') %}{{ ai.explain('change', {'view': query.name}, label=t('ai.explain.why_changed'), note=t('ai.explain.keeping_note')) }}{% endif %}
 
 <div class="row g-3">
   <div class="col-lg-5">

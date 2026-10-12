@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{#- Pravaha console -- Ask your data (docs/guides/AI.md section 4), drishti's BI question box as a page with a
+    conversation. Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Each answer is the engine's: the SQL the model chose, run as you, the rows, a chart from the result's
+    shape. A follow-up carries the earlier questions and their SQL (the engine keeps the last three).
+    With scripting off the form posts here and the page comes back with the answer. -#}
+{% from "_helpcards.html" import helplink %}
+{% import "_ai.html" as ai with context %}
+{% block title %}{{ t('ai.ask.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('ai.ask.kicker') }}</p>
+    <h1><i class="bi bi-stars" aria-hidden="true"></i> {{ t('ai.ask.title') }}{{ helplink('ask') }}</h1>
+  </div>
+</div>
+<div class="rule"></div>
+<p class="lede">{{ t('ai.ask.lede') }}</p>
+{% if ai_can(request, 'ask') %}
+{% call ai.ask_box(view=scope_view, append=True, conversation=conversation, autofocus=True) %}{% if answer_html is defined %}<div class="ai-turn">{{ answer_html|safe }}</div>{% endif %}{% endcall %}
+{% else %}
+<div class="state" id="ask-off"><h2>{{ t('ai.ask.off_title') }}</h2>
+  <p>{{ t('ai.ask.off_body') }}</p>
+  <a class="btn-pill btn-ghost btn-sm-pill" href="/help/topics/ai-features#turn-it-on">{{ t('ai.ask.off_link') }}</a></div>
+{% endif %}
+{% endblock %}
