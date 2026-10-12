@@ -1,0 +1,15 @@
+# Project Pravaha -- the AI layer (ADR-063, docs/design/architecture/ai.md). Shipped disabled: copy to
+# $PRAVAHA_HOME/conf/ai/<name>.yaml (no .example), set enabled: true, and turn the layer on with
+# PRAVAHA_AI_ENABLED=true. Keys are ${ENV} placeholders only; a literal key is refused when the file is read.
+type: anthropic
+enabled: false
+base-url: https://api.anthropic.com
+api-key: ${ANTHROPIC_API_KEY}
+anthropic-version: "2023-06-01"
+timeout: 60s
+default-model: claude
+models:
+  - name: claude
+    id: claude-sonnet-4-5                   # the provider's model id
+    max-tokens: 400
+    capabilities: [chat, tool-calls]

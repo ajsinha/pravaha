@@ -18,6 +18,7 @@
 #   bin/pravaha-server  bin/pravaha-engine      the launchers
 #   lib/pravaha-server.jar  lib/pravaha-engine.jar
 #   conf/application.yaml.example               a starting point; copy it to conf/application.yaml
+#   conf/ai/*.yaml.example                      the AI layer's provider files, all disabled (ADR-063)
 #   conf/pravaha-server.service                 a systemd unit for /opt/pravaha
 #   data/ logs/ plugins/ tmp/ secrets/          empty; the node writes the first three
 #   LICENSE  VERSION
@@ -49,6 +50,9 @@ install -m 0644 "$server_jar" "$home/lib/pravaha-server.jar"
 install -m 0644 "$engine_jar" "$home/lib/pravaha-engine.jar"
 install -m 0644 "$root/deploy/release/distribution/application.yaml.example" "$home/conf/application.yaml.example"
 install -m 0644 "$root/deploy/release/distribution/pravaha-server.service" "$home/conf/pravaha-server.service"
+# The AI layer's provider files (ADR-063), every one shipped disabled: copy one to conf/ai/<name>.yaml to use it.
+mkdir -p "$home/conf/ai"
+install -m 0644 "$root"/config/ai/*.yaml.example "$home/conf/ai/"
 install -m 0644 "$root/LICENSE" "$home/LICENSE"
 printf '%s\n' "$version" > "$home/VERSION"
 

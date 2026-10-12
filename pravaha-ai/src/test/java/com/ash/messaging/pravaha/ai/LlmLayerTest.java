@@ -174,6 +174,31 @@ class LlmLayerTest {
     }
 
     @Test
+    void everyShippedExampleReadsCleanlyAndIsShippedDisabled() throws Exception {
+        Path examples = Path.of("..", "config", "ai").toAbsolutePath().normalize();
+        List<Path> files;
+        try (var s = Files.list(examples)) {
+            files = s.filter(p -> p.getFileName().toString().endsWith(".yaml.example"))
+                    .sorted()
+                    .toList();
+        }
+        assertThat(files).hasSizeGreaterThanOrEqualTo(20);
+        for (Path f : files) {
+            String name = f.getFileName().toString().replace(".yaml.example", ".yaml");
+            Files.copy(f, dir.resolve(name));
+        }
+        LlmRegistry reg = registry(Map.of());
+        assertThat(reg.fileErrors())
+                .as("every example is a valid provider file")
+                .isEmpty();
+        assertThat(reg.entries()).hasSameSizeAs(files);
+        assertThat(reg.entries())
+                .as("every example is shipped disabled")
+                .allSatisfy(e -> assertThat(reg.health(e).status()).isEqualTo(LlmRegistry.Status.OFF));
+        assertThat(reg.models()).isEmpty();
+    }
+
+    @Test
     void reloadPicksUpAddedChangedAndRemovedFiles() throws Exception {
         write("a.yaml", "type: mock\nmodels:\n  - name: one\n");
         LlmRegistry reg = registry(Map.of());

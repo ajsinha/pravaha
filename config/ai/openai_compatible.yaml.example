@@ -1,0 +1,20 @@
+# Project Pravaha -- the AI layer (ADR-063, docs/design/architecture/ai.md). Shipped disabled: copy to
+# $PRAVAHA_HOME/conf/ai/<name>.yaml (no .example), set enabled: true, and turn the layer on with
+# PRAVAHA_AI_ENABLED=true. Keys are ${ENV} placeholders only; a literal key is refused when the file is read.
+type: openai_compatible
+enabled: false
+base-url: http://localhost:8000/v1   # required for this type
+# api-key: ${LLM_API_KEY}          # only if the server wants one
+timeout: 120s
+# live-models: true                         # list what the server serves (GET /models); on by default for the keyless presets
+models:                                      # the server's own models are not in the catalogue
+  - name: served
+    id: the-model-id-the-server-reports
+    capabilities: [chat, tool-calls]
+  - name: embed
+    id: the-embedding-model-id
+    kind: embedding
+# tls:                                      # the connectors' tls.* keys (docs/guides/CONNECTOR_TLS.md): a private CA, mutual TLS, ...
+#   ca: /opt/pravaha/secrets/ca.pem
+# proxy:                                    # proxy.url only; proxy authentication is not built
+#   url: http://proxy.corp:3128

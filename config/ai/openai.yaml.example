@@ -1,0 +1,27 @@
+# Project Pravaha -- the AI layer (ADR-063, docs/design/architecture/ai.md). Shipped disabled: copy to
+# $PRAVAHA_HOME/conf/ai/<name>.yaml (no .example), set enabled: true, and turn the layer on with
+# PRAVAHA_AI_ENABLED=true. Keys are ${ENV} placeholders only; a literal key is refused when the file is read.
+# OpenAI itself, or any endpoint speaking its Chat Completions API (LiteLLM, a company gateway). Azure has azure_openai.
+type: openai
+enabled: false
+base-url: https://api.openai.com            # no trailing path
+completions-path: /v1/chat/completions
+api-key: ${OPENAI_API_KEY}                 # an ${ENV_NAME} placeholder only; a literal key is refused
+timeout: 60s
+retries: 0                                 # extra attempts after a failure
+default-model: fast
+# header:                                   # extra headers; credentials as ${ENV} (Azure: api-key)
+#   api-key: ${AZURE_OPENAI_KEY}
+# tls:                                      # the connectors' tls.* keys (tls.ca, tls.certificate, tls.key, ...), for https:// endpoints with a private CA or mutual TLS
+#   ca: /opt/pravaha/secrets/ca.pem
+models:
+  - name: fast                              # the logical name features use
+    id: gpt-4o-mini                         # what the provider calls it
+    max-tokens: 400
+    temperature: 0.2
+    capabilities: [chat, tool-calls, json-mode]
+    cost-per-1k-input: 0.00015
+    cost-per-1k-output: 0.0006
+  - name: embed
+    id: text-embedding-3-small
+    kind: embedding

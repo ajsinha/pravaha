@@ -1,0 +1,24 @@
+# Project Pravaha -- the AI layer (ADR-063, docs/design/architecture/ai.md). Shipped disabled: copy to
+# $PRAVAHA_HOME/conf/ai/<name>.yaml (no .example), set enabled: true, and turn the layer on with
+# PRAVAHA_AI_ENABLED=true. Keys are ${ENV} placeholders only; a literal key is refused when the file is read.
+type: azure_openai
+enabled: false
+base-url: https://my-resource.openai.azure.com   # also read from AZURE_OPENAI_ENDPOINT
+api-style: v1                               # v1: /openai/v1/...; deployments: /openai/deployments/<name>/...?api-version=
+# api-version: 2024-10-21                   # for api-style: deployments
+auth: api_key                               # api_key | bearer | entra
+api-key: ${AZURE_OPENAI_API_KEY}
+# Microsoft Entra ID instead of a key (client secret or workload identity; managed identity is not built):
+# auth: entra
+# tenant-id: <tenant id>                    # plain text is fine for ids (or AZURE_TENANT_ID); secrets are ${ENV} only
+# client-id: <client id>                    # or AZURE_CLIENT_ID
+# client-secret: ${AZURE_CLIENT_SECRET}
+# federated-token-file: /var/run/secrets/azure/tokens/azure-identity-token
+deployments:                                 # model id: deployment name; each is also a model of this provider
+  gpt-4o: my-gpt4o-deployment
+  text-embedding-3-small: my-embedding-deployment
+timeout: 60s
+# tls:                                      # the connectors' tls.* keys (docs/guides/CONNECTOR_TLS.md): a private CA, mutual TLS, ...
+#   ca: /opt/pravaha/secrets/ca.pem
+# proxy:                                    # proxy.url only; proxy authentication is not built
+#   url: http://proxy.corp:3128
