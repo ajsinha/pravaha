@@ -2053,6 +2053,12 @@
       "queries": "Registered queries",
       "sinks": "Sinks"
     },
+    "lookups": {
+      "heading": "Lookup tables",
+      "table": "Table",
+      "plugin": "Plugin",
+      "note": "A lookup table is joined with JOIN … FOR SYSTEM_TIME AS OF, and asked one key at a time by the plugin that answers it."
+    },
     "streams_error": {
       "title": "The stream catalog is not answering",
       "where": "Streams are read from the engine's REST API at",

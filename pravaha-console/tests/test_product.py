@@ -278,6 +278,15 @@ def test_the_stream_page_shows_event_time_lateness_source_and_engine_lineage(sig
     assert "no event time" not in catalog and "event time" in catalog
 
 
+def test_the_catalog_lists_the_lookup_tables(engine):
+    # CATALOGLOOKUP-1: configured lookups were only in the plugins page's bindings.
+    engine.plugins_list[0] = {**engine.plugins_list[0], "bindings": [
+        {"kind": "source", "name": "txn"}, {"kind": "lookup", "name": "customers"}]}
+    page = _signed_in_on(engine).get("/catalog?tab=streams").text
+    assert 'id="lookups-table"' in page
+    assert '<td class="mono">customers</td><td class="mono small">filesystem</td>' in page
+
+
 def test_the_view_page_shows_its_key_retention_and_sink_from_the_engine(signed_in):
     page = signed_in.get("/views/big_txn").text
     assert 'id="view-shape"' in page

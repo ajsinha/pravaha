@@ -131,10 +131,11 @@ class ProductRoutes(Routes):
             for q in queries:
                 siblings.setdefault(q.fingerprint, []).append(q.name)
             sinks, sinks_error = (safe(services.catalog.sinks, []) if tab == "sinks" else ([], None))
+            lookups, _ = (safe(services.plugins.lookups, []) if tab == "streams" else ([], None))
             return self.page(request, "catalog.html", current="/catalog", tab=tab,
                              streams=streams, streams_error=streams_error, queries=queries,
                              queries_error=queries_error, siblings=siblings,
-                             sinks=sinks, sinks_error=sinks_error,
+                             sinks=sinks, sinks_error=sinks_error, lookups=lookups,
                              engine_http=services.engine.http_url, q=search, namespace=namespace,
                              owner_text=owner_text, tag_pairs=tag_pairs, **governed)
 

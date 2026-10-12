@@ -200,6 +200,19 @@ class PluginService:
         self._engine = engine
         self._catalog = catalog
 
+    def lookups(self) -> list[dict]:
+        """The lookup tables this identity may see, each with the plugin that answers it (CATALOGLOOKUP-1).
+
+        Read from the plugin listing's bindings, which is the one place the engine publishes them.
+        """
+        try:
+            listed = self._engine.plugins()
+        except Exception as exc:  # noqa: BLE001 -- the Catalog shows its streams without them
+            raise ServiceError(str(exc), status=503) from exc
+        return sorted(({"name": str(b.get("name")), "plugin": str(p.get("name"))}
+                       for p in listed for b in p.get("bindings") or []
+                       if b.get("kind") == "lookup"), key=lambda each: each["name"])
+
     def inventory(self) -> dict:
         errors: dict[str, str] = {}
         try:
