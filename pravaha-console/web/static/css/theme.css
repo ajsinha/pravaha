@@ -207,6 +207,9 @@ h3, .h3 { font-size: 1.02rem; font-weight: 650; }
 /* A link inside an alert wears the link colour -- unless it is a button, whose own colour pair is
    the one the contrast test holds. */
 .alert a:not(.btn) { color: var(--pv-info); }
+/* Code in an alert is ink: the accent (Bootstrap's code colour here, as drishti's) is held on the
+   page's grounds, not on the alert's soft ground. */
+.alert code { color: var(--pv-ink); }
 .dropdown-menu { --bs-dropdown-border-color: var(--pv-border); background: var(--d-surface); box-shadow: var(--d-shadow); }
 .dropdown-divider { border-color: var(--pv-border); }
 .badge.text-bg-secondary { background: var(--pv-wash) !important; color: var(--pv-ink) !important; }

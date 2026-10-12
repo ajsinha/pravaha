@@ -56,7 +56,7 @@
 .palette li{display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border-radius:6px;cursor:pointer;
   font-size:.9rem;}
 .palette li[aria-selected="true"],.palette li:hover{background:var(--d-accent-tint);}
-.palette li .kind{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--d-faint);
+.palette li .kind{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
   width:4.6rem;flex:none;}
 .palette li .hint{margin-left:auto;color:var(--muted);font-size:.76rem;white-space:nowrap;}
 .palette .foot{border-top:1px solid var(--rule);padding:.4rem .8rem;font-size:.74rem;color:var(--muted);
