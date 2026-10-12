@@ -636,6 +636,19 @@ final class ExpressionCompiler {
             typeOf(call.getType().getSqlTypeName(), call.toString());
             return compile(call.getOperands().get(0));
         }
+        if (isWideningTimestampCast(call)) {
+            // TSEQ-1. `window_end = TIMESTAMP '2026-10-01 09:03:30'` compares a TIMESTAMP literal
+            // with a TIMESTAMP WITH LOCAL TIME ZONE column, and Calcite settles the difference with
+            // a cast it writes itself. Both are nanoseconds since the epoch here (ADR-012) -- a
+            // literal without a zone is read as UTC, as everywhere else in this engine -- so the
+            // cast converts nothing, and refusing it refused an equality that `>=` planned. Only a
+            // cast that keeps every digit: one to a coarser precision would have to truncate.
+            Expression timestamp = compile(call.getOperands().get(0));
+            return timestamp instanceof Expression.Literal literal
+                    ? new Expression.Literal(
+                            literal.longValue(), literal.doubleValue(), null, TypeName.TIMESTAMP_LTZ, literal.isNull())
+                    : timestamp;
+        }
         Expression source = compile(call.getOperands().get(0));
         TypeName target = typeOf(call.getType().getSqlTypeName(), call.toString());
         if (!isNumeric(source.type()) || !isNumeric(target)) {
@@ -655,6 +668,25 @@ final class ExpressionCompiler {
                             + "separate column.");
         }
         return source.type() == target ? source : new Expression.Cast(source, target);
+    }
+
+    /**
+     * True when the cast is between the two timestamp types and keeps every fractional digit: a
+     * conversion that changes nothing, since both hold nanoseconds since the epoch (TSEQ-1).
+     */
+    static boolean isWideningTimestampCast(RexCall call) {
+        if (call.getKind() != org.apache.calcite.sql.SqlKind.CAST) {
+            return false;
+        }
+        org.apache.calcite.rel.type.RelDataType from = call.getOperands().get(0).getType();
+        org.apache.calcite.rel.type.RelDataType to = call.getType();
+        return isTimestamp(from.getSqlTypeName())
+                && isTimestamp(to.getSqlTypeName())
+                && to.getPrecision() >= from.getPrecision();
+    }
+
+    private static boolean isTimestamp(SqlTypeName type) {
+        return type == SqlTypeName.TIMESTAMP || type == SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
     }
 
     /** True when the cast's source and target are the same SQL type at the same width. */
