@@ -50,7 +50,15 @@
     },
     "page_help": "About this page",
     "page_help_more": "More in Help",
-    "page_help_more_label": "Help topics for this page"
+    "page_help_more_label": "Help topics for this page",
+    "live": {
+      "checking": "Engine: checking…",
+      "live": "Engine@where@ is live and answering (checked @at@)",
+      "degraded": "Engine@where@ is up but DEGRADED (checked @at@)",
+      "down": "Engine@where@ is not answering (checked @at@)",
+      "unreachable": "The console cannot be reached (checked @at@)",
+      "at": " at "
+    }
   },
   "nav": {
     "workbench": "Workbench",

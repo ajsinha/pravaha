@@ -199,6 +199,9 @@
     var live = document.getElementById("engine-live");
     if (!live || !window.fetch) return;
     var text = live.querySelector("[data-live-text]");
+    function say(state, where, at) {
+      return (live.getAttribute("data-msg-" + state) || "").replace("@where@", where).replace("@at@", at);
+    }
     function show(state, words) {
       live.setAttribute("data-live-state", state);
       live.title = words;
@@ -210,16 +213,16 @@
       fetch("/health/ready", {cache: "no-store", credentials: "same-origin"}).then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (body) {
           var engine = body.engine || {};
-          var where = engine.url ? " at " + engine.url : "";
+          var where = engine.url ? (live.getAttribute("data-msg-at") || "") + engine.url : "";
           if (r.ok && engine.status === "DEGRADED") {
-            show("degraded", "Engine" + where + " is up but DEGRADED (checked " + at + ")");
+            show("degraded", say("degraded", where, at));
           } else if (r.ok) {
-            show("live", "Engine" + where + " is live and answering (checked " + at + ")");
+            show("live", say("live", where, at));
           } else {
-            show("down", "Engine" + where + " is not answering (checked " + at + ")");
+            show("down", say("down", where, at));
           }
         });
-      }).catch(function () { show("down", "The console cannot be reached (checked " + at + ")"); });
+      }).catch(function () { show("down", say("unreachable", "", at)); });
     }
     check();
     setInterval(check, 10000);

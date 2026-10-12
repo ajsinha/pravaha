@@ -118,7 +118,9 @@
         {# The engine's pulse, as drishti's Live dot (terminal.css .tbar-live): green while the Java engine
            answers, amber while it reports DEGRADED, red when it does not answer. theme.js asks /health/ready. #}
         <span class="tool tbar-live" id="engine-live" data-live-state="checking" role="status" aria-live="polite"
-              title="Engine: checking…"><span class="dot" aria-hidden="true" data-volatile></span><span class="visually-hidden" data-live-text>Engine: checking</span></span>
+              title="{{ t('shell.live.checking') }}" data-msg-live="{{ t('shell.live.live') }}"
+              data-msg-degraded="{{ t('shell.live.degraded') }}" data-msg-down="{{ t('shell.live.down') }}"
+              data-msg-unreachable="{{ t('shell.live.unreachable') }}" data-msg-at="{{ t('shell.live.at') }}"><span class="dot" aria-hidden="true" data-volatile></span><span class="visually-hidden" data-live-text>{{ t('shell.live.checking') }}</span></span>
         <div class="dropdown">
           <button class="tool user dropdown-toggle" id="account-menu" data-bs-toggle="dropdown" type="button" aria-expanded="false"
                   title="{{ t('shell.account_title') }}">
