@@ -204,6 +204,10 @@ class CatalogServiceTest {
             assertThat(l.privilege()).isEqualTo(Privilege.USE);
             assertThat(l.allowed()).isTrue();
         });
+        // ACCESSORDER-1: in the privileges' own order, every time -- not a set's order of the run.
+        assertThat(mine.lines())
+                .extracting(CatalogService.AccessLine::privilege)
+                .containsExactly(Privilege.values());
         run(OPS, "GRANT SELECT ON VIEW revenue TO USER bob");
         assertThatThrownBy(() -> run(ANA, "SHOW EFFECTIVE ACCESS FOR USER bob ON VIEW revenue"))
                 .hasMessageContaining("PRV-7033");

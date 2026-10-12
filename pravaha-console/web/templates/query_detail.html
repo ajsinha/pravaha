@@ -56,7 +56,7 @@
           {% if detail.dependants %}<dt class="col-4">{{ t('query.dependants') }}</dt><dd class="col-8">{% for d in detail.dependants %}{% if d.startswith('ALERT ') %}<a class="mono" href="/alerts/{{ d[6:] }}">{{ d }}</a>{% else %}<a class="mono" href="/queries/{{ d }}">{{ d }}</a>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
           <dt class="col-4">{{ t('query.sink') }}</dt><dd class="col-8">{% if detail.sink %}<span class="mono">{{ detail.sink.name }}</span>
             {% if detail.sink.attached %}<span class="chip ok">{{ t('query.writing') }}</span>{% else %}<span class="chip bad">{{ t('query.detached') }}</span>{% endif %}
-            {% if detail.sink.rowsWritten is not none and detail.sink.rowsWritten >= 0 %}<span class="text-muted">{{ t('query.rows_written', n="{:,}".format(detail.sink.rowsWritten)) }}</span>{% endif %}
+            {% if detail.sink.rowsWritten is not none and detail.sink.rowsWritten >= 0 %}<span class="text-muted">{{ t('query.rows_written_one' if detail.sink.rowsWritten == 1 else 'query.rows_written_other', n="{:,}".format(detail.sink.rowsWritten)) }}</span>{% endif %}
             {% if detail.sink.failure %}<div class="alert alert-danger py-2 small mt-2 mb-0" id="sink-failure"><a href="/help/codes/{{ detail.sink.failure.code }}">{{ detail.sink.failure.code }}</a> {{ detail.sink.failure.message }}
               {{ t('query.sink_detached') }}
               {% if ai_explain %}{{ ai.explain('refusal', {'code': detail.sink.failure.code, 'message': detail.sink.failure.message, 'sql': query.sql}) }}{% endif %}</div>{% endif %}

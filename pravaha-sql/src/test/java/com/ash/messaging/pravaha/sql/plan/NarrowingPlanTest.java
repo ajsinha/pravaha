@@ -158,6 +158,49 @@ class NarrowingPlanTest {
                 .doesNotThrowAnyException();
     }
 
+    /**
+     * MASKRIGHT-1. Every function a policy is allowed to name at CREATE plans as the engine runs it, so
+     * a policy accepted at create is never one every read then refuses. One use of each, as a mask.
+     */
+    @Test
+    void everyFunctionAPolicyMayCallIsOneTheEngineEvaluates() {
+        Map<String, Map<String, String>> uses = new java.util.TreeMap<>();
+        java.util.function.BiConsumer<String, String> onCard = (name, mask) -> uses.put(name, Map.of("card", mask));
+        java.util.function.BiConsumer<String, String> onAmount = (name, mask) -> uses.put(name, Map.of("amount", mask));
+        onCard.accept("UPPER", "UPPER(card)");
+        onCard.accept("LOWER", "LOWER(card)");
+        onCard.accept("TRIM", "TRIM(card)");
+        onCard.accept("SUBSTRING", "'XXXX-' || SUBSTRING(card, 16, 4)");
+        onCard.accept("REGEXP_EXTRACT", "'XXXX-' || REGEXP_EXTRACT(card, '.{4}$')");
+        onCard.accept("SPLIT_INDEX", "SPLIT_INDEX(card, '-', 3)");
+        onCard.accept("CAST", "CAST(card AS VARCHAR)");
+        onCard.accept("COALESCE", "COALESCE(card, 'none')");
+        onCard.accept("NULLIF", "NULLIF(card, 'none')");
+        onAmount.accept("ABS", "ABS(amount)");
+        onAmount.accept("ROUND", "ROUND(amount)");
+        onAmount.accept("FLOOR", "FLOOR(amount)");
+        onAmount.accept("CEIL", "CEIL(amount)");
+        onAmount.accept("CEILING", "CEILING(amount)");
+        onAmount.accept("MOD", "CAST(MOD(amount, 10) AS BIGINT)");
+        assertThat(uses.keySet())
+                .as("an example here for every function PolicyExpression allows, and no other")
+                .containsExactlyInAnyOrderElementsOf(com.ash.messaging.pravaha.catalog.PolicyExpression.functions());
+        uses.forEach((name, mask) -> assertThatCode(
+                        () -> NarrowingPlan.compile(PAYMENTS, new Narrowing(Optional.empty(), mask, List.of())))
+                .as(name)
+                .doesNotThrowAnyException());
+        // And a mask that cannot plan says so in one clean sentence: no "..", no stream count.
+        assertThatThrownBy(() -> NarrowingPlan.compile(
+                        PAYMENTS, new Narrowing(Optional.empty(), Map.of("card", "RIGHT(card, 4)"), List.of())))
+                .isInstanceOfSatisfying(
+                        PravahaException.class,
+                        e -> assertThat(e.getMessage())
+                                .contains("RIGHT")
+                                .contains("A mask may read only the column it masks")
+                                .doesNotContain("..")
+                                .doesNotContain("stream(s) declared"));
+    }
+
     private static int indexOf(List<PhysicalOperator> nodes, Class<?> type) {
         for (int i = 0; i < nodes.size(); i++) {
             if (type.isInstance(nodes.get(i))) {

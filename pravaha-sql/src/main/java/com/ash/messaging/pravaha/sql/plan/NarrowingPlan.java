@@ -194,7 +194,7 @@ public final class NarrowingPlan {
             throw new PravahaException(
                     SecurityErrors.FILTER_NOT_ENFORCEABLE,
                     "the row filter on " + schema.name() + " (" + filter + ") cannot be applied to it: "
-                            + e.getMessage()
+                            + withoutFullStop(e)
                             + ". A filter naming a column this object does not carry cannot be enforced on it -- "
                             + "for a view, the column was aggregated away and each row already mixes values the "
                             + "reader may and may not see. Refused rather than served unfiltered.",
@@ -225,6 +225,12 @@ public final class NarrowingPlan {
         return found;
     }
 
+    /** A cause's message to go on with a sentence of its own: without its full stop, so not "..". */
+    private static String withoutFullStop(PravahaException e) {
+        String message = String.valueOf(e.getMessage()).strip();
+        return message.endsWith(".") ? message.substring(0, message.length() - 1) : message;
+    }
+
     private static void requireOwnColumnOnly(StreamSchema schema, Field field, String mask) {
         StreamSchema alone = StreamSchema.builder(schema.name())
                 .field(field.name(), field.type())
@@ -236,7 +242,7 @@ public final class NarrowingPlan {
             throw new PravahaException(
                     CatalogErrors.POLICY_INVALID,
                     "the mask on " + schema.name() + "." + field.name() + " (" + mask + ") does not plan over that "
-                            + "column alone: " + e.getMessage() + ". A mask may read only the column it masks",
+                            + "column alone: " + withoutFullStop(e) + ". A mask may read only the column it masks",
                     e);
         }
     }

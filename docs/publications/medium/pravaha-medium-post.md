@@ -454,7 +454,7 @@ CREATE ROW FILTER sales.region_scope
   EXCEPT ROLE finance_admin;
 
 CREATE MASK sales.card_last4 ON COLUMN card_number
-  AS 'XXXX-XXXX-XXXX-' || RIGHT(card_number, 4)
+  AS 'XXXX-XXXX-XXXX-' || REGEXP_EXTRACT(card_number, '.{4}$')
   EXCEPT ROLE payments_ops;
 
 ALTER STREAM orders SET POLICY sales.region_scope;

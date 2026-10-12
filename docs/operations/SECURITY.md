@@ -500,7 +500,7 @@ where it applies:
 
 ```sql
 CREATE ROW FILTER sales.region_scope AS region = session_attribute('region') EXCEPT ROLE finance_admin;
-CREATE MASK sales.card_last4 ON COLUMN card AS 'XXXX-' || RIGHT(card, 4) EXCEPT ROLE payments_ops;
+CREATE MASK sales.card_last4 ON COLUMN card AS 'XXXX-' || REGEXP_EXTRACT(card, '.{4}$') EXCEPT ROLE payments_ops;
 ALTER STREAM orders SET POLICY sales.region_scope;     -- MANAGE on the object
 ALTER TAG 'pii' SET POLICY sales.card_last4;           -- MANAGE on the tenant: every object tagged pii, now and later
 SHOW POLICIES ON VIEW payments;

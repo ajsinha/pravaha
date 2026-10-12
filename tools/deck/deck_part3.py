@@ -273,7 +273,7 @@ SLIDES: list[dict[str, Any]] = [
             "  EXCEPT ROLE finance_admin;",
             "",
             "CREATE MASK sales.card_last4 ON COLUMN card",
-            "  AS 'XXXX-' || RIGHT(card, 4)",
+            "  AS 'XXXX-' || REGEXP_EXTRACT(card, '.{4}$')",
             "  EXCEPT ROLE payments_ops;",
             "",
             "ALTER STREAM orders",

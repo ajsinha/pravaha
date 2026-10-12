@@ -583,6 +583,63 @@ final class SharedPartitionFeed {
         readerIdle = true;
     }
 
+    /**
+     * One member's checkpoint holding {@code offset} is durable (KAFKAMON-1).
+     *
+     * <p>The shared reader is told only what <em>every</em> member has made durable: the earliest of
+     * their newest durable offsets. Confirming one member's alone could release -- or report as done
+     * -- what another, further behind, would still read again on a restore. A member that has not
+     * checkpointed yet holds the group back until it does, and one that leaves stops holding it.
+     * Without an order between positions the earliest cannot be named, so the reader is told only
+     * when every member stands at the same one.
+     *
+     * <p>Under the lock, which a poll holds for one batch: bounded, and the checkpointing thread is
+     * not freezing any pump by the time a checkpoint is durable.
+     */
+    private void checkpointed(Member member, SourceOffset offset) {
+        lock.lock();
+        try {
+            PartitionReader shared = reader;
+            if (shared == null || !members.contains(member)) {
+                return;
+            }
+            member.durable = offset;
+            SourceOffset everyone = durableByAll();
+            if (everyone != null) {
+                shared.checkpointed(everyone);
+            }
+        } catch (RuntimeException e) {
+            // A token the order cannot read, or a reader refusing: the next checkpoint says it again.
+            LOG.log(
+                    System.Logger.Level.DEBUG,
+                    "not confirming a checkpoint to the shared reader of " + stream + "#" + partition.index() + ": "
+                            + e.getMessage());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** The newest offset every member has made durable, or null while one has none. Lock held. */
+    private @Nullable SourceOffset durableByAll() {
+        SourceOffset earliest = null;
+        for (Member each : members) {
+            SourceOffset durable = each.durable;
+            if (durable == null) {
+                return null;
+            }
+            if (earliest == null) {
+                earliest = durable;
+            } else if (order != null) {
+                if (order.compare(durable, earliest) < 0) {
+                    earliest = durable;
+                }
+            } else if (!durable.equals(earliest)) {
+                return null;
+            }
+        }
+        return earliest;
+    }
+
     /** Whether any member is being fed from where the reader stands. Lock held. */
     private boolean anyoneLive() {
         for (Member member : members) {
@@ -1115,6 +1172,9 @@ final class SharedPartitionFeed {
         /** Exact mode: the position it joined ahead at, which the shared reader has not reached yet. */
         private @Nullable SourceOffset awaitingAt;
 
+        /** The offset of this member's newest durable checkpoint, or null before its first. */
+        private @Nullable SourceOffset durable;
+
         /** Exact mode: when its catch-up last delivered anything. */
         private long seamProgressNanos;
 
@@ -1295,6 +1355,12 @@ final class SharedPartitionFeed {
             } finally {
                 feed.lock.unlock();
             }
+        }
+
+        /** Passed on to the shared reader once every member has made as much durable. */
+        @Override
+        public void checkpointed(SourceOffset offset) {
+            member.feed.checkpointed(member, offset);
         }
 
         @Override

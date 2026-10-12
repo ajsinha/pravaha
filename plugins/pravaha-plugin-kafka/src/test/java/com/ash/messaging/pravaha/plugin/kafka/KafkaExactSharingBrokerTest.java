@@ -26,7 +26,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.common.TopicPartition;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -195,10 +198,86 @@ class KafkaExactSharingBrokerTest {
         }
     }
 
+    /**
+     * KAFKAMON-1: two queries on one shared reader, and {@code monitoring.group} is committed what both
+     * have made durable -- nothing while only one has checkpointed, and never past the one behind.
+     */
+    @Test
+    void theMonitoringGroupIsCommittedWhatEveryQueryOnASharedReaderHasCheckpointed() throws Exception {
+        String topic = KafkaBroker.topic("monitor", 1, false);
+        producer = KafkaBroker.producer("monitor-" + topic);
+        String group = "pravaha-monitor-" + topic;
+        TopicPartition p0 = new TopicPartition(topic, 0);
+        write(topic, 1, 50, 50);
+
+        try (Admin admin = Admin.create(Map.of("bootstrap.servers", KafkaBroker.bootstrap()))) {
+            QueryRegistry registry = registry(topic, root.resolve("checkpoints"), group);
+            RegisteredQuery a = registry.register("a", COUNT_A, List.of(0), DANA);
+            RegisteredQuery b = registry.register("b", COUNT_B, List.of(0), DANA);
+            awaitAnswer(a, 50);
+            awaitAnswer(b, 50);
+            assertThat(b.feed().describe()).contains("one reader shared with 1 other query");
+
+            checkpointerOf(a).checkpointNow();
+            Thread.sleep(1_500);
+            assertThat(committed(admin, group, p0))
+                    .as("one query's checkpoint is not the group's")
+                    .isNull();
+
+            checkpointerOf(b).checkpointNow();
+            long first = awaitCommitted(admin, group, p0, 0);
+            assertThat(first).as("past the 50 records both have checkpointed").isGreaterThanOrEqualTo(50);
+
+            write(topic, 51, 100, 50);
+            awaitAnswer(a, 100);
+            awaitAnswer(b, 100);
+            checkpointerOf(a).checkpointNow();
+            Thread.sleep(1_500);
+            assertThat(Objects.requireNonNull(committed(admin, group, p0)).offset())
+                    .as("never past the query that has not checkpointed the new records")
+                    .isEqualTo(first);
+
+            checkpointerOf(b).checkpointNow();
+            assertThat(awaitCommitted(admin, group, p0, first)).isGreaterThanOrEqualTo(first + 50);
+        }
+    }
+
+    private static @Nullable OffsetAndMetadata committed(Admin admin, String group, TopicPartition partition)
+            throws Exception {
+        return admin.listConsumerGroupOffsets(group)
+                .partitionsToOffsetAndMetadata()
+                .get(30, TimeUnit.SECONDS)
+                .get(partition);
+    }
+
+    /** The group's committed offset once it is past {@code after}. */
+    private static long awaitCommitted(Admin admin, String group, TopicPartition partition, long after)
+            throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (true) {
+            OffsetAndMetadata committed = committed(admin, group, partition);
+            if (committed != null && committed.offset() > after) {
+                return committed.offset();
+            }
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError(
+                        "monitoring.group " + group + " holds " + committed + ", expected past " + after);
+            }
+            Thread.sleep(100);
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
 
     private QueryRegistry registry(String topic, @Nullable Path checkpoints) {
+        return registry(topic, checkpoints, null);
+    }
+
+    private QueryRegistry registry(String topic, @Nullable Path checkpoints, @Nullable String monitoringGroup) {
         Map<String, String> options = new HashMap<>();
+        if (monitoringGroup != null) {
+            options.put("monitoring.group", monitoringGroup);
+        }
         options.put("bootstrap.servers", KafkaBroker.bootstrap());
         options.put("topic", topic);
         options.put("schema", "user_id:STRING,amount:INT64");

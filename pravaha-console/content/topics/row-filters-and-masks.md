@@ -38,7 +38,7 @@ CREATE ROW FILTER sales.region_scope
   EXCEPT ROLE finance_admin;
 
 CREATE MASK sales.card_last4 ON COLUMN card_number
-  AS 'XXXX-XXXX-XXXX-' || RIGHT(card_number, 4)
+  AS 'XXXX-XXXX-XXXX-' || REGEXP_EXTRACT(card_number, '.{4}$')
   EXCEPT ROLE payments_ops;
 
 -- one object
@@ -57,10 +57,14 @@ DROP ROW FILTER sales.region_scope;
 
 ## What an expression may say
 
-The object's columns, literals, operators, `CASE`, `CAST`, a fixed list of pure functions, and three
+The object's columns, literals, operators, `CASE`, `CAST`, a fixed list of pure functions — `UPPER`,
+`LOWER`, `TRIM`, `SUBSTRING`, `||`, `COALESCE`, `NULLIF`, `ABS`, `ROUND`, `FLOOR`,
+`CEIL`, `MOD`, `REGEXP_EXTRACT` and `SPLIT_INDEX` — and three
 about the reader: `session_attribute('claim')` (a claim of their credential), `current_user()` and
 `is_member('role')`. A subquery, a non-deterministic function such as `RAND()` or
-`CURRENT_TIMESTAMP`, or any function not on the list is refused with `PRV-7038`. A mask may name
+`CURRENT_TIMESTAMP`, or any function not on the list — `RIGHT()` and `LEFT()` among them, which the
+engine does not evaluate — is refused with `PRV-7038` when the policy is created. For the last four
+characters write `REGEXP_EXTRACT(card_number, '.{4}$')`. A mask may name
 only its own column and must keep its type. A reader whose credential lacks a claim a policy reads
 is refused with `PRV-7039`, never guessed for.
 

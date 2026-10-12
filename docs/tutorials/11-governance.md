@@ -182,7 +182,7 @@ token from        env
 <!-- capture: t11-ann-refused -->
 ```text
 $ PRAVAHA_TOKEN=$ANN pravaha query --sql 'SELECT * FROM payments_view'
-PRV-7002  ann may not read 'payments_view': ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
+PRV-7002  ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
   look PRV-7002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)
 ```
@@ -351,10 +351,11 @@ PRV-7038  the mask on payments_view.card_number ('XXXX-XXXX-XXXX-' || RIGHT ( ca
 ```
 <!-- /capture -->
 
-On this build that mask is accepted when it is created and bound, and then refuses every read it
-applies to, because the engine does not evaluate `RIGHT` (MASKRIGHT-1). A mask that cannot run fails
-**closed** — ann is refused, never shown the full number — but it should have been refused at
-`create-mask`. Take it away (`unbind`, then `drop`: a policy cannot be dropped while it is bound, and
+On the build these captures were taken from, that mask was accepted when it was created and bound,
+and then refused every read it applied to, because the engine does not evaluate `RIGHT`
+(MASKRIGHT-1). A mask that cannot run fails **closed** — ann is refused, never shown the full number.
+Since the fix, `create-mask` refuses it at once with `PRV-7038`, naming `RIGHT()` and what to write
+instead, so there is nothing to take away. On a build that let it in, take it away (`unbind`, then `drop`: a policy cannot be dropped while it is bound, and
 both ask for `--yes`) and write it with `SUBSTRING`, which the engine does evaluate:
 
 <!-- capture: t11-unbind -->
@@ -482,7 +483,7 @@ revoked SELECT on sales.payments_view from ROLE analyst
 <!-- capture: t11-ann-revoked -->
 ```text
 $ PRAVAHA_TOKEN=$ANN pravaha query --sql 'SELECT * FROM payments_view'
-PRV-7002  ann may not read 'payments_view': ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
+PRV-7002  ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
   look PRV-7002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)
 ```

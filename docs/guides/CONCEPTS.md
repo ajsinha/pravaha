@@ -315,7 +315,7 @@ ends an open subscription within seconds.
 
 A grant says whether you may read; a **policy** says what you are shown. A **row filter** keeps some
 rows (`region = session_attribute('region')`), a **mask** replaces one column's value (`'XXXX-' ||
-RIGHT(card, 4)`); both are catalogue objects bound to a stream, a view or a tag, and apply to
+REGEXP_EXTRACT(card, '.{4}$')`); both are catalogue objects bound to a stream, a view or a tag, and apply to
 everyone but their `EXCEPT ROLE`s. They travel with the data: a query registered over a filtered,
 masked input computes over what its registrant was shown, so a view built on it can never show more,
 and a masked column can be shown but never compared — grouped, joined, sorted or filtered on — by

@@ -169,13 +169,21 @@ public final class SqlPlanner {
                 // from "you misspelled one of 40" -- a node whose declarations never loaded is a
                 // real and confusing failure (see StreamDeclarationProperties) -- and a count
                 // discloses nothing about what the names are.
+                //
+                // Only for a name that was not found (MASKRIGHT-1): after an unknown function or a bad
+                // cast the count is a sentence about something else, in the middle of the answer.
+                String root = rootMessage(e);
                 throw new PravahaException(
                         SqlErrors.VALIDATION_FAILED,
-                        rootMessage(e) + "." + guidanceFor(rootMessage(e)) + " This server has "
-                                + schema.streamNames().size()
-                                + " stream(s) declared; their names are not listed here because that would "
-                                + "tell a caller who may not read them that they exist. Use the listing call, "
-                                + "which is filtered by what you may read.",
+                        root + "." + guidanceFor(root)
+                                + (UNKNOWN_OBJECT.matcher(root).find()
+                                        ? " This server has "
+                                                + schema.streamNames().size()
+                                                + " stream(s) declared; their names are not listed here because "
+                                                + "that would tell a caller who may not read them that they "
+                                                + "exist. Use the listing call, which is filtered by what you "
+                                                + "may read."
+                                        : ""),
                         e);
             }
 
@@ -342,6 +350,10 @@ public final class SqlPlanner {
         }
         return java.util.Optional.empty();
     }
+
+    /** Calcite's refusal of a stream or table name it cannot resolve: when the stream count helps. */
+    private static final java.util.regex.Pattern UNKNOWN_OBJECT =
+            java.util.regex.Pattern.compile("(Object|Table) '[^']*' not found");
 
     /** The text Calcite puts in front of the expression it was converting when it failed. */
     private static final String CONVERTING_PREFIX = "while converting ";

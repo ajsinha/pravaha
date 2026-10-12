@@ -55,6 +55,17 @@ class PluginSourceFeedsTest {
 
     private static final String SCHEMA_SPEC = "id:INT64,user_id:STRING,amount:INT64";
 
+    /** CDCOPENMSG-1: PRV-5091 carries a plugin's coded refusal by its message, not its Java class. */
+    @Test
+    void aPluginsCodedRefusalIsQuotedWithoutItsClassName() {
+        String coded = PluginSourceFeeds.causeOf(new com.ash.messaging.pravaha.api.ConfigurationException(
+                IngestErrors.BINDING_FAILED, "the slot is in use"));
+        assertThat(coded).isEqualTo("PRV-5091  the slot is in use").doesNotContain("ConfigurationException");
+        assertThat(PluginSourceFeeds.causeOf(new IllegalStateException("socket closed")))
+                .as("an uncoded failure keeps its type, which says something")
+                .isEqualTo("java.lang.IllegalStateException: socket closed");
+    }
+
     @Test
     void aRegisteredQueryReceivesRowsFromItsBoundSource(@TempDir Path dir) throws Exception {
         Path data = dir.resolve("txn.csv");

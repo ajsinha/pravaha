@@ -79,6 +79,6 @@ otherwise a reader per query.
   costs a private read of only the gap between its position and the shared one.
 - A slow catch-up does not stall the group: the members already attached keep reading.
 - A member's checkpoint offset is always exactly what that member has been handed, in every state.
-- Kafka's monitoring commit (`monitoring.group`) reports the most advanced member's durable offset,
-  because the shared reader receives every member's acknowledgement and commits the highest. It is a
-  monitoring figure and never a restore point.
+- Kafka's monitoring commit (`monitoring.group`) reports the least advanced member's durable offset:
+  the shared reader is told only what every member has checkpointed (KAFKAMON-1), so the group never
+  claims progress a query could not restore from. It is a monitoring figure and never a restore point.

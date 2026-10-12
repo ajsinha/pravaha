@@ -83,6 +83,21 @@ class ViewQueryAuthorizationTest {
                 .hasMessageContaining("sam");
     }
 
+    /** GOVMSG-1: a reason that already says who may not read what is not prefixed with it again. */
+    @Test
+    void aRefusalSaysWhoMayNotReadWhatOnce() {
+        ViewQuery queries = queryWith((principal, view) ->
+                AccessDecision.deny(principal.id() + " may not read '" + view + "': sam holds no SELECT on it"));
+        assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", INTERN))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7002  sam may not read 'user_volume': sam holds no SELECT on it")
+                .satisfies(e ->
+                        assertThat(e.getMessage().split("may not read", -1)).hasSize(2));
+        assertThatThrownBy(() -> queries.schemaOf("SELECT user_id FROM user_volume", INTERN))
+                .satisfies(e ->
+                        assertThat(e.getMessage().split("may not read", -1)).hasSize(2));
+    }
+
     @Test
     void aRowFilterIsAppliedWhetherOrNotTheQueryMentionsItsColumn() {
         ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("tier = 'gold'"));
