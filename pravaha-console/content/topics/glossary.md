@@ -1,7 +1,7 @@
 ---
 title: Glossary
 slug: glossary
-category: reference
+category: concepts
 order: 10
 icon: book-half
 summary: "Every term Pravaha uses, A to Z, in a sentence or two — stream, view, key, weight, retraction, watermark, frontier, fingerprint, lane, sink, spill — each linked to the topic that explains it."

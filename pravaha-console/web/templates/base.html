@@ -38,7 +38,7 @@
 <link href="/static/app/mobile.css?v={{ asset_version }}" rel="stylesheet">
 </head>
 {% set bare = bare_page is defined and bare_page and not signed_in %}
-<body class="{{ 'pv-public' if bare else 'pv-app' }}">
+<body class="{{ 'pv-public' if bare else 'pv-app' }}"{% if not bare %} data-screen="{{ page_screen or 'help' }}"{% endif %}>
 <a class="visually-hidden-focusable pv-skip" href="#main">{{ t('shell.skip') }}</a>
 <!-- The one announcer, present from the first byte: every screen's async updates -- a filter
      applied, a query paused, a theme chosen -- are spoken through it. -->
@@ -84,6 +84,7 @@
 </div>
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/static/js/theme.js?v={{ asset_version }}"></script>
+<script src="/static/js/help-keys.js?v={{ asset_version }}"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/states.js"></script>
 {# The islands are ES modules with no bundler: this map is the whole "build". Every entry

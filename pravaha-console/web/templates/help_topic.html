@@ -1,36 +1,44 @@
 {% extends "base.html" %}
+{#- Pravaha console -- a long-form guide, a tutorial or a decision record, rendered in place from the
+    repository's docs/. Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Drishti's guide page (drishti-console templates/help/guide.html): crumbs, the contents column, the
+    article with its kind badge, and the footer naming the source file -- the in-app help renders the
+    repository's documents, so fixing the file fixes the page. -#}
 {% block title %}{{ topic.title }} — {{ app_name }}{% endblock %}
-{% block head %}<style>
-.doc h1{font-size:1.5rem;margin-bottom:.6rem}
-.doc h2{font-size:1.12rem;margin:1.7rem 0 .6rem;padding-top:.3rem}
-.doc h3{font-size:.98rem;margin:1.2rem 0 .4rem}
-.doc p,.doc li{line-height:1.68;color:var(--slate)}
-.doc table{width:100%;margin:1rem 0}
-.doc pre{margin:.8rem 0}
-.doc blockquote{border-left:3px solid var(--flow);padding-left:.9rem;color:var(--muted);margin:1rem 0}
-.toc a{display:block;padding:.18rem 0;font-size:.82rem;color:var(--muted);text-decoration:none}
-.toc a:hover{color:var(--flow)}
-</style>{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block main_class %} help-page{% endblock %}
 {% block content %}
-<p class="text-muted small"><a href="{{ area_path }}">&larr; {{ area_title }}</a></p>
-<div class="row g-4">
-  <div class="col-lg-9">
-    <article class="card"><div class="card-body doc">{{ topic.html|safe }}</div></article>
-  </div>
-  <div class="col-lg-3">
-    {% if topic.anchors %}
-    <div class="section-label mt-0">{{ t('help.on_this_page') }}</div>
-    <nav class="toc" aria-label="{{ t('help.on_this_page') }}">
-      {% for h in topic.anchors %}<a href="#{{ h.id }}">{{ h.name }}</a>{% endfor %}
-    </nav>
-    {% endif %}
-    {% if related|length > 1 %}
-    <div class="section-label">{{ topic.section }}</div>
-    <nav class="toc" aria-label="{{ topic.section }}">
-      {% for other in related %}{% if other.slug != topic.slug %}
-      <a href="{{ area_path }}/{{ other.slug }}">{{ other.title }}</a>{% endif %}{% endfor %}
-    </nav>
-    {% endif %}
+<div class="help-wrap help-guide">
+  <nav class="crumbs help-crumbs" aria-label="{{ t('help.topic.breadcrumb') }}">
+    <a href="/help">{{ t('help.index.title') }}</a>
+    {% if category %}<span class="sep">/</span><a href="/help#cat-{{ category.id }}">{{ category.name }}</a>
+    {% else %}<span class="sep">/</span><a href="{{ area_path }}">{{ area_title }}</a>{% endif %}
+    <span class="sep">/</span><span>{{ topic.title }}</span>
+  </nav>
+  <div class="help-layout">
+    <aside class="help-toc" aria-label="{{ t('help.on_this_page') }}">
+      <form class="help-search small" action="/help/search" method="get" role="search" aria-label="{{ t('help.search.label') }}">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <label class="visually-hidden" for="guide-search">{{ t('help.search.label') }}</label>
+        <input id="guide-search" name="q" type="search" placeholder="{{ t('help.search.short') }}">
+      </form>
+      {% if topic.anchors %}
+      <h2>{{ t('help.on_this_page') }}</h2>
+      <nav class="toc" aria-label="{{ t('help.on_this_page') }}"><ol>
+        {% for h in topic.anchors %}<li><a href="#{{ h.id }}">{{ h.name }}</a></li>{% endfor %}
+      </ol></nav>
+      {% endif %}
+      {% if related|length > 1 %}
+      <h2>{{ topic.section }}</h2>
+      <ul>{% for other in related %}<li{% if other.slug == topic.slug %} aria-current="page"{% endif %}><a href="{{ area_path }}/{{ other.slug }}">{{ other.title }}</a></li>{% endfor %}</ul>
+      {% endif %}
+    </aside>
+    <article class="help-article">
+      <header><span class="badge-kind">{{ t('help.kind.' ~ kind) }}</span></header>
+      <div class="doc">{{ topic.html|safe }}</div>
+      {% if topic.source %}<footer class="help-foot">{{ t('help.topic.source', path=(topic.meta.include or topic.source)) }}</footer>{% endif %}
+    </article>
   </div>
 </div>
 {% endblock %}
+{% block scripts %}<script src="/static/js/help.js?v={{ asset_version }}" defer></script>{% endblock %}

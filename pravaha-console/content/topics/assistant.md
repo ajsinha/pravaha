@@ -1,14 +1,14 @@
 ---
 title: The assistant — and Admin · AI models
 slug: assistant
-category: reference
+category: ai
 order: 60
 icon: robot
 summary: "Plain English to and from continuous SQL through any model you configure — draft, explain a query or a refusal, ask why — with the engine as judge; and Admin · AI models: providers, fallback chains, budgets, switched live."
 badge: ADR-058
 audience: Developers and administrators
 keywords: [assistant, assist, llm, model, ai, ask, draft, describe, repair, golden set, eval, evaluation, explain-sql, why, explain a refusal, provider, anthropic, openai, openai-compatible, ollama, vllm, fallback, profile, chain, budget, api_key_env, assist.json, ModelRouter, AssistAdmin, entry point, plugin, admin, ai models, providers, fallback, budget, ledger, usage, switch model, assist.json]
-guide: python-sdk
+guide: assist
 related: [sql-refusals, create-continuous-query, cli-reference, audit, observability]
 ---
 

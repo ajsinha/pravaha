@@ -35,6 +35,7 @@ EXCLUDED: dict[str, str] = {
     "/queries/{name}/debug": "one query's debugger, from the query",
     "/alerts/{name}": "one alert, from Operate · Alerts",
     "/help/topics/{slug}": "one help topic, from the help index and search",
+    "/help/context/{screen}": "F1 and ? on a screen: a redirect to that screen's help (help.yaml's contextual:)",
     "/help/{slug}": "one guide, from Help · Guides",
     "/help/codes/{code}": "one error code, from Help · Error codes",
     "/help/decisions/{record}": "one decision record, from the guides",

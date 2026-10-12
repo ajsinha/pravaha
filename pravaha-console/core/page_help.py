@@ -82,6 +82,7 @@ EXEMPT: dict[str, str] = {
     "help_code.html": "one error code: Help itself",
     "help_case_studies.html": "the case studies: Help itself",
     "help_case_study.html": "one case study: Help itself",
+    "help_examples.html": "the examples gallery: Help itself",
 }
 
 #: Each screen's tiles, as their icons (Bootstrap Icons names), in order: tile n is

@@ -734,6 +734,13 @@
       "state_unread": "What the operators are holding could not be read again after this step ({error}), so the entry counts above are from before it. Reload to read them.",
       "state_changed": "the engine reported different operators from the ones on this page",
       "page_stale": "The entries of {operator} below are as they were when this page loaded. Read it again to see them at the position you have stepped to."
+    },
+    "help": {
+      "copy": {
+        "copy": "Copy",
+        "copied": "Copied",
+        "select": "Select and copy"
+      }
     }
   },
   "admin": {
@@ -1868,7 +1875,13 @@
       "search_everything": "Search every page for it",
       "about": "About Pravaha",
       "competitive": "Competitive landscape",
-      "faq": "Questions people ask"
+      "faq": "Questions people ask",
+      "lede_drishti": "Everything about Pravaha, with worked examples: {count} topics, guides, tutorials and references in five categories — {topics} topics and {guides} long-form guides behind them.",
+      "f1_before": "Press",
+      "f1_after": "anywhere for help on the screen you are on.",
+      "getting_started": "Getting started",
+      "examples": "SQL examples",
+      "read": "Read"
     },
     "search": {
       "label": "Search the help",
@@ -1883,13 +1896,16 @@
       "browse": "Browse the help",
       "empty": "Type a word, a setting, a SQL keyword or a PRV code.",
       "clear": "Clear the search",
-      "never_title": "Nothing asked yet"
+      "never_title": "Nothing asked yet",
+      "crumb": "Search"
     },
     "topic": {
       "breadcrumb": "Breadcrumb",
       "reading_order": "Reading order",
       "previous": "Previous",
-      "next": "Next"
+      "next": "Next",
+      "in_section": "In this section",
+      "source": "Found something out of date? The source is {path}; the in-app help renders the repository's files, so fixing the file fixes this page."
     },
     "footer": {
       "full_reference": "Full reference:",
@@ -1955,6 +1971,20 @@
       "run_note": "Every study runs from its folder in examples/case-studies/; what has to be running first is in",
       "setup": "Setting up",
       "none": "This installation does not carry the case studies. They are in the examples/case-studies/ folder of the Pravaha source tree."
+    },
+    "kind": {
+      "tutorial": "tutorial",
+      "reference": "reference",
+      "guide": "guide",
+      "examples": "examples"
+    },
+    "examples": {
+      "title": "SQL examples",
+      "lede": "{n} working examples, each a statement, its sample data and a note: read them here, copy the parts you need, or open one as a copy in the Workbench — nothing is registered until you register it yourself.",
+      "open": "Open as a copy in the Workbench",
+      "copy": "Copy",
+      "copy_label": "Copy this example",
+      "source": "Each example is three files under pravaha-console/content/examples — <name>.sql, its data and <name>.md — and the build plans every one against the engine (pravaha-it's HelpExamplesSqlTest), so this page cannot show SQL the engine refuses."
     }
   },
   "login": {
@@ -3195,7 +3225,8 @@
       "codes": "Error codes",
       "search": "Search the help",
       "about": "About Pravaha",
-      "competitive": "Competitive landscape"
+      "competitive": "Competitive landscape",
+      "examples": "SQL examples"
     },
     "desc": {
       "streams": "Every stream, its schema, and what reads from it",
@@ -3230,7 +3261,8 @@
       "codes": "Every PRV code: what it means, what to do",
       "search": "Find any topic, guide or code",
       "about": "What it is, the name, version and licence",
-      "competitive": "How Pravaha compares, scored"
+      "competitive": "How Pravaha compares, scored",
+      "examples": "Working queries with their data — open one as a copy in the Workbench"
     }
   },
   "page": {

@@ -2,6 +2,7 @@
 title: Getting started
 slug: getting-started
 category: start
+kind: tutorial
 order: 10
 icon: signpost-2
 summary: "What Pravaha is and the three nouns it is built from; your first maintained view end to end, with the output of every step; and the console, screen by screen — the bar, the menus, the themes."

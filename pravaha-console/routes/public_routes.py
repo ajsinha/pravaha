@@ -21,6 +21,7 @@ from core import credential
 from core.about import (CAPABILITIES, DIFFERENT, LIMITS, MEASURED, PRINCIPLES, PROBLEM_LEAD, PROBLEMS,
                         TECHNOLOGY, AboutSource)
 from core.competitive import BEHIND, SHINE
+from core.content.examples import Examples
 from core.help_catalog import ERROR_FAMILIES, HelpCatalog
 from routes.base import Routes, _signed_in
 
@@ -51,6 +52,7 @@ class PublicRoutes(Routes):
         started = time.time()
         content = self.ctx["content"]
         catalog = self.ctx.get("help") or HelpCatalog(content)
+        examples = Examples(content.root / "examples")
 
         @self.app.get("/", response_class=HTMLResponse, tags=["public"])
         def landing(request: Request):
@@ -173,13 +175,35 @@ class PublicRoutes(Routes):
                                  back_label=self.t("not_found.back.area", area=AREAS[area]["title"].lower()))
             related = [t for t in content.topics(area) if t.section == found.section]
             return self.page(request, "help_topic.html", current="/help",
-                             topic=found, related=related, **area_context(area))
+                             topic=found, related=related,
+                             category=catalog.listing(slug) if area == "help" else None,
+                             kind="tutorial" if area == "tutorials" else "reference", **area_context(area))
 
         @self.app.get("/help", response_class=HTMLResponse, tags=["public"])
         def help_index(request: Request):
             """Searchable, collapsible category tiles, rendered from core/help_catalog.py."""
-            return self.page(request, "help_index.html", current="/help", index=catalog.index(),
+            index = catalog.index()
+            return self.page(request, "help_index.html", current="/help", index=index,
+                             card_count=sum(len(entry["cards"]) for entry in index),
                              topic_count=len(catalog.topics()), guide_count=len(catalog.guides()))
+
+        @self.app.get("/help/context/{screen}", tags=["public"])
+        def help_context(screen: str):
+            """F1, and the top bar's help (drishti's ``/help/context/{screen}``): the help the screen
+            names first in help.yaml's ``contextual:``, at its section; the index for any other."""
+            return RedirectResponse(catalog.context(screen), status_code=303)
+
+        @self.app.get("/help/examples", response_class=HTMLResponse, tags=["public"])
+        def help_examples(request: Request):
+            """The examples gallery: each example's note, its SQL and its data in disclosures, and
+            "Open as a copy in the Workbench" (core/content/examples.py)."""
+            items = []
+            for e in examples.all():
+                note = "\n".join(line for line in e.readme.splitlines() if not line.startswith("# "))
+                items.append({"name": e.name, "title": e.title, "sql": e.sql, "data": e.data,
+                              "data_kind": e.data_kind, "note": content.renderer.render(note)[0]})
+            return self.page(request, "help_examples.html", current="/help", examples=items,
+                             category=catalog.listing("/help/examples"))
 
         @self.app.get("/help/search", response_class=HTMLResponse, tags=["public"])
         def help_search(request: Request, q: str = ""):
@@ -243,7 +267,7 @@ class PublicRoutes(Routes):
             decision = Topic(slug=record, title=title, section=self.t("help.decision_records"), html=html,
                              headings=headings, source=f"docs/design/adr/{path.name}")
             return self.page(request, "help_topic.html", current="/help", topic=decision,
-                             related=[], **area_context("help"))
+                             related=[], category=None, kind="reference", **area_context("help"))
 
         @self.app.get("/help/codes/{code}", response_class=HTMLResponse, tags=["public"])
         def help_code(request: Request, code: str):
