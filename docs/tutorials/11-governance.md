@@ -326,51 +326,22 @@ bound sales.region_scope to public.sales.payments_view
 <!-- /capture -->
 
 Now a mask for the card number, bound not to one view but to the **tag** `pii` — every object tagged
-`pii`, this one now and the next one tagged. The reference's example uses `RIGHT`:
+`pii`, this one now and the next one tagged. A mask may call only the functions the engine evaluates,
+and `create-mask` checks that before anything is stored. `RIGHT`, which many SQL dialects have, is not
+one of them:
 
 <!-- capture: t11-mask-right -->
 ```text
 $ pravaha policy create-mask sales.card_last4 --column card_number --as "'XXXX-XXXX-XXXX-' || RIGHT(card_number, 4)" --except-role admin
-created public.sales.card_last4 (MASK); nothing is narrowed until it is bound: pravaha policy bind public.sales.card_last4 --on <object>
-```
-<!-- /capture -->
-
-<!-- capture: t11-bind-mask-right -->
-```text
-$ pravaha policy bind sales.card_last4 --tag pii
-bound sales.card_last4 to TAG 'pii'
-```
-<!-- /capture -->
-
-<!-- capture: t11-ann-mask-refused -->
-```text
-$ PRAVAHA_TOKEN=$ANN pravaha query --sql 'SELECT * FROM payments_view'
-PRV-7038  the mask on payments_view.card_number ('XXXX-XXXX-XXXX-' || RIGHT ( card_number , 4 )) does not plan over that column alone: PRV-2002  No match found for function signature RIGHT(<CHARACTER>, <NUMERIC>). Pravaha evaluates + - * / %, ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, SUBSTRING, ||, DATE_FORMAT, REGEXP_EXTRACT and SPLIT_INDEX, and the aggregates COUNT, SUM, MIN, MAX and AVG; each of the one-argument functions takes exactly one argument. See docs/guides/CONTINUOUS_QUERIES.md. This server has 1 stream(s) declared; their names are not listed here because that would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.. A mask may read only the column it masks
+PRV-7038  RIGHT() is not a function a policy may call: a policy may use only pure functions the engine evaluates and can see into, since any other either cannot run or could carry the value elsewhere; for the last characters write REGEXP_EXTRACT(col, '.{4}$'), or SUBSTRING(col, start, 4). Allowed: ABS, CAST, CEIL, CEILING, COALESCE, FLOOR, LOWER, MOD, NULLIF, REGEXP_EXTRACT, ROUND, SPLIT_INDEX, SUBSTRING, TRIM, UPPER, CASE, and session_attribute('claim'), current_user(), is_member('role')
   look PRV-7038 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)
 ```
 <!-- /capture -->
 
-On the build these captures were taken from, that mask was accepted when it was created and bound,
-and then refused every read it applied to, because the engine does not evaluate `RIGHT`
-(MASKRIGHT-1). A mask that cannot run fails **closed** — ann is refused, never shown the full number.
-Since the fix, `create-mask` refuses it at once with `PRV-7038`, naming `RIGHT()` and what to write
-instead, so there is nothing to take away. On a build that let it in, take it away (`unbind`, then `drop`: a policy cannot be dropped while it is bound, and
-both ask for `--yes`) and write it with `SUBSTRING`, which the engine does evaluate:
-
-<!-- capture: t11-unbind -->
-```text
-$ pravaha policy unbind sales.card_last4 --tag pii --yes
-public.sales.card_last4 unbound TAG 'pii'
-```
-<!-- /capture -->
-
-<!-- capture: t11-drop-mask -->
-```text
-$ pravaha policy drop sales.card_last4 --yes
-dropped sales.card_last4
-```
-<!-- /capture -->
+The refusal names the function and what to write instead, and nothing was created — a mask that
+could not run never reaches a read (it would fail closed if it did: ann refused, never shown the full
+number). Write it with `SUBSTRING`, which the engine evaluates:
 
 <!-- capture: t11-mask -->
 ```text
@@ -505,7 +476,6 @@ $ pravaha audit --principal ann --decision deny --limit 5
 SEQUENCE  AT                              PRINCIPAL  ACTION  TARGET         DECISION  REASON
 N         <time>                          ann        schema  payments_view  DENY      ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
 N         <time>                          ann        query   payments_view  DENY      allowed by policy, then refused: PRV-7006  payments_view.card_number is masked for you, and this query uses it as a filter operand. Comparing a masked column would tell you which rows share its value, or their order -- what the mask hides. Select it to see its masked value; compare, group, join or sort on another column
-N         <time>                          ann        query   payments_view  DENY      allowed by policy, then refused: PRV-7038  the mask on payments_view.card_number ('XXXX-XXXX-XXXX-' || RIGHT ( card_number , 4 )) does not plan over that column alone: PRV-2002  No match found for function signature RIGHT(<CHARACTER>, <NUMERIC>). Pravaha evaluates + - * / %, ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, SUBSTRING, ||, DATE_FORMAT, REGEXP_EXTRACT and SPLIT_INDEX, and the aggregates COUNT, SUM, MIN, MAX and AVG; each of the one-argument functions takes exactly one argument. See docs/guides/CONTINUOUS_QUERIES.md. This server has 1 stream(s) declared; their names are not listed here because that would tell a caller who may not read them that they exist. Use the listing call, which is filtered by what you may read.. A mask may read only the column it masks
 N         <time>                          ann        schema  payments_view  DENY      ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
 N retained of 10000, 0 evicted
 ```
@@ -549,7 +519,7 @@ You should see ann's denials, the masked-read refusal among them, newest first.
 | `PRV-7033` | changing grants, descriptions, tags or policies needs `MANAGE`; giving an object away needs ownership | ask the owner |
 | `PRV-7030` | the catalogue is off on this node | `pravaha.catalog.enabled: true` |
 | `PRV-7034` at start | `authority: import` and `pravaha.security.policy` changed since the import | put the policy back, or move to `authority: catalog` |
-| `PRV-7038` | a policy's expression is refused: a subquery, a non-deterministic or unknown function, a mask reading another column — or, on this build, `RIGHT` found only at read time | use the functions the engine evaluates (`SUBSTRING`, `CASE`, `||`, …) |
+| `PRV-7038` | a policy's expression is refused: a subquery, a non-deterministic or unknown function, a mask reading another column, or a function the engine does not evaluate such as `RIGHT` (refused at create) | use the functions the engine evaluates (`SUBSTRING`, `CASE`, `||`, …) |
 | `PRV-7039` | the reader's credential lacks a claim the policy reads | `pravaha user attrs <user> region=…` before binding |
 | `PRV-7006` | a masked column used in a filter, group, join, sort or key | compare on another column |
 | `PRV-2002` for `sales.payments_view` in SQL | SQL reads a view by its engine name; the catalogue name is for grants and policies | `SELECT … FROM payments_view` |

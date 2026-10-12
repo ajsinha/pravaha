@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **600 findings carrying a
-status — 575 FIXED, 6 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 6 open, **0 are
-GA-BLOCKER, 2 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 581 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7892,35 +7892,29 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 
 > **Status:** FIXED — pravaha subscribe --filter says "where user_id = 'alice'" rather than a Python dict.
 
-## Found writing tutorials group B (2026-10-12), 6 findings
+## Found writing tutorials group B (2026-10-12), 6 findings, all fixed
 
 ### KAFKAMON-1 (MEDIUM) — monitoring.group is never committed when a Kafka reader is shared between queries
 
-> **Status:** OPEN — SharedPartitionFeed's per-query MemberReader does not pass the checkpoint-durable call on to the plugin's reader, so KafkaPartitionReader never commits offsets; kafka-consumer-groups reports the group does not exist and lag dashboards see nothing, though the docs promise they will. Tutorial 7 shows it.
-> **Disposition:** GA-REQUIRED — a documented monitoring promise is not kept.
+> **Status:** FIXED — a shared reader is told the earliest offset every query on it has made durable, so monitoring.group is committed again and never ahead of any query (ADR-054 amended from the most advanced member to the least); KafkaExactSharingBrokerTest.
 
 ### MASKRIGHT-1 (MEDIUM) — a mask using RIGHT() is accepted at create and bind, then refuses every read
 
-> **Status:** OPEN — the documented example 'XXXX-' || RIGHT(card, 4) is accepted by policy create-mask and bind, and every read it applies to fails PRV-7038 (no RIGHT in the engine): it fails closed, but it should be refused at create and the examples should use SUBSTRING; the message also has a doubled '..' and an unrelated 'N stream(s) declared' sentence. Tutorial 11 shows it.
-> **Disposition:** GA-REQUIRED — the documented example does not work.
+> **Status:** FIXED — a policy may call only functions the engine evaluates: RIGHT, LEFT, CONCAT, CHAR_LENGTH and the rest are refused at create with PRV-7038 naming the function; NarrowingPlanTest plans every allowed one so the list cannot drift; examples use REGEXP_EXTRACT(card, '.{4}$'); the message lost its '..' and stream count. Tutorial 11 recaptured.
 
 ### ACCESSORDER-1 (LOW) — privilege lists print in a different order each run
 
-> **Status:** OPEN — pravaha access why rows and catalog show's "you may:" line print an unordered set.
-> **Disposition:** POST-GA — output order.
+> **Status:** FIXED — privileges list in their declared order (EnumSet in ObjectKind); CatalogServiceTest.
 
 ### GOVMSG-1 (LOW) — PRV-7002 repeats its first clause
 
-> **Status:** OPEN — "ann may not read 'payments_view': ann may not read 'payments_view': ann holds no SELECT…".
-> **Disposition:** POST-GA — wording.
+> **Status:** FIXED — ViewQuery no longer prefixes a reason that already says who may not read what; ViewQueryAuthorizationTest.
 
 ### CDCOPENMSG-1 (LOW) — PRV-5091 puts a Java class name in the user's message
 
-> **Status:** OPEN — "…could not be opened for stream 'orders': com.ash.messaging.pravaha.api.ConfigurationException: PRV-5112 …".
-> **Disposition:** POST-GA — wording.
+> **Status:** FIXED — PRV-5091 quotes a coded cause by its message, without the class name; PluginSourceFeedsTest. Tutorial 8 recaptured.
 
 ### ROWSPLURAL-1 (LOW) — the query page says "1 rows written"
 
-> **Status:** OPEN — the query.rows_written message is not pluralised.
-> **Disposition:** POST-GA — wording.
+> **Status:** FIXED — "1 row written" (rows_written_one/_other); test_product.
 

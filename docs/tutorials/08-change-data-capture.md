@@ -136,7 +136,7 @@ WHERE status = 'OPEN'
 <!-- capture: t08-refused -->
 ```text
 $ pravaha register --name open_orders --sql-file open_orders.sql --keys 0
-PRV-5091  the 'postgres-cdc' plugin could not be opened for stream 'orders': com.ash.messaging.pravaha.api.ConfigurationException: PRV-5112  plugin 'orders': public.orders has REPLICA IDENTITY DEFAULT, so the before-image of an update or delete carries only the key. Retracting that from a view holding the whole row retracts nothing: a customer moving from silver to gold would leave silver counted for ever, with no error anywhere. Run: ALTER TABLE public.orders REPLICA IDENTITY FULL; -- it writes the whole old row into the WAL on every update and delete, which is the cost of retractions being possible.
+PRV-5091  the 'postgres-cdc' plugin could not be opened for stream 'orders': PRV-5112  plugin 'orders': public.orders has REPLICA IDENTITY DEFAULT, so the before-image of an update or delete carries only the key. Retracting that from a view holding the whole row retracts nothing: a customer moving from silver to gold would leave silver counted for ever, with no error anywhere. Run: ALTER TABLE public.orders REPLICA IDENTITY FULL; -- it writes the whole old row into the WAL on every update and delete, which is the cost of retractions being possible.
   look PRV-5091 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)
 ```
