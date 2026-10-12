@@ -390,18 +390,16 @@ class WindowClosingAnswerTest extends WindowTestSupport {
     }
 
     @Test
-    void win172_neitherLateRecordsNorCorrectionsIsObservableFromAnyShippedSurface() throws Exception {
-        // WIN-172. The counters exist and reach nobody: PravahaMetrics registers exactly rows.in,
-        // view.size, view.evicted, view.updates, view.removals, watermark.lag.seconds and running.
+    void win172_lateRecordsArePublishedAndCorrectionsStillAreNot() throws Exception {
+        // WIN-172, as amended by TOOLATE-1 (2026-10-12): rows too late for any window are now published
+        // (pravaha.query.late.records, lateRecords in describe and the plan); corrections still are not.
         String metricsSource = java.nio.file.Files.readString(repoRoot()
                 .resolve("pravaha-server/src/main/java/com/ash/messaging/pravaha/server/PravahaMetrics.java"));
         // Not a bare "late"/"correction" substring check -- PravahaMetrics legitimately talks about
         // processing "latency" elsewhere, which contains "late" without being this gauge.
         assertThat(metricsSource.toLowerCase(java.util.Locale.ROOT))
-                .as("no late-records or corrections gauge is registered anywhere in PravahaMetrics")
-                .doesNotContain("laterecords")
-                .doesNotContain("late.records")
-                .doesNotContain("late_records")
+                .as("late records are published (TOOLATE-1); no corrections gauge is registered")
+                .contains("late.records")
                 .doesNotContain("correction");
         // And the counters are real, non-trivial numbers when a lateness-aware pipeline is run --
         // it is not that nothing happens, only that nothing shipped reports it.
