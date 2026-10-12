@@ -15,14 +15,14 @@
 .page-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem 1.2rem;justify-content:space-between;}
 .page-head h1{margin:0;}
 .lede{color:var(--muted);max-width:52rem;}
-/* Section tabs as links, drawn as MAYA draws its tabs: a rounded top, the current one on the
-   card surface with the accent under it. */
+/* Section tabs as links, drawn as drishti draws its tabs (adm-tabs): muted words on a rule, the
+   current one in ink with the accent under it. */
 .tabs-bar{display:flex;gap:.15rem;border-bottom:1px solid var(--rule);margin-bottom:1rem;flex-wrap:wrap;}
-.tabs-bar a,.tabs-bar button{border:0;background:none;padding:.5rem .85rem;color:var(--ink);font-weight:600;
-  font-size:13px;border-radius:9px 9px 0 0;text-decoration:none;}
-.tabs-bar a[aria-current="page"],.tabs-bar button[aria-selected="true"]{color:var(--flow);
-  background:var(--surface);box-shadow:inset 0 -3px 0 var(--flow);}
-.tabs-bar a:hover,.tabs-bar button:hover{color:var(--flow);background:var(--pv-crimson-tint);}
+.tabs-bar a,.tabs-bar button{border:0;background:none;padding:.5rem .85rem;color:var(--muted);font-weight:600;
+  font-size:13px;border-radius:8px 8px 0 0;text-decoration:none;}
+.tabs-bar a[aria-current="page"],.tabs-bar button[aria-selected="true"]{color:var(--ink);
+  background:transparent;box-shadow:inset 0 -2px 0 var(--flow);}
+.tabs-bar a:hover,.tabs-bar button:hover{color:var(--ink);background:var(--d-highlight);}
 .tabs-bar .count{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:400;margin-left:.25rem;}
 
 /* "The engine cannot do this yet": distinct from an error (nothing failed) and from empty
@@ -43,23 +43,25 @@
 .copyable pre{padding-right:4.6rem;white-space:pre;max-height:26rem;}
 .copyable .copy{position:absolute;top:.4rem;right:.4rem;}
 
-/* ------------------------------------------------------------ command palette */
+/* ------------------------------------------------------------ command palette
+   Drawn as drishti's command line and its suggestion list (terminal.css .cmd-input, .cmd-list):
+   accent mono text after a > prompt on the second ground, rows highlighted in the accent's tint. */
 .palette-backdrop{position:fixed;inset:0;background:rgba(10,14,20,.45);z-index:1090;display:flex;
   align-items:flex-start;justify-content:center;padding-top:12vh;}
-.palette{width:min(640px,94vw);background:var(--raised);border:1px solid var(--rule);border-radius:10px;
-  box-shadow:var(--lift-2);overflow:hidden;color:var(--ink);}
-.palette input{width:100%;border:0;border-bottom:1px solid var(--rule);padding:.9rem 1rem;font-size:1rem;
-  background:var(--raised);color:var(--ink);outline:none;}
+.palette{width:min(640px,94vw);background:var(--d-surface);border:1px solid var(--d-border);border-radius:10px;
+  box-shadow:var(--d-shadow);overflow:hidden;color:var(--ink);}
+.palette input{width:100%;border:0;border-bottom:1px solid var(--d-accent);padding:.9rem 1rem;font:500 1rem var(--d-font-mono);
+  letter-spacing:.02em;background:var(--d-bg-2);color:var(--d-accent);outline:none;}
 .palette ul{list-style:none;margin:0;padding:.3rem;max-height:52vh;overflow-y:auto;}
 .palette li{display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border-radius:6px;cursor:pointer;
   font-size:.9rem;}
-.palette li[aria-selected="true"]{background:var(--info-soft);}
-.palette li .kind{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+.palette li[aria-selected="true"],.palette li:hover{background:var(--d-accent-tint);}
+.palette li .kind{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--d-faint);
   width:4.6rem;flex:none;}
 .palette li .hint{margin-left:auto;color:var(--muted);font-size:.76rem;white-space:nowrap;}
 .palette .foot{border-top:1px solid var(--rule);padding:.4rem .8rem;font-size:.74rem;color:var(--muted);
   display:flex;gap:1rem;}
-.palette mark{background:none;color:var(--flow);padding:0;font-weight:700;}
+.palette mark{background:none;color:var(--ink);padding:0;font-weight:800;text-decoration:underline;text-decoration-color:var(--flow);text-underline-offset:2px;}
 
 /* ------------------------------------------------------------ workbench */
 .wb{display:grid;grid-template-columns:15rem minmax(0,1fr);gap:1rem;}

@@ -1,0 +1,159 @@
+/*
+ * Pravaha console — the top bar, its mega-menu panels and tools, the theme menu, and the footer.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+ * Proprietary and confidential. See LICENSE at the repository root.
+ *
+ * Ask once. Answer always.
+ *
+ * drishti's design (drishti-console nav.css, gradients.css, theme.css; ported with credit) over
+ * Pravaha's own markup and menus (_nav.html, _nav_public.html): a 56px bar; in Crimson, Crimson dark,
+ * Blue and Green a solid navigation gradient with white text, in Terminal, Parchment and Wall Street
+ * glass over the page with a thin gradient rule under it; the wordmark in Cinzel and the tagline in
+ * Playfair Display; menus as quiet buttons underlined when current; mega-menu panels with uppercase
+ * column titles, an icon tile and a description per item; round icon tools and a gradient avatar;
+ * the command palette's field drawn as drishti's command line. No hex here: tokens.css only.
+ */
+
+/* The wordmark and the tagline (drishti's choice: Cinzel and Playfair Display, SIL Open Font
+   Licence, vendored in static/vendor/fonts with their licences; Latin only). */
+@font-face { font-family: "Pravaha Wordmark"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("/static/vendor/fonts/cinzel-700-latin.woff2") format("woff2"); }
+@font-face { font-family: "Pravaha Tagline"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url("/static/vendor/fonts/playfair-display-500-latin.woff2") format("woff2"); }
+:root { --wordmark: "Pravaha Wordmark", Georgia, "Times New Roman", serif; --tagline: "Pravaha Tagline", Georgia, "Times New Roman", serif; }
+
+/* The bar's text colour and hover ground: ink on glass, white on a coloured band. */
+:root { --bar-ink: var(--d-ink); --bar-hover: color-mix(in srgb, var(--d-accent) 14%, transparent); }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) { --bar-ink: var(--pv-on-nav); --bar-hover: rgba(255, 255, 255, .16); }
+
+/* ------------------------------------------------------------------ the bar */
+.pv-app { padding-top: 56px; }
+.pv-skip { position: absolute; top: 4px; left: 8px; z-index: 2000; background: var(--d-accent); color: var(--d-on-accent); padding: .3rem .6rem; border-radius: 6px; }
+.pv-nav { min-height: 56px; padding: .2rem 1rem; color: var(--bar-ink); }
+.pv-nav::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, var(--d-grad-from), var(--d-grad-to)); opacity: .75; }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-nav::after { display: none; }
+
+/* brand: the three streamlines, the name in the wordmark face, the tagline and the creed under it */
+.pv-brand { display: flex; align-items: center; gap: .55rem; color: var(--bar-ink) !important; margin-right: 1.1rem; padding: 0; min-height: 44px; }
+.pv-brand .brand-mark { width: 34px; height: 34px; flex: none; color: var(--d-accent); }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-brand .brand-mark { color: var(--pv-on-nav); }
+.pv-brand .name { display: block; font-family: var(--wordmark); font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  font-size: 1.3rem; line-height: 1.05; }
+:root:is([data-theme="terminal"], [data-theme="light"], [data-theme="wallstreet"]) .pv-brand .name {
+  background: linear-gradient(90deg, var(--d-grad-from), var(--d-grad-to)); -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent; }
+.pv-brand small { display: block; font-family: var(--tagline); font-weight: 500; font-size: 10.5px; line-height: 1.25; letter-spacing: .01em;
+  white-space: nowrap; color: var(--bar-ink); opacity: .9; }
+.pv-brand .creed { font-style: italic; font-size: 10px; opacity: 1; }
+
+/* menus: quiet buttons; the current one underlined in the gradient (white on a coloured bar) */
+.pv-nav .nav-link { display: inline-flex; align-items: center; gap: .4rem; color: var(--bar-ink) !important; font-weight: 600; font-size: .86rem;
+  padding: .5rem .7rem !important; border-radius: 8px; position: relative; opacity: .85; transition: opacity .15s, background .15s; }
+.pv-nav .nav-link:hover, .pv-nav .nav-link.show { opacity: 1; background: var(--bar-hover); }
+.pv-nav .nav-link.active { opacity: 1; }
+.pv-nav .nav-link.active::after, .pv-nav .nav-link.show::after { content: ""; position: absolute; left: .7rem; right: .7rem; bottom: -.3rem; height: 2px;
+  border-radius: 2px; background: linear-gradient(90deg, var(--d-grad-from), var(--d-grad-to)); }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-nav .nav-link.active { background: rgba(255, 255, 255, .2); box-shadow: inset 0 -3px 0 var(--pv-on-nav); }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-nav .nav-link.active::after,
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-nav .nav-link.show::after { background: var(--pv-on-nav); }
+.pv-nav .nav-link i { opacity: .95; }
+.pv-nav .dropdown-toggle::after { display: none; }
+.pv-nav a:focus-visible, .pv-nav button:focus-visible { outline-color: var(--bar-ink) !important; }
+.pv-nav .navbar-toggler { color: var(--bar-ink); border-color: color-mix(in srgb, var(--bar-ink) 40%, transparent); font-size: 1.4rem; }
+
+/* the panels: under the bar, a gradient rule on top, rounded below */
+.mega-panel { border: 1px solid var(--d-border); border-radius: 0 0 14px 14px; padding: 1rem 1.1rem 1.1rem; margin-top: .3rem !important;
+  background: var(--d-surface); box-shadow: 0 24px 48px -20px rgba(0, 0, 0, .55); border-top: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--d-grad-from), var(--d-grad-to)) 1; z-index: 1200; }
+.mega-panel.show { display: grid; gap: 1.1rem; animation: mega-in .14s ease-out; }
+.mega-panel.cols-1.show { grid-template-columns: minmax(280px, 320px); }
+.mega-panel.cols-2.show { grid-template-columns: repeat(2, minmax(260px, 300px)); }
+.mega-panel.cols-3.show { grid-template-columns: repeat(3, minmax(240px, 280px)); }
+.mega-panel.cols-4.show { grid-template-columns: repeat(4, minmax(220px, 260px)); }
+@keyframes mega-in { from { opacity: 0; translate: 0 -6px; } to { opacity: 1; translate: 0 0; } }
+.mega-title { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--d-muted); padding: 0 .5rem .45rem; }
+.mega-item { display: flex; gap: .65rem; align-items: flex-start; padding: .5rem; border-radius: 10px; color: var(--d-ink); text-decoration: none; }
+.mega-item:hover, .mega-item:focus-visible { background: color-mix(in srgb, var(--d-ink) 8%, transparent); color: var(--d-ink); text-decoration: none; }
+/* The page you are on: a neutral highlight and an accent bar (accent text on an accent tint was hard to read). */
+.mega-item.active { background: color-mix(in srgb, var(--d-ink) 7%, transparent); box-shadow: inset 3px 0 0 var(--d-accent); }
+.mega-item.active .mega-label { color: var(--d-ink); }
+.mega-icon { flex: 0 0 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; font-size: 1rem; color: var(--pv-on-nav);
+  background: linear-gradient(135deg, var(--d-grad-from), var(--d-grad-to)); box-shadow: 0 6px 14px -8px var(--d-grad-from); }
+.mega-label { display: block; font-weight: 650; line-height: 1.25; font-size: .9rem; }
+.mega-desc { display: block; font-size: .76rem; line-height: 1.35; color: color-mix(in srgb, var(--d-ink) 72%, var(--d-surface)); }
+
+/* the command palette's field, drawn as drishti's command line: a > prompt, accent mono text on the second ground */
+.pv-search { position: relative; margin: 0 .8rem; flex: 0 1 300px; display: flex; align-items: center; gap: .5rem; height: 36px;
+  border: 1px solid var(--d-accent); border-radius: 999px; padding: 0 .9rem; background: var(--d-bg-2); color: var(--d-accent);
+  font: 500 .9rem var(--d-font-mono); letter-spacing: .02em; text-decoration: none; white-space: nowrap; }
+.pv-search:hover, .pv-search:focus-visible { box-shadow: 0 0 0 3px var(--d-accent-tint); color: var(--d-accent); }
+.pv-search .cmd-prompt { color: var(--d-accent); font-weight: 700; }
+.pv-search .ph { flex: 1; text-align: left; color: var(--d-faint); }
+.pv-search kbd { background: transparent; color: var(--d-faint); border: 1px solid var(--d-border); border-radius: 4px; padding: 0 .3rem; font-size: 10.5px; }
+
+/* tools: round icon buttons, a gradient avatar */
+.pv-tools { display: flex; align-items: center; gap: .3rem; }
+.pv-tools .tool, .pv-nav .tool { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-width: 34px; height: 34px;
+  padding: 0 .45rem; border: 0; border-radius: 999px; background: transparent; color: var(--bar-ink); text-decoration: none; font-weight: 600; }
+.pv-tools .tool:hover, .pv-nav .tool:hover, .pv-nav .tool:focus-visible, .pv-nav .tool.show { background: var(--bar-hover); color: var(--bar-ink); }
+.pv-nav .tool.dropdown-toggle::after { display: none; }
+.pv-tools .dot { position: absolute; top: 0; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; font-size: .62rem;
+  font-weight: 700; line-height: 16px; text-align: center; color: var(--pv-on-nav); background: linear-gradient(135deg, var(--d-grad-from), var(--d-grad-to)); }
+.pv-tools .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: .85rem;
+  color: var(--pv-on-nav); background: linear-gradient(135deg, var(--d-grad-from), var(--d-grad-to)); }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-tools .avatar { box-shadow: 0 0 0 2px rgba(255, 255, 255, .55); }
+.pv-tools .user { padding-right: .7rem; }
+.pv-tools .uname { font-size: .85rem; font-weight: 600; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-user-menu { min-width: 260px; }
+.pv-user-menu .dropdown-item { display: flex; gap: .55rem; align-items: center; white-space: normal; }
+.pv-user-menu .dropdown-item.active { background: color-mix(in srgb, var(--d-ink) 7%, transparent); color: var(--d-ink); box-shadow: inset 3px 0 0 var(--d-accent); }
+.pv-user-menu .dropdown-header { color: var(--d-muted); font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
+.pv-user-menu .persona span { color: var(--d-muted); }
+
+/* the theme menu: a swatch per theme (colours in tokens.css); the check mark is the aria state, drawn */
+.theme-menu .dropdown-item { display: flex; align-items: center; gap: .1rem; font-size: 13.5px; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: .5rem; flex: none; border: 1px solid rgba(128, 128, 128, .4); }
+.theme-menu [aria-checked="true"]::after { content: "\2713"; margin-left: auto; padding-left: .8rem; color: var(--d-ink); font-weight: 700; }
+
+/* the public bar's Sign in: drishti's ghost pill, white-edged on a coloured band */
+.pv-nav .pv-signin { color: var(--bar-ink) !important; border-color: color-mix(in srgb, var(--bar-ink) 55%, transparent); }
+.pv-nav .pv-signin:hover { background: var(--bar-hover); border-color: var(--bar-ink); }
+
+/* Wide: each panel drops under the bar, centred, as wide as its columns (never wider than the screen). */
+@media (min-width: 992px) {
+  .pv-nav .mega { position: static; }
+  .pv-nav .mega-panel { position: absolute; top: 100%; left: 50%; right: auto; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); }
+}
+@media (max-width: 1399.98px) and (min-width: 992px) {
+  .pv-brand .creed { display: none; }
+}
+@media (max-width: 991.98px) {
+  .pv-nav .navbar-collapse { max-height: calc(100vh - 56px); overflow-y: auto; padding-bottom: .8rem; }
+  .mega-panel.show { display: block; border-radius: 12px; margin-bottom: .5rem !important; }
+  .mega-col + .mega-col { margin-top: .8rem; }
+  .pv-search { margin: .5rem 0; width: 100%; flex: none; }
+  .pv-tools { flex-wrap: wrap; }
+}
+@media (max-width: 420px) { .pv-brand small { display: none; } }
+
+/* ------------------------------------------------------------------ the footer
+   drishti's (_footer.html, theme.css "Footer"): one centred closing block under a thin rule -- the
+   creed in the tagline face in the heading colour, the product in the wordmark face with its
+   version and the main links, then the fine print. */
+.pv-foot { margin-top: 2.5rem; width: 100%; border-top: 1px solid var(--d-border); color: var(--d-muted); font-size: .88rem; padding: 1.3rem 1.25rem 1.6rem; text-align: center; }
+.pv-foot p { margin: 0 0 .4rem; }
+.pv-foot .sf-tag { margin-bottom: .55rem; }
+.pv-foot-slogan { font-style: italic; font-family: var(--tagline); font-size: 1.15rem; color: var(--pv-heading); }
+.pv-foot .sf-name { font-family: var(--wordmark); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--d-ink); }
+.pv-foot .sf-ver { color: var(--d-muted); font-size: .8rem; }
+.pv-foot .sf-links { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .3rem 1.2rem; }
+.pv-foot .sf-links a { color: var(--d-link); font-weight: 600; text-decoration: none; padding: .3rem 0; }
+.pv-foot .sf-links a:hover, .pv-foot .sf-links a:focus-visible { text-decoration: underline; }
+.pv-foot .sf-fine { font-size: 12px; margin: .3rem 0 0; }
+.pv-public .pv-foot { border-top-color: rgba(255, 255, 255, .25); color: var(--pv-on-nav); }
+.pv-public .pv-foot a, .pv-public .pv-foot-slogan, .pv-public .pv-foot .sf-name, .pv-public .pv-foot .sf-ver,
+.pv-public .pv-foot .sf-links a { color: var(--pv-on-nav); }
+
+@media (prefers-reduced-motion: reduce) { .mega-panel.show { animation: none; } }

@@ -12,7 +12,9 @@
  *                  its old value leaves as a −1 and the new one arrives as a +1.
  *   #windows-flow  One-minute windows fill; a watermark sweeps across and seals each one; a late event
  *                  reopens a sealed window, as −1 old total and +1 new.
- *   #diyas-flow    Events as lamps carried downstream; the board on the bank updates as each passes.
+ *   #highway-flow  Continuous SQL as a highway: orders and payments in two lanes, joined on user_id at a
+ *                  junction, held at a one-minute window's toll gate, then delivered into a view that fans
+ *                  out to a subscriber, a BI chart and a sink; once a loop a late pair corrects a total.
  *
  * Every colour is a design token used as var(--…) on the drawn shapes, so a figure follows the theme
  * the moment it changes, and every word comes from the string catalog, through the hero's data-flow
@@ -21,7 +23,8 @@
  * `prefers-reduced-motion` gets one still frame per figure that still says the sentence -- the question
  * typed, the stone in the river, an answer with a −1 and a +1 beside it, a sealed window reopened -- and
  * no loop. That is the frame the visual baselines photograph. The loop stops whenever the page is hidden
- * or no figure is in view.
+ * or no figure is in view, and the Pause button under the highway stops it for good (drishti's landing
+ * has the same control, its Replay).
  *
  * The figures are aria-hidden; the captions and "How it works" say everything they say, in words.
  */
@@ -34,7 +37,6 @@
   var L = JSON.parse(hero.getAttribute("data-flow"));
   // The catalog holds lists as comma-separated strings.
   L.users = String(L.users).split(",");
-  L.cities = String(L.cities).split(",");
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   /* A seeded generator: the same illustration on every load, which the baselines rely on. */
@@ -231,53 +233,197 @@
     };
   }
 
-  /* ------------------------------------------------------------------ diyas on the river */
-  function diyasFigure(svg) {
+  /* ------------------------------------------------------------------ the highway: join, window, deliver
+     Two lanes, orders and payments, carry packets keyed by user (the same key, the same tint: the
+     data series). At the junction an order and a payment with the same key fuse into one joined
+     packet, with a brief glow, and it drives on to the toll gate of a one-minute tumbling window,
+     where it waits. When the window closes the gate lifts, the window's pairs drive into the view,
+     and its rows change (each flashes) -- and every change fans out to a subscriber, a BI chart and
+     a Kafka sink. Once a loop a pair arrives after its window closed: late, it goes straight
+     through, and the view corrects that user's total as a −1 of the old value and a +1 of the new.
+     Drawn as a pure function of the time in the loop, so the still frame is simply one moment. */
+  function highwayFigure(svg) {
     svg.innerHTML = "";
-    el(svg, "rect", { x: 0, y: 0, width: 640, height: 220, style: "fill:var(--surface)" });
-    el(svg, "rect", { x: 0, y: 120, width: 640, height: 100, style: "fill:var(--flow);opacity:.1" });
-    var board = { x: 470 };
-    el(svg, "rect", { x: 470, y: 22, width: 150, height: 120, rx: 8, style: "fill:var(--surface);stroke:var(--edge)" });
-    el(svg, "text", { x: 484, y: 44, style: style("var(--muted)", 9.5) }, L.diyas_board);
-    var rows = [];
-    for (var i = 0; i < L.cities.length; i++) {
-      el(svg, "text", { x: 484, y: 72 + i * 24, style: style("var(--ink)", 12) }, L.cities[i]);
-      rows.push({ n: 0, v: el(svg, "text", { x: 606, y: 72 + i * 24, "text-anchor": "end", style: style("var(--ink)", 12) }, "0") });
+    var LOOP = 17, SPEED = 110;
+    var LANES = [70, 150], JX = 260, JY = 110, GATE = 440, CARD = 470;
+    var KEYS = L.users.slice(0, 4);
+    var amounts = [0, 0, 0, 0];
+    // Each pair: key, amount, when its order and its payment set off, and the window it belongs to.
+    var PAIRS = [
+      { k: 0, a: 120, o: -1.5, p: -1.0, w: 0 }, { k: 1, a: 80, o: -0.6, p: 0.3, w: 0 },
+      { k: 2, a: 45, o: 0.9, p: 1.2, w: 0 }, { k: 0, a: 60, o: 2.0, p: 2.6, w: 0 },
+      { k: 3, a: 200, o: 4.2, p: 4.5, w: 1 }, { k: 1, a: 30, o: 5.4, p: 5.9, w: 1 },
+      { k: 2, a: 75, o: 6.6, p: 6.8, w: 1 }, { k: 0, a: 25, o: 8.6, p: 9.0, w: 0, late: true }
+    ];
+    var CLOSE = [7.0, 11.2], LABELS = ["09:00", "09:01"], FLY = 0.6;
+    var LANE_LEN = 230, LEG = Math.sqrt(60 * 60 + 40 * 40);
+    var arrive = (LANE_LEN + LEG) / SPEED;
+
+    // The road: two lanes converging on the junction, and the output lane on to the view.
+    function road(d) {
+      el(svg, "path", { d: d, style: "fill:none;stroke:var(--rule);stroke-width:26;stroke-linejoin:round" });
+      el(svg, "path", { d: d, style: "fill:none;stroke:var(--stripe);stroke-width:24;stroke-linejoin:round" });
     }
-    el(svg, "text", { x: 22, y: 48, style: style("var(--ink)", 18, "var(--serif)", 400) }, L.ask);
-    el(svg, "text", { x: 22, y: 72, style: style("var(--ink)", 18, "var(--serif)", 400) }, L.answer);
-    var lamps = [];
-    for (var j = 0; j < 7; j++) {
-      var g = el(svg, "g", {});
-      el(g, "ellipse", { cx: 0, cy: 6, rx: 15, ry: 3, style: "fill:var(--flow-l);opacity:.35" });
-      el(g, "path", { d: "M-11 0 Q0 10 11 0 Z", style: "fill:var(--flow)" });
-      var flame = el(g, "path", { d: "M0 -2 Q-4 -9 0 -16 Q4 -9 0 -2Z", style: "fill:var(--flow-l)" });
-      lamps.push({ g: g, flame: flame, x: -40 - j * 92, y: 150 + (j % 3) * 22, city: j % 3 });
+    for (var l = 0; l < LANES.length; l++) {
+      road("M-14 " + LANES[l] + " H200 L" + JX + " " + JY);
+      el(svg, "text", { x: 6, y: LANES[l] - 18, style: style("var(--muted)", 10) }, l ? L.lane_payments : L.lane_orders);
+    }
+    road("M" + JX + " " + JY + " H" + (CARD - 6));
+    var dashes = [el(svg, "line", { x1: 0, y1: LANES[0], x2: 200, y2: LANES[0], style: "stroke:var(--edge);stroke-dasharray:8 10" }),
+                  el(svg, "line", { x1: 0, y1: LANES[1], x2: 200, y2: LANES[1], style: "stroke:var(--edge);stroke-dasharray:8 10" })];
+    var out = el(svg, "line", { x1: JX + 40, y1: JY, x2: CARD - 8, y2: JY, style: "stroke:var(--edge);stroke-dasharray:8 10" });
+    el(svg, "rect", { x: JX - 40, y: JY - 34, width: 80, height: 68, rx: 12, style: "fill:var(--surface);stroke:var(--flow);stroke-width:1.5" });
+    el(svg, "text", { x: JX, y: JY - 42, "text-anchor": "middle", style: style("var(--flow)", 10, "var(--code)", 700) }, L.join);
+    el(svg, "text", { x: JX, y: JY + 9, "text-anchor": "middle", style: style("var(--flow)", 26, "var(--sans)", 700) }, "\u22c8");
+    el(svg, "text", { x: GATE + 8, y: JY - 34, "text-anchor": "end", style: style("var(--ink)", 10, "var(--code)", 700) }, L.tumble);
+    el(svg, "rect", { x: GATE - 3, y: JY - 26, width: 6, height: 52, rx: 2, style: "fill:var(--ink)" });
+    var arm = el(svg, "line", { x1: GATE, y1: JY - 18, x2: GATE, y2: JY + 18, style: "stroke:var(--flow);stroke-width:4;stroke-linecap:round" });
+    var gateNote = el(svg, "text", { x: GATE + 8, y: JY + 42, "text-anchor": "end", style: style("var(--flow)", 10), opacity: 0 }, "");
+    var glow = el(svg, "circle", { cx: JX, cy: JY, r: 10, style: "fill:none;stroke:var(--flow);stroke-width:3", opacity: 0 });
+
+    // The view: key → total, one row per user; a correction line under it.
+    el(svg, "rect", { x: CARD, y: 22, width: 160, height: 182, rx: 8, style: "fill:var(--surface);stroke:var(--edge)" });
+    el(svg, "text", { x: CARD + 12, y: 42, style: style("var(--muted)", 9.5) }, L.view);
+    var rows = [];
+    for (var r = 0; r < KEYS.length; r++) {
+      var ry = 66 + r * 26;
+      var flash = el(svg, "rect", { x: CARD + 4, y: ry - 16, width: 152, height: 22, rx: 4, style: "fill:var(--flow)", opacity: 0 });
+      el(svg, "rect", { x: CARD + 12, y: ry - 10, width: 4, height: 12, rx: 1, style: "fill:var(--series-" + (r + 1) + ")" });
+      el(svg, "text", { x: CARD + 22, y: ry, style: style("var(--ink)", 12) }, KEYS[r]);
+      rows.push({ flash: flash, v: el(svg, "text", { x: CARD + 148, y: ry, "text-anchor": "end", style: style("var(--ink)", 12) }, "—") });
+    }
+    var fix = el(svg, "text", { x: CARD + 12, y: 190, style: style("var(--retract)", 10.5, "var(--code)", 700), opacity: 0 }, "");
+
+    // Delivery: three destinations under the view, a pulse to each after every change.
+    var DEST = [[CARD + 20, L.sdk], [CARD + 80, L.bi], [CARD + 140, L.sink]];
+    var pulses = [];
+    for (var d = 0; d < DEST.length; d++) {
+      el(svg, "line", { x1: CARD + 80, y1: 204, x2: DEST[d][0], y2: 252, style: "stroke:var(--edge)" });
+      el(svg, "circle", { cx: DEST[d][0], cy: 262, r: 11, style: "fill:var(--surface);stroke:var(--flow);stroke-width:1.5" });
+      el(svg, "text", { x: DEST[d][0], y: 290, "text-anchor": "middle", style: style("var(--muted)", 9) }, DEST[d][1]);
+      pulses.push(el(svg, "circle", { r: 3.5, style: "fill:var(--flow)", opacity: 0 }));
+    }
+    el(svg, "path", { d: "M" + (CARD + 14) + " 262 h12 M" + (CARD + 20) + " 256 v12", style: "stroke:var(--flow);stroke-width:2" });
+    el(svg, "path", { d: "M" + (CARD + 74) + " 267 v-4 M" + (CARD + 80) + " 267 v-9 M" + (CARD + 86) + " 267 v-6", style: "stroke:var(--flow);stroke-width:2.5" });
+    el(svg, "path", { d: "M" + (CARD + 134) + " 258 h12 M" + (CARD + 134) + " 262 h12 M" + (CARD + 134) + " 266 h12", style: "stroke:var(--flow);stroke-width:1.5" });
+    el(svg, "text", { x: 6, y: 236, style: style("var(--ink)", 18, "var(--serif)", 400) }, L.ask);
+    el(svg, "text", { x: 6, y: 262, style: style("var(--ink)", 18, "var(--serif)", 400) }, L.answer);
+
+    function tile(w, k, joined) {
+      var g = el(svg, "g", { opacity: 0 });
+      el(g, "rect", { x: -w / 2, y: -9, width: w, height: 18, rx: 5,
+        style: "fill:var(--surface);stroke:var(--series-" + (k + 1) + ");stroke-width:" + (joined ? 3 : 2) });
+      el(g, "text", { x: 0, y: 4, "text-anchor": "middle", style: style("var(--ink)", 10, "var(--code)", 700) }, KEYS[k]);
+      return g;
+    }
+    for (var i = 0; i < PAIRS.length; i++) {
+      var q = PAIRS[i];
+      q.order = tile(26, q.k, false); q.pay = tile(26, q.k, false); q.joined = tile(32, q.k, true);
+      q.join = Math.max(q.o, q.p) + arrive;
+      q.atGate = q.join + (GATE - JX) / SPEED;
+    }
+    // The queue at each window's gate, in the order the pairs reach it.
+    [0, 1].forEach(function (w) {
+      PAIRS.filter(function (q) { return q.w === w && !q.late; })
+        .sort(function (a, b) { return a.atGate - b.atGate; })
+        .forEach(function (q, n) { q.slot = GATE - 18 - n * 34; q.leave = CLOSE[w]; });
+    });
+    var late = PAIRS[PAIRS.length - 1];
+    late.slot = GATE; late.leave = late.atGate;
+
+    function put(g, x, y, on) {
+      g.setAttribute("opacity", on ? 1 : 0);
+      if (on) { g.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ")"); }
+    }
+    function lanePos(start, lane, tau) {
+      var dist = SPEED * (tau - start);
+      if (dist < LANE_LEN) { return [-30 + dist, LANES[lane]]; }
+      var f = Math.min(0.8, (dist - LANE_LEN) / LEG);   // a packet whose partner is not here yet waits at the mouth
+      return [200 + (JX - 200) * f, LANES[lane] + (JY - LANES[lane]) * f];
+    }
+    // One pair at one moment of the loop: where its packets are, if anywhere.
+    function pair(q, tau) {
+      var landed = q.leave + FLY;
+      if (tau < Math.min(q.o, q.p) || tau >= landed) { return false; }
+      var a = tau >= q.o && tau < q.join ? lanePos(q.o, 0, tau) : null;
+      var b = tau >= q.p && tau < q.join ? lanePos(q.p, 1, tau) : null;
+      put(q.order, a ? a[0] : 0, a ? a[1] : 0, !!a);
+      put(q.pay, b ? b[0] : 0, b ? b[1] : 0, !!b);
+      if (tau >= q.join) {
+        var x = Math.min(q.slot, JX + SPEED * (tau - q.join)), y = JY;
+        if (tau >= q.leave) {
+          var f = (tau - q.leave) / FLY;
+          x = q.slot + (CARD + 30 - q.slot) * f; y = JY + (66 + q.k * 26 - 4 - JY) * f;
+        }
+        put(q.joined, x, y, true);
+      } else { put(q.joined, 0, 0, false); }
+      return true;
+    }
+
+    var last = -1;
+    function draw(c) {
+      var p;
+      for (p = 0; p < PAIRS.length; p++) {
+        var q = PAIRS[p];
+        // This loop's instance, or the next loop's arriving early on the lanes.
+        if (!pair(q, c) && !pair(q, c - LOOP)) { put(q.order, 0, 0, false); put(q.pay, 0, 0, false); put(q.joined, 0, 0, false); }
+      }
+      // The glow of the most recent fusion.
+      var since = 9;
+      for (p = 0; p < PAIRS.length; p++) {
+        [c, c - LOOP].forEach(function (tau) { var s = tau - PAIRS[p].join; if (s >= 0 && s < since) { since = s; } });
+      }
+      glow.setAttribute("opacity", since < 0.5 ? (0.8 * (1 - since / 0.5)).toFixed(2) : 0);
+      glow.setAttribute("r", (10 + 50 * Math.min(since, 0.5)).toFixed(1));
+      // The gate: lifted for a moment as each window closes, and for the late pair passing through.
+      var lifted = -1, note = "";
+      for (var w = 0; w < CLOSE.length; w++) {
+        if (c >= CLOSE[w] && c < CLOSE[w] + 1.6) { note = LABELS[w] + " " + L.closed; }
+        if (c >= CLOSE[w] && c < CLOSE[w] + FLY) { lifted = 1; }
+      }
+      if (c >= late.atGate - 0.15 && c < late.atGate + FLY) { lifted = 1; note = L.late; }
+      arm.setAttribute("transform", lifted > 0 ? "rotate(-80 " + GATE + " " + (JY - 18) + ")" : "");
+      gateNote.textContent = note; gateNote.setAttribute("opacity", note ? 1 : 0);
+      // The view: totals from every pair that has landed in this loop.
+      var totals = [null, null, null, null], changed = -9, correction = null, before = 0;
+      for (p = 0; p < PAIRS.length; p++) {
+        var at = PAIRS[p].leave + FLY;
+        if (c >= at) {
+          var k = PAIRS[p].k;
+          if (PAIRS[p].late) { before = totals[k] || 0; correction = at; }
+          totals[k] = (totals[k] || 0) + PAIRS[p].a;
+          if (at > changed) { changed = at; }
+        }
+      }
+      for (var r2 = 0; r2 < rows.length; r2++) {
+        rows[r2].v.textContent = totals[r2] === null ? "—" : fmt(totals[r2]);
+        var lastFor = -9;
+        for (p = 0; p < PAIRS.length; p++) { if (PAIRS[p].k === r2 && c >= PAIRS[p].leave + FLY) { lastFor = Math.max(lastFor, PAIRS[p].leave + FLY); } }
+        rows[r2].flash.setAttribute("opacity", c - lastFor < 1 ? (0.22 * (1 - (c - lastFor))).toFixed(2) : 0);
+      }
+      if (correction !== null) {
+        fix.textContent = L.late + " " + KEYS[late.k] + ": " + L.minus + " " + fmt(before) + "  " + L.plus + " " + fmt(before + late.a);
+      }
+      fix.setAttribute("opacity", correction !== null ? 1 : 0);
+      // Every change goes on to the subscriber, the chart and the sink.
+      var age = c - changed;
+      for (var d2 = 0; d2 < pulses.length; d2++) {
+        var on = age >= 0 && age < 0.8, f2 = Math.min(1, age / 0.8);
+        pulses[d2].setAttribute("opacity", on ? 1 : 0);
+        if (on) { pulses[d2].setAttribute("cx", (CARD + 80 + (DEST[d2][0] - CARD - 80) * f2).toFixed(1)); pulses[d2].setAttribute("cy", (204 + 48 * f2).toFixed(1)); }
+      }
+      // The road moves under the traffic.
+      var offset = (-(c * SPEED) % 18).toFixed(1);
+      dashes[0].setAttribute("stroke-dashoffset", offset); dashes[1].setAttribute("stroke-dashoffset", offset);
+      out.setAttribute("stroke-dashoffset", offset);
+      last = c;
     }
     var t = 0;
-    function place() {
-      for (var k = 0; k < lamps.length; k++) {
-        var l = lamps[k];
-        l.g.setAttribute("transform", "translate(" + l.x + " " + (l.y + Math.sin(t * 1.5 + l.x / 40) * 2.5) + ")");
-        l.flame.setAttribute("transform", "scale(1 " + (1 + Math.sin(t * 9 + l.y) * 0.12) + ")");
-      }
-    }
     return {
-      step: function (dt) {
-        t += dt;
-        for (var k = 0; k < lamps.length; k++) {
-          var l = lamps[k], before = l.x;
-          l.x += 36 * dt;
-          if (before < board.x && l.x >= board.x) { rows[l.city].n++; rows[l.city].v.textContent = rows[l.city].n; }
-          if (l.x > 680) { l.x = -40; }
-        }
-        place();
-      },
-      still: function () {
-        for (var k = 0; k < lamps.length; k++) { lamps[k].x = 40 + k * 60; }
-        for (var r = 0; r < rows.length; r++) { rows[r].n = 12 + r * 7; rows[r].v.textContent = rows[r].n; }
-        t = 1; place();
-      }
+      step: function (dt) { t += dt; draw(t % LOOP); },
+      // The still: the late pair's correction in the view, the next loop's first packets on the lanes.
+      still: function () { t = 16.2; draw(t); },
+      at: function () { return last; }
     };
   }
 
@@ -285,10 +431,10 @@
   var figures = [heroFigure(hero)];
   var windows = document.getElementById("windows-flow");
   if (windows) { figures.push(windowsFigure(windows)); }
-  var diyas = document.getElementById("diyas-flow");
-  if (diyas) { figures.push(diyasFigure(diyas)); }
+  var highway = document.getElementById("highway-flow");
+  if (highway) { figures.push(highwayFigure(highway)); }
 
-  var frame = null, frames = 0, stills = 0, last = 0, inView = true;
+  var frame = null, frames = 0, stills = 0, last = 0, inView = true, paused = false;
 
   function drawStill() {
     for (var i = 0; i < figures.length; i++) { figures[i].still(); }
@@ -302,7 +448,7 @@
     frame = window.requestAnimationFrame(tick);
   }
   function start() {
-    if (frame !== null || reduce.matches || document.hidden || !inView) { return; }
+    if (frame !== null || paused || reduce.matches || document.hidden || !inView) { return; }
     last = performance.now();
     frame = window.requestAnimationFrame(tick);
   }
@@ -319,7 +465,27 @@
       inView = visible.size > 0;
       if (inView) { start(); } else { stop(); }
     });
-    [hero, windows, diyas].forEach(function (s) { if (s) { observer.observe(s); } });
+    [hero, windows, highway].forEach(function (s) { if (s) { observer.observe(s); } });
+  }
+
+  /* Pause and play (WCAG 2.2.2: anything that moves for more than five seconds can be stopped). */
+  var toggle = document.getElementById("figures-toggle");
+  function label() {
+    if (!toggle) { return; }
+    toggle.hidden = reduce.matches;
+    toggle.setAttribute("aria-pressed", paused ? "true" : "false");
+    toggle.setAttribute("aria-label", paused ? L.play : L.pause);
+    toggle.querySelector("i").className = "bi " + (paused ? "bi-play-fill" : "bi-pause-fill");
+    toggle.querySelector("span").textContent = paused ? L.play_short : L.pause_short;
+  }
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      paused = !paused;
+      if (paused) { stop(); } else { start(); }
+      label();
+    });
+    reduce.addEventListener("change", label);
+    label();
   }
 
   /* For the browser tests: what was drawn, and whether a loop is running. */

@@ -1,8 +1,9 @@
 {# The top navigation: one menu, defined once as data, rendered as mega-menu panels.
    Each top-level entry: (label, icon, [(column title, [(href, icon, label, description, match)])]).
-   MAYA's _nav.html, with Pravaha's screens in it: the markup, the class names, the brand block,
-   the tools on the right and the collapse are MAYA's; the entries, the words (from the string
-   catalog) and the user menu's contents are Pravaha's. tests/test_navigation.py holds that every
+   MAYA's _nav.html, with Pravaha's screens in it, drawn in drishti's design (nav.css): the brand
+   is the three streamlines inline (white on a coloured bar, the accent on glass) beside the name in
+   the wordmark face; the palette's field is drishti's command line; the tools are round icons. The
+   entries, the words (from the string catalog) and the user menu's contents are Pravaha's. tests/test_navigation.py holds that every
    screen is here or is listed in core/navigation.EXCLUDED with the reason it is not. #}
 {% set staff = signed_in and is_admin %}
 {% set path = request.url.path %}
@@ -68,7 +69,7 @@
 
 <nav class="navbar navbar-expand-lg pv-nav fixed-top" aria-label="{{ t('shell.primary_nav') }}">
   <div class="container-fluid">
-    <a class="navbar-brand pv-brand" href="/"><img src="/static/img/pravaha-mark-white.svg" alt="">
+    <a class="navbar-brand pv-brand" href="/"><svg class="brand-mark" viewBox="0 0 64 64" width="34" height="34" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M4,18 Q16,6 28,18 T52,18" opacity="0.55"/><path d="M4,32 Q16,20 28,32 T52,32"/><path d="M4,46 Q16,34 28,46 T52,46" opacity="0.55"/></g></svg>
       {# Three lines, in the order a reader needs them: the name, what Pravaha is, and what it
          undertakes to do. The claim sits with the brand rather than out in the bar, where it
          would read as one more control competing for a click. #}
@@ -102,11 +103,11 @@
         </li>
       {% endfor %}
       </ul>
-      {# MAYA's search field, in its place and shape. Here it opens the command palette, which
-         finds every screen, stream, view and query by name; the palette's module unhides it. #}
+      {# The command palette's field, drawn as drishti's command line (a > prompt, accent mono text).
+         It finds every screen, stream, view and query by name; the palette's module unhides it. #}
       <button type="button" class="pv-search" id="palette-trigger" hidden
               title="{{ t('shell.palette_title') }}" aria-label="{{ t('shell.palette_open') }}">
-        <i class="bi bi-search" aria-hidden="true"></i><span class="ph">{{ t('shell.search') }}</span><kbd>Ctrl K</kbd></button>
+        <span class="cmd-prompt" aria-hidden="true">&gt;</span><span class="ph">{{ t('shell.search') }}</span><kbd>Ctrl K</kbd></button>
       <div class="pv-tools">
         {# "About this page": jumps to the panel at the foot and opens it (theme.js). #}
         {% if page_screen %}<a class="tool" href="#page-help" data-page-help aria-label="{{ t('shell.page_help') }}" title="{{ t('shell.page_help') }}"><i class="bi bi-question-circle" aria-hidden="true"></i></a>{% endif %}

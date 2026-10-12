@@ -15,6 +15,7 @@
 /* ------------------------------------------------------------------ the bar, collapsed */
 @media (max-width: 991.98px) {
   .pv-nav .navbar-toggler { min-width: 44px; min-height: 44px; }
+  .pv-nav .nav-link { min-height: 44px; }
   .pv-tools .tool, .pv-nav .tool { min-width: 40px; flex-shrink: 0; min-height: 40px; justify-content: center; }
   .pv-nav .pv-search { min-height: 40px; }
   /* The theme and account menus open in the flow of the open menu, full width, rather than where
@@ -32,9 +33,12 @@
   .pv-nav.navbar-expand > .container-fluid { padding-left: .4rem; padding-right: .4rem; }
   .pv-nav.navbar-expand .d-flex.gap-2 { gap: .25rem !important; }
   .pv-nav.navbar-expand .pv-brand { margin-right: .25rem; gap: .45rem; }
-  .pv-nav.navbar-expand .nav-link { min-width: 44px; display: flex; align-items: center; justify-content: center; }
+  .pv-nav.navbar-expand .nav-link { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
   .pv-nav.navbar-expand .nav-link i { margin-right: 0; }
-  .pv-nav .pv-signin { min-width: 44px; }
+  .pv-nav .pv-signin { min-width: 44px; min-height: 44px; justify-content: center; padding: 0 .6rem; }
+  /* The wordmark gives up a little size before the bar gives up its tools. */
+  .pv-nav.navbar-expand .pv-brand .name { font-size: 1.05rem; letter-spacing: .08em; }
+  .pv-nav.navbar-expand .pv-brand .brand-mark { width: 28px; height: 28px; }
   .pv-nav kbd { display: none; }
 
   /* -------------------------------------------------------------- the banner under the bar
