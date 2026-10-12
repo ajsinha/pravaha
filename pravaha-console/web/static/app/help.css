@@ -27,7 +27,7 @@
 .help-hero{text-align:center;padding:2.6rem 1.25rem 2rem;border-bottom:1px solid var(--d-border);margin:0;
   background:radial-gradient(900px 320px at 50% -20%,var(--d-accent-tint),transparent 70%)}
 .help-hero .hero-ico{font-size:2.2rem;color:var(--d-accent)}
-.help-hero h1{font-size:2rem;font-weight:800;margin:.5rem 0}
+.help-hero h1{font-size:2rem;font-weight:800;margin:.5rem auto;display:block;text-align:center}
 .help-hero .lede{color:var(--d-muted)!important;max-width:70ch;margin:0 auto;line-height:1.6}
 .help-page .help-wrap{padding-left:0;padding-right:0}
 .help-cta{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-top:1.1rem}
@@ -54,21 +54,32 @@
 .cat-blurb{color:var(--d-muted);margin:.1rem 0 .8rem}
 .help-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
 .help-item{display:flex}
-.help-card{display:flex;flex-direction:column;flex:1;background:var(--d-surface);border:1px solid var(--d-border);border-radius:10px;
-  padding:.9rem 1rem;color:var(--d-ink);text-decoration:none;transition:transform .15s,border-color .15s}
-.help-card:hover,.help-card:focus{transform:translateY(-2px);border-color:var(--d-accent);text-decoration:none;color:var(--d-ink)}
-.help-card .s{color:var(--d-muted);font-size:.88rem;margin:.4rem 0;flex:1;line-height:1.5}
+/* The card every help list draws (guides, tutorials, case studies) ... */
+.help-card{display:flex;flex-direction:column;height:100%;padding:.8rem .9rem;border:1px solid var(--rule);
+  border-radius:8px;text-decoration:none;color:var(--ink);background:var(--raised)}
+.help-card:hover,.help-card:focus{border-color:var(--flow);box-shadow:0 0 0 1px var(--flow)}
+.help-card .t{display:flex;align-items:center;gap:.5rem;font-weight:600;font-size:.95rem}
+.help-card .t .bi{color:var(--flow);font-size:1.1rem}
+.help-card .s{color:var(--slate);font-size:.84rem;line-height:1.5;margin-top:.3rem;flex:1}
+.help-card .go{font-size:.78rem;color:var(--flow);margin-top:.45rem}
+/* ... and drishti's, on the index: a lift on hover, the accent border, the kind badge. */
+.help-cards .help-card{flex:1;height:auto;background:var(--d-surface);border-color:var(--d-border);border-radius:10px;
+  padding:.9rem 1rem;color:var(--d-ink);transition:transform .15s,border-color .15s}
+.help-cards .help-card:hover,.help-cards .help-card:focus{transform:translateY(-2px);border-color:var(--d-accent);box-shadow:none;text-decoration:none;color:var(--d-ink)}
+.help-cards .help-card .s{color:var(--d-muted);font-size:.88rem;margin:.4rem 0}
 .hc-title{display:flex;gap:.55rem;font-weight:700}
 .badge-kind{font-size:.68rem;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--d-muted);
   border:1px solid var(--d-border);border-radius:3px;padding:0 .35rem;vertical-align:middle;white-space:nowrap}
 .more{color:var(--d-link);font-size:.85rem}
 .badge-help{font-size:.62rem;font-weight:700;letter-spacing:.04em;padding:.1rem .4rem;border-radius:4px;
-  background:var(--d-highlight);color:var(--d-ink);margin-left:.4rem}
+  background:var(--info-soft);color:var(--info);margin-left:auto}
+.help-article header .badge-help{margin-left:.4rem}
 .help-nohits{display:none;color:var(--d-muted);text-align:center;padding:2rem 1rem}
 
 /* ------------------------------------------------------------------ a guide or a topic */
-.crumbs{font-size:.82rem;color:var(--d-muted);margin-bottom:1rem}
-.crumbs a{color:var(--d-muted)}
+.crumbs{font-size:.82rem;color:var(--muted);margin-bottom:.4rem}
+.crumbs a{color:var(--muted)}
+.help-crumbs{margin-bottom:1rem}
 .crumbs .sep{margin:0 .4rem;color:var(--d-faint)}
 .help-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:2rem}
 .help-toc{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 90px);overflow:auto;font-size:.86rem}
@@ -82,23 +93,28 @@
 .help-article .lead{color:var(--d-muted);font-size:1.05rem}
 .help-article header .chip{margin-left:.4rem}
 .help-foot{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--d-border);color:var(--d-faint);font-size:.8rem}
-.doc h1{font-size:1.9rem;font-weight:800;margin:.3rem 0 1rem}
-.doc h2{font-size:1.35rem;font-weight:750;margin:2rem 0 .6rem;padding-top:.6rem;border-top:1px solid var(--d-border);scroll-margin-top:70px}
+.doc h2{font-size:1.2rem;margin:2rem 0 .7rem;padding-top:.6rem;border-top:1px solid var(--hairline)}
 .doc h2:first-child{border-top:0;margin-top:0;padding-top:0}
-.doc h3{font-size:1.08rem;font-weight:700;margin:1.4rem 0 .5rem;scroll-margin-top:70px}
+.doc h3{font-size:1.02rem;margin:1.4rem 0 .5rem}
 .doc h4{font-size:.95rem;margin:1.1rem 0 .4rem}
-.doc p,.doc li{line-height:1.7;color:var(--d-ink)}
-.doc a{color:var(--d-link)}
-.doc code{background:var(--d-surface-2);padding:.05rem .3rem;border-radius:3px;color:var(--d-accent)}
-.doc pre code{background:none;padding:0;color:var(--d-ink)}
+.doc p,.doc li{line-height:1.7;color:var(--slate)}
 .doc table{width:100%;margin:1rem 0;font-size:.9rem}
-.doc th{background:var(--d-surface-2);color:var(--d-ink)}
-.doc td,.doc th{padding:.4rem .6rem;border:1px solid var(--d-border);vertical-align:top}
-.doc img{max-width:100%;height:auto}
+.doc th{background:var(--stripe);color:var(--ink)}
+.doc td,.doc th{padding:.4rem .6rem;border:1px solid var(--rule);vertical-align:top}
+.doc pre{margin:.8rem 0}
 /* At phone width a table must fit rather than push the page sideways: long names and code wrap. */
 @media (max-width:767px){.doc td,.doc th,.doc td code{overflow-wrap:anywhere;word-break:break-word}.doc td,.doc th{padding:.3rem .4rem}}
-.doc blockquote{border-left:3px solid var(--d-accent);padding-left:.9rem;color:var(--d-muted);margin:1rem 0}
-.doc a.prv{font-family:var(--d-font-mono);white-space:nowrap}
+.doc blockquote{border-left:3px solid var(--flow);padding-left:.9rem;color:var(--slate);margin:1rem 0}
+/* drishti's article, inside the help's own pages: its headings, links, code and pictures. */
+.help-article .doc h1{font-size:1.9rem;font-weight:800;margin:.3rem 0 1rem}
+.help-article .doc h2{font-size:1.35rem;font-weight:750;border-top-color:var(--d-border);scroll-margin-top:70px}
+.help-article .doc h3{font-size:1.08rem;font-weight:700;scroll-margin-top:70px}
+.help-article .doc p,.help-article .doc li{color:var(--d-ink)}
+.help-article .doc a{color:var(--d-link)}
+.help-article .doc code{background:var(--d-surface-2);padding:.05rem .3rem;border-radius:3px;color:var(--d-accent)}
+.help-article .doc pre code{background:none;padding:0;color:var(--d-ink)}
+.help-article .doc img{max-width:100%;height:auto}
+.doc a.prv{font-family:var(--mono,monospace);white-space:nowrap}
 .help-example{margin:1rem 0;border:1px solid var(--d-border);border-radius:8px;overflow:hidden;background:var(--d-surface)}
 .help-example figcaption{display:flex;gap:.8rem;align-items:center;padding:.4rem .8rem;border-bottom:1px solid var(--d-border);font-size:.8rem;color:var(--d-muted)}
 .help-example .lang{margin-left:auto;font-family:var(--d-font-mono)}
@@ -118,8 +134,11 @@
 .help-example-actions .inline-form{margin:0}
 .help-example-item details{margin:.4rem 0}
 .help-example-item summary{cursor:pointer;font-family:var(--d-font-mono);font-size:.85rem}
-.toc a{text-decoration:none}
-.toc a:hover,.toc a:focus{color:var(--d-accent)}
+.toc a{display:block;padding:.18rem 0;font-size:.82rem;color:var(--muted);text-decoration:none}
+.toc a:hover,.toc a:focus{color:var(--flow)}
+.toc-side{position:sticky;top:84px}
+.help-toc .toc a{display:inline-block;padding:.15rem 0;font-size:inherit;color:var(--d-ink)}
+.help-toc .toc a:hover,.help-toc .toc a:focus{color:var(--d-accent)}
 @media (max-width:1000px){.help-cards{grid-template-columns:1fr}.help-layout{grid-template-columns:1fr}.help-toc{position:static;max-height:none}}
 @media (min-width:1001px) and (max-width:1199px){.help-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 

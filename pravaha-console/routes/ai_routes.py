@@ -170,13 +170,13 @@ class AiRoutes(Routes):
         user = str(current_user(request))
         service = self.service
         if task == "ask":
-            return "ask", service.ask(body.get("question"), body.get("conversation"), view=str(body.get("view") or ""))
+            return "ask", service.ask(str(body.get("question") or ""), body.get("conversation"), view=str(body.get("view") or ""))
         if task == "draft":
-            return "draft", service.draft(user, body.get("description"))
+            return "draft", service.draft(user, str(body.get("description") or ""))
         if task == "register":
             return "registered", service.register(user, str(body.get("draft_id") or ""), _yes(body.get("confirmed")))
         if task == "alert-draft":
-            return "alert-draft", service.alert_draft(user, body.get("description"))
+            return "alert-draft", service.alert_draft(user, str(body.get("description") or ""))
         if task == "create-alert":
             return "alert-created", service.create_alert(user, str(body.get("draft_id") or ""),
                                                          _yes(body.get("confirmed")))
