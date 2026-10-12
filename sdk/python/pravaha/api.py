@@ -714,5 +714,29 @@ class EngineApi:
         body = {"key": key} if key else {}
         return dict(self._rest.post("/api/v1/alerts/" + _segment(name) + "/ack", body) or {})
 
+    # ------------------------------------------------------------------ the AI layer (ADR-063)
+
+    def ai_chat(self, body: dict[str, Any]) -> dict[str, Any]:
+        """One chat call through the engine's AI policy: ``prompt`` or ``messages``, and optionally
+        ``model``, ``system``, ``maxTokens``, ``jsonMode``, ``timeoutSeconds``, ``feature`` (sent as
+        ``api:<feature>``). Answers ``text``, ``toolCalls``, ``model``, ``finishReason`` and ``usage``.
+        ``PRV-1080`` while the layer is off. ``POST /api/v1/ai/chat``."""
+        return dict(self._rest.post("/api/v1/ai/chat", body) or {})
+
+    def ai_models(self) -> "list[dict[str, Any]]":
+        """The models callers may name (``ref`` is ``provider/model``). ``GET /api/v1/ai/models``."""
+        return list(self._rest.get("/api/v1/ai/models") or [])
+
+    def admin_ai(self) -> dict[str, Any]:
+        """The AI layer as an administrator sees it: on or off, each provider with its health (no
+        network call) and the files that could not be read. ``GET /api/v1/admin/ai``."""
+        return dict(self._rest.get("/api/v1/admin/ai") or {})
+
+    def admin_ai_test(self, model: Optional[str] = None, prompt: Optional[str] = None) -> dict[str, Any]:
+        """One real call to ``model`` (the default when None), capped at 15 seconds and rate-limited
+        per administrator. ``POST /api/v1/admin/ai/test``."""
+        body = {k: v for k, v in (("model", model), ("prompt", prompt)) if v}
+        return dict(self._rest.post("/api/v1/admin/ai/test", body) or {})
+
 
 __all__ = ["EngineApi"]

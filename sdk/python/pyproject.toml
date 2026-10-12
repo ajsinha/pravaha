@@ -79,7 +79,7 @@ packages = ["pravaha"]
 # The assistant's prompts and dialect card are package resources, read with importlib.resources.
 # (Hatchling, the build backend, ships every file under pravaha/ already; this says so for
 # anything that builds with setuptools instead.)
-pravaha = ["py.typed", "assist/resources/*.json", "assist/resources/prompts/*"]
+pravaha = ["py.typed", "assist/resources/*.json", "assist/resources/prompts/*", "ai/providers/llm_catalog.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
