@@ -26,7 +26,10 @@
         <tr><th>{{ t('stream.event_time') }}</th><td>{% if stream.eventTime %}<span class="mono">{{ stream.eventTime }}</span>
           {% else %}<span class="chip warn">{{ t('stream.none_declared') }}</span> <span class="small text-muted">— {{ t('stream.no_window_closes') }}</span>{% endif %}</td></tr>
         <tr><th>{{ t('stream.out_of_orderness') }}</th><td>{% if stream.eventTime and stream.outOfOrderness %}<span class="mono">{{ stream.outOfOrderness }}</span>
-          <span class="small text-muted">— {{ t('stream.lateness_meaning') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
+          <span class="small text-muted">— {{ t('stream.out_of_orderness_meaning') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
+        {# STREAMLATE-1: the engine's allowedLateness, which the page did not show at all. #}
+        <tr><th>{{ t('stream.allowed_lateness') }}</th><td id="stream-allowed-lateness">{% if stream.eventTime and stream.get('allowedLateness') %}<span class="mono">{{ stream.allowedLateness }}</span>
+          <span class="small text-muted">— {{ t('stream.allowed_lateness_zero') if stream.allowedLateness in ('PT0S', 'PT0.0S') else t('stream.allowed_lateness_meaning') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
         <tr><th>{{ t('stream.source') }}</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">{{ t('stream.not_bound') }}</span>{% endif %}</td></tr>
       </tbody></table></div></div>
   </div>

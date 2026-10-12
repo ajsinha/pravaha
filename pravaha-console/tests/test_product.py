@@ -270,6 +270,9 @@ def test_the_sinks_tab_lists_what_the_engine_publishes_and_nothing_it_does_not(s
 def test_the_stream_page_shows_event_time_lateness_source_and_engine_lineage(signed_in):
     page = signed_in.get("/catalog/streams/txn").text
     assert "event_time" in page and "PT10S" in page and "filesystem" in page
+    # STREAMLATE-1: allowed lateness is shown, and out-of-orderness is not described as lateness.
+    assert 'id="stream-allowed-lateness"><span class="mono">PT30S</span>' in page
+    assert "how late a row may be before a window stops waiting" not in page
     assert "From the engine: the streams each query" in page
     catalog = signed_in.get("/catalog").text
     assert "no event time" not in catalog and "event time" in catalog

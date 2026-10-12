@@ -35,7 +35,7 @@ __all__ = ["ADMIN", "ADMIN_PASSWORD", "FakeEngine"]
 SINK_SECRET = "jdbc-password-that-the-engine-never-publishes"
 
 TXN = {"name": "txn", "version": 1, "fieldCount": 4, "eventTime": "event_time",
-       "outOfOrderness": "PT10S", "source": "filesystem", "fields": [
+       "outOfOrderness": "PT10S", "allowedLateness": "PT30S", "source": "filesystem", "fields": [
     {"name": "txn_id", "type": "BIGINT", "nullable": False, "ordinal": 0},
     {"name": "user_id", "type": "VARCHAR", "nullable": False, "ordinal": 1},
     {"name": "amount", "type": "BIGINT", "nullable": False, "ordinal": 2},
