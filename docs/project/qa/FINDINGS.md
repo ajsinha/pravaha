@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **594 findings carrying a
-status — 575 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **600 findings carrying a
+status — 575 FIXED, 6 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 6 open, **0 are
+GA-BLOCKER, 2 GA-REQUIRED, 4 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7891,4 +7891,36 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 ### CLIFILTER-1 (LOW) — pravaha subscribe --filter prints a Python dict repr
 
 > **Status:** FIXED — pravaha subscribe --filter says "where user_id = 'alice'" rather than a Python dict.
+
+## Found writing tutorials group B (2026-10-12), 6 findings
+
+### KAFKAMON-1 (MEDIUM) — monitoring.group is never committed when a Kafka reader is shared between queries
+
+> **Status:** OPEN — SharedPartitionFeed's per-query MemberReader does not pass the checkpoint-durable call on to the plugin's reader, so KafkaPartitionReader never commits offsets; kafka-consumer-groups reports the group does not exist and lag dashboards see nothing, though the docs promise they will. Tutorial 7 shows it.
+> **Disposition:** GA-REQUIRED — a documented monitoring promise is not kept.
+
+### MASKRIGHT-1 (MEDIUM) — a mask using RIGHT() is accepted at create and bind, then refuses every read
+
+> **Status:** OPEN — the documented example 'XXXX-' || RIGHT(card, 4) is accepted by policy create-mask and bind, and every read it applies to fails PRV-7038 (no RIGHT in the engine): it fails closed, but it should be refused at create and the examples should use SUBSTRING; the message also has a doubled '..' and an unrelated 'N stream(s) declared' sentence. Tutorial 11 shows it.
+> **Disposition:** GA-REQUIRED — the documented example does not work.
+
+### ACCESSORDER-1 (LOW) — privilege lists print in a different order each run
+
+> **Status:** OPEN — pravaha access why rows and catalog show's "you may:" line print an unordered set.
+> **Disposition:** POST-GA — output order.
+
+### GOVMSG-1 (LOW) — PRV-7002 repeats its first clause
+
+> **Status:** OPEN — "ann may not read 'payments_view': ann may not read 'payments_view': ann holds no SELECT…".
+> **Disposition:** POST-GA — wording.
+
+### CDCOPENMSG-1 (LOW) — PRV-5091 puts a Java class name in the user's message
+
+> **Status:** OPEN — "…could not be opened for stream 'orders': com.ash.messaging.pravaha.api.ConfigurationException: PRV-5112 …".
+> **Disposition:** POST-GA — wording.
+
+### ROWSPLURAL-1 (LOW) — the query page says "1 rows written"
+
+> **Status:** OPEN — the query.rows_written message is not pluralised.
+> **Disposition:** POST-GA — wording.
 

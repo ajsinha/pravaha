@@ -303,6 +303,7 @@ key          payment_id
 retention    forever
 sink         big_payments_out (attached, 5 rows written)
 rows in      10
+late rows    0
 shared with  -
 reads        payments
 feed         RUNNING

@@ -403,6 +403,7 @@ lane         own
 key          order_id
 retention    forever
 sink         -
+late rows    0
 shared with  -
 reads        orders
 feed         RUNNING
