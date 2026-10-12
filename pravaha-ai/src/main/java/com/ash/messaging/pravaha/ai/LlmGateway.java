@@ -27,7 +27,9 @@ import java.util.function.BooleanSupplier;
 /**
  * The one door features use: refuses every call while the layer is switched off ({@code PRV-1080}),
  * resolves the model by logical name, runs the policy before and after, honours the request's timeout,
- * and tells the registry how the call went (health). Features never touch a provider directly.
+ * and tells the registry how the call went (health). Features never touch a provider directly. Unlike
+ * Drishti's, a call the policy refuses (roles, limits) is shown to {@link LlmPolicy#after} too, so the
+ * audit trail has a row for it.
  */
 public final class LlmGateway {
 
@@ -74,7 +76,13 @@ public final class LlmGateway {
         requireEnabled();
         LlmRegistry.Resolved r = registry.chat(request.model());
         ModelInfo info = r.info();
-        ChatRequest masked = policy.before(ctx, info, request);
+        ChatRequest masked;
+        try {
+            masked = policy.before(ctx, info, request);
+        } catch (LlmException e) {
+            policy.after(ctx, info, request, null, e, 0); // a refused call is a call: it has its audit row
+            throw e;
+        }
         if (masked.jsonMode() && !info.capabilities().contains(Capability.JSON_MODE)) {
             throw new LlmException(LlmException.Kind.UNSUPPORTED, "model " + info.ref() + " has no json-mode");
         }

@@ -288,6 +288,10 @@ class LlmLayerTest {
                     assertThat(e.kind()).isEqualTo(LlmException.Kind.POLICY);
                     assertThat(e.errorCode()).isEqualTo(AiErrors.POLICY);
                 });
+        assertThat(audit)
+                .as("a refused call is a call: it has its audit row (Drishti audited only calls that were made)")
+                .extracting(DefaultLlmPolicy.AuditRecord::outcome)
+                .containsExactly("ok", "policy");
         assertThat(gw.chat(
                                 new CallContext("root", Set.of("admin"), "admin-only"),
                                 ChatRequest.of(null, "", "x", 5, null))
