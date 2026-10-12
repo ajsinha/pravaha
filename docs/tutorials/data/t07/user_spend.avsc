@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "UserSpend",
+  "namespace": "tutorial.payments",
+  "doc": "One user's spend in one closed minute: what the user_spend query writes to the user-spend topic.",
+  "fields": [
+    {"name": "user_id", "type": "string"},
+    {"name": "window_end", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "spend", "type": "long"}
+  ]
+}
