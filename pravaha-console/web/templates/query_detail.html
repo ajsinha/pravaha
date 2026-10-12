@@ -142,7 +142,7 @@
 
 {# Explain in plain words (the light bulb): this query, grounded in the engine's own plan for it. #}
 {% if ai_explain %}<section class="pnl mt-3" id="ai-explain-query" aria-labelledby="ai-explain-query-h">
-  <div class="pnl-h"><h3 id="ai-explain-query-h"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ t('ai.explain.query_heading') }}</h3></div>
+  <div class="pnl-h"><h2 id="ai-explain-query-h"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ t('ai.explain.query_heading') }}</h2></div>
   <div class="pnl-b">{{ ai.explain('sql', {'query': query.name}, note=t('ai.explain.query_note')) }}</div>
 </section>{% endif %}
 

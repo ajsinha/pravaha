@@ -43,6 +43,8 @@ function start(root) {
   let counts = { changes: 0, plus: 0, minus: 0, dropped: 0 };
   let current = new Map();                           // identity -> {values, weight, at}
   let log = [];
+  /* The change narrative (ai.js's "Summarise changes") sends the batch this page has received. */
+  window.PravahaLive = { recent: () => log.slice(0, 200).map((e) => ({ weight: e.weight, values: e.values })) };
   let samples = [];                                  // [ms, value]
   let arrivals = [];
   let dirty = false;
@@ -171,8 +173,6 @@ function start(root) {
     counts.changes += 1;
     if (weight > 0) counts.plus += weight; else counts.minus += -weight;
     log.unshift({ at, weight, values });
-    /* The change narrative (ai.js's "Summarise changes") sends the batch this page has received. */
-    window.PravahaLive = { recent: () => log.slice(0, 200).map((e) => ({ weight: e.weight, values: e.values })) };
     if (log.length > buffer) log.length = buffer;
     const ci = columns.indexOf(chartColumn.value);
     if (ci >= 0 && weight > 0 && typeof values[ci] === "number") arrivals.push([at, values[ci]]);

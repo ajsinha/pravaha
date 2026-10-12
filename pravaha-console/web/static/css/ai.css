@@ -9,7 +9,8 @@
  */
 .ai-ask { margin: .5rem 0 1rem; padding: .6rem .8rem; border: 1px solid var(--d-border); border-radius: var(--d-radius); background: var(--d-surface); }
 .ai-form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; }
-.ai-tool { flex: 1 1 18rem; display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; font-weight: 600; }
+.ai-tool { flex: 1 1 18rem; display: flex; flex-direction: column; gap: .2rem; font-size: .9rem; font-weight: 600; }
+.pnl-h h2 { margin: 0; font-size: .95rem; font-weight: 700; color: var(--d-ink); }
 .ai-tool .form-control { font-weight: 400; }
 .ai-msg { margin: .3rem 0 0; color: var(--d-muted); font-size: .85rem; min-height: 0; }
 .ai-msg:empty { display: none; }
@@ -17,15 +18,15 @@
 .ai-turn { border-top: 1px solid var(--d-border); margin-top: .8rem; padding-top: .6rem; }
 .ai-asked { font-weight: 600; margin: 0 0 .3rem; }
 .ai-asked .bi { color: var(--d-accent); }
-.ai-shown { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .3rem 0; font-size: .85rem; }
-.ai-values, .ai-kind { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; border: 1px solid var(--d-border); border-radius: 999px; padding: .05rem .5rem; color: var(--d-muted); }
+.ai-shown { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .3rem 0; font-size: .9rem; }
+.ai-values, .ai-kind { font-size: .86rem; letter-spacing: .02em; border: 1px solid var(--d-border); border-radius: 999px; padding: .05rem .5rem; color: var(--d-muted); }
 .ai-values[data-ai-values="aggregates"] { border-color: var(--d-warn); color: var(--d-ink); }
 .ai-chart { width: 100%; height: 260px; }
 .ai-card { font-size: 2rem; font-weight: 700; margin: .4rem 0; color: var(--d-accent); }
 .ai-summary { margin: .5rem 0; font-style: italic; }
 .ai-note { color: var(--d-muted); font-size: .85rem; }
 .ai-query { margin: .4rem 0; }
-.ai-query summary { cursor: pointer; font-size: .85rem; color: var(--d-link); }
+.ai-query summary { cursor: pointer; font-size: .9rem; color: var(--d-link); }
 .ai-query pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--d-surface-2); padding: .5rem .7rem; border-radius: 6px; margin: .4rem 0; font-size: .82rem; }
 .ai-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
 .ai-table { margin-bottom: .2rem; }
@@ -34,6 +35,11 @@
 .ai-box textarea { width: 100%; box-sizing: border-box; }
 .ai-draft { margin: .6rem 0; }
 .ai-sub { font-size: .9rem; margin: .8rem 0 .3rem; }
+/* A draft's statement, as the help's captioned example (help.css is the help's own sheet). */
+.ai-draft .help-example { margin: .5rem 0; border: 1px solid var(--d-border); border-radius: 8px; overflow: hidden; background: var(--d-surface); }
+.ai-draft .help-example figcaption { display: flex; gap: .8rem; align-items: center; padding: .3rem .8rem; border-bottom: 1px solid var(--d-border); font-size: .86rem; color: var(--d-muted); }
+.ai-draft .help-example .lang { margin-left: auto; font-family: var(--d-font-mono); }
+.ai-draft .help-example pre { margin: 0; padding: .7rem .9rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .84rem; }
 .ai-dry { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0 0 .4rem; font-size: .88rem; }
 .ai-dry dt { color: var(--d-muted); font-weight: 600; }
 .ai-dry dd { margin: 0; overflow-wrap: anywhere; }
@@ -54,9 +60,9 @@
 .ai-test { margin-top: .3rem; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 [data-ai-test-result][data-ok="no"] { color: var(--d-bad); }
 .about-ask { margin-top: .9rem; padding-top: .7rem; border-top: 1px solid var(--d-border); }
-.about-ask h3 { font-size: .95rem; margin: 0 0 .4rem; }
+.about-ask h2 { font-size: .95rem; margin: 0 0 .4rem; }
 .about-ask-form { display: flex; gap: .5rem; max-width: 40rem; }
 .about-ask-form input { flex: 1; min-width: 0; }
 .about-ask-answer { margin: .5rem 0 0; white-space: pre-wrap; }
-.about-ask-note { color: var(--d-muted); font-size: .78rem; margin: .4rem 0 0; }
-@media (pointer: coarse), (max-width: 640px) { .ai-form .btn-pill, .ai-inline .btn-pill, .ai-actions .btn-pill, .about-ask-form .btn-pill, .ai-describe .btn-pill { min-height: 44px; } }
+.about-ask-note { color: var(--d-muted); font-size: .86rem; margin: .4rem 0 0; }
+@media (pointer: coarse), (max-width: 640px) { .ai-test .btn-pill, .ai-form .btn-pill, .ai-inline .btn-pill, .ai-actions .btn-pill, .about-ask-form .btn-pill, .ai-describe .btn-pill { min-height: 44px; } }

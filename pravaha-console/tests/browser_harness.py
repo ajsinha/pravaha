@@ -135,6 +135,8 @@ class BrowserEngine(FakeEngine):
             return
 
     def query_typed(self, sql, parameters=None):
+        if sql.lstrip().upper().startswith("CREATE ALERT"):
+            return super().query_typed(sql, parameters)       # recorded in `statements`, as FakeEngine does
         self._check()
         self.queries_seen.append((sql, parameters))
         named = re.search(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)", sql, re.IGNORECASE)
@@ -482,6 +484,8 @@ PAGES: list[tuple[str, str, bool, str]] = [
     # pixels move with the prose.
     ("competitive", "/about/competitive", False, "true"),
     ("help-faq", "/help/topics/faq", False, "true"),
+    # The examples gallery (drishti's): each example's note, its SQL and data, "open as a copy".
+    ("help-examples", "/help/examples", False, "true"),
     ("login", "/login", False, "true"),
     # ADR-052's public page for a person holding a reset token an administrator issued.
     ("login-reset", "/login/reset", False, "true"),
@@ -528,6 +532,10 @@ PAGES: list[tuple[str, str, bool, str]] = [
     # ADR-058 phase 3: the assistant's models, over the configuration every browser console is
     # seeded with (ASSIST_SEED): two providers, three models, two profiles, budgets.
     ("admin-ai-models", "/admin/ai-models", True, "document.querySelector('#models-table')"),
+    # The plain-English features (docs/guides/AI.md) as a node starts: the layer off. Ask says so,
+    # and Admin -> AI shows both layers OFF. test_browser_ai.py walks them with the layer on.
+    ("ask", "/ask", True, "document.getElementById('ask-off')"),
+    ("admin-ai", "/admin/ai", True, "document.querySelector('[data-ai-layer=console]')"),
     ("not-found", "/views/no_such_view", True, "true"),
     ("components", "/_components", True, "document.querySelector('#state-unauthorized button')"),
 ]

@@ -19,7 +19,7 @@ document.addEventListener("click", async (event) => {
   if (out) { out.textContent = t("admin_ai.testing"); out.removeAttribute("data-ok"); }
   let answer;
   try {
-    answer = await call("/api/v1/admin/ai/test", { json: { model } });
+    answer = await call("/admin/ai/test", { json: { model } });
   } catch (err) {
     answer = Object.assign({ ok: false, error: err.message }, err.payload || {});
   }

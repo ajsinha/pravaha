@@ -32,7 +32,7 @@
   <button type="button" class="btn-pill btn-ghost" data-ai-open="{{ id }}-form" data-ai-control hidden>
     <i class="bi bi-stars" aria-hidden="true"></i> {{ heading }}</button>
   <form class="ai-box pnl" id="{{ id }}-form" data-ai-task="{{ task }}" hidden aria-label="{{ heading }}">
-    <div class="pnl-h"><h3>{{ heading }}</h3></div>
+    <div class="pnl-h"><h2>{{ heading }}</h2></div>
     <div class="pnl-b">
       <p class="text-muted-d small">{{ note }}</p>
       <label class="visually-hidden" for="{{ id }}-text">{{ heading }}</label>
@@ -76,7 +76,7 @@
    panel's own words and the screen's help topics; the browser sends only the screen and the question. #}
 {% macro page_ask(screen) %}
 <section class="about-ask" data-ai-box aria-labelledby="about-ask-h">
-  <h3 id="about-ask-h">{{ t('ai.page.heading') }}</h3>
+  <h2 id="about-ask-h">{{ t('ai.page.heading') }}</h2>
   <form class="about-ask-form" data-ai-task="page" data-ai-control hidden>
     <input type="hidden" name="screen" value="{{ screen }}">
     <label class="visually-hidden" for="about-ask-q">{{ t('ai.page.label') }}</label>

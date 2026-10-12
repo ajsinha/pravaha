@@ -1191,7 +1191,7 @@
     },
     "ailayer": {
       "page_title": "AI",
-      "page_heading": "AI",
+      "page_heading": "AI layer",
       "page_lede": "Read-only. The engine's AI layer -- its providers, one file each in conf/ai, off until pravaha.ai.enabled -- and the console's own, whose one provider is the engine: the console holds no key, and none is ever shown here. Test connection makes one real call, an administrator only.",
       "engine_layer": "The engine's AI layer",
       "console_layer": "The console's AI layer",

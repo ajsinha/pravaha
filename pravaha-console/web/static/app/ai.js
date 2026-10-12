@@ -25,7 +25,7 @@ if (!window.__pravahaAi) {
 
   async function post(task, fields) {
     try {
-      return { payload: await call(`/api/v1/ai/${task}`, { json: fields }), status: 200 };
+      return { payload: await call(`/ai/${task}`, { json: fields }), status: 200 };
     } catch (err) {
       return { payload: err.payload || {}, status: err.status || 0 };
     }
@@ -68,6 +68,8 @@ if (!window.__pravahaAi) {
       if (!groups.has(name)) groups.set(name, new Map());
       groups.get(name).set(String(r[xi]), typeof r[yi] === "number" ? r[yi] : null);
     });
+    /* The theme's accent for a single series, the validated categorical order after it. */
+    const colour = (i) => (i === 0 ? token("--d-accent", seriesColor(0)) : seriesColor(i));
     themedChart(el, () => {
       const ink = token("--d-ink", "#15181D");
       const muted = token("--d-muted", "#646B78");
@@ -82,7 +84,7 @@ if (!window.__pravahaAi) {
         yAxis: { type: "value", name: spec.y, axisLabel: { color: muted }, splitLine: { lineStyle: { color: rule } } },
         series: [...groups.entries()].map(([name, values], i) => ({
           name, type: spec.kind, data: categories.map((c) => (values.has(c) ? values.get(c) : null)),
-          itemStyle: { color: seriesColor(i) }, lineStyle: { color: seriesColor(i) }, connectNulls: false,
+          itemStyle: { color: colour(i) }, lineStyle: { color: colour(i) }, connectNulls: false,
         })),
       };
     }).catch(() => { el.hidden = true; });

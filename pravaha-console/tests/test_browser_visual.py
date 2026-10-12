@@ -89,7 +89,14 @@ canvas, .freshness, #ops-freshness, #count, .monaco-editor .cursors-layer,
 [data-volatile] { visibility: hidden !important; }
 """
 
-SHOTS = [(name, path, ready) for name, path, _, ready in PAGES if name not in DOCUMENT_PAGES]
+#: Pages photographed in the default and the dark theme only, narrow and wide (AI_MATRIX): the
+#: plain-English screens and the examples gallery, whose layout is the console's components and
+#: tokens throughout, so seven themes would photograph the tokens seven times.
+REDUCED = {"ask", "admin-ai", "help-examples"}
+AI_MATRIX = [(theme, viewport, "comfortable") for theme in COMPACT_THEMES for viewport in VIEWPORTS]
+AI_MATRIX_IDS = ["-".join(m) for m in AI_MATRIX]
+
+SHOTS = [(name, path, ready) for name, path, _, ready in PAGES if name not in DOCUMENT_PAGES and name not in REDUCED]
 
 #: Photographed whole rather than to the first screen: the component gallery is a fixed page
 #: with no data or prose to churn, and its eight states are below the fold; the workbench's
@@ -354,3 +361,76 @@ def test_the_landing_figure_is_a_still_frame_here(shooters, console, theme):
     drawn = """(() => ['hero-flow', 'windows-flow', 'highway-flow'].map(id =>
         document.getElementById(id).querySelectorAll('*').length))()"""
     assert all(n > 10 for n in page.eval(drawn)), "a still frame drew nothing"
+
+
+# ================================================================== the plain-English screens
+
+@pytest.mark.parametrize("theme,viewport,density", AI_MATRIX, ids=AI_MATRIX_IDS)
+@pytest.mark.parametrize("name", sorted(REDUCED))
+def test_the_reduced_pages_match_their_baselines(shooters, comparer, console, baseline_chrome, name,
+                                                 theme, viewport, density):
+    """The plain-English screens as a node starts them (the layer off), and the examples gallery."""
+    path, ready = {n: (p, r) for n, p, _, r in PAGES}[name]
+    test_every_page_matches_its_baseline(shooters, comparer, console, baseline_chrome, name, path, ready,
+                                         theme, viewport, density)
+
+
+@pytest.mark.parametrize("theme,viewport,density", AI_MATRIX, ids=AI_MATRIX_IDS)
+def test_admin_ai_with_the_layer_on_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                         theme, viewport, density):
+    """Admin -> AI with providers UP and DOWN, a retry, a file that could not be read and Test connection."""
+    console.engine.ai.on = True
+    try:
+        test_every_page_matches_its_baseline(
+            shooters, comparer, console, baseline_chrome, "admin-ai-on", "/admin/ai",
+            "document.querySelector('[data-ai-test]')", theme, viewport, density)
+    finally:
+        console.engine.ai.on = False
+
+
+@pytest.mark.parametrize("theme,viewport,density", AI_MATRIX, ids=AI_MATRIX_IDS)
+def test_an_answer_on_the_ask_page_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                        theme, viewport, density):
+    """Ask your data answered with scripting's help: the question, the badges, the chart (masked: a
+    canvas), the rows and the closed SQL disclosure."""
+    console.engine.ai.on = True
+    try:
+        page = shooters(theme, viewport, density)
+        open_page(page, console, "/ask", "document.querySelector('[data-ai-q]')")
+        page.eval("""(() => { const f = document.querySelector('form[data-ai-task=ask]');
+            f.querySelector('[data-ai-q]').value = 'total spend per user'; f.requestSubmit(); return true; })()""")
+        page.wait_for("document.querySelector('[data-ai-answer] .ai-chart canvas')")
+        page.eval("""(() => { let s = document.getElementById('visual-mask');
+            if (!s) { s = document.createElement('style'); s.id = 'visual-mask'; document.head.appendChild(s); }
+            s.textContent = __MASK__; window.scrollTo(0, 0);
+            if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+            return true; })()""".replace("__MASK__", json.dumps(MASK)))
+        page.settle(quiet_ms=150)
+        _compare(comparer, baseline_chrome, page.screenshot(), _baseline_name("ask-answer", theme, viewport, density),
+                 "/ask (answered)")
+    finally:
+        console.engine.ai.on = False
+
+
+def _compare(comparer, baseline_chrome, shot: bytes, stem: str, what: str) -> None:
+    recorded, current = baseline_chrome
+    baseline = BASELINES / f"{stem}.png"
+    if UPDATE:
+        baseline.write_bytes(shot)
+        return
+    if not baseline.exists():
+        pytest.fail(f"no baseline {baseline.name}; take one with PRAVAHA_UPDATE_BASELINES=1 and review it")
+    if recorded != current:
+        pytest.skip(f"baselines were taken with Chrome {recorded}, this is Chrome {current}")
+    expected = baseline.read_bytes()
+    if expected == shot:
+        return
+    result = compare_png(comparer, expected, shot, THRESHOLD)
+    share = result["changed"] / max(1, result["total"])
+    if result["sameSize"] and share <= TOLERANCE:
+        return
+    FAILURES.mkdir(parents=True, exist_ok=True)
+    (FAILURES / f"{stem}.actual.png").write_bytes(shot)
+    (FAILURES / f"{stem}.diff.png").write_bytes(base64.b64decode(result["diff"]))
+    pytest.fail(f"{what} differs from its baseline in {result['changed']} pixels ({share:.3%}); "
+                f"see tests/visual/failures/{stem}.*.png")

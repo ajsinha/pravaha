@@ -8,7 +8,7 @@
 {% block title %}{{ t('admin.ailayer.page_title') }} — {{ app_name }}{% endblock %}
 {% macro layer(title, d, where) %}
 <section class="pnl adm-sec mb-3" data-ai-layer="{{ where }}">
-  <div class="pnl-h"><h3>{{ title }}</h3><span class="chip {{ 'ok' if d.enabled else 'mute' }}" data-ai-layer-state="{{ 'on' if d.enabled else 'off' }}"><span class="dot"></span>{{ t('admin.ailayer.on') if d.enabled else t('admin.ailayer.off') }}</span></div>
+  <div class="pnl-h"><h2>{{ title }}</h2><span class="chip {{ 'ok' if d.enabled else 'mute' }}" data-ai-layer-state="{{ 'on' if d.enabled else 'off' }}"><span class="dot"></span>{{ t('admin.ailayer.on') if d.enabled else t('admin.ailayer.off') }}</span></div>
   <div class="pnl-b">
     <p class="mono small mb-2">{{ t('admin.ailayer.folder') }} <span>{{ d.dir or '—' }}</span> · {{ t('admin.ailayer.types') }} {{ (d.types or [])|join(', ') or '—' }}{% if d.defaultModel %} · {{ t('admin.ailayer.default_model') }} {{ d.defaultModel }}{% endif %}</p>
     <div class="table-responsive"><table class="table table-sm mb-0">
@@ -36,7 +36,7 @@
 {% elif layer_error and layer_error.status in (401, 403) %}
 <div class="state" id="admin-ai-not-permitted"><h2>{{ t('admin.ailayer.denied_title') }}</h2><p>{{ layer_error.message }}</p></div>
 {% else %}
-<section class="pnl adm-sec mb-3" data-ai-layer="engine"><div class="pnl-h"><h3>{{ t('admin.ailayer.engine_layer') }}</h3></div>
+<section class="pnl adm-sec mb-3" data-ai-layer="engine"><div class="pnl-h"><h2>{{ t('admin.ailayer.engine_layer') }}</h2></div>
   <div class="pnl-b"><p class="text-danger mb-0" role="alert">{{ t('admin.ailayer.engine_unread') }}{% if layer_error %}: {% if layer_error.code %}<a class="mono" href="/help/codes/{{ layer_error.code }}">{{ layer_error.code }}</a> {% endif %}{{ layer_error.message }}{% endif %}</p></div></section>
 {% endif %}
 {{ layer(t('admin.ailayer.console_layer'), console_layer, 'console') }}
