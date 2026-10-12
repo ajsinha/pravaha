@@ -106,6 +106,23 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   from the same scenario under a real browser (`docs_screenshots.py --tutorial tNN`). Held by the
   console's `test_tutorials.py` (the format, every link, picture and excerpt), `test_doc_images.py` and
   pravaha-it's `TutorialSqlTest` (every statement planned).
+- **Five more hands-on tutorials, 7 to 11, the same way ([docs/tutorials/](../tutorials/README.md)).**
+  *Kafka end to end* (a broker in Docker, a topic as a stream, a malformed record on the dead-letter
+  queue, `kafka-sink` back out exactly once to `read_committed` consumers, Avro written and read back
+  with one schema file), *Change data capture* (`postgres-cdc` on a PostgreSQL in Docker: the
+  `REPLICA IDENTITY FULL` refusal, the snapshot, the slot and its one reader, inserts, updates and
+  deletes as +1 and −1 to a view, a subscriber and a total that goes down, a transaction whole, a change
+  made while the node was down; how `mysql-cdc` differs), *Exactly-once sinks* (`jdbc-sink` on an H2
+  file, upsert and append, the staging table, and a node killed with `kill -9` between checkpoints: the
+  transactional log exact, the non-transactional one with a duplicate), *Alerts* (a signed webhook
+  received by the tutorial's `catcher.py` and the log channel, keys firing and clearing, snooze,
+  acknowledge and pause, the refusals, the Alerts pages) and *Governance* (namespaces, owners and tags,
+  a second user, grants and revokes with `--dry-run` and `access why`, a row filter and a mask so two
+  people get different answers, the audit trail). 21 more pictures. `tutorial_captures.py` grew what
+  they need: `Container` (a Docker server on a free port for the run, removed after, its port written
+  into the node's configuration and shown as the reader's), `Restart(crash=True, during=...)` (`kill -9`,
+  and a step while the node is down), and `Until` on a shell command. Writing them found KAFKAMON-1,
+  MASKRIGHT-1, ACCESSORDER-1, GOVMSG-1, CDCOPENMSG-1 and ROWSPLURAL-1.
 
 ---
 
