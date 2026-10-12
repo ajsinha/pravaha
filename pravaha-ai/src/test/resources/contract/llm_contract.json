@@ -1,0 +1,40 @@
+{
+  "_comment": "One contract, run by pravaha-ai/.../LLMContractTest.java and sdk/python/tests/test_ai_llm_contract.py (ported from Drishti) against the mock provider: the two layers must agree.",
+  "provider": {
+    "type": "mock",
+    "name": "contract",
+    "config": {
+      "default-model": "chat",
+      "models": [
+        {"name": "chat", "id": "chat-1", "cost-per-1k-input": 0.001, "cost-per-1k-output": 0.002},
+        {"name": "vec", "kind": "embedding"}
+      ],
+      "mock": {
+        "dimensions": 4,
+        "rules": [
+          {"match": "weather", "tool": "get_weather", "tool-args": "{\"city\":\"Oslo\"}"},
+          {"match": "boom", "error": "scripted failure"},
+          {"match": "(?i)hello", "reply": "Hi there"}
+        ]
+      }
+    }
+  },
+  "catalogue": [
+    {"id": "chat", "kind": "chat", "qualified_id": "contract/chat"},
+    {"id": "vec", "kind": "embedding", "qualified_id": "contract/vec"}
+  ],
+  "chat": [
+    {"name": "echo", "messages": [["user", "ping"]], "expect": {"text": "echo: ping", "finish_reason": "stop"}},
+    {"name": "rule reply", "messages": [["system", "be brief"], ["user", "Hello world"]], "expect": {"text": "Hi there", "finish_reason": "stop"}},
+    {"name": "tool call", "messages": [["user", "weather in Oslo"]],
+     "expect": {"finish_reason": "tool_calls", "tool": "get_weather", "tool_arguments": "{\"city\":\"Oslo\"}"}},
+    {"name": "scripted failure", "messages": [["user", "boom"]], "expect": {"error": "FAILED"}}
+  ],
+  "stream": {"messages": [["user", "hello"]], "joined": "Hi there", "chunks": 3, "last_finish_reason": "stop"},
+  "embeddings": {"input": ["a", "bb"], "count": 2, "dimensions": 4},
+  "refusals": [
+    {"name": "chat on an embedding model", "model": "vec", "call": "chat", "error": "UNSUPPORTED"},
+    {"name": "embeddings on a chat model", "model": "chat", "call": "embeddings", "error": "UNSUPPORTED"},
+    {"name": "unknown model", "model": "nope", "call": "chat", "error": "NOT_FOUND"}
+  ]
+}

@@ -149,6 +149,10 @@ public class ApiExceptionHandler {
         if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_MISMATCH.code())) {
             return HttpStatus.FORBIDDEN;
         }
+        HttpStatus ai = aiStatus(code.code());
+        if (ai != null) {
+            return ai;
+        }
         HttpStatus identity = identityStatus(code.code());
         if (identity != null) {
             return identity;
@@ -161,6 +165,26 @@ public class ApiExceptionHandler {
             // IllegalStateException from inside this very handler while it built an error response.
             case REGISTRY -> HttpStatus.BAD_REQUEST;
             case PLUGIN, RUNTIME, STATE, CLUSTER, FLIGHT -> HttpStatus.INTERNAL_SERVER_ERROR;
+        };
+    }
+
+    /**
+     * ADR-063's AI layer, in the configuration range, where every code would otherwise be 400. Off is a
+     * conflict with how the node is configured, as the catalogue's is; a provider that is not set up is
+     * the node's, not the request's; a refusal by the policy is 403, a limit 429, a slow model 504 and a
+     * failed one 502, so a client can tell "ask again later" from "you may not" from "the model broke".
+     */
+    private static @Nullable HttpStatus aiStatus(String code) {
+        return switch (code) {
+            case "PRV-1080" -> HttpStatus.CONFLICT;
+            case "PRV-1081" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "PRV-1082" -> HttpStatus.NOT_FOUND;
+            case "PRV-1083" -> HttpStatus.BAD_REQUEST;
+            case "PRV-1084" -> HttpStatus.FORBIDDEN;
+            case "PRV-1085" -> HttpStatus.TOO_MANY_REQUESTS;
+            case "PRV-1086" -> HttpStatus.GATEWAY_TIMEOUT;
+            case "PRV-1087" -> HttpStatus.BAD_GATEWAY;
+            default -> null;
         };
     }
 

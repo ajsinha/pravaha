@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>2.4.3-SNAPSHOT</version>
+  </parent>
+  <artifactId>pravaha-ai</artifactId>
+  <name>Pravaha :: ai</name>
+  <description>The AI layer (ADR-063), ported from Drishti's drishti-ai: Pravaha's own provider, model,
+    policy and gateway interfaces, one YAML file per provider, and the provider types over the JDK's HTTP
+    client -- no vendor SDK, no Spring. Off by default. Depends on pravaha-api and pravaha-common only;
+    nothing in the engine depends on it, and only the server wires it (ArchitectureRulesTest).</description>
+
+  <properties>
+    <jacoco.line.coverage>0.70</jacoco.line.coverage>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <!-- JSON on the wire to every vendor; already on the server's classpath at this version. -->
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <!-- The provider files are YAML; read to maps and handed to Jackson. -->
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>${jspecify.version}</version>
+    </dependency>
+  </dependencies>
+  <profiles>
+    <profile>
+      <id>ep</id>
+      <properties>
+        <ep.nullaway.level>ERROR</ep.nullaway.level>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

@@ -1,5 +1,51 @@
 {
   "paths" : {
+    "/api/v1/admin/ai" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "AdminStatus",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/admin/ai/test" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "TestBody",
+        "responseBodies" : {
+          "200" : "TestAnswer",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/ai/chat" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "ChatBody",
+        "responseBodies" : {
+          "200" : "ChatResponse",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/ai/models" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "ModelInfo[]",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/alerts" : {
       "get" : {
         "hasBody" : false,
@@ -936,6 +982,44 @@
       "acknowledged" : "optional integer/int32",
       "name" : "optional string"
     },
+    "AdminStatus" : {
+      "defaultModel" : "optional string",
+      "dir" : "optional string",
+      "enabled" : "optional boolean",
+      "fileErrors" : "optional map",
+      "fileErrors{}" : "required string",
+      "loadedAt" : "optional string/date-time",
+      "providers[]" : "optional object",
+      "providers[].baseUrl" : "optional string",
+      "providers[].enabled" : "optional boolean",
+      "providers[].health" : "optional object",
+      "providers[].health.calls" : "optional integer/int64",
+      "providers[].health.detail" : "optional string",
+      "providers[].health.failures" : "optional integer/int64",
+      "providers[].health.lastFailure" : "optional string/date-time",
+      "providers[].health.lastOk" : "optional string/date-time",
+      "providers[].health.status" : "optional string",
+      "providers[].keySet" : "optional boolean",
+      "providers[].models[]" : "optional object",
+      "providers[].models[].capabilities[]" : "optional string",
+      "providers[].models[].costPer1kInput" : "optional number/double",
+      "providers[].models[].costPer1kOutput" : "optional number/double",
+      "providers[].models[].id" : "optional string",
+      "providers[].models[].kind" : "optional string",
+      "providers[].models[].maxTokens" : "optional integer/int32",
+      "providers[].models[].name" : "optional string",
+      "providers[].models[].provider" : "optional string",
+      "providers[].models[].ref" : "optional string",
+      "providers[].models[].temperature" : "optional number/double",
+      "providers[].name" : "optional string",
+      "providers[].retry" : "optional object",
+      "providers[].retry.attempts" : "optional integer/int32",
+      "providers[].retry.lastError" : "optional string",
+      "providers[].retry.nextRetry" : "optional string/date-time",
+      "providers[].retry.permanent" : "optional boolean",
+      "providers[].type" : "optional string",
+      "types[]" : "optional string"
+    },
     "AlertPage" : {
       "items[]" : "optional object",
       "items[].channels[]" : "optional string",
@@ -1041,6 +1125,32 @@
       "items[]" : "optional object",
       "items[].name" : "optional string",
       "items[].plugin" : "optional string"
+    },
+    "ChatBody" : {
+      "feature" : "optional string",
+      "jsonMode" : "optional boolean",
+      "maxTokens" : "optional integer/int32",
+      "messages[]" : "optional object",
+      "messages[].content" : "optional string",
+      "messages[].role" : "optional string",
+      "model" : "optional string",
+      "prompt" : "optional string",
+      "system" : "optional string",
+      "temperature" : "optional number/double",
+      "timeoutSeconds" : "optional integer/int32"
+    },
+    "ChatResponse" : {
+      "finishReason" : "optional string",
+      "model" : "optional string",
+      "text" : "optional string",
+      "toolCalls[]" : "optional object",
+      "toolCalls[].argumentsJson" : "optional string",
+      "toolCalls[].id" : "optional string",
+      "toolCalls[].name" : "optional string",
+      "usage" : "optional object",
+      "usage.completionTokens" : "optional integer/int32",
+      "usage.cost" : "optional number/double",
+      "usage.promptTokens" : "optional integer/int32"
     },
     "DeadLetter" : {
       "at" : "optional string/date-time",
@@ -1329,6 +1439,18 @@
       "tenant" : "optional string",
       "username" : "optional string",
       "via" : "optional string"
+    },
+    "ModelInfo" : {
+      "capabilities[]" : "optional string",
+      "costPer1kInput" : "optional number/double",
+      "costPer1kOutput" : "optional number/double",
+      "id" : "optional string",
+      "kind" : "optional string",
+      "maxTokens" : "optional integer/int32",
+      "name" : "optional string",
+      "provider" : "optional string",
+      "ref" : "optional string",
+      "temperature" : "optional number/double"
     },
     "NewKey" : {
       "expiresDays" : "optional integer/int32",
@@ -1869,6 +1991,20 @@
     },
     "TakeStep" : {
       "step" : "optional string"
+    },
+    "TestAnswer" : {
+      "millis" : "optional integer/int64",
+      "model" : "optional string",
+      "ok" : "optional boolean",
+      "text" : "optional string",
+      "usage" : "optional object",
+      "usage.completionTokens" : "optional integer/int32",
+      "usage.cost" : "optional number/double",
+      "usage.promptTokens" : "optional integer/int32"
+    },
+    "TestBody" : {
+      "model" : "optional string",
+      "prompt" : "optional string"
     },
     "Unbound" : {
       "policy" : "optional string",

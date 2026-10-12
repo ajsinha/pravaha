@@ -39,6 +39,16 @@ BUILTIN_PROVIDERS: dict[str, str] = {
     "ollama": "pravaha.assist.providers.ollama:OllamaProvider",
 }
 
+#: The assistant's providers on the shared AI layer (``pravaha.ai``, ADR-063), built in like the five above
+#: and listed after them: ``server`` (the engine's own AI layer: the recommended one), ``mock`` (the
+#: layer's regex-rule provider) and ``ai`` (any other type of the layer, by the option ``type``). Like a
+#: built-in, a third-party entry point cannot take their names.
+LAYER_PROVIDERS: dict[str, str] = {
+    "server": "pravaha.assist.providers.ai_layer:ServerProvider",
+    "mock": "pravaha.assist.providers.ai_layer:MockProvider",
+    "ai": "pravaha.assist.providers.ai_layer:AiLayerProvider",
+}
+
 ProviderFactory = Callable[[ProviderSettings], ModelProvider]
 
 
@@ -78,14 +88,13 @@ def _distribution(entry: "metadata.EntryPoint") -> str:
 
 def _discover() -> "tuple[dict[str, tuple[str, str]], list[str]]":
     """``name -> (target, source)`` for every provider, and the clashes found on the way."""
-    known: dict[str, tuple[str, str]] = {
-        name: (target, "builtin") for name, target in BUILTIN_PROVIDERS.items()
-    }
+    builtin = {**BUILTIN_PROVIDERS, **LAYER_PROVIDERS}
+    known: dict[str, tuple[str, str]] = {name: (target, "builtin") for name, target in builtin.items()}
     problems: list[str] = []
     for entry in _entry_points():
         source = _distribution(entry)
-        if entry.name in BUILTIN_PROVIDERS:
-            if entry.value.replace(" ", "") != BUILTIN_PROVIDERS[entry.name]:
+        if entry.name in builtin:
+            if entry.value.replace(" ", "") != builtin[entry.name]:
                 problems.append(
                     f"{source} declares provider {entry.name!r}, a built-in's name; ignored"
                 )
@@ -108,7 +117,8 @@ def discovery_problems() -> "list[str]":
 def provider_names() -> "list[str]":
     """Every provider name this process can build, built-ins first."""
     known = _discover()[0]
-    return list(BUILTIN_PROVIDERS) + sorted(n for n in known if n not in BUILTIN_PROVIDERS)
+    first = list(BUILTIN_PROVIDERS) + list(LAYER_PROVIDERS)
+    return first + sorted(n for n in known if n not in first)
 
 
 def _load(target: str) -> Any:
@@ -176,6 +186,7 @@ def providers() -> "list[ProviderInfo]":
 
 __all__ = [
     "BUILTIN_PROVIDERS",
+    "LAYER_PROVIDERS",
     "ENTRY_POINT_GROUP",
     "ProviderFactory",
     "ProviderInfo",

@@ -2016,6 +2016,34 @@ records sometimes cannot be decoded, set `pravaha.dlq.directory` and the bad rec
 the rest keep flowing — and can then be read and replayed (*Running with a dead-letter queue*,
 above).
 
+## The AI layer (ADR-063)
+
+Off until you turn it on. To run it:
+
+1. Copy a provider file from `conf/ai/*.yaml.example` (every one ships `enabled: false`) to
+   `$PRAVAHA_HOME/conf/ai/<name>.yaml`, set `enabled: true`, and put the key in the node's environment
+   under the variable the file names (`api-key: ${OPENAI_API_KEY}`). A literal key is refused.
+2. Start the node with `PRAVAHA_AI_ENABLED=true` (or `pravaha.ai.enabled: true`).
+3. `GET /api/v1/admin/ai` (admin) shows every provider and its health -- `OFF` (`enabled: false` in the
+   file), `ERROR` (could not be built: the reason, and when it is tried again), `UNKNOWN` (no call
+   yet), `UP`, `DOWN` (the last call failed: why) -- from the files and the calls seen, without calling
+   anything; `fileErrors` lists a file that could not be read. `POST /api/v1/admin/ai/test` with
+   `{"model": "openai/fast"}` makes one real call.
+
+**Changing it while it runs.** The folder is looked at every `pravaha.ai.reload-interval` (5s): add,
+edit or remove a file and the next call uses it; a call in flight finishes on the provider it started
+on. A provider that could not be built is tried again on a schedule (5 seconds doubling to 5 minutes),
+and a mistake only an edit mends (a literal key, an unknown type) waits for the edit.
+
+**Budgets.** `pravaha.ai.policy.per-user-per-minute`, `per-user-per-day` and `cost-per-user-per-day`
+(in the unit of the files' `cost-per-1k-*` prices), and per feature
+`pravaha.ai.policy.features.<f>.per-user-per-minute`; past one, `PRV-1085`. Spend is counted from what
+each answer reports; it is per node and resets at midnight UTC.
+
+**What to watch.** The audit trail's `ai.call` events (who, model, tokens, cost, outcome); `DOWN` and
+`ERROR` rows in `GET /api/v1/admin/ai`; codes `PRV-1081`-`1087` in [TROUBLESHOOTING](../guides/TROUBLESHOOTING.md).
+A local model (Ollama, vLLM) can be slow on its first call: raise `timeout` in its file.
+
 ## Observability
 
 What ships for watching a node beyond the scrape above, each off or plain until turned on. The

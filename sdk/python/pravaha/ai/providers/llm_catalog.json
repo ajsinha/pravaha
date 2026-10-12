@@ -1,0 +1,992 @@
+{
+ "_comment": "Model catalogue of the LLM providers added after openai/anthropic; mirrors sajhamcpserver sajha/ai/llm/catalog.py (curated 2026-10; USD per million tokens, 0 = unknown/free). Ported from Drishti (drishti-ai). Identical copies live in pravaha-ai (main/resources/ai) and the Python SDK (sdk/python/pravaha/ai/providers); a test checks they are equal. A provider file adds to or overrides any entry with models:.",
+ "presets": {
+  "groq": {
+   "base-url": "https://api.groq.com/openai/v1",
+   "key-env": [
+    "GROQ_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": false,
+   "base-url-env": [
+    "GROQ_BASE_URL"
+   ]
+  },
+  "together": {
+   "base-url": "https://api.together.xyz/v1",
+   "key-env": [
+    "TOGETHER_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": true
+  },
+  "fireworks": {
+   "base-url": "https://api.fireworks.ai/inference/v1",
+   "key-env": [
+    "FIREWORKS_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": true
+  },
+  "deepseek": {
+   "base-url": "https://api.deepseek.com/v1",
+   "key-env": [
+    "DEEPSEEK_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": false
+  },
+  "xai": {
+   "base-url": "https://api.x.ai/v1",
+   "key-env": [
+    "XAI_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": false
+  },
+  "openrouter": {
+   "base-url": "https://openrouter.ai/api/v1",
+   "key-env": [
+    "OPENROUTER_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": false
+  },
+  "perplexity": {
+   "base-url": "https://api.perplexity.ai",
+   "key-env": [
+    "PERPLEXITY_API_KEY",
+    "PPLX_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": false
+  },
+  "huggingface": {
+   "base-url": "https://router.huggingface.co/v1",
+   "key-env": [
+    "HF_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN"
+   ],
+   "requires-key": true,
+   "embeddings": false
+  },
+  "vllm": {
+   "base-url": "http://localhost:8000/v1",
+   "key-env": [
+    "VLLM_API_KEY"
+   ],
+   "requires-key": false,
+   "embeddings": true
+  },
+  "lmstudio": {
+   "base-url": "http://localhost:1234/v1",
+   "key-env": [
+    "LMSTUDIO_API_KEY"
+   ],
+   "requires-key": false,
+   "embeddings": true
+  },
+  "mistral": {
+   "base-url": "https://api.mistral.ai/v1",
+   "key-env": [
+    "MISTRAL_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": true,
+   "max-tokens-param": "max_tokens",
+   "tool-choice-required": "any",
+   "seed-param": "random_seed",
+   "base-url-env": [
+    "MISTRAL_BASE_URL"
+   ]
+  },
+  "openai_compatible": {
+   "base-url": "",
+   "key-env": [],
+   "requires-key": false,
+   "embeddings": true
+  },
+  "gemini": {
+   "base-url": "https://generativelanguage.googleapis.com",
+   "key-env": [
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": true,
+   "base-url-env": [
+    "GEMINI_BASE_URL"
+   ]
+  },
+  "cohere": {
+   "base-url": "https://api.cohere.com",
+   "key-env": [
+    "COHERE_API_KEY",
+    "CO_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": true,
+   "base-url-env": [
+    "COHERE_BASE_URL"
+   ]
+  },
+  "ollama": {
+   "base-url": "http://localhost:11434",
+   "key-env": [
+    "OLLAMA_API_KEY"
+   ],
+   "requires-key": false,
+   "embeddings": true,
+   "base-url-env": [
+    "OLLAMA_HOST",
+    "OLLAMA_BASE_URL"
+   ]
+  },
+  "azure_openai": {
+   "base-url": "",
+   "key-env": [
+    "AZURE_OPENAI_API_KEY"
+   ],
+   "requires-key": true,
+   "embeddings": true,
+   "base-url-env": [
+    "AZURE_OPENAI_ENDPOINT"
+   ],
+   "settings-env": {
+    "api-version": [
+     "OPENAI_API_VERSION",
+     "AZURE_OPENAI_API_VERSION"
+    ],
+    "tenant-id": [
+     "AZURE_TENANT_ID"
+    ],
+    "client-id": [
+     "AZURE_CLIENT_ID"
+    ],
+    "client-secret": [
+     "AZURE_CLIENT_SECRET"
+    ],
+    "federated-token-file": [
+     "AZURE_FEDERATED_TOKEN_FILE"
+    ]
+   }
+  },
+  "bedrock": {
+   "base-url": "",
+   "key-env": [],
+   "requires-key": false,
+   "embeddings": true,
+   "base-url-env": [
+    "AWS_ENDPOINT_URL_BEDROCK_RUNTIME"
+   ],
+   "settings-env": {
+    "region": [
+     "AWS_REGION",
+     "AWS_DEFAULT_REGION"
+    ]
+   }
+  }
+ },
+ "defaults": {
+  "anthropic": {
+   "chat": "claude-sonnet-5-5",
+   "embedding": ""
+  },
+  "openai": {
+   "chat": "gpt-6.1-sol",
+   "embedding": "text-embedding-3-small"
+  },
+  "azure_openai": {
+   "chat": "",
+   "embedding": ""
+  },
+  "gemini": {
+   "chat": "gemini-3.8-flash",
+   "embedding": "gemini-embedding-2"
+  },
+  "bedrock": {
+   "chat": "anthropic.claude-sonnet-5-5",
+   "embedding": "amazon.titan-embed-text-v2:0"
+  },
+  "mistral": {
+   "chat": "mistral-large-4-0",
+   "embedding": "mistral-embed"
+  },
+  "cohere": {
+   "chat": "command-a-03-2025",
+   "embedding": "embed-v4.0"
+  },
+  "ollama": {
+   "chat": "llama3.2",
+   "embedding": "nomic-embed-text"
+  },
+  "groq": {
+   "chat": "llama-3.3-70b-versatile",
+   "embedding": ""
+  },
+  "together": {
+   "chat": "deepseek-ai/DeepSeek-V4-Flash-0731",
+   "embedding": ""
+  },
+  "fireworks": {
+   "chat": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+   "embedding": ""
+  },
+  "deepseek": {
+   "chat": "deepseek-flash",
+   "embedding": ""
+  },
+  "xai": {
+   "chat": "grok-4.3",
+   "embedding": ""
+  },
+  "openrouter": {
+   "chat": "openai/gpt-6.1-sol",
+   "embedding": ""
+  },
+  "perplexity": {
+   "chat": "sonar",
+   "embedding": ""
+  },
+  "huggingface": {
+   "chat": "openai/gpt-oss-120b",
+   "embedding": ""
+  },
+  "vllm": {
+   "chat": "",
+   "embedding": ""
+  },
+  "lmstudio": {
+   "chat": "",
+   "embedding": ""
+  },
+  "openai_compatible": {
+   "chat": "",
+   "embedding": ""
+  }
+ },
+ "catalog": {
+  "azure_openai": [],
+  "gemini": [
+   {
+    "id": "gemini-3.1-pro-preview",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 64000,
+    "input-per-mtok": 2.0,
+    "output-per-mtok": 12.0,
+    "tools": true,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "reasoning"
+    ]
+   },
+   {
+    "id": "gemini-3.8-flash",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 64000,
+    "input-per-mtok": 0.75,
+    "output-per-mtok": 3.75,
+    "tools": true,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "fast"
+    ]
+   },
+   {
+    "id": "gemini-3.5-flash-lite",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 64000,
+    "input-per-mtok": 0.3,
+    "output-per-mtok": 2.5,
+    "tools": true,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   },
+   {
+    "id": "gemini-2.5-pro",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 64000,
+    "input-per-mtok": 1.25,
+    "output-per-mtok": 10.0,
+    "tools": true,
+    "json": true,
+    "vision": true
+   },
+   {
+    "id": "gemini-2.5-flash",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 64000,
+    "input-per-mtok": 0.3,
+    "output-per-mtok": 2.5,
+    "tools": true,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "fast"
+    ]
+   },
+   {
+    "id": "gemini-embedding-2",
+    "kind": "embedding",
+    "dimensions": 3072,
+    "input-per-mtok": 0.2,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false
+   }
+  ],
+  "bedrock": [
+   {
+    "id": "anthropic.claude-sonnet-5-5",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 128000,
+    "input-per-mtok": 2.0,
+    "output-per-mtok": 10.0,
+    "tools": true,
+    "json": false,
+    "vision": true
+   },
+   {
+    "id": "anthropic.claude-opus-5-5",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 128000,
+    "input-per-mtok": 4.0,
+    "output-per-mtok": 20.0,
+    "tools": true,
+    "json": false,
+    "vision": true,
+    "tags": [
+     "reasoning"
+    ]
+   },
+   {
+    "id": "anthropic.claude-haiku-4-5",
+    "kind": "chat",
+    "context": 200000,
+    "max-output": 64000,
+    "input-per-mtok": 1.0,
+    "output-per-mtok": 5.0,
+    "tools": true,
+    "json": false,
+    "vision": true,
+    "tags": [
+     "fast"
+    ]
+   },
+   {
+    "id": "us.amazon.nova-pro-v1:0",
+    "kind": "chat",
+    "context": 300000,
+    "max-output": 10000,
+    "input-per-mtok": 0.8,
+    "output-per-mtok": 3.2,
+    "tools": true,
+    "json": false,
+    "vision": true
+   },
+   {
+    "id": "us.amazon.nova-lite-v1:0",
+    "kind": "chat",
+    "context": 300000,
+    "max-output": 10000,
+    "input-per-mtok": 0.06,
+    "output-per-mtok": 0.24,
+    "tools": true,
+    "json": false,
+    "vision": true,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   },
+   {
+    "id": "us.meta.llama3-3-70b-instruct-v1:0",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 8192,
+    "input-per-mtok": 0.72,
+    "output-per-mtok": 0.72,
+    "tools": true,
+    "json": false,
+    "vision": false
+   },
+   {
+    "id": "amazon.titan-embed-text-v2:0",
+    "kind": "embedding",
+    "dimensions": 1024,
+    "input-per-mtok": 0.02,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false
+   },
+   {
+    "id": "cohere.embed-english-v3",
+    "kind": "embedding",
+    "dimensions": 1024,
+    "input-per-mtok": 0.1,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false
+   }
+  ],
+  "mistral": [
+   {
+    "id": "mistral-large-4-0",
+    "kind": "chat",
+    "context": 512000,
+    "max-output": 256000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": true
+   },
+   {
+    "id": "mistral-medium-2504",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 32000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": false
+   },
+   {
+    "id": "mistral-small-2603",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 32000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "fast"
+    ]
+   },
+   {
+    "id": "ministral-8b-2512",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 32000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   },
+   {
+    "id": "codestral-2508",
+    "kind": "chat",
+    "context": 256000,
+    "max-output": 32000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": false
+   },
+   {
+    "id": "mistral-embed",
+    "kind": "embedding",
+    "dimensions": 1024,
+    "input-per-mtok": 0.1,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false
+   }
+  ],
+  "cohere": [
+   {
+    "id": "command-a-03-2025",
+    "kind": "chat",
+    "context": 256000,
+    "max-output": 8000,
+    "input-per-mtok": 2.5,
+    "output-per-mtok": 10.0,
+    "tools": true,
+    "json": true,
+    "vision": false
+   },
+   {
+    "id": "command-a-plus-05-2026",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 64000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": false
+   },
+   {
+    "id": "command-a-reasoning-08-2025",
+    "kind": "chat",
+    "context": 256000,
+    "max-output": 32000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "reasoning"
+    ]
+   },
+   {
+    "id": "command-r7b-12-2024",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 4000,
+    "input-per-mtok": 0.0375,
+    "output-per-mtok": 0.15,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   },
+   {
+    "id": "embed-v4.0",
+    "kind": "embedding",
+    "dimensions": 1536,
+    "input-per-mtok": 0.12,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false
+   },
+   {
+    "id": "embed-english-v3.0",
+    "kind": "embedding",
+    "dimensions": 1024,
+    "input-per-mtok": 0.1,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false
+   }
+  ],
+  "ollama": [
+   {
+    "id": "llama3.3",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 8192,
+    "input-per-mtok": 0,
+    "output-per-mtok": 0,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "local"
+    ]
+   },
+   {
+    "id": "qwen3",
+    "kind": "chat",
+    "context": 40000,
+    "max-output": 8192,
+    "input-per-mtok": 0,
+    "output-per-mtok": 0,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "local"
+    ]
+   },
+   {
+    "id": "gpt-oss:20b",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 8192,
+    "input-per-mtok": 0,
+    "output-per-mtok": 0,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "local"
+    ]
+   },
+   {
+    "id": "llama3.2",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 8192,
+    "input-per-mtok": 0,
+    "output-per-mtok": 0,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "local",
+     "fast"
+    ]
+   },
+   {
+    "id": "nomic-embed-text",
+    "kind": "embedding",
+    "dimensions": 768,
+    "input-per-mtok": 0,
+    "output-per-mtok": 0,
+    "tools": false,
+    "json": false,
+    "vision": false,
+    "tags": [
+     "local"
+    ]
+   },
+   {
+    "id": "mxbai-embed-large",
+    "kind": "embedding",
+    "dimensions": 1024,
+    "input-per-mtok": 0,
+    "output-per-mtok": 0,
+    "tools": false,
+    "json": false,
+    "vision": false,
+    "tags": [
+     "local"
+    ]
+   }
+  ],
+  "groq": [
+   {
+    "id": "llama-3.3-70b-versatile",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 32768,
+    "input-per-mtok": 0.59,
+    "output-per-mtok": 0.79,
+    "tools": true,
+    "json": false,
+    "vision": false,
+    "tags": [
+     "fast"
+    ]
+   },
+   {
+    "id": "llama-3.1-8b-instant",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 8192,
+    "input-per-mtok": 0.05,
+    "output-per-mtok": 0.08,
+    "tools": true,
+    "json": false,
+    "vision": false,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   },
+   {
+    "id": "openai/gpt-oss-120b",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 32768,
+    "input-per-mtok": 0.15,
+    "output-per-mtok": 0.6,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "fast"
+    ]
+   },
+   {
+    "id": "openai/gpt-oss-20b",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 32768,
+    "input-per-mtok": 0.075,
+    "output-per-mtok": 0.3,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   }
+  ],
+  "together": [
+   {
+    "id": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 32000,
+    "input-per-mtok": 0.14,
+    "output-per-mtok": 0.28,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   },
+   {
+    "id": "deepseek-ai/DeepSeek-V4-Pro-0813",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 32000,
+    "input-per-mtok": 1.32,
+    "output-per-mtok": 3.96,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "reasoning"
+    ]
+   },
+   {
+    "id": "moonshotai/Kimi-K3",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 32000,
+    "input-per-mtok": 3.0,
+    "output-per-mtok": 15.0,
+    "tools": true,
+    "json": true,
+    "vision": false
+   },
+   {
+    "id": "Qwen/Qwen3.5-9B",
+    "kind": "chat",
+    "context": 262000,
+    "max-output": 32000,
+    "input-per-mtok": 0.17,
+    "output-per-mtok": 0.25,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "cheap"
+    ]
+   }
+  ],
+  "fireworks": [
+   {
+    "id": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 16384,
+    "input-per-mtok": 0.9,
+    "output-per-mtok": 0.9,
+    "tools": true,
+    "json": true,
+    "vision": false
+   },
+   {
+    "id": "accounts/fireworks/models/deepseek-v3",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 16384,
+    "input-per-mtok": 0.9,
+    "output-per-mtok": 0.9,
+    "tools": true,
+    "json": true,
+    "vision": false
+   }
+  ],
+  "deepseek": [
+   {
+    "id": "deepseek-v4-pro",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 384000,
+    "input-per-mtok": 1.32,
+    "output-per-mtok": 3.96,
+    "tools": true,
+    "json": false,
+    "vision": false,
+    "tags": [
+     "reasoning"
+    ]
+   },
+   {
+    "id": "deepseek-flash",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 384000,
+    "input-per-mtok": 0.3,
+    "output-per-mtok": 1.2,
+    "tools": true,
+    "json": false,
+    "vision": true,
+    "tags": [
+     "fast",
+     "cheap"
+    ]
+   }
+  ],
+  "xai": [
+   {
+    "id": "grok-4.7",
+    "kind": "chat",
+    "context": 500000,
+    "max-output": 64000,
+    "input-per-mtok": 2.0,
+    "output-per-mtok": 6.0,
+    "tools": true,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "reasoning"
+    ]
+   },
+   {
+    "id": "grok-4.3",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 64000,
+    "input-per-mtok": 1.25,
+    "output-per-mtok": 2.5,
+    "tools": true,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "fast"
+    ]
+   }
+  ],
+  "openrouter": [
+   {
+    "id": "openai/gpt-6.1-sol",
+    "kind": "chat",
+    "context": 1050000,
+    "max-output": 128000,
+    "input-per-mtok": 2.0,
+    "output-per-mtok": 10.0,
+    "tools": true,
+    "json": true,
+    "vision": true
+   },
+   {
+    "id": "anthropic/claude-sonnet-5.5",
+    "kind": "chat",
+    "context": 1000000,
+    "max-output": 128000,
+    "input-per-mtok": 2.0,
+    "output-per-mtok": 10.0,
+    "tools": true,
+    "json": true,
+    "vision": true
+   },
+   {
+    "id": "mistralai/mistral-large-4",
+    "kind": "chat",
+    "context": 512000,
+    "max-output": 256000,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": true,
+    "vision": false
+   }
+  ],
+  "perplexity": [
+   {
+    "id": "sonar",
+    "kind": "chat",
+    "context": 127000,
+    "max-output": 8000,
+    "input-per-mtok": 1.0,
+    "output-per-mtok": 1.0,
+    "tools": false,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "search"
+    ]
+   },
+   {
+    "id": "sonar-pro",
+    "kind": "chat",
+    "context": 200000,
+    "max-output": 8000,
+    "input-per-mtok": 3.0,
+    "output-per-mtok": 15.0,
+    "tools": false,
+    "json": true,
+    "vision": true,
+    "tags": [
+     "search"
+    ]
+   },
+   {
+    "id": "sonar-reasoning-pro",
+    "kind": "chat",
+    "context": 127000,
+    "max-output": 8000,
+    "input-per-mtok": 2.0,
+    "output-per-mtok": 8.0,
+    "tools": false,
+    "json": true,
+    "vision": false,
+    "tags": [
+     "search",
+     "reasoning"
+    ]
+   }
+  ],
+  "huggingface": [
+   {
+    "id": "openai/gpt-oss-120b",
+    "kind": "chat",
+    "context": 131072,
+    "max-output": 32768,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": true,
+    "json": false,
+    "vision": false
+   },
+   {
+    "id": "deepseek-ai/DeepSeek-R1",
+    "kind": "chat",
+    "context": 128000,
+    "max-output": 32768,
+    "input-per-mtok": 0.0,
+    "output-per-mtok": 0.0,
+    "tools": false,
+    "json": false,
+    "vision": false,
+    "tags": [
+     "reasoning"
+    ]
+   }
+  ],
+  "vllm": [],
+  "lmstudio": [],
+  "openai_compatible": []
+ }
+}

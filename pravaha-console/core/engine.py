@@ -711,6 +711,27 @@ class Engine:
         """What the engine's policy lets the console's identity do."""
         return dict(self._rest(lambda c: c.permissions()) or {})
 
+    # ------------------------------------------------------------------ the AI layer (ADR-063)
+    #
+    # The engine holds the keys, the policy and the audit; the console asks it, as the person.
+
+    def ai_chat(self, body: dict) -> dict:
+        """One chat call through the engine's AI policy: ``POST /api/v1/ai/chat``."""
+        return dict(self._identity("POST", "/ai/chat", body) or {})
+
+    def ai_models(self) -> list[dict]:
+        """The models a caller may name: ``GET /api/v1/ai/models``."""
+        return list(self._identity("GET", "/ai/models") or [])
+
+    def admin_ai(self) -> dict:
+        """The layer as an administrator sees it: ``GET /api/v1/admin/ai``."""
+        return dict(self._identity("GET", "/admin/ai") or {})
+
+    def admin_ai_test(self, model: str | None = None, prompt: str | None = None) -> dict:
+        """One real call, capped and rate-limited by the engine: ``POST /api/v1/admin/ai/test``."""
+        body = {k: v for k, v in (("model", model), ("prompt", prompt)) if v}
+        return dict(self._identity("POST", "/admin/ai/test", body) or {})
+
     def tenants(self) -> dict:
         """Each tenant's use against its admission quotas, and its refusals (ADR-050):
         ``GET /api/v1/tenants``, through the SDK's ``Client.tenants``."""

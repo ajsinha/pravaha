@@ -529,6 +529,34 @@ owner and sees the view through the owner's policies. There is no REST path that
 
 ## What is not built
 
+## The AI layer: keys, off by default, audit (ADR-063)
+
+The server can call a language model -- for the assistant's `server` provider, the console and any
+feature on `LlmGateway` -- and does so only when an administrator turns it on.
+
+- **Off by default.** `pravaha.ai.enabled` (`PRAVAHA_AI_ENABLED`) is `false`: no provider file is
+  read, the node makes no outbound model call, and every AI call answers `PRV-1080`.
+- **Keys from the environment only.** A provider file names its key as `${ENV_NAME}`; a literal key --
+  or a literal AWS secret, Entra client secret, proxy password, TLS store password or credential header
+  -- is refused when the file is read, and the refusal names the setting, never the value. A key is
+  never in a message, `GET /api/v1/admin/ai` (it says `keySet` only) or an audit event. A vendor's error
+  body is never quoted (it can echo the prompt).
+- **One policy for every call.** Feature roles (`pravaha.ai.policy.features.<f>.roles`; the REST
+  endpoint's callers are `api:<f>`, so they cannot pose as a built-in feature), per-person limits per
+  minute and per day, a daily cost budget, and masking of named fields and patterns as `•••` before a
+  prompt leaves the node.
+- **Audited, without the text.** One `ai.call` event per call in the node's audit trail
+  (`GET /api/v1/audit?action=ai.call`): who, which feature, `provider/model`, prompt and answer sizes,
+  tokens, cost, outcome -- `DENY` when the policy or a limit refused it. Never the prompt or the answer.
+- **Who may administer it.** `GET /api/v1/admin/ai` and `POST /api/v1/admin/ai/test` need the `admin`
+  role (`PRV-7002` otherwise); the test connection is capped at 15 seconds and
+  `pravaha.ai.test-per-minute` per administrator.
+- **The engine core stays model-free.** `pravaha-ai` is wired by the server only; nothing in the engine
+  depends on it (`ArchitectureRulesTest.aiLayerDependsOneWay`), and no model output is executed: the
+  assistant's drafts are still judged by the engine and registered only on a person's confirmation.
+- **Clients hold no key** when they use the SDK's `server` provider (the console does): the call is the
+  person's own, under their engine session, and the engine's policy and audit apply.
+
 ## Transport
 
 TLS is the client default; `grpc://` plaintext has to be spelled out. Both SDKs refuse to send a token

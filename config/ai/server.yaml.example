@@ -1,0 +1,15 @@
+# Project Pravaha -- the AI layer (ADR-063, docs/design/architecture/ai.md). Shipped disabled: copy to
+# $PRAVAHA_HOME/conf/ai/<name>.yaml (no .example), set enabled: true, and turn the layer on with
+# PRAVAHA_AI_ENABLED=true. Keys are ${ENV} placeholders only; a literal key is refused when the file is read.
+# CLIENT side only -- the Python SDK, the pravaha CLI and the console (pravaha.ai, not the engine): delegate every
+# call to the engine's POST /api/v1/ai/chat, so keys, policy, masking, limits and audit live in one place. The
+# recommended client provider. The engine has no such type (it would list the file as an error).
+type: server
+enabled: false
+base-url: https://engine.example:18080     # the engine's HTTP API; empty: the SDK's configured engine
+api-key: ${PRAVAHA_TOKEN}                  # your API key or session token for the engine, as ${ENV}
+default-model: default
+models:
+  - name: default                           # the engine's own default model
+  - name: corp                              # an engine model by its reference
+    id: openai/fast

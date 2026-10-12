@@ -4,7 +4,7 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1056: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1087: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
 keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, tls handshake, certificate, PRV-1046, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
@@ -24,6 +24,7 @@ They are grouped here by who raises them:
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1046 | The Java and Python SDKs | Constructing a client, or talking to the node |
+| PRV-1080 – PRV-1087 | The AI layer (ADR-063) | An AI call while the layer is off, or a provider, a model, the policy or the model endpoint refusing it |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
@@ -419,3 +420,21 @@ needs one), and keep headers small — a bearer token is far below the limit.
   [settings index](/help/topics/configuration#every-setting)
 - [Client code](/help/topics/clients#snippets) and the [SDK reference](/help/topics/clients#sdk-reference)
 - [TLS everywhere](/help/topics/tls)
+
+### PRV-1080 — AI_DISABLED
+
+`409`. An AI call on a node whose AI layer is off -- `pravaha.ai.enabled: false`, the default. Nothing
+was read and no model was called.
+
+**Do:** set `PRAVAHA_AI_ENABLED=true` and enable a provider file in `pravaha.ai.dir`; until then the
+console and the SDK's `server` provider answer this for every question.
+
+### PRV-1081 to PRV-1087 — the AI layer refused or failed
+
+PRV-1081 the provider could not be set up (`503`), PRV-1082 no such model (`404`), PRV-1083 the
+model cannot do what was asked (`400`), PRV-1084 the feature is not open to your roles (`403`),
+PRV-1085 a limit or the vendor's own 429 (`429`), PRV-1086 the model did not answer in time (`504`),
+PRV-1087 the model endpoint failed (`502`). The message never carries a key, the prompt or the vendor's own error text.
+
+**Do:** an administrator reads `GET /api/v1/admin/ai` -- each provider's health and the files that
+could not be read -- and `docs/guides/TROUBLESHOOTING.md` has a line for each code.

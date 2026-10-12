@@ -22,11 +22,11 @@ pointing at an old path.
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
 | `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) `v1.0.0` (2026-09-30, the first with a compatibility promise) and `v2.0.0` (2026-10-01, JDK 25 only, ADR-061; relaxed to Java 21 or later by ADR-062, 2026-10-04; [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 2.0.1-SNAPSHOT |
-| Modules | **39** Maven modules (40 reactor projects with the root: 26 engine modules, 11 plugins, the two Java SDKs), plus `sdk/python` and `console`, which are not Maven |
+| Modules | **40** Maven modules (41 reactor projects with the root: 27 engine modules, 11 plugins, the two Java SDKs), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **5,112** tests, 0 failures, 0 errors, 122 skipped (Docker-only broker and database tests among them) -- the main checkout's full build of 2026-10-02 after Wave 3, summed from its surefire and failsafe reports. The adversarial suites (110 tests) are opt-in and not in that count ([TESTING.md](TESTING.md#the-adversarial-suites)) |
 | Python tests | **432** in `sdk/python` and **1,957** in `console` (browser suites included), collected on 2026-10-02; 21 opt-in surface checks in `tests/qa/adv_surface` |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **62** |
+| ADRs | **63** |
 
 **Where it stands, 2026-10-02.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
 11, cluster mode, is on hold. **1.0.0** (2026-09-30) was the first release with a compatibility

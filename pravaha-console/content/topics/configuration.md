@@ -521,6 +521,25 @@ See [Cluster mode](/help/topics/standby#cluster-mode).
 
 See [Event time and watermarks](/help/topics/event-time-watermarks).
 
+### The AI layer
+
+Off by default; keys only from the environment, in the provider files, never here. See ADR-063 and
+`docs/design/architecture/ai.md`.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `pravaha.ai.enabled` | `false` | The master switch (`PRAVAHA_AI_ENABLED`). Off: no provider file is read, no model is called, every AI call is PRV-1080 |
+| `pravaha.ai.dir` | `config/ai` | The folder of provider files, one `<name>.yaml` each (`$PRAVAHA_HOME/conf/ai` under a home). A literal key in a file is refused; `*.yaml.example` is not read |
+| `pravaha.ai.default-model` | *empty* | The model a call that names none gets: `provider/model`, or a name only one provider has |
+| `pravaha.ai.reload-interval` | `5s` | How often the folder is looked at: added, changed and removed files are picked up without a restart, and a provider that could not be built is tried again |
+| `pravaha.ai.test-per-minute` | `6` | Test connections one administrator may make a minute (`POST /api/v1/admin/ai/test`, each capped at 15 seconds) |
+| `pravaha.ai.policy.mask-redacted` | `true` | Mask, as `•••`, the values of the fields in `pravaha.ai.policy.redact` and anything matching `pravaha.ai.policy.mask-patterns`, in every prompt |
+| `pravaha.ai.policy.audit` | `true` | One `ai.call` audit event per call: who, feature, model, sizes, tokens, cost, outcome -- never the prompt or the answer |
+| `pravaha.ai.policy.per-user-per-minute` | `0` | Calls per person per feature per minute; `0` is no limit. PRV-1085 past it |
+| `pravaha.ai.policy.per-user-per-day` | `0` | Calls per person per day (UTC) |
+| `pravaha.ai.policy.cost-per-user-per-day` | `0` | Money per person per day, in the unit of the files' `cost-per-1k-*` prices |
+| `pravaha.ai.policy.features.<feature>.roles` | *none* | Roles that may use a feature (`api:<name>` for the REST endpoint's callers); not listed, open to everyone signed in. PRV-1084 otherwise |
+
 ### Read only by the embedded engine or the Spring Boot starter
 
 | Setting | Default | What it does |

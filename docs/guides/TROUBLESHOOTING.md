@@ -143,6 +143,14 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-1054` body too large | **413**: a request body larger than the node reads — `pravaha.http.max-anonymous-body` (16KB) on a path open without a credential (sign-in, reset, the API documentation), `pravaha.http.max-request-body` (4MB) everywhere else. Refused on the declared `Content-Length` before a byte is read, or as soon as a chunked body passes the limit, and the connection is closed (HTTPBODY-1). Send less, or raise the setting the message names |
 | `PRV-1055` too many sign-ins | **429** with `Retry-After: 1`: more than `pravaha.http.max-concurrent-sign-ins` (8) sign-ins are in progress at once; each runs a deliberately slow password hash. Retry after a second; a script should sign in once and keep the session, or use an API key |
 | `PRV-1056` malformed request | **400** from the HTTP server itself, before any endpoint: an encoded `/` (`%2F`) or `\\` (`%5C`) or a NUL (`%00`) in the path, a header line past `server.max-http-request-header-size` (8KB), or too many headers. An `ApiError` like every other answer (it was Tomcat's HTML page until TOMCATHTML-1). Fix the request: no view or stream name needs an encoded slash |
+| `PRV-1080` AI layer off | **409**: an AI call -- `POST /api/v1/ai/chat`, `GET /api/v1/ai/models`, the admin test, or a feature through the gateway -- on a node whose AI layer is off (`pravaha.ai.enabled: false`, the default). No provider file is read and no model is called. Turn it on with `PRAVAHA_AI_ENABLED=true` and an enabled provider file in `pravaha.ai.dir` ([ai.md](../design/architecture/ai.md)) |
+| `PRV-1081` AI provider configuration | **503**: the provider the call needs could not be set up -- a base URL missing, a type not installed, an Entra or AWS credential missing. `GET /api/v1/admin/ai` shows it as `ERROR` with the reason; a file that could not be read at all is under `fileErrors` (a literal key is refused there: write `api-key: ${ENV_NAME}`). Fix the file; it is read again within `pravaha.ai.reload-interval` |
+| `PRV-1082` AI model not found | **404**: no model by the name asked for -- not `provider/model`, not a name only one provider has -- or none named and no `default-model` (or several chat models and none chosen). `GET /api/v1/ai/models` lists what may be named |
+| `PRV-1083` AI request unsupported | **400**: the model cannot do what was asked: `jsonMode` or tools on a model without `json-mode` / `tool-calls`, chat on an embedding model. Add the capability in the provider file if the model has it, or name another model |
+| `PRV-1084` AI feature refused | **403**: `pravaha.ai.policy.features.<feature>.roles` does not open this feature to the caller's roles (the REST endpoint's features are `api:<feature>`). Recorded in the audit trail as an `ai.call` `DENY` |
+| `PRV-1085` AI limit | **429**: a per-user limit (`per-user-per-minute`, a feature's own, `per-user-per-day`, `cost-per-user-per-day`), the vendor's own rate limit (its HTTP 429, after the file's `retries`), or more than `pravaha.ai.test-per-minute` test connections. The message says which and, for the minute, how long to wait |
+| `PRV-1086` AI timeout | **504**: the model endpoint did not answer within the call's `timeoutSeconds` (the test connection's 15 s) or the file's `timeout`. A local model loading for the first time is slow: raise `timeout` in its file |
+| `PRV-1087` AI model failed | **502**: the model endpoint answered an error or something unusable -- the status and a hint (401/403 the key or its permission, 404 the path or the model id), **never the vendor's body**, which can echo the prompt. `GET /api/v1/admin/ai` shows the provider `DOWN` with the same words |
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`; on any endpoint, an `?offset=` or `?limit=` that is present and empty or not a number, an empty `?level=` or `?format=` on `/explain`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
@@ -981,6 +989,14 @@ client models the error rather than an empty object.
 | `PRV-1054` | API_BODY_TOO_LARGE | api |
 | `PRV-1055` | API_TOO_MANY_SIGN_INS | api |
 | `PRV-1056` | API_MALFORMED_REQUEST | api |
+| `PRV-1080` | AI_DISABLED | ai |
+| `PRV-1081` | AI_CONFIG | ai |
+| `PRV-1082` | AI_NOT_FOUND | ai |
+| `PRV-1083` | AI_UNSUPPORTED | ai |
+| `PRV-1084` | AI_POLICY | ai |
+| `PRV-1085` | AI_RATE_LIMITED | ai |
+| `PRV-1086` | AI_TIMEOUT | ai |
+| `PRV-1087` | AI_FAILED | ai |
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |

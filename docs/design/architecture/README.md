@@ -18,6 +18,7 @@ and lifecycle**, **extension points**, **invariants**, **failure codes**, and **
 | [Serving](serving.md) | `pravaha-serving` (views, reads, admission, retention), `pravaha-flight` (Flight SQL and the control actions), `pravaha-pgwire` (the PostgreSQL gateway) |
 | [Governance](governance.md) | `pravaha-security` (the three seams), `pravaha-identity` (users, keys, sessions), `pravaha-catalog` (grants, row filters, masks, tenancy) |
 | [Hosts](hosts.md) | `pravaha-server`, `pravaha-embedded`, `pravaha-spring-boot-starter`, `pravaha-cli`, `pravaha-cluster` (and why multi-node is on hold) |
+| [The AI layer](ai.md) | `pravaha-ai` (providers, one file each, the registry, the policy, masking, the audit row, `LlmGateway`, the OpenAI-shaped `llm` layer), the server's `/api/v1/ai` endpoints, and the Python SDK's `pravaha.ai` -- Drishti's design (ADR-063) |
 | [Clients and console](clients-and-console.md) | the Java SDKs, the Python SDK and `pravaha` CLI, the console, the assistant |
 | [The console's screens](console-screens.md) | thirteen screenshots of the console, taken with its browser-test harness |
 | [Observability and packaging](observability-and-packaging.md) | metrics, logs, traces, health; the image, the Helm chart, the distribution; `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`, `pravaha-bom` |

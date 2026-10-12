@@ -475,6 +475,40 @@ pravaha:
     # decides and pravaha.security.policy is not consulted.
     authority: import
 
+  # The AI layer (ADR-063, docs/design/architecture/ai.md): one YAML file per provider in dir, keys only
+  # from ${ENV} (a literal key in a file is refused), every call through one policy and audited without
+  # its prompt or answer. Off by default (PRAVAHA_AI_ENABLED=true turns it on): while off no file is read,
+  # no model is called, and every AI call answers PRV-1080.
+  ai:
+    enabled: false
+    # Unset under a PRAVAHA_HOME: conf/ai there (pravaha-home.yaml). The *.yaml.example files are not read.
+    dir: config/ai
+    # The model a call that names none gets: provider/model or a model name only one provider has.
+    default-model: ""
+    # How often the folder is looked at for added, changed or removed files (no restart needed), and a
+    # provider that could not be built is tried again.
+    reload-interval: 5s
+    # POST /api/v1/admin/ai/test: real calls, so limited per administrator (and capped at 15 seconds each).
+    test-per-minute: 6
+    policy:
+      # Mask the values of these fields, and anything matching mask-patterns, in every prompt (as •••).
+      mask-redacted: true
+      redact: []
+      mask-patterns: []
+      # One audit event per call (action ai.call): user, feature, provider/model, sizes, tokens, cost,
+      # outcome. Never the prompt or the answer.
+      audit: true
+      # 0 is no limit. Cost is in the unit the provider files' cost-per-1k-* prices are written in.
+      per-user-per-minute: 0
+      per-user-per-day: 0
+      cost-per-user-per-day: 0
+      # Per-feature rules: roles that may use it (none: everyone signed in) and its own minute limit.
+      # The REST endpoint's callers are api:<feature>.
+      # features:
+      #   api:explain:
+      #     roles: [analyst, admin]
+      #     per-user-per-minute: 10
+
   # Alerts (ADR-057): CREATE ALERT ... NOTIFY <channel>. Every decision about every key is journalled
   # before anything is sent (exactly-once state); a notification is sent until the channel accepts it,
   # under the same Idempotency-Key every time (at-least-once delivery).

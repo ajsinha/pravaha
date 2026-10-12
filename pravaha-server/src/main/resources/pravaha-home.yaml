@@ -56,6 +56,9 @@ pravaha:
   identity:
     store: ${PRAVAHA_HOME}/data/identity/identity.journal
 
+  ai:
+    dir: ${PRAVAHA_HOME}/conf/ai
+
   # Where `audit: file` writes. Only a location: whether there is an audit trail is
   # pravaha.security.audit, which stays the deployment's decision.
   security:
