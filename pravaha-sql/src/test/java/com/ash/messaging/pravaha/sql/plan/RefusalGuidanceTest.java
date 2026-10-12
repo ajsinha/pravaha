@@ -85,6 +85,8 @@ class RefusalGuidanceTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2020")
                 .hasMessageContaining("lookup")
+                .as("LOOKUPMSG-1: the advice ends its sentence before the pointer to the docs")
+                .hasMessageContaining("filters the joined rows and plans. See docs/")
                 .hasMessageContaining("LEFT JOIN")
                 .hasMessageNotContaining("correlated subqueries");
         assertThatCode(() -> planWithLookup(filtered.replace("JOIN customers", "LEFT JOIN customers")))
