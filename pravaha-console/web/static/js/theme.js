@@ -125,6 +125,15 @@
       var timer = null;
       if (!trigger || !window.bootstrap) return;
       var dd = window.bootstrap.Dropdown.getOrCreateInstance(trigger);
+      /* Anchored under its own button (nav.css); one that would run off the right edge of a narrower
+         screen is slid left until it fits, 16px in from the edge. */
+      var panel = li.querySelector(".mega-panel");
+      trigger.addEventListener("shown.bs.dropdown", function () {
+        if (!panel || !wide.matches) return;
+        panel.style.left = "";
+        var over = panel.getBoundingClientRect().right - (window.innerWidth - 16);
+        if (over > 0) panel.style.left = (-over) + "px";
+      });
       li.addEventListener("mouseenter", function () {
         if (!wide.matches) return;
         clearTimeout(timer);
@@ -183,4 +192,37 @@
   });
 
   window.PravahaTheme = {apply: apply, stored: stored, current: current, announce: announce, themes: THEMES.slice()};
+  /* The engine's pulse (_nav.html #engine-live): /health/ready every 10s while the tab is visible -- the
+     console asks the engine, so green means the Java engine is live and answering, amber DEGRADED, red not
+     answering. */
+  (function () {
+    var live = document.getElementById("engine-live");
+    if (!live || !window.fetch) return;
+    var text = live.querySelector("[data-live-text]");
+    function show(state, words) {
+      live.setAttribute("data-live-state", state);
+      live.title = words;
+      if (text) text.textContent = words;
+    }
+    function check() {
+      if (document.hidden) return;
+      var at = new Date().toLocaleTimeString();
+      fetch("/health/ready", {cache: "no-store", credentials: "same-origin"}).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (body) {
+          var engine = body.engine || {};
+          var where = engine.url ? " at " + engine.url : "";
+          if (r.ok && engine.status === "DEGRADED") {
+            show("degraded", "Engine" + where + " is up but DEGRADED (checked " + at + ")");
+          } else if (r.ok) {
+            show("live", "Engine" + where + " is live and answering (checked " + at + ")");
+          } else {
+            show("down", "Engine" + where + " is not answering (checked " + at + ")");
+          }
+        });
+      }).catch(function () { show("down", "The console cannot be reached (checked " + at + ")"); });
+    }
+    check();
+    setInterval(check, 10000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
+  }());
 }());

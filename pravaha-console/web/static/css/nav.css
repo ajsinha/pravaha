@@ -121,10 +121,12 @@
 .pv-nav .pv-signin { color: var(--bar-ink) !important; border-color: color-mix(in srgb, var(--bar-ink) 55%, transparent); }
 .pv-nav .pv-signin:hover { background: var(--bar-hover); border-color: var(--bar-ink); }
 
-/* Wide: each panel drops under the bar, centred, as wide as its columns (never wider than the screen). */
+/* Wide: drishti's rule -- each panel drops under its own button (data-bs-display="static", so Popper does not
+   move it), as wide as its columns and never wider than the screen. A panel that would run off the right edge
+   is slid left by theme.js when it opens. Centring every panel on the bar put them all mid-screen. */
 @media (min-width: 992px) {
-  .pv-nav .mega { position: static; }
-  .pv-nav .mega-panel { position: absolute; top: 100%; left: 50%; right: auto; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); }
+  .pv-nav .mega { position: relative; }
+  .pv-nav .mega-panel { position: absolute; top: 100%; left: 0; right: auto; transform: none; width: max-content; max-width: calc(100vw - 32px); }
 }
 @media (max-width: 1399.98px) and (min-width: 992px) {
   .pv-brand .creed { display: none; }
@@ -157,3 +159,14 @@
 .pv-public .pv-foot .sf-links a { color: var(--pv-on-nav); }
 
 @media (prefers-reduced-motion: reduce) { .mega-panel.show { animation: none; } }
+
+
+/* The engine's pulse beside the theme menu (drishti's Live dot): a dot, coloured by data-live-state. */
+.tbar-live { display: inline-flex; align-items: center; justify-content: center; cursor: default; }
+/* A circle the avatar's size (30px), never squeezed by the flex row, ringed like the avatar on a coloured bar. */
+.pv-nav .tbar-live .dot { flex: 0 0 30px; width: 30px; height: 30px; min-width: 30px; aspect-ratio: 1; border-radius: 50%;
+  background: var(--d-faint); display: block; }
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-nav .tbar-live .dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, .55); }
+.pv-nav .tbar-live[data-live-state="live"] .dot { background: var(--d-ok); box-shadow: 0 0 0 2px rgba(255, 255, 255, .55), 0 0 10px var(--d-ok); }
+.pv-nav .tbar-live[data-live-state="degraded"] .dot { background: var(--d-warn); box-shadow: 0 0 0 2px rgba(255, 255, 255, .55), 0 0 8px var(--d-warn); }
+.pv-nav .tbar-live[data-live-state="down"] .dot { background: var(--d-bad); box-shadow: 0 0 0 2px rgba(255, 255, 255, .55), 0 0 8px var(--d-bad); }

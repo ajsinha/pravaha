@@ -86,7 +86,7 @@
         {% set ns = {'active': _any_on(columns)|trim != ''} %}
         <li class="nav-item dropdown mega">
           <a class="nav-link dropdown-toggle {% if ns.active %}active{% endif %}" href="#" role="button"
-             data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+             data-bs-toggle="dropdown" data-bs-display="static" data-bs-auto-close="outside" aria-expanded="false"
              {% if ns.active %}aria-current="true"{% endif %}>
             <i class="bi bi-{{ icon }}" aria-hidden="true"></i> {{ label }}</a>
           <div class="dropdown-menu mega-panel cols-{{ columns|length }}">
@@ -115,6 +115,10 @@
         {% if page_screen %}<a class="tool" href="#page-help" data-page-help aria-label="{{ t('shell.page_help') }}" title="{{ t('shell.page_help') }}"><i class="bi bi-question-circle" aria-hidden="true"></i></a>{% endif %}
         <a class="tool" href="/alerts" aria-label="{{ t('shell.alerts') }}" title="{{ t('shell.alerts') }}"><i class="bi bi-bell" aria-hidden="true"></i></a>
         {% include "_theme_menu.html" %}
+        {# The engine's pulse, as drishti's Live dot (terminal.css .tbar-live): green while the Java engine
+           answers, amber while it reports DEGRADED, red when it does not answer. theme.js asks /health/ready. #}
+        <span class="tool tbar-live" id="engine-live" data-live-state="checking" role="status" aria-live="polite"
+              title="Engine: checking…"><span class="dot" aria-hidden="true" data-volatile></span><span class="visually-hidden" data-live-text>Engine: checking</span></span>
         <div class="dropdown">
           <button class="tool user dropdown-toggle" id="account-menu" data-bs-toggle="dropdown" type="button" aria-expanded="false"
                   title="{{ t('shell.account_title') }}">
