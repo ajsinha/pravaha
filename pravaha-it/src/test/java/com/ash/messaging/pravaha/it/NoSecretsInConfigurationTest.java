@@ -47,7 +47,10 @@ class NoSecretsInConfigurationTest {
     private static final Pattern TOKEN_ENTRY = Pattern.compile("^\\s+\"([^\"]+)\"\\s*:\\s*$");
 
     private static final Pattern SAFE = Pattern.compile(
-            "\"\"|''|\"?@@[A-Z0-9_]+@@\"?|\"?\\$\\{[^}]*}\"?|([\"']?)(true|false|[0-9]+|[0-9]+(ms|s|m|h|d))\\1|\\{\\}|\\[\\]");
+            "\"\"|''|\"?@@[A-Z0-9_]+@@\"?|\"?\\$\\{[^}]*}\"?|([\"']?)(true|false|[0-9]+|[0-9]+(ms|s|m|h|d))\\1|\\{\\}|\\[\\]"
+                    // A flow list of plain names -- help.yaml's `account-password: [authentication]` maps a
+                    // page to its topics -- is not a credential: a secret is one opaque value, never a list.
+                    + "|\\[[a-z0-9_.-]+(, *[a-z0-9_.-]+)*\\]");
 
     /**
      * Published development credentials, each allowed only in the one file that ships it. They are no
