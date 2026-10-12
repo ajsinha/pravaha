@@ -64,7 +64,9 @@ class PravahaHomeLayoutTest {
             "pravaha.registry.journal", "data/registry.journal",
             "pravaha.checkpoint.directory", "data/checkpoints",
             "pravaha.identity.store", "data/identity/identity.journal",
-            "pravaha.security.audit-file", "logs/audit.jsonl");
+            "pravaha.security.audit-file", "logs/audit.jsonl",
+            // ADR-063: the AI layer's provider files, written by the operator beside conf/application.yaml
+            "pravaha.ai.dir", "conf/ai");
 
     /** Path-valued keys the layout deliberately leaves unset, because setting them changes behaviour. */
     private static final Set<String> LEFT_TO_THE_DEPLOYMENT = Set.of(
