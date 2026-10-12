@@ -51,7 +51,12 @@
 {# Never had data (23.12): what a fork is and what it cannot touch, and the control that makes
    the first one. Not an empty stepping panel, which would read as a session that has stalled. #}
 <div id="dbg-none">
+  {#- DEBUGPAGE-1: "not being debugged" was said above a list of the sessions open on it. #}
+  {% if open_sessions %}
+  {{ states.empty(title=t('debug.none.open_title', name=query.name, n=open_sessions|length), body=t('debug.none.open_body'), heading='h2') }}
+  {% else %}
   {{ states.empty(title=t('debug.none.title', name=query.name), body=t('debug.none.body'), heading='h2') }}
+  {% endif %}
   <ul class="small text-muted" id="dbg-absences">
     <li>{{ t('debug.absence.sink') }}</li>
     <li>{{ t('debug.absence.view') }}</li>

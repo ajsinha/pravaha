@@ -2644,6 +2644,8 @@
     "refused_access": "What this console is allowed to do",
     "none": {
       "title": "{name} is not being debugged",
+      "open_title": "{name} has {n} open debug session(s)",
+      "open_body": "Each is listed below: open one to go on stepping it from where it stopped. A new session runs this query a second time under inspection from one of the checkpoints this node still retains, beside any already open.",
       "body": "A debug session runs this query a second time under inspection. It starts from one of the checkpoints this node still retains, so it begins with the state the query actually had, and it reads the same sources from the positions that checkpoint recorded — the same rows, in order, from that moment on. You drive it: one row, ten rows, on to the next commit, on to a watermark, or on until a column of the view crosses a value."
     },
     "absence": {
