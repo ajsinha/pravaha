@@ -1401,6 +1401,11 @@ public class PravahaNode implements SmartLifecycle {
         return Optional.ofNullable(registry);
     }
 
+    /** The served views, which a read on the HTTP side plans against (the AI features); empty before start. */
+    public Optional<ViewCatalog> views() {
+        return Optional.ofNullable(views);
+    }
+
     /** The sink bindings this node resolved at start, for describing them; empty before it starts. */
     public Optional<com.ash.messaging.pravaha.bindings.egress.PluginSinks> sinks() {
         return Optional.ofNullable(pluginSinks);

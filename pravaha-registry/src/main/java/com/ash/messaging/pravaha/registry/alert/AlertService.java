@@ -517,69 +517,13 @@ public final class AlertService implements Alerting, AutoCloseable {
         lock.lock();
         try {
             String name = CatalogNames.part(statement.name(), "an alert's name");
-            if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
-                // ALERTPATH-1: GET /api/v1/alerts/channels is the channel list, so an alert of that name
-                // could never be reached by its own detail path, nor paused, snoozed or acknowledged there.
-                throw AlertOptions.invalid("'" + name + "' cannot name an alert: /api/v1/alerts/" + name + " is the "
-                        + "node's list of notifier channels, so the alert could not be reached by its own path. "
-                        + "Choose another name");
-            }
-            // ADR-060: an alert name is unique within its tenant, so only the caller's own tenant can hold it.
             String key = ViewNames.engineName(principal.tenant(), name);
             Alert existing = alerts.get(key);
-            if (existing != null) {
-                if (statement.ifNotExists() && access.maySee(principal, existing.definition())) {
-                    return existing.summary(clock.instant());
-                }
-                throw new PravahaException(
-                        AlertErrors.ALERT_EXISTS,
-                        "an alert called '" + name + "' exists already"
-                                + (statement.ifNotExists() ? "" : "; add IF NOT EXISTS if that is fine"));
-            }
-            if (registry.find(key).isPresent()) {
-                throw new PravahaException(
-                        AlertErrors.ALERT_EXISTS,
-                        "'" + name + "' is a continuous query's name, and "
-                                + "an alert and a query cannot share one: every surface names both the same way");
-            }
-            String view = resolveView(principal, statement.view());
-            for (String channel : statement.channels()) {
-                requireChannel(channel);
-            }
-            AlertOptions options = AlertOptions.of(AlertOptions.defaults(), statement.options());
-            access.requireCreate(principal, name, view, statement.channels());
-            StreamSchema schema = registry.find(view).orElseThrow().view().schema();
-            AlertCondition.compile(statement.where(), schema);
-            requireColumns(options.include(), schema);
-            if (registry.policy() instanceof CatalogPolicy catalog) {
-                String fullName = CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + name;
-                Optional<CatalogObject> taken = catalog.service().catalog().object(fullName);
-                if (taken.isPresent()) {
-                    throw new PravahaException(
-                            AlertErrors.ALERT_EXISTS,
-                            "'" + fullName + "' is already the catalogue's " + "name for a "
-                                    + taken.get().kind().name().toLowerCase(java.util.Locale.ROOT));
-                }
+            if (existing != null && statement.ifNotExists() && access.maySee(principal, existing.definition())) {
+                return existing.summary(clock.instant());
             }
             Instant now = clock.instant();
-            AlertDefinition definition = new AlertDefinition(
-                    UUID.randomUUID().toString(),
-                    name,
-                    view,
-                    principal.tenant(),
-                    principal.id(),
-                    now,
-                    statement.where(),
-                    statement.channels(),
-                    options,
-                    false,
-                    options.snooze().isZero() ? null : now.plus(options.snooze()),
-                    now,
-                    principal.id());
-            // MASKALERT-1: a condition or a key on a column masked for the owner is refused here, to the
-            // person creating it (PRV-7006), as SECURITY.md promises -- not accepted ACTIVE and then marked
-            // broken when the alert starts following. The same check runs again whenever it follows.
-            access.narrowingFor(definition, registry.find(view).orElseThrow().view());
+            AlertDefinition definition = judged(principal, statement, now);
             journal(List.of(definition.encode()));
             if (registry.policy() instanceof CatalogPolicy catalog) {
                 try {
@@ -598,6 +542,87 @@ public final class AlertService implements Alerting, AutoCloseable {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Every refusal {@link #create} would give this statement, and nothing else: the definition it would
+     * create, judged and not journalled, followed or kept. What a draft of an alert is checked by before a
+     * person sees it (docs/guides/AI.md), so a draft that passes here is one {@code CREATE ALERT} accepts
+     * unless the node changes in between.
+     *
+     * @throws PravahaException the refusal {@code create} would answer
+     */
+    public AlertDefinition validate(Principal principal, AlertStatement.Create statement) {
+        lock.lock();
+        try {
+            return judged(principal, statement, clock.instant());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** The checks of a {@code CREATE ALERT}, in the order it meets them; the caller holds the lock. */
+    private AlertDefinition judged(Principal principal, AlertStatement.Create statement, Instant now) {
+        String name = CatalogNames.part(statement.name(), "an alert's name");
+        if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+            // ALERTPATH-1: GET /api/v1/alerts/channels is the channel list, so an alert of that name
+            // could never be reached by its own detail path, nor paused, snoozed or acknowledged there.
+            throw AlertOptions.invalid("'" + name + "' cannot name an alert: /api/v1/alerts/" + name + " is the "
+                    + "node's list of notifier channels, so the alert could not be reached by its own path. "
+                    + "Choose another name");
+        }
+        // ADR-060: an alert name is unique within its tenant, so only the caller's own tenant can hold it.
+        String key = ViewNames.engineName(principal.tenant(), name);
+        if (alerts.containsKey(key)) {
+            throw new PravahaException(
+                    AlertErrors.ALERT_EXISTS,
+                    "an alert called '" + name + "' exists already"
+                            + (statement.ifNotExists() ? "" : "; add IF NOT EXISTS if that is fine"));
+        }
+        if (registry.find(key).isPresent()) {
+            throw new PravahaException(
+                    AlertErrors.ALERT_EXISTS,
+                    "'" + name + "' is a continuous query's name, and "
+                            + "an alert and a query cannot share one: every surface names both the same way");
+        }
+        String view = resolveView(principal, statement.view());
+        for (String channel : statement.channels()) {
+            requireChannel(channel);
+        }
+        AlertOptions options = AlertOptions.of(AlertOptions.defaults(), statement.options());
+        access.requireCreate(principal, name, view, statement.channels());
+        StreamSchema schema = registry.find(view).orElseThrow().view().schema();
+        AlertCondition.compile(statement.where(), schema);
+        requireColumns(options.include(), schema);
+        if (registry.policy() instanceof CatalogPolicy catalog) {
+            String fullName = CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + name;
+            Optional<CatalogObject> taken = catalog.service().catalog().object(fullName);
+            if (taken.isPresent()) {
+                throw new PravahaException(
+                        AlertErrors.ALERT_EXISTS,
+                        "'" + fullName + "' is already the catalogue's " + "name for a "
+                                + taken.get().kind().name().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+        AlertDefinition definition = new AlertDefinition(
+                UUID.randomUUID().toString(),
+                name,
+                view,
+                principal.tenant(),
+                principal.id(),
+                now,
+                statement.where(),
+                statement.channels(),
+                options,
+                false,
+                options.snooze().isZero() ? null : now.plus(options.snooze()),
+                now,
+                principal.id());
+        // MASKALERT-1: a condition or a key on a column masked for the owner is refused here, to the
+        // person creating it (PRV-7006), as SECURITY.md promises -- not accepted ACTIVE and then marked
+        // broken when the alert starts following. The same check runs again whenever it follows.
+        access.narrowingFor(definition, registry.find(view).orElseThrow().view());
+        return definition;
     }
 
     /** {@code ALTER ALERT ... NOTIFY} or {@code SET (...)}: {@code MANAGE}. */

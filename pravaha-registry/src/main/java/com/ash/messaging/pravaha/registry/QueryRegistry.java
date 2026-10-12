@@ -517,6 +517,12 @@ public final class QueryRegistry implements AutoCloseable {
                 () -> planAs(sql, BoundParameters.none(), principal).plan().outputSchema());
     }
 
+    /** The physical plan {@link #outputSchemaOf(String, Principal)} plans, as text: a draft's dry run (docs/guides/AI.md). */
+    public String explainAs(String sql, Principal principal) {
+        return lock.call(() -> com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder.explain(
+                planAs(sql, BoundParameters.none(), principal).plan()));
+    }
+
     /** Plans {@code sql} as {@code principal}'s registration would: streams, lookups, and views. */
     PreparedContinuousQuery planAs(String sql, BoundParameters parameters, Principal principal) {
         return lock.call(
