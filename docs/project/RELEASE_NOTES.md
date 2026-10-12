@@ -135,6 +135,17 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   into the node's configuration and shown as the reader's), `Restart(crash=True, during=...)` (`kill -9`,
   and a step while the node is down), and `Until` on a shell command. Writing them found KAFKAMON-1,
   MASKRIGHT-1, ACCESSORDER-1, GOVMSG-1, CDCOPENMSG-1 and ROWSPLURAL-1.
+- **The six from tutorials 7 to 11, fixed.** A Kafka reader shared between queries commits
+  `monitoring.group` again, with what *every* query on it has checkpointed — the earliest of their
+  durable offsets, so the group never claims progress a query could not restore from (KAFKAMON-1). A
+  row filter or mask may call only functions the engine evaluates: `RIGHT()`, `LEFT()`, `CONCAT()`,
+  `CHAR_LENGTH()` and the rest it used to accept and then refuse at every read are refused at create
+  with `PRV-7038`, naming the function; the examples now mask with
+  `'XXXX-' || REGEXP_EXTRACT(card, '.{4}$')`, and the planning message lost its `..` and its stream
+  count (MASKRIGHT-1). `access why` and `catalog show` list privileges in one order, least to most
+  (ACCESSORDER-1); `PRV-7002` says who may not read what once (GOVMSG-1); `PRV-5091` quotes a
+  plugin's coded refusal without a Java class name (CDCOPENMSG-1); the query page says "1 row
+  written" (ROWSPLURAL-1).
 
 ---
 
