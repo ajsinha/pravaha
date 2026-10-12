@@ -418,7 +418,8 @@ You should see `PRV-2072`, `PRV-8043` and `PRV-8024`.
   of every change.
 - Drafting an alert from a sentence ("tell the buyers when anything in London is below its reorder
   point") is part of the AI layer, `pravaha alert --ask`, judged by `CREATE ALERT`'s own checks — see
-  [AI.md](../guides/AI.md); a tutorial of its own comes later in this series.
+  [AI.md](../guides/AI.md) and [Tutorial 16 · AI in Pravaha](16-ai-in-pravaha.md), which drafts one,
+  creates it on confirmation and shows the one it refuses to write.
 - The reference: [alerts](../../pravaha-console/content/topics/alerts.md) (every option and statement,
   delivery, who may do what), [CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) §3.2 and §10.2,
   and OPERATIONS.md for the webhook's options and its secret.
