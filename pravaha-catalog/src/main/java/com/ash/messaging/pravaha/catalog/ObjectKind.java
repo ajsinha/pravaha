@@ -50,12 +50,15 @@ public enum ObjectKind {
     @SuppressWarnings("ImmutableEnumChecker") // the field is unmodifiable or stateless; it is never changed
     private final Set<Privilege> applicable;
 
-    ObjectKind(Set<Privilege> applicable) {
-        this.applicable = Set.copyOf(applicable);
+    ObjectKind(EnumSet<Privilege> applicable) {
+        // In the privileges' declared order, least to most: Set.copyOf iterates in an order that
+        // changes from run to run, and every list made from this -- SHOW EFFECTIVE ACCESS, `access
+        // why`, the console's "you may" -- printed in it (ACCESSORDER-1).
+        this.applicable = java.util.Collections.unmodifiableSet(EnumSet.copyOf(applicable));
     }
 
     /**
-     * The privileges that mean something on this kind. Everything applies to a namespace, because a
+     * The privileges that mean something on this kind, in {@link Privilege}'s declared order. Everything applies to a namespace, because a
      * grant there is inherited by every object in it, now and later.
      */
     public Set<Privilege> applicable() {
