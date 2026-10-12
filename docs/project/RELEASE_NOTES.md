@@ -121,7 +121,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-Register: **594 findings — 564 fixed, 11 open, 0 GA-BLOCKER, 3 GA-REQUIRED**.
+Register: **594 findings — 575 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.4.2 — 2026-10-12
 

@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **594 findings carrying a
-status — 564 FIXED, 11 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 11 open, **0 are
-GA-BLOCKER, 3 GA-REQUIRED, 8 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 575 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7846,60 +7846,49 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 
 > **Status:** FIXED — FileCheckpointStore.availableIds listed the checkpoint directory with Files.list, and a drop deletes that directory; a debug fork or listing on its way when the drop landed got an UncheckedIOException wrapping NoSuchFileException, an uncoded failure that RegistryLockStressTest caught in the gate. A store whose directory is gone now holds no checkpoint (an empty list). FileCheckpointStoreTest#aDirectoryDeletedUnderTheStoreHoldsNoCheckpoints; RegistryLockStressTest green five runs in a row.
 
-## Found writing tutorials group A (2026-10-12), 11 findings
+## Found writing tutorials group A (2026-10-12), 11 findings, all fixed
 
 ### TOOLATE-1 (MEDIUM) — rows too late for any window are counted but nowhere published
 
-> **Status:** OPEN — WindowedAggregate counts them (QueryExecution.lateRecords) and sends them to a side output nothing reads; no metric, plan field or API shows the count, so whether allowed lateness is right cannot be judged. Being fixed.
-> **Disposition:** GA-REQUIRED — an operator cannot see data being dropped.
+> **Status:** FIXED — rows too late for any window are published as pravaha_query_late_records_total{query}, lateRecords in GET /api/v1/queries/{name} and the plan's telemetry, "late rows" in pravaha describe and on the console's query page; LateRecordsVisibleTest, PravahaMetricsTest.
 
 ### SNIPPETTOKEN-1 (MEDIUM) — the console's Java and Python snippets connect without a token
 
-> **Status:** OPEN — core/snippets.py omits the token for a grpc:// engine although the console always runs against a node with sign-in on, which refuses them PRV-7001; the page says the token is read from PRAVAHA_TOKEN. Being fixed.
-> **Disposition:** GA-REQUIRED — the copied code does not run.
+> **Status:** FIXED — the console's Java and Python snippets read PRAVAHA_TOKEN and pass it, allowed over plaintext grpc:// by name, and send none when it is unset; test_a_plaintext_engines_snippets_still_sign_in.
 
 ### TSEQ-1 (MEDIUM) — an equality on a window bound with a timestamp literal is refused
 
-> **Status:** OPEN — WHERE window_end = TIMESTAMP '…' is PRV-2021 ("converts between INT64 and TIMESTAMP_LTZ") while >= plans; seen on a HOP view in tutorial 2. Being fixed.
-> **Disposition:** GA-REQUIRED — a natural point read is refused.
+> **Status:** FIXED — a cast between TIMESTAMP and TIMESTAMP WITH LOCAL TIME ZONE that keeps every digit is the value itself, so =, <> and IN against a timestamp literal plan exactly; TimestampEqualityReadTest.
 
 ### FEEDLABEL-1 (LOW) — the query page says "backfilling" after a replacement finished
 
-> **Status:** OPEN — the console reads a stale feed label while describe says RUNNING. Being fixed.
-> **Disposition:** POST-GA — a label.
+> **Status:** FIXED — a replacement's feed says "backfilling" only while a partition is still reading history, so describe and the query page agree once it is live; BackfillSpliceEquivalenceTest.
 
 ### STREAMLATE-1 (LOW) — the Catalog stream page omits allowed lateness and calls out-of-orderness lateness
 
-> **Status:** OPEN — its "Event time and lateness" card describes the wrong setting. Being fixed.
-> **Disposition:** POST-GA — a label.
+> **Status:** FIXED — the stream page shows allowed lateness, and out-of-orderness is described as itself on the stream page and the Catalog cards.
 
 ### DEBUGPAGE-1 (LOW) — the debugger page says a query is not being debugged while listing its session
 
-> **Status:** OPEN — the condition reads the wrong field. Being fixed.
-> **Disposition:** POST-GA — a label.
+> **Status:** FIXED — the debugger page says how many sessions are open instead of "not being debugged" when it lists them.
 
 ### SNIPPETCOPY-1 (LOW) — the view page's Copy button overlaps the psql snippet's first line
 
-> **Status:** OPEN — CSS. Being fixed.
-> **Disposition:** POST-GA — cosmetic.
+> **Status:** FIXED — a snippet's first line starts below its Copy button.
 
 ### LOGORDER-1 (LOW) — "sources bound" lists options in a different order each run
 
-> **Status:** OPEN — an unordered map is printed. Being fixed.
-> **Disposition:** POST-GA — log noise.
+> **Status:** FIXED — "sources bound:" and "sinks bound:" list each binding's option names sorted; BindingLogOrderTest.
 
 ### LOOKUPMSG-1 (LOW) — a PRV-2020 lookup message is missing a period
 
-> **Status:** OPEN — "…and plans See docs/…". Being fixed.
-> **Disposition:** POST-GA — wording.
+> **Status:** FIXED — the PRV-2020 lookup-filter refusal ends its sentence before "See docs/…", and any refusal detail missing a full stop gets one; RefusalGuidanceTest.
 
 ### CATALOGLOOKUP-1 (LOW) — configured lookups are not in the console's Catalog
 
-> **Status:** OPEN — only `pravaha plugins` lists them. Being fixed.
-> **Disposition:** POST-GA — discoverability.
+> **Status:** FIXED — the Catalog's streams tab lists configured lookup tables and their plugin, from the engine's plugin bindings.
 
 ### CLIFILTER-1 (LOW) — pravaha subscribe --filter prints a Python dict repr
 
-> **Status:** OPEN — {'user_id': 'alice'} instead of user_id = 'alice'. Being fixed.
-> **Disposition:** POST-GA — output.
+> **Status:** FIXED — pravaha subscribe --filter says "where user_id = 'alice'" rather than a Python dict.
 
