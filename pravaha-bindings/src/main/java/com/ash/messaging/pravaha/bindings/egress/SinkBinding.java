@@ -47,6 +47,7 @@ public record SinkBinding(String sinkName, String plugin, Map<String, String> op
 
     @Override
     public String toString() {
-        return sinkName + " -> " + plugin + options.keySet();
+        // LOGORDER-1: sorted, as a source binding's are, so "sinks bound: ..." reads the same every run.
+        return sinkName + " -> " + plugin + new java.util.TreeSet<>(options.keySet());
     }
 }
