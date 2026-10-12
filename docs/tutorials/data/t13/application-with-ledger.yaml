@@ -1,0 +1,22 @@
+# Tutorial 13 (docs/tutorials/13-writing-a-connector.md), step 6: the same node, and a sink you wrote --
+# acme-ledger, which appends each row it is given to a file.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    ticks:
+      schema: "symbol:STRING,seq:INT64,price:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 0s
+  sources:
+    ticks:
+      plugin: acme
+      options:
+        symbols: ACME,GLOBEX
+        ticks: "6"
+        start: "2026-10-01T09:00:00Z"
+        step-seconds: "15"
+  sinks:
+    ledger:
+      plugin: acme-ledger            # what AcmeLedgerSinkPlugin.name() answers
+      options:
+        path: data/outgoing/ledger.txt
