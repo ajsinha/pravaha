@@ -7,15 +7,12 @@ Proprietary and confidential. See LICENSE at the repository root.
                                   and the recent changes -- an administrator's screen
     /admin/ai-models/{op}         one change (POST, CSRF-protected): applied to the console's
                                   router before the answer, so the next request uses it
-    /assist/draft                 "Describe it": a draft from a description, judged by the engine
-    /assist/register              register a draft the engine accepted, once the person confirms
-    /assist/explain-query         a registered query (or SQL) in plain English
-    /assist/explain-refusal       what a PRV code means for this statement, and what to change
 
-Each ``/assist/*`` POST is also ``/api/v1/assist/*``: the same work, answered as JSON carrying the
-server-rendered fragment (``html``) the page's script puts in place, so the result is drawn once,
-here, whether or not scripting is on. Without scripting the form posts to the page route and the
-fragment comes back inside a page.
+The console's own assist surfaces -- "Describe it", "Explain this query", "Explain" beside a code --
+are folded into the engine's plain-English features (routes/ai_routes.py, docs/guides/AI.md): one
+assistant, the engine's, answering as the person. What stays here is the CLI assistant's model file
+(``assist.json``, which ``pravaha ask`` and ``pravaha assist`` read on this host), reached from
+Admin -> AI, and its ``/metrics``.
 
 **Who may administer.** The configuration is the console's, not the engine's, so the console has
 to decide -- and it asks the engine, which is the identity authority (ADR-052): on every request
@@ -31,22 +28,20 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import (
     HTMLResponse,
-    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
 )
 
-from core.assist import AssistFailure, AssistService
+from core.assist import AssistService
 from core.observability import authorized
 from core.services import ServiceError
 from routes.auth_routes import (
     current_user,
     flash,
-    local_path,
     login_required,
     take_flashes,
 )
-from routes.base import Routes, failure, sign_in_first, ui_text
+from routes.base import Routes, failure, ui_text
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +68,6 @@ def _float_or_none(value: Any, what: str) -> float | None:
         raise ServiceError(ui_text("admin.ai.bad_seconds", what=what, value=text)) from None
 
 
-def _refuse(failure: AssistFailure):
-    """A task that fails before it starts (nothing to ask), in the shape of one that ran."""
-    def run(_user: str):
-        raise failure
-    return run
-
-
 def _chain(text: str) -> list[str]:
     return [part.strip() for part in str(text or "").replace("\n", ",").split(",") if part.strip()]
 
@@ -101,7 +89,6 @@ class AssistRoutes(Routes):
             self.templates.env.globals["assist_status"] = service.status
         self.service = service
         self._register_admin()
-        self._register_tasks()
         self._register_metrics()
 
     # ================================================================== /metrics
@@ -263,111 +250,3 @@ class AssistRoutes(Routes):
                           per_request_max_tokens=_int_or_none(field("per_request_max_tokens"),
                                                               ui_text("admin.ai.budget_request")))
         raise ServiceError(ui_text("admin.ai.no_such_change", op=op), status=404)
-
-    # ================================================================== the tasks
-
-    def _fragment(self, request: Request, kind: str, **values: Any) -> str:
-        brand = self.brand(request)
-        assert self.templates is not None, "the assistant's answers are drawn by the templates"
-        template = self.templates.env.get_template("_assist_fragment.html")
-        return template.render(kind=kind, request=request, csrf_token=brand["csrf_token"],
-                               is_admin=brand["is_admin"], asset_version=brand["asset_version"],
-                               **values)
-
-    async def _fields(self, request: Request) -> dict[str, Any]:
-        if request.headers.get("content-type", "").startswith("application/json"):
-            try:
-                body = await request.json()
-            except ValueError:
-                body = {}
-            return body if isinstance(body, dict) else {}
-        form = await request.form()
-        return {k: v for k, v in form.items() if isinstance(v, str)}
-
-    def _answer(self, request: Request, api: bool, kind: str, run, fields: dict[str, Any]):
-        """Runs one task and answers it: JSON with the fragment for the page's script, or a page
-        around the fragment. A failure is a fragment too -- the empty state when no model can
-        answer, the budget's refusal, the model's normalised error, the engine's refusal."""
-        user = str(current_user(request))
-        try:
-            result, failed = run(user), None
-        except AssistFailure as exc:
-            result, failed = None, exc
-        except ServiceError as exc:
-            result, failed = None, AssistFailure("engine", str(exc), exc.status or 400, code=exc.code)
-        shown = "empty" if failed is not None and failed.kind == "unconfigured" else \
-            "failure" if failed is not None else kind
-        fragment = self._fragment(request, shown, result=result, failure=failed, fields=fields)
-        status = failed.status if failed is not None else 200
-        if api:
-            return JSONResponse({"html": fragment, "ok": failed is None, "result": result,
-                                 "error": failed.to_dict() if failed is not None else None},
-                                status_code=status)
-        back = local_path(str(fields.get("next") or "")) if fields.get("next") else "/workbench"
-        return self.page(request, "assist_result.html", http_status=status, fragment=fragment,
-                         back=back, task=kind)
-
-    def _register_tasks(self) -> None:
-        service = self.service
-
-        def gate(request: Request, api: bool):
-            if api:
-                return sign_in_first() if current_user(request) is None else None
-            return login_required(request)
-
-        def draft(fields: dict[str, Any]):
-            description = str(fields.get("description") or "")
-            answers = []
-            for index in range(12):
-                question = fields.get(f"question_{index}")
-                if question is None:
-                    continue
-                answers.append((str(question), str(fields.get(f"answer_{index}") or "")))
-            wanted = service.with_answers(description, answers)
-            if not wanted.strip():
-                raise AssistFailure("input", self.t("assist.describe.empty_description"), 400)
-            return lambda user: service.draft(user, wanted, name=str(fields.get("name") or "") or None)
-
-        def register(fields: dict[str, Any]):
-            return lambda user: service.register(
-                user, str(fields.get("draft_id") or ""),
-                confirmed=str(fields.get("confirmed") or "").lower() in ("yes", "true", "on", "1"),
-                name=str(fields.get("name") or "").strip() or None)
-
-        def explain_query(fields: dict[str, Any]):
-            return lambda user: service.explain_query(user, name=str(fields.get("name") or "") or None,
-                                                      sql=str(fields.get("sql") or "") or None)
-
-        def explain_refusal(fields: dict[str, Any]):
-            return lambda user: service.explain_refusal(user, str(fields.get("code") or ""),
-                                                        str(fields.get("sql") or "") or None)
-
-        tasks = {"draft": ("draft", draft), "register": ("registered", register),
-                 "explain-query": ("explained-query", explain_query),
-                 "explain-refusal": ("explained-refusal", explain_refusal)}
-
-        def handler(task: str, api: bool):
-            kind, build = tasks[task]
-
-            async def handle(request: Request):
-                if (refusal := gate(request, api)) is not None:
-                    return refusal
-                fields = await self._fields(request)
-                try:
-                    run = build(fields)
-                except AssistFailure as exc:
-                    run = _refuse(exc)
-                return self._answer(request, api, kind, run, fields)
-
-            handle.__name__ = f"assist_{task.replace('-', '_')}{'_api' if api else ''}"
-            return handle
-
-        for task in tasks:
-            self.app.post(f"/assist/{task}", tags=["ui"])(handler(task, False))
-            self.app.post(f"{self.api}/assist/{task}", tags=["api"])(handler(task, True))
-
-        @self.app.get(f"{self.api}/assist/status", tags=["api"])
-        def assist_status(request: Request, profile: str = ""):
-            if current_user(request) is None:
-                return sign_in_first()
-            return JSONResponse(service.status(profile or None))

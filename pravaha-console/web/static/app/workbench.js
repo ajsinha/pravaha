@@ -329,8 +329,8 @@ function initialTabs() {
   return { tabs: tabs.slice(-12), active };
 }
 
-/* ADR-058 phase 3: whether a model can explain a refusal here (the server says, on the mount). */
-const ASSIST_READY = Boolean(mount && mount.dataset.assistReady);
+/* Whether the engine's AI layer explains a refusal for this person (the server says, on the mount). */
+const AI_EXPLAIN = Boolean(mount && mount.dataset.aiExplain);
 
 function Diagnostics({ validation, onFix, onRetry, sql = "" }) {
   if (validation.status === "idle") {
@@ -361,8 +361,8 @@ function Diagnostics({ validation, onFix, onRetry, sql = "" }) {
     <div class="actions">
       ${d.fixes.map((f) => html`<button type="button" class="btn btn-sm btn-outline-secondary" onClick=${() => onFix(f)}>${f.title}</button>`)}
       <a class="btn btn-sm btn-link" href=${d.help} target="_blank" rel="noopener">${t("wb.diag.means", { code: d.code || t("wb.diag.this") })}</a>
-      ${ASSIST_READY && d.code ? html`<button type="button" class="btn btn-sm btn-link" data-assist-explain=${d.code} data-assist-sql=${sql}
-        aria-label=${t("assist.explain_code", { code: d.code })}>${t("assist.explain")}</button><div class="assist-slot w-100" tabindex="-1" aria-live="polite"></div>` : null}
+      ${AI_EXPLAIN && d.code ? html`<button type="button" class="btn-pill btn-ghost btn-sm-pill ai-bulb" data-ai-explain-code=${d.code} data-ai-sql=${sql}
+        aria-label=${t("ai.explain_code", { code: d.code })}><i class="bi bi-lightbulb" aria-hidden="true"></i> ${t("ai.explain")}</button><div class="ai-slot w-100" tabindex="-1" aria-live="polite"></div>` : null}
     </div></div>`)}</div>`;
 }
 

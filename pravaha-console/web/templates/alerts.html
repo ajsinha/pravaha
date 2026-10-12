@@ -2,6 +2,7 @@
 {% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
 {% import "_people.html" as people %}
+{% import "_ai.html" as ai with context %}
 {% block title %}{{ t('alerts.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {#- ADR-057: the alerts this person may see, as the engine lists them. An alert fires when a key's
@@ -18,6 +19,8 @@
 <p class="lede">{{ t('alerts.lede') }}</p>
 
 {{ people.flashes(flashes) }}
+{# "Describe an alert": the engine drafts a CREATE ALERT, judged as creating it would be; Create asks first. #}
+{% if ai_can(request, 'alert') %}{{ ai.describe_box('alert-draft', 'ai-describe-alert', t('ai.describe.alert'), t('ai.describe.alert_note'), t('ai.describe.alert_placeholder')) }}{% endif %}
 
 {% if alerts_off %}
 <div class="state" id="alerts-off"><h2>{{ t('alerts.off.title') }}</h2><p>{{ t('alerts.off.body') }} <code>pravaha.alerts.enabled</code> (<a href="/help/codes/PRV-8047">PRV-8047</a>).</p></div>
