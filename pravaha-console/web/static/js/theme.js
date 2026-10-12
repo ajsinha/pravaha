@@ -6,15 +6,15 @@
  *
  * Ask once. Answer always.
  *
- * MAYA's mechanism, as MAYA's app.js has it: four themes -- Crimson (stored as "light"), Dark,
- * Blue and Green -- chosen from the theme menu, stored in localStorage, and applied as
- * `data-theme` on <html> with `data-bs-theme` beside it, so Bootstrap's own components know
- * that only Dark is dark. Somebody who has never chosen gets the crimson theme, or the dark one
- * when their system is dark: tokens.css answers `prefers-color-scheme` wherever no theme is set.
+ * drishti's mechanism: seven themes -- Terminal, Parchment, Blue, Wall Street, Green, Crimson and
+ * Crimson dark, under drishti's ids -- chosen from the theme menu (each with its swatch), stored
+ * in localStorage, and applied as `data-theme` on <html> with `data-bs-theme` beside it, so
+ * Bootstrap's own components know which three are dark. Somebody who has never chosen gets
+ * Crimson, Pravaha's brand, whatever the system prefers.
  *
- * The one addition is the inline snippet in base.html's <head>, which applies a stored choice
- * before the first paint. MAYA's CSP forbids inline script and it lives with the flash; the
- * console has no such policy, and somebody who chose dark should never see a white page first.
+ * theme-init.js, loaded in <head> before the stylesheets, applies a stored choice before the
+ * first paint (no inline script: the CSP allows none without a nonce) and migrates the earlier
+ * four-theme key; this file is the menu, the keyboard and the density.
  *
  * DENSITY works the same way and is separate from the browser's zoom, because zoom scales the
  * LAYOUT, where this scales only the rows, the cells and the space between sections.
@@ -27,9 +27,11 @@
     return window.PravahaApi ? window.PravahaApi.t(key, params) : key;
   }
 
-  var KEY = "pravaha.theme";
-  /* The single source of truth for which themes exist, in the theme menu's order. */
-  var THEMES = ["light", "dark", "blue", "green"];
+  var KEY = "pravaha.theme.v2";
+  /* The single source of truth for which themes exist, in the theme menu's order (drishti's). */
+  var THEMES = ["terminal", "light", "blue", "wallstreet", "green", "crimson", "crimson-dark"];
+  var DEFAULT = "crimson";
+  var DARK = ["terminal", "wallstreet", "crimson-dark"];
   var DENSITY_KEY = "pravaha.density";
   var DENSITIES = ["comfortable", "compact"];
   var PAGE_HELP_KEY = "pravaha.pageHelp";
@@ -41,11 +43,10 @@
     } catch (e) { return null; }
   }
 
-  /* The theme on screen: the stored one, else what the system asks for. */
+  /* The theme on screen: the stored one, else the default. */
   function current() {
     var chosen = document.documentElement.getAttribute("data-theme");
-    if (THEMES.indexOf(chosen) >= 0) return chosen;
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return THEMES.indexOf(chosen) >= 0 ? chosen : DEFAULT;
   }
 
   function mark(theme) {
@@ -58,7 +59,7 @@
     if (THEMES.indexOf(theme) < 0) return;
     var root = document.documentElement;
     root.setAttribute("data-theme", theme);
-    root.setAttribute("data-bs-theme", theme === "dark" ? "dark" : "light");
+    root.setAttribute("data-bs-theme", DARK.indexOf(theme) >= 0 ? "dark" : "light");
     mark(theme);
   }
 
@@ -175,5 +176,5 @@
     });
   });
 
-  window.PravahaTheme = {apply: apply, stored: stored, current: current, announce: announce};
+  window.PravahaTheme = {apply: apply, stored: stored, current: current, announce: announce, themes: THEMES.slice()};
 }());

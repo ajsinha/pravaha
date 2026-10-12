@@ -5,217 +5,329 @@
  *
  * Ask once. Answer always.
  *
- * The console follows the design language of MAYA, its sibling product: the same token roles,
- * the same four themes (Crimson, Dark, Blue, Green), the same navigation gradient and glow. The
- * names are MAYA's with a `pv-` prefix -- `--pv-crimson` is MAYA's `--maya-crimson` -- and they
- * name a ROLE rather than a hue: `--pv-crimson` is the accent, which is blue in the blue theme.
+ * The console follows the design language of DRISHTI, its sibling product: the same seven themes
+ * under the same names and ids -- Terminal (terminal), Parchment (light), Blue (blue), Wall Street
+ * (wallstreet), Green (green), Crimson (crimson) and Crimson dark (crimson-dark) -- and, in each,
+ * drishti's token values exactly (drishti-console/web/static/css/tokens.css, ported with credit).
+ * The `--d-*` blocks below are drishti's, value for value. Pravaha's default is Crimson, its brand,
+ * where drishti's is Terminal; so the crimson theme is also the `:root` fallback, and every theme
+ * declares every token so none inherits a crimson value by accident.
  *
- * Where a value differs from MAYA's it is for one of two reasons, each held by
- * tests/test_contrast.py rather than by eye:
- *   - a text pair below WCAG AA 4.5:1 (MAYA's light slate on its canvas is 4.35; its blue accent
- *     as a link on the blue canvas is 4.25), so the text token moves one step darker in the same hue;
- *   - a status colour that could be read as the brand (MAYA's `bad` is its crimson-strong), so
- *     `bad` stays the orange-shifted red the console has always used.
- * Below MAYA's set are the tokens only Pravaha needs: soft grounds for the status chips, a neutral
- * wash, a form-control edge that holds 3:1, the retraction colour, and the data series.
+ * Under each theme's drishti block are the few tokens only Pravaha needs, marked `--pv-`:
+ *   - the heading colour (drishti's `main h1, main h2` rule: accent-strong on the four coloured
+ *     bars, ink on the other three),
+ *   - the retraction colour of the landing figure (a −1, told apart from the accent and from
+ *     `bad`: drishti's link colour, except in Blue and Green where the link is the accent's hue),
+ *   - the eight data series, each at least 25 ΔE from its theme's accent (CON-10),
+ *   - the band gradient (`--d-nav-from/via/to`): drishti's navigation gradient in the four themes
+ *     that have one; for Terminal, Parchment and Wall Street, whose top bar is glass rather than a
+ *     band, a deep gradient of their own for the few bands Pravaha draws (About, sign-in).
  *
- * The data series are one validated categorical order, except where a theme's accent sits on one
- * of them: a chart line next to an accent control must not read as the same colour (CON-10), so
- * every series is at least 25 ΔE from its theme's accent. That moves the light theme's
- * `series-8` (#e34948, 20.5 from the crimson), the dark theme's `series-5` and `series-8`
- * (#d55181 and #e66767, 19.9 each from #E47F92) and the blue theme's `series-1` (#2a78d6, 18.4
- * from #006BAC), each by the least that clears it. Green needs no change.
+ * The console's older role names (`--pv-crimson` for the accent, `--pv-slate` for muted text, …)
+ * are aliases of these at the foot of this file, declared once, so a theme is one block here and
+ * nothing else. tests/test_contrast.py resolves every alias, rgba and color-mix and checks each
+ * text token on each ground of each theme at WCAG AA.
  */
-:root {
-  --pv-crimson: #A51C30;
-  --pv-crimson-strong: #8A1626;
-  --pv-crimson-deep: #6E1120;
-  --pv-crimson-tint: #FBEEF0;
-  --pv-ink: #1A1A1A;
-  --pv-slate: #5C6470;         /* MAYA: #6B7480, 4.35:1 on the canvas */
-  --pv-surface: #FFFFFF;
-  --pv-canvas: #F7F5F2;
-  --pv-indigo: #293352;
-  --pv-on-crimson: #FFFFFF;
-  --pv-border: #E3DED7;
-  --pv-ok: #1E6B3A;
-  --pv-warn: #7A5200;
-  --pv-bad: #CC2200;           /* MAYA: #8A1626, the accent's own step */
-  --pv-highlight: #F4DDA0;
-  --pv-heading: #6E1120;
-  /* the navigation gradient: crimson-deep → crimson → indigo, white text on all three */
-  --pv-nav-from: #5C0E1B;
-  --pv-nav-via: #A51C30;
-  --pv-nav-to: #293352;
-  --pv-on-nav: #FFFFFF;
-  --pv-glow: #F3C6CF;
-  /* Pravaha's own */
-  --pv-crimson-light: #C4384B;
-  --pv-wash: #F1EEE9;
-  --pv-edge: #6B7480;
-  --pv-ok-soft: #E6F2EA;
-  --pv-warn-soft: #F8F0E2;
-  --pv-bad-soft: #FBE9E4;
-  --pv-info: #293352;
-  --pv-info-soft: #E9ECF3;
+:root,
+:root[data-theme="crimson"] {
+  --d-bg: #f7f5f2;
+  --d-bg-2: #efebe5;
+  --d-surface: #ffffff;
+  --d-surface-2: #fbf9f6;
+  --d-border: #e3ded7;
+  --d-ink: #1a1a1a;
+  --d-muted: #5c6470;
+  --d-faint: #636a73;
+  --d-accent: #a51c30;
+  --d-accent-strong: #8a1626;
+  --d-accent-tint: rgba(165, 28, 48, .08);
+  --d-on-accent: #ffffff;
+  --d-link: #293352;
+  --d-pos: #293352;
+  --d-neg: #a51c30;
+  --d-ok: #1e6b3a;
+  --d-warn: #7a5200;
+  --d-bad: #8a1626;
+  --d-highlight: rgba(165, 28, 48, .05);
+  --d-emph-bg: rgba(244, 221, 160, .7);
+  --d-glow: rgba(165, 28, 48, .22);
+  --d-grad-from: #a51c30;
+  --d-grad-to: #293352;
+  --d-nav: rgba(247, 245, 242, .92);
+  --d-nav-from: #5c0e1b;
+  --d-nav-via: #a51c30;
+  --d-nav-to: #293352;
+  --d-shadow: 0 10px 30px rgba(41, 51, 82, .12);
+  --pv-heading: #8a1626;
   --pv-retract: #293352;
   --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
   --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #f1353e;
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    --pv-crimson: #E47F92;
-    --pv-crimson-strong: #EA8FA0;
-    --pv-crimson-deep: #E07A8E;
-    --pv-crimson-tint: #2A1A1E;
-    --pv-ink: #ECECEF;
-    --pv-slate: #8996A0;
-    --pv-surface: #1F1F23;
-    --pv-canvas: #151517;
-    --pv-indigo: #A9B6D6;
-    --pv-on-crimson: #151517;
-    --pv-border: #34343A;
-    --pv-ok: #7FD39B;
-    --pv-warn: #E8C26A;
-    --pv-bad: #FF8B63;
-    --pv-highlight: #5A4712;
-    --pv-heading: #E47F92;
-    --pv-nav-from: #2E0810;
-    --pv-nav-via: #6E1120;
-    --pv-nav-to: #1B2138;
-    --pv-on-nav: #FFFFFF;
-    --pv-glow: #4A2530;
-    --pv-crimson-light: #EC9EAC;
-    --pv-wash: #232329;
-    --pv-edge: #767C86;
-    --pv-ok-soft: #14241A;
-    --pv-warn-soft: #291F12;
-    --pv-bad-soft: #2E1A12;
-    --pv-info: #A9B6D6;
-    --pv-info-soft: #1A1E2A;
-    --pv-retract: #A9B6D6;
-    --pv-series-1: #3987e5; --pv-series-2: #d95926; --pv-series-3: #199e70; --pv-series-4: #c98500;
-    --pv-series-5: #d44487; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #f25d61;
-    color-scheme: dark;
-  }
-}
-
-/* Dark. The accent lightens one step past MAYA's #DE6B81, and hovers lighter still (#EA8FA0),
-   because the stale state greys a page out and every pair must still hold 4.5:1 after that. */
-:root[data-theme="dark"] {
-  --pv-crimson: #E47F92;
-  --pv-crimson-strong: #EA8FA0;
-  --pv-crimson-deep: #E07A8E;
-  --pv-crimson-tint: #2A1A1E;
-  --pv-ink: #ECECEF;
-  --pv-slate: #8996A0;
-  --pv-surface: #1F1F23;
-  --pv-canvas: #151517;
-  --pv-indigo: #A9B6D6;
-  --pv-on-crimson: #151517;
-  --pv-border: #34343A;
-  --pv-ok: #7FD39B;
-  --pv-warn: #E8C26A;
-  --pv-bad: #FF8B63;           /* MAYA: #F08A9C, a step of the accent */
-  --pv-highlight: #5A4712;
-  --pv-heading: #E47F92;
-  --pv-nav-from: #2E0810;
-  --pv-nav-via: #6E1120;
-  --pv-nav-to: #1B2138;
-  --pv-on-nav: #FFFFFF;
-  --pv-glow: #4A2530;
-  --pv-crimson-light: #EC9EAC;
-  --pv-wash: #232329;
-  --pv-edge: #767C86;
-  --pv-ok-soft: #14241A;
-  --pv-warn-soft: #291F12;
-  --pv-bad-soft: #2E1A12;
-  --pv-info: #A9B6D6;
-  --pv-info-soft: #1A1E2A;
-  --pv-retract: #A9B6D6;
+:root[data-theme="crimson-dark"] {
+  --d-bg: #151517;
+  --d-bg-2: #1a1a1d;
+  --d-surface: #1f1f23;
+  --d-surface-2: #25252a;
+  --d-border: #34343a;
+  --d-ink: #ececef;
+  --d-muted: #97a2ab;
+  --d-faint: #858f99;
+  --d-accent: #de6b81;
+  --d-accent-strong: #e07a8e;
+  --d-accent-tint: rgba(222, 107, 129, .14);
+  --d-on-accent: #14100a;       /* drishti leaves it to its :root (terminal) value */
+  --d-link: #a9b6d6;
+  --d-pos: #a9b6d6;
+  --d-neg: #f08a9c;
+  --d-ok: #7fd39b;
+  --d-warn: #e8c26a;
+  --d-bad: #f08a9c;
+  --d-highlight: rgba(169, 182, 214, .07);
+  --d-emph-bg: rgba(222, 107, 129, .26);
+  --d-glow: rgba(222, 107, 129, .30);
+  --d-grad-from: #de6b81;
+  --d-grad-to: #a9b6d6;
+  --d-nav: rgba(21, 21, 23, .88);
+  --d-nav-from: #2e0810;
+  --d-nav-via: #6e1120;
+  --d-nav-to: #1b2138;
+  --d-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+  --pv-heading: #e07a8e;
+  --pv-retract: #a9b6d6;
   --pv-series-1: #3987e5; --pv-series-2: #d95926; --pv-series-3: #199e70; --pv-series-4: #c98500;
-  --pv-series-5: #d44487; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #f25d61;
+  --pv-series-5: #9a6fe0; --pv-series-6: #008300; --pv-series-7: #6f9ad8; --pv-series-8: #e8e05a;
   color-scheme: dark;
 }
 
-/*
- * Blue and green, as MAYA has them. Each redefines the same tokens and nothing else, so every
- * gradient, glow and layout stays exactly as the crimson theme has it: only the colour changes.
- * Blue is the SAJHA server's palette (#0079C1 on the bar, #003168 the deep navy); as TEXT the
- * accent is one step deeper, #006BAC, which holds 4.5:1 on the blue canvas where #0079C1 is 4.25.
- * Green follows Rolex: #006039 as the accent on a warm cream ground; its `ok` is a yellower green
- * than the accent, so "running" is never read as "this product".
- */
+:root[data-theme="terminal"] {
+  --d-bg: #0e1628;
+  --d-bg-2: #121c33;
+  --d-surface: #16213a;
+  --d-surface-2: #1b2744;
+  --d-border: #26345a;
+  --d-ink: #e7ecf5;
+  --d-muted: #93a0b8;
+  --d-faint: #8490a9;
+  --d-accent: #e8a33a;          /* amber: brand, commands, emphasis */
+  --d-accent-strong: #f2b453;
+  --d-accent-tint: rgba(232, 163, 58, .14);
+  --d-on-accent: #14100a;       /* a label on an accent fill (buttons) */
+  --d-link: #7fb2ff;            /* blue: links, positive values */
+  --d-pos: #7fb2ff;
+  --d-neg: #f2955a;
+  --d-ok: #5fd39a;
+  --d-warn: #f2c14e;
+  --d-bad: #ff7a7a;
+  --d-highlight: rgba(127, 178, 255, .08);
+  --d-emph-bg: rgba(232, 163, 58, .28);
+  --d-glow: rgba(232, 163, 58, .35);
+  --d-grad-from: #e8a33a;
+  --d-grad-to: #7fb2ff;
+  --d-nav: rgba(14, 22, 40, .86);
+  --d-nav-from: #0b1222;
+  --d-nav-via: #1d2c50;
+  --d-nav-to: #2b3f70;
+  --d-shadow: 0 10px 40px rgba(0, 0, 0, .35);
+  --pv-heading: #e7ecf5;
+  --pv-retract: #7fb2ff;
+  --pv-series-1: #3987e5; --pv-series-2: #e8577a; --pv-series-3: #199e70; --pv-series-4: #b5d46a;
+  --pv-series-5: #c86bd6; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #5fd3d3;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --d-bg: #f7f5f0;
+  --d-bg-2: #efebe3;
+  --d-surface: #ffffff;
+  --d-surface-2: #faf8f4;
+  --d-border: #e2dcd0;
+  --d-ink: #172440;
+  --d-muted: #55607a;
+  --d-faint: #60697e;
+  --d-accent: #985b0a;
+  --d-accent-strong: #7c4805;
+  --d-accent-tint: rgba(184, 110, 12, .10);
+  --d-on-accent: #ffffff;
+  --d-link: #1f5fc4;
+  --d-pos: #1f5fc4;
+  --d-neg: #b4491a;
+  --d-ok: #1b784c;
+  --d-warn: #8a6100;
+  --d-bad: #b42323;
+  --d-highlight: rgba(31, 95, 196, .06);
+  --d-emph-bg: rgba(184, 110, 12, .16);
+  --d-glow: rgba(184, 110, 12, .22);
+  --d-grad-from: #b86e0c;
+  --d-grad-to: #1f5fc4;
+  --d-nav: rgba(247, 245, 240, .9);
+  --d-nav-from: #4a2c04;
+  --d-nav-via: #7c4805;
+  --d-nav-to: #172440;
+  --d-shadow: 0 10px 30px rgba(23, 36, 64, .10);
+  --pv-heading: #172440;
+  --pv-retract: #1f5fc4;
+  --pv-series-1: #2a78d6; --pv-series-2: #e8577a; --pv-series-3: #1baf7a; --pv-series-4: #8fb800;
+  --pv-series-5: #c86bd6; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #f1353e;
+  color-scheme: light;
+}
+
+/* Blue: Sajha's (and Maya's) blue palette, the same roles as every theme */
 :root[data-theme="blue"] {
-  --pv-crimson: #006BAC;       /* MAYA: #0079C1, 4.25:1 as a link on this canvas */
-  --pv-crimson-strong: #00609A;
-  --pv-crimson-deep: #003168;
-  --pv-crimson-tint: #E6F2FA;
-  --pv-ink: #1E293B;
-  --pv-slate: #536578;
-  --pv-surface: #FFFFFF;
-  --pv-canvas: #F0F5FA;
-  --pv-indigo: #003168;
-  --pv-on-crimson: #FFFFFF;
-  --pv-border: #DCE4EE;
-  --pv-ok: #1E6B3A;
-  --pv-warn: #7A5200;
-  --pv-bad: #B42318;
-  --pv-highlight: #CDE8F7;
-  --pv-heading: #003168;
-  --pv-nav-from: #002654;
-  --pv-nav-via: #0079C1;
-  --pv-nav-to: #003168;
-  --pv-on-nav: #FFFFFF;
-  --pv-glow: #CBE6F7;
-  --pv-crimson-light: #00A3E0;
-  --pv-wash: #E9F0F7;
-  --pv-edge: #64748B;
-  --pv-ok-soft: #E6F2EA;
-  --pv-warn-soft: #F8F0E2;
-  --pv-bad-soft: #FBE9E4;
-  --pv-info: #293352;
-  --pv-info-soft: #E9ECF3;
-  --pv-retract: #6F42C1;
+  --d-bg: #f0f5fa;
+  --d-bg-2: #e6edf5;
+  --d-surface: #ffffff;
+  --d-surface-2: #f7fafd;
+  --d-border: #dce4ee;
+  --d-ink: #1e293b;
+  --d-muted: #536578;
+  --d-faint: #536578;
+  --d-accent: #006dae;                 /* Sajha's #0079c1 is too light for text (4.0:1); kept for the bar and gradients */
+  --d-accent-strong: #00609a;
+  --d-accent-tint: rgba(0, 121, 193, .08);
+  --d-on-accent: #ffffff;
+  --d-link: #003168;
+  --d-pos: #003168;
+  --d-neg: #b42318;
+  --d-ok: #1e6b3a;
+  --d-warn: #7a5200;
+  --d-bad: #b42318;
+  --d-highlight: rgba(0, 121, 193, .05);
+  --d-emph-bg: rgba(205, 232, 247, .8);
+  --d-glow: rgba(0, 121, 193, .22);
+  --d-grad-from: #0079c1;
+  --d-grad-to: #003168;
+  --d-nav: rgba(240, 245, 250, .92);
+  --d-nav-from: #002654;
+  --d-nav-via: #0079c1;
+  --d-nav-to: #003168;
+  --d-shadow: 0 10px 30px rgba(0, 121, 193, .12);
+  --pv-heading: #00609a;
+  --pv-retract: #6f42c1;
   --pv-series-1: #2176e4; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
   --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
   color-scheme: light;
 }
 
+/* Wall Street: colour scheme after the Bloomberg Terminal — black ground, amber data, yellow
+   commands, green/red ticks, blue links. Colours only; fonts stay the console's. */
+:root[data-theme="wallstreet"] {
+  --d-bg: #000000;
+  --d-bg-2: #050505;
+  --d-surface: #0b0b0b;
+  --d-surface-2: #141414;
+  --d-border: #3a3a3a;
+  --d-ink: #fb8b1e;             /* amber data text */
+  --d-muted: #c9c9c9;           /* white-grey labels */
+  --d-faint: #808080;
+  --d-accent: #ffd400;          /* yellow: command line, function keys */
+  --d-accent-strong: #ffe14d;
+  --d-accent-tint: rgba(255, 212, 0, .12);
+  --d-on-accent: #14100a;       /* drishti leaves it to its :root (terminal) value */
+  --d-link: #4aa3ff;
+  --d-pos: #4af6c3;             /* up-tick green */
+  --d-neg: #ff433d;             /* down-tick red */
+  --d-ok: #4af6c3;
+  --d-warn: #ffd400;
+  --d-bad: #ff433d;
+  --d-highlight: rgba(251, 139, 30, .08);
+  --d-emph-bg: rgba(0, 104, 255, .45);   /* Bloomberg blue highlight bar */
+  --d-glow: rgba(255, 212, 0, .35);
+  --d-grad-from: #fb8b1e;
+  --d-grad-to: #ffd400;
+  --d-nav: rgba(0, 0, 0, .9);
+  --d-nav-from: #000000;
+  --d-nav-via: #1c1404;
+  --d-nav-to: #000000;
+  --d-shadow: 0 10px 40px rgba(0, 0, 0, .6);
+  --pv-heading: #fb8b1e;
+  --pv-retract: #4aa3ff;
+  --pv-series-1: #3987e5; --pv-series-2: #e8577a; --pv-series-3: #199e70; --pv-series-4: #f2955a;
+  --pv-series-5: #c86bd6; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #5fd3d3;
+  color-scheme: dark;
+}
+
+/* Green: Sajha's (and Maya's) green palette, the same roles as every theme */
 :root[data-theme="green"] {
-  --pv-crimson: #006039;
-  --pv-crimson-strong: #004D2E;
-  --pv-crimson-deep: #00331F;
-  --pv-crimson-tint: #E8F3EC;
-  --pv-ink: #1A1A1A;
-  --pv-slate: #5E6A64;
-  --pv-surface: #FFFFFF;
-  --pv-canvas: #F7F5EF;
-  --pv-indigo: #1C3A2E;
-  --pv-on-crimson: #FFFFFF;
-  --pv-border: #E3DECF;
-  --pv-ok: #3D6B00;            /* MAYA: #3A6B1E */
-  --pv-warn: #7A5200;
-  --pv-bad: #A4161A;
-  --pv-highlight: #EBDDB2;
-  --pv-heading: #004D2E;
-  --pv-nav-from: #00261A;
-  --pv-nav-via: #006039;
-  --pv-nav-to: #1C3A2E;
-  --pv-on-nav: #FFFFFF;
-  --pv-glow: #E6D7A8;
-  --pv-crimson-light: #2E8B5F;
-  --pv-wash: #EFEDE4;
-  --pv-edge: #6B736D;
-  --pv-ok-soft: #EEF3E2;
-  --pv-warn-soft: #F8F0E2;
-  --pv-bad-soft: #FBE9E4;
-  --pv-info: #293352;
-  --pv-info-soft: #E9ECF3;
-  --pv-retract: #8A6A1F;
+  --d-bg: #f7f5ef;
+  --d-bg-2: #efebe0;
+  --d-surface: #ffffff;
+  --d-surface-2: #fbfaf6;
+  --d-border: #e3decf;
+  --d-ink: #1a1a1a;
+  --d-muted: #5e6a64;
+  --d-faint: #5e6a64;
+  --d-accent: #006039;
+  --d-accent-strong: #004d2e;
+  --d-accent-tint: rgba(0, 96, 57, .08);
+  --d-on-accent: #ffffff;
+  --d-link: #1c3a2e;
+  --d-pos: #1c3a2e;
+  --d-neg: #a4161a;
+  --d-ok: #3a6b1e;
+  --d-warn: #7a5200;
+  --d-bad: #a4161a;
+  --d-highlight: rgba(0, 96, 57, .05);
+  --d-emph-bg: rgba(235, 221, 178, .8);
+  --d-glow: rgba(0, 96, 57, .22);
+  --d-grad-from: #006039;
+  --d-grad-to: #1c3a2e;
+  --d-nav: rgba(247, 245, 239, .92);
+  --d-nav-from: #00261a;
+  --d-nav-via: #006039;
+  --d-nav-to: #1c3a2e;
+  --d-shadow: 0 10px 30px rgba(0, 96, 57, .12);
+  --pv-heading: #004d2e;
+  --pv-retract: #8a6a1f;
   --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
   --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
   color-scheme: light;
 }
+
+/* The console's role names, each an alias of one token above (declared once, for every theme).
+   `--pv-crimson` names the ROLE, the accent: it is amber in Terminal and blue in Blue. */
+:root, :root[data-theme] {
+  --d-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --d-font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --d-radius: 10px;
+  --pv-crimson: var(--d-accent);
+  --pv-crimson-strong: var(--d-accent-strong);
+  --pv-crimson-deep: var(--d-accent-strong);
+  --pv-crimson-light: var(--d-grad-from);
+  --pv-crimson-tint: var(--d-accent-tint);
+  --pv-ink: var(--d-ink);
+  --pv-slate: var(--d-muted);
+  --pv-faint: var(--d-faint);
+  --pv-surface: var(--d-surface);
+  --pv-canvas: var(--d-bg);
+  --pv-indigo: var(--d-grad-to);
+  --pv-on-crimson: var(--d-on-accent);
+  --pv-border: var(--d-border);
+  --pv-ok: var(--d-ok);
+  --pv-warn: var(--d-warn);
+  --pv-bad: var(--d-bad);
+  --pv-highlight: var(--d-emph-bg);
+  --pv-nav-from: var(--d-nav-from);
+  --pv-nav-via: var(--d-nav-via);
+  --pv-nav-to: var(--d-nav-to);
+  --pv-on-nav: #ffffff;         /* text on the band gradient and on the four coloured bars */
+  --pv-glow: var(--d-glow);
+  --pv-wash: var(--d-surface-2);
+  --pv-edge: var(--d-faint);    /* form-control borders: faint holds 4.5:1, so 3:1 with room */
+  --pv-info: var(--d-link);
+  --pv-ok-soft: color-mix(in srgb, var(--d-ok) 12%, var(--d-surface));
+  --pv-warn-soft: color-mix(in srgb, var(--d-warn) 12%, var(--d-surface));
+  --pv-bad-soft: color-mix(in srgb, var(--d-bad) 12%, var(--d-surface));
+  --pv-info-soft: color-mix(in srgb, var(--d-link) 12%, var(--d-surface));
+}
+
+/* The theme menu's swatches (drishti's theme.css): each shows a theme that is not the one on
+   screen, so no token of the current theme can draw it -- half its ground, half its accent. */
+.swatch-terminal { background: linear-gradient(135deg, #0e1628 50%, #e8a33a 50%); }
+.swatch-light { background: linear-gradient(135deg, #f7f5f0 50%, #b86e0c 50%); }
+.swatch-blue { background: linear-gradient(135deg, #f0f5fa 50%, #0079c1 50%); }
+.swatch-wallstreet { background: linear-gradient(135deg, #000 50%, #fb8b1e 50%); }
+.swatch-green { background: linear-gradient(135deg, #f7f5ef 50%, #006039 50%); }
+.swatch-crimson { background: linear-gradient(135deg, #f7f5f2 50%, #a51c30 50%); }
+.swatch-crimson-dark { background: linear-gradient(135deg, #151517 50%, #de6b81 50%); }

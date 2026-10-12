@@ -112,9 +112,8 @@ function monarch() {
 }
 
 function defineThemes(monaco) {
-  const dark = document.documentElement.getAttribute("data-theme") === "dark"
-    || (!document.documentElement.getAttribute("data-theme")
-        && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  /* theme-init.js marks the three dark themes (terminal, wallstreet, crimson-dark) on data-bs-theme. */
+  const dark = document.documentElement.getAttribute("data-bs-theme") === "dark";
   const hex = (name, fallback) => {
     const v = token(name, fallback);
     return /^#[0-9a-f]{6}$/i.test(v) ? v.slice(1) : fallback.replace("#", "");
