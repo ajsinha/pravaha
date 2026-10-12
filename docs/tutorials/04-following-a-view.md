@@ -159,7 +159,7 @@ $ printf '%s\n' '8,alice,600,COMPLETED,2026-10-01T09:02:05Z,I' '9,carol,800,COMP
 <!-- capture: t04-subscribe-filtered -->
 ```text
 $ pravaha subscribe --view big_payments --filter user_id=alice --limit 1
-subscribing to big_payments {'user_id': 'alice'}; changes print as they are committed, until 1 row (at the end of that commit). Ctrl-C to stop.
+subscribing to big_payments where user_id = 'alice'; changes print as they are committed, until 1 row (at the end of that commit). Ctrl-C to stop.
 WEIGHT	txn_id	user_id	amount
 +1	8	alice	600
 -- commit, 1 row
@@ -173,7 +173,7 @@ an ignored filter would deliver everything while you believed you had asked for 
 <!-- capture: t04-filter-refused -->
 ```text
 $ pravaha subscribe --view big_payments --filter merchant=acme --limit 1
-subscribing to big_payments {'merchant': 'acme'}; changes print as they are committed, until 1 row (at the end of that commit). Ctrl-C to stop.
+subscribing to big_payments where merchant = 'acme'; changes print as they are committed, until 1 row (at the end of that commit). Ctrl-C to stop.
 PRV-8002  this view has no column 'merchant', so that filter cannot be applied to it. Its columns are [txn_id, user_id, amount]. A filter that was quietly ignored would leave you receiving everything while believing you asked for a slice
   look PRV-8002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)

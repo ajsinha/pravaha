@@ -619,7 +619,7 @@
    "study": "telecom-cdr-fraud"
   },
   {
-   "description": "Every long call to a premium destination. A filter, so no window and no state: each qualifying record is in the view as soon as it is read. The list of destinations is in the SQL because it changes rarely; when it changes, replace the query (Tutorial 3) and readers keep reading.",
+   "description": "Every long call to a premium destination. A filter, so no window and no state: each qualifying record is in the view as soon as it is read. The list of destinations is in the SQL because it changes rarely; when it changes, replace the query (Tutorial 5) and readers keep reading.",
    "expect": [
     "accepted"
    ],
@@ -855,5 +855,5 @@
   }
  ],
  "source": "examples/case-studies",
- "sourceSha256": "7576a57809ee4e379fb55d428357e60ff118e9d7d853e31a70a900c4d5c0993d"
+ "sourceSha256": "5faf214bbda6f8dfa7b9916456cc538897c1766661dfb5ebedd4f31a9d2201e3"
 }

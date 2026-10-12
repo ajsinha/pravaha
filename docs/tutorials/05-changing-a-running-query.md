@@ -68,6 +68,7 @@ key          txn_id
 retention    forever
 sink         -
 rows in      8
+late rows    0
 registered   <time>
 shared with  -
 reads        txn
@@ -464,6 +465,7 @@ key          txn_id
 retention    forever
 sink         -
 rows in      9
+late rows    0
 shared with  -
 reads        txn
 feed         RUNNING

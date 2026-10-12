@@ -320,7 +320,7 @@ Filtering on a looked-up column in an **inner** lookup join is refused, with the
 <!-- capture: t03-inner-filter-refused -->
 ```text
 $ pravaha validate --sql "SELECT o.order_id, c.tier FROM orders o JOIN customers FOR SYSTEM_TIME AS OF o.event_time AS c ON c.customer_id = o.customer_id WHERE c.tier = 'gold'"
-PRV-2020  a filter on a column of the lookup table is refused: a lookup is asked one key at a time and returns that key's row, so there is nothing on its side to filter before the join. Write the join as a LEFT JOIN ... FOR SYSTEM_TIME AS OF and keep the condition in WHERE, which filters the joined rows and plans See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
+PRV-2020  a filter on a column of the lookup table is refused: a lookup is asked one key at a time and returns that key's row, so there is nothing on its side to filter before the join. Write the join as a LEFT JOIN ... FOR SYSTEM_TIME AS OF and keep the condition in WHERE, which filters the joined rows and plans. See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.
 (exit 1)
 ```
 <!-- /capture -->
