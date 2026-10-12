@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from core import credential
 from core.ai import console_ai_layer
 from core.ai_features import AiFeatures, Failure
 from routes.auth_routes import current_user, login_required
@@ -57,12 +58,18 @@ class AiRoutes(Routes):
 
     # ------------------------------------------------------------------ which controls are drawn
     def features_of(self, request: Request) -> dict[str, Any]:
-        """Asked of the engine once per request, and only for a signed-in person on a reachable engine."""
+        """Asked of the engine once per request, and only for a signed-in person on a reachable engine.
+
+        On a credential of its own, as a public page asks the engine's status: a page draws its
+        controls from the answer, and a refusal of the question -- a session the engine has ended, a
+        password it is holding the person to change -- must not end or hold the session of a page
+        that is otherwise allowed (routes.web_security decides that, not this)."""
         held = getattr(request.state, "ai_features", None)
         if held is None:
-            off = {"enabled": False, "values": "labels-only", "features": {}}
-            reachable = self.ctx["services"].health.health().reachable
-            held = self.service.features() if _signed_in(request) and reachable else off
+            held = {"enabled": False, "values": "labels-only", "features": {}}
+            if _signed_in(request) and self.ctx["services"].health.health().reachable:
+                with credential.bound(credential.Credential(credential.token())):
+                    held = self.service.features()
             request.state.ai_features = held
         return held
 
