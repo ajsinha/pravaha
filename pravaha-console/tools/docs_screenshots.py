@@ -382,6 +382,12 @@ def take_tutorial(name: str, only: Optional[list[str]] = None, out: pathlib.Path
         settings.set("ai.enabled", "false")
         # The PostgreSQL gateway, when the tutorial's node has one: the view page's psql snippet names it.
         settings.set("engine.pgwire", f"127.0.0.1:{run.pg_port}" if run.pg_port else "localhost:5432")
+        # What the tutorial sets in the console's own configuration (CONSOLE: its AI layer on) and
+        # environment (CONSOLE_ENV, {home} the node's home: the CA a TLS engine's certificate is from).
+        for key, value in getattr(run.scenario, "CONSOLE", {}).items():
+            settings.set(key, value)
+        for key, value in getattr(run.scenario, "CONSOLE_ENV", {}).items():
+            os.environ[key] = value.replace("{home}", str(run.node.home))
         console = harness.Console(None)  # type: ignore[arg-type]  # the real engine adapter
         console.engine = types.SimpleNamespace(closed=threading.Event())
         tab = browser.new_page(width=WIDTH, height=HEIGHT)

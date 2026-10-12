@@ -199,6 +199,8 @@ class ScratchNode:
         self.flight_port = free_port({self.http_port})
         self.home = pathlib.Path(tempfile.mkdtemp(prefix="pravaha-captures-"))
         self.process: Optional[subprocess.Popen[bytes]] = None
+        #: ``grpc+tls`` for a node whose own configuration puts Flight on TLS.
+        self.scheme = "grpc"
 
     @property
     def http(self) -> str:
@@ -206,7 +208,7 @@ class ScratchNode:
 
     @property
     def url(self) -> str:
-        return f"grpc://127.0.0.1:{self.flight_port}"
+        return f"{self.scheme}://127.0.0.1:{self.flight_port}"
 
     def __enter__(self) -> "ScratchNode":
         try:

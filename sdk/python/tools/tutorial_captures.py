@@ -87,7 +87,10 @@ class Container:
     container) and ``{<name>.port}``; and the real port is shown as ``<port>``. ``env`` and ``args``
     may name ``{port}``; ``ready`` is a shell command, run until it succeeds (``{container}``, ``{port}``).
     ``inside`` is the port the server listens on in the container when it cannot be told the free one
-    (PostgreSQL's 5432). The container is removed when the run ends, whatever happened."""
+    (PostgreSQL's 5432). ``options`` are ``docker run``'s own, before the image (``--user``, ``-v``), and
+    may name ``{home}``, the node's home, as ``env`` and ``args`` may. ``later`` leaves it to an
+    :class:`Up` step, for a container that runs what the scenario has made (a home it has laid out).
+    The container is removed when the run ends, whatever happened."""
 
     name: str
     image: str
@@ -97,6 +100,8 @@ class Container:
     args: "tuple[str, ...]" = ()
     ready: str = "true"
     timeout: float = 120
+    options: "tuple[str, ...]" = ()
+    later: bool = False
 
 
 @dataclass(frozen=True)
@@ -105,7 +110,10 @@ class Node:
     ``docs/tutorials/data/``); ``files`` copies sample data into the node's home (source -> place),
     where its relative paths resolve, as under ``PRAVAHA_HOME``. ``jars`` go to ``plugins/`` (``-Dloader.path``),
     found under ``~/.m2/repository``; ``pgwire`` turns the PostgreSQL gateway on, on a free port;
-    ``containers`` are started first (:class:`Container`)."""
+    ``containers`` are started first (:class:`Container`). ``plugins`` loads ``plugins/`` (as
+    ``bin/pravaha-server`` does) when the jars there are the scenario's own, not Maven's. ``flight_ca``
+    is the CA (in the home) that signed the certificate of a node whose configuration puts Flight on
+    TLS: the reader's ``PRAVAHA_URL`` is then ``grpc+tls://`` and their ``PRAVAHA_TLS_CA`` that file."""
 
     config: str
     files: "tuple[tuple[str, str], ...]" = ()
@@ -115,6 +123,8 @@ class Node:
     pgwire: bool = False
     data_date: str = "2026-10-01"
     containers: "tuple[Container, ...]" = ()
+    plugins: bool = False
+    flight_ca: str = ""
 
 
 @dataclass(frozen=True)
@@ -188,6 +198,13 @@ class Until:
     argv: "tuple[str, ...] | str"
     pattern: str
     timeout: float = 90
+
+
+@dataclass(frozen=True)
+class Up:
+    """Starts the :class:`Container` named ``name`` that was declared ``later``."""
+
+    name: str
 
 
 @dataclass(frozen=True)
@@ -301,28 +318,39 @@ def start_containers(run: Run) -> None:
     specs: "tuple[Container, ...]" = run.scenario.NODE.containers
     if not specs:
         return
-    docker = _docker()
-    if _docker_run(docker, ["ps", "-q"], capture_output=True).returncode != 0:
+    if _docker_run(_docker(), ["ps", "-q"], capture_output=True).returncode != 0:
         raise NodeUnavailable("this tutorial needs Docker, and `docker ps` does not answer here")
-    taken = {run.node.http_port, run.node.flight_port, run.pg_port}
     for spec in specs:
-        port = free_port(taken)
-        taken.add(port)
-        name = f"{spec.name}-{os.getpid()}"
-        args = ["run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1:{port}:{spec.inside or port}"]
-        for key, value in spec.env:
-            args += ["-e", f"{key}={value.replace('{port}', str(port))}"]
-        args += [spec.image, *(a.replace("{port}", str(port)) for a in spec.args)]
-        started = _docker_run(docker, args, capture_output=True)
-        if started.returncode != 0:
-            raise RuntimeError(f"docker run {spec.image} failed:\n{started.stderr.decode(errors='replace')}")
-        run.services[spec.name] = (name, port)
-        ready = spec.ready.replace("{container}", name).replace("{port}", str(port))
-        deadline = time.monotonic() + spec.timeout
-        while subprocess.run(["bash", "-c", ready], env=run.env, capture_output=True).returncode != 0:
-            if time.monotonic() > deadline:
-                raise RuntimeError(f"{spec.name} ({spec.image}) was not ready in {spec.timeout} s")
-            time.sleep(1)
+        if not spec.later:
+            start_container(run, spec)
+
+
+def start_container(run: Run, spec: Container) -> None:
+    """One container, on a free port, ready; recorded in :attr:`Run.services`."""
+    docker = _docker()
+    taken = {run.node.http_port, run.node.flight_port, run.pg_port, *(p for _, p in run.services.values())}
+    port = free_port(taken)
+    name = f"{spec.name}-{os.getpid()}"
+
+    def fill(text: str) -> str:
+        return text.replace("{port}", str(port)).replace("{home}", str(run.node.home))
+
+    # Recorded before it runs, so a failure below still removes it.
+    run.services[spec.name] = (name, port)
+    args = ["run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1:{port}:{spec.inside or port}"]
+    for key, value in spec.env:
+        args += ["-e", f"{key}={fill(value)}"]
+    args += [fill(o) for o in spec.options]
+    args += [spec.image, *(fill(a) for a in spec.args)]
+    started = _docker_run(docker, args, capture_output=True)
+    if started.returncode != 0:
+        raise RuntimeError(f"docker run {spec.image} failed:\n{started.stderr.decode(errors='replace')}")
+    ready = spec.ready.replace("{container}", name).replace("{port}", str(port))
+    deadline = time.monotonic() + spec.timeout
+    while subprocess.run(["bash", "-c", ready], env=run.env, capture_output=True).returncode != 0:
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{spec.name} ({spec.image}) was not ready in {spec.timeout} s")
+        time.sleep(1)
 
 
 def stop_containers(run: Run) -> None:
@@ -339,9 +367,11 @@ def make_node(scenario: Any) -> "tuple[ScratchNode, int]":
     pg = 0
     args = [f"--spring.profiles.active={spec.profiles}", *spec.args]
     jvm: "list[str]" = []
-    if spec.jars:
+    if spec.jars or spec.plugins:
         jvm.append("-Dloader.path=plugins")
     node = ScratchNode(args=(), jvm=tuple(jvm))
+    if spec.flight_ca:
+        node.scheme = "grpc+tls"
     # As bin/pravaha-server runs a node from PRAVAHA_HOME: the layout (pravaha-home.yaml -- the
     # registry journal, checkpoints, the identity store, logs/pravaha-server.log) under the home,
     # then the home's conf/, which wins.
@@ -403,6 +433,8 @@ def environment(run: Run) -> "dict[str, str]":
                                                    os.environ.get("PATH", "")))))
     if run.token:
         env["PRAVAHA_TOKEN"] = run.token
+    if run.scenario.NODE.flight_ca:
+        env["PRAVAHA_TLS_CA"] = str(run.node.home / run.scenario.NODE.flight_ca)
     return env
 
 
@@ -532,6 +564,8 @@ def perform(run: Run, step: Any, on_snap: Optional[Callable[[Any], None]] = None
         raise RuntimeError(f"`{shown}` never matched {step.pattern!r}:\n{output}")
     elif isinstance(step, Sleep):
         time.sleep(step.seconds)
+    elif isinstance(step, Up):
+        start_container(run, next(c for c in run.scenario.NODE.containers if c.name == step.name))
     elif isinstance(step, Restart):
         if step.crash and run.node.process is not None:
             run.node.process.kill()
