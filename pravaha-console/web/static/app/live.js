@@ -43,6 +43,8 @@ function start(root) {
   let counts = { changes: 0, plus: 0, minus: 0, dropped: 0 };
   let current = new Map();                           // identity -> {values, weight, at}
   let log = [];
+  /* The change narrative (ai.js's "Summarise changes") sends the batch this page has received. */
+  window.PravahaLive = { recent: () => log.slice(0, 200).map((e) => ({ weight: e.weight, values: e.values })) };
   let samples = [];                                  // [ms, value]
   let arrivals = [];
   let dirty = false;

@@ -1,0 +1,48 @@
+{
+  "streams": {
+    "readings": [
+      {
+        "device_id": "d-1",
+        "site": "north",
+        "temperature": 21.5,
+        "battery_pct": 90,
+        "event_time": "2026-06-01T09:01:00Z"
+      },
+      {
+        "device_id": "d-2",
+        "site": "north",
+        "temperature": 23.0,
+        "battery_pct": 75,
+        "event_time": "2026-06-01T09:04:10Z"
+      },
+      {
+        "device_id": "d-1",
+        "site": "north",
+        "temperature": 22.1,
+        "battery_pct": 89,
+        "event_time": "2026-06-01T09:05:40Z"
+      },
+      {
+        "device_id": "d-3",
+        "site": "north",
+        "temperature": 30.2,
+        "battery_pct": null,
+        "event_time": "2026-06-01T09:04:50Z"
+      },
+      {
+        "device_id": "d-1",
+        "site": "north",
+        "temperature": 22.4,
+        "battery_pct": 88,
+        "event_time": "2026-06-01T09:06:30Z"
+      },
+      {
+        "device_id": "d-2",
+        "site": "north",
+        "temperature": 35.0,
+        "battery_pct": 74,
+        "event_time": "2026-06-01T09:03:00Z"
+      }
+    ]
+  }
+}

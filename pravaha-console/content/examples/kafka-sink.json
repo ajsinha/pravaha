@@ -1,0 +1,30 @@
+{
+  "streams": {
+    "orders": [
+      {
+        "order_id": 6001,
+        "customer_id": "c-17",
+        "region": "EU",
+        "amount": 4200,
+        "status": "OPEN",
+        "event_time": "2026-06-01T09:00:00Z"
+      },
+      {
+        "order_id": 6002,
+        "customer_id": "c-42",
+        "region": "US",
+        "amount": 990,
+        "status": "OPEN",
+        "event_time": "2026-06-01T09:00:30Z"
+      },
+      {
+        "order_id": 6001,
+        "customer_id": "c-17",
+        "region": "EU",
+        "amount": 4200,
+        "status": "SHIPPED",
+        "event_time": "2026-06-01T09:04:00Z"
+      }
+    ]
+  }
+}

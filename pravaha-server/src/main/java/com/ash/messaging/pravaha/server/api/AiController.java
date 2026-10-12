@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -49,6 +50,7 @@ import com.ash.messaging.pravaha.ai.Usage;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.ai.AiProperties;
+import com.ash.messaging.pravaha.server.ai.features.AiFeatures;
 import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 
 /**
@@ -165,6 +167,25 @@ public class AiController {
             RetryBoard.@Nullable Status retry,
             List<ModelInfo> models) {}
 
+    /**
+     * What the plain-English features are to this caller, so a screen can leave out the controls it may not use.
+     *
+     * @param enabled whether the AI layer is on ({@code pravaha.ai.enabled})
+     * @param values what a model may see of the caller's data: {@code labels-only} or {@code aggregates}
+     * @param features each feature ({@code ask}, {@code draft}, {@code alert}, {@code explain}, {@code narrative},
+     *     {@code page}) and whether the AI policy's roles open it to this caller; all false while the layer is off
+     */
+    public record FeatureStatus(boolean enabled, String values, Map<String, Boolean> features) {}
+
+    /** The plain-English features, in the order the guide lists them. */
+    static final List<String> FEATURES = List.of(
+            AiFeatures.ASK,
+            AiFeatures.DRAFT,
+            AiFeatures.ALERT,
+            AiFeatures.EXPLAIN,
+            AiFeatures.NARRATIVE,
+            AiFeatures.PAGE);
+
     private final AiProperties ai;
     private final LlmGateway gateway;
     private final HttpAuthorizer authorizer;
@@ -236,6 +257,24 @@ public class AiController {
             }
             q.addLast(now);
         }
+    }
+
+    @GetMapping("/ai/features")
+    @Operation(
+            summary =
+                    "Which plain-English features this caller may use: the layer on or off, the values mode, "
+                            + "each feature by the AI policy's roles. Never refused for the layer being off; no model is called")
+    public FeatureStatus features(HttpServletRequest http) {
+        Principal p = authorizer.principalOf(http);
+        boolean on = gateway.enabled();
+        Map<String, AiProperties.Feature> rules = ai.getPolicy().getFeatures();
+        Map<String, Boolean> open = new LinkedHashMap<>();
+        for (String f : FEATURES) {
+            AiProperties.Feature rule = rules.get(f);
+            List<String> roles = rule == null ? List.of() : rule.getRoles();
+            open.put(f, on && (roles.isEmpty() || roles.stream().anyMatch(p.roles()::contains)));
+        }
+        return new FeatureStatus(on, ai.getValues(), open);
     }
 
     @GetMapping("/ai/models")

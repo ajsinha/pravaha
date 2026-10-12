@@ -8,6 +8,7 @@ the brand context, the refusal mapping, and the page renderer. Routers hold no
 engine logic.
 """
 from routes.admin_routes import AdminRoutes
+from routes.ai_routes import AiRoutes
 from routes.alert_routes import AlertRoutes
 from routes.api_routes import ApiRoutes
 from routes.assist_routes import AssistRoutes
@@ -22,8 +23,8 @@ from routes.ui_routes import UIRoutes
 # it, so the modules with the more specific paths register first. CatalogRoutes before
 # ProductRoutes, which reads the governance service it puts in the context.
 ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, CatalogRoutes, AlertRoutes, ProductRoutes, AssistRoutes,
-              AdminRoutes, UIRoutes)
+              AiRoutes, AdminRoutes, UIRoutes)
 
-__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "AlertRoutes", "ApiRoutes", "AssistRoutes", "AuthRoutes",
+__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "AiRoutes", "AlertRoutes", "ApiRoutes", "AssistRoutes", "AuthRoutes",
            "CatalogRoutes", "ProductRoutes",
            "PublicRoutes", "Routes", "UIRoutes"]

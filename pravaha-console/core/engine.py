@@ -755,6 +755,11 @@ class Engine:
         body = {"screen": screen, "about": about, "question": question, "topics": topics or []}
         return dict(self._identity("POST", "/ai/page", body) or {})
 
+    def ai_features(self) -> dict:
+        """Which plain-English features this person may use: ``{enabled, values, features: {ask: bool,
+        ...}}``. ``GET /api/v1/ai/features``; answered with the layer off too, and no model is called."""
+        return dict(self._identity("GET", "/ai/features") or {})
+
     def admin_ai(self) -> dict:
         """The layer as an administrator sees it: ``GET /api/v1/admin/ai``."""
         return dict(self._identity("GET", "/admin/ai") or {})

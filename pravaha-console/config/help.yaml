@@ -1,0 +1,177 @@
+# ==========================================================================
+# Pravaha console -- the help catalogue
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential. See LICENSE at the repository root.
+# ==========================================================================
+# The help centre's one catalogue, in drishti's design (drishti-console/config/help.yaml): the
+# categories and their order, the guides each one lists, the addresses that moved, and the help
+# each screen opens with F1. core/help_catalog.py reads it; tests/test_help.py holds it honest.
+#
+# Three kinds of page live in the help, each with one home:
+#
+# * Topics -- content/topics/<slug>.md. A topic registers itself: its front matter names its
+#   `category:`, which is one of the `sections` below, and the index picks it up. Nothing here
+#   lists topics by name, so adding one is adding a file. A section's `guide` is the "Full
+#   reference" a topic in it points at when it names none itself.
+# * Guides -- content/help/<NN>-<slug>.md, each an `include:` of a document in docs/, rendered in
+#   place. A category lists the guides it offers as cards, after its topics.
+# * Pages -- anything else with an address (the tutorials, the examples gallery, the codes).
+#
+# A card's `kind` is the badge drishti puts on it: tutorial (learn by doing), reference (look a
+# thing up), guide (a topic: how to), examples. Guides default to reference, topics to guide.
+
+categories:
+  - id: start
+    name: Start
+    icon: flag
+    blurb: "What Pravaha is, a first maintained view end to end, the ideas it is built on, and learning it by doing."
+    sections:
+      - { id: start, guide: quickstart }
+      - { id: concepts, guide: concepts }
+      - { id: about, guide: whats-new }
+    guides:
+      - { guide: quickstart, title: "Quick start (long form)", icon: flag, kind: tutorial, summary: "From an empty engine to a maintained view, including the refusals — every command real." }
+      - { href: /tutorials, title: Tutorials, icon: mortarboard, kind: tutorial, keywords: "tutorial lesson learn walkthrough aerospike", summary: "Learn Pravaha step by step: a first maintained view, following a view, changing a running query safely, investigating an incident, and joining Aerospike with a CSV file." }
+      - { href: /help/case-studies, title: Case studies, icon: journal-code, kind: tutorial, keywords: "case study worked example domain banking trading biology", summary: "Worked systems, one domain each, from their data to their continuous queries — each study's README, with the output of a real run." }
+      - { guide: concepts, title: "Concepts (long form)", icon: lightbulb, summary: "The model underneath everything else, with the soundness rule it rests on." }
+      - { href: /about, title: About Pravaha, icon: info-circle, kind: guide, keywords: "about overview author licence version", summary: "What it is, the problems it solves, what is built and measured, and who made it." }
+      - { guide: whats-new, title: "What's new", icon: megaphone, summary: "The release notes: what changed in each cut, with the numbers and the defects still open." }
+      - { guide: roadmap, title: Roadmap, icon: map, summary: "What is left to build, in batches, and what is deliberately not scheduled." }
+      - { href: /about/competitive, title: Competitive landscape, icon: bar-chart-steps, kind: reference, keywords: "competitive landscape comparison flink materialize risingwave ksqldb kafka streams hazelcast versus alternative", summary: "Scored by category against dataflow engines, streaming databases and Kafka-native tools, with a card per row saying how — and where Pravaha loses." }
+
+  - id: use
+    name: Use
+    icon: terminal
+    blurb: "Writing the SQL and reading the answers: every statement and every refusal with its reason, windows and joins, point reads, subscriptions, the PostgreSQL gateway, Power BI, the HTTP API and every client."
+    sections:
+      - { id: sql, guide: continuous-queries }
+      - { id: reading, guide: user-guide }
+    guides:
+      - { href: /help/examples, title: SQL examples, icon: collection, kind: examples, keywords: "example sample window join lookup late cdc kafka alert workbench copy", summary: "Working continuous queries with their sample data — windows, joins, lookups, late data, alerts, change-data-capture, Kafka: read each one here, open it as a copy in the Workbench." }
+      - { guide: continuous-queries, title: "Streams, queries and SQL (long form)", icon: code-square, summary: "The single source of truth for what you write and what happens when you write it." }
+      - { guide: user-guide, title: "User guide (long form)", icon: book, summary: "Registering, reading and subscribing from the CLI and both SDKs." }
+      - { guide: python-sdk, title: Python SDK, icon: code-slash, summary: "The Python client: queries, subscriptions, registration, the catalog, errors." }
+      - { guide: python-api-guide, title: Python integration guide, icon: plug, summary: "Every SDK call and REST endpoint, one by one, each with a verified sample: the page to hand a team connecting an application." }
+
+  - id: build
+    name: Build
+    icon: braces
+    blurb: "Where rows come from and where answers go — one page per connector, its options, a complete binding and what it guarantees — Pravaha inside your own process, and how every part of it is built."
+    sections:
+      - { id: sources, guide: "continuous-queries#21-every-source-type-configured" }
+      - { id: sinks, guide: "continuous-queries#4-reading-the-answer" }
+      - { id: embedding, guide: architecture-hosts }
+    guides:
+      - { guide: connectors, title: "Connectors (long form)", icon: plug, summary: "The plugin SPI, a worked source end to end, the TCK, cross-source joins and change-data-capture." }
+      - { guide: developing-in-an-ide, title: Running in IntelliJ and PyCharm, icon: laptop, kind: tutorial, summary: "The server in IntelliJ IDEA and the console in PyCharm: shared run configurations, the JVM flags Flight needs, debugging and tests." }
+      - { guide: architecture, title: Architecture, icon: diagram-3, summary: "How every component fits together: the module graph, a row and a registration traced end to end, and the query and feed lifecycles." }
+      - { guide: architecture-components, title: "Architecture, component by component", icon: diagram-3, summary: "One page per layer — planning, runtime, registry, ingest, serving, governance, hosts, clients — with key types, threads, invariants, codes and examples." }
+      - { guide: decisions, title: Decision records, icon: signpost-split, summary: "Every architecture decision, numbered and never renumbered." }
+      - { guide: system-design, title: System design, icon: diagram-2, summary: "The whole design, including what is not built yet." }
+
+  - id: operate
+    name: Operate
+    icon: speedometer2
+    blurb: "Running a node and keeping it safe: configuration and every setting, lanes, state and spill, checkpoints, standby, observability and alerts, who may do what, TLS, the CLI, and every PRV code."
+    sections:
+      - { id: operating, guide: operations }
+      - { id: security, guide: security }
+      - { id: errors, guide: troubleshooting }
+      - { id: reference, guide: operations }
+    guides:
+      - { guide: operations, title: "Operations (long form)", icon: gear, summary: "Every setting, every metric, and the runbooks." }
+      - { guide: execution-model, title: Execution model, icon: cpu, summary: "How a registered query executes: lanes, batches, commits and checkpoints." }
+      - { guide: deploying, title: Deploying, icon: box-seam, summary: "The one root under /opt/pravaha, a QA host from two images and two files, the container image, the Helm chart, upgrades and releases." }
+      - { guide: security, title: "Security (long form)", icon: shield-lock, summary: "Authentication, the policies, row-level security and the audit trail." }
+      - { guide: connector-tls, title: "TLS everywhere (long form)", icon: shield-lock-fill, summary: "Every encrypted connection Pravaha makes or accepts." }
+      - { href: /help/codes, title: Every code, icon: list-ol, kind: reference, keywords: "prv code error number list", summary: "All PRV codes in one table, each opening its own page." }
+      - { guide: troubleshooting, title: "Troubleshooting (long form)", icon: life-preserver, summary: "Nothing is happening, the numbers are wrong, it ran out of memory — by symptom." }
+      - { href: /help/guides, title: All guides, icon: journal-richtext, kind: reference, keywords: "guide document long form reference manual", summary: "Every long-form document the engine ships with, rendered in place." }
+
+  - id: ai
+    name: AI
+    icon: stars
+    blurb: "Plain English over the engine: ask your data, draft a continuous query or an alert, explain a query, a refusal or a change, ask about the page you are on. Off by default; the model writes names and SQL, the engine judges and runs everything as you, and nothing is registered or created without your confirmation."
+    sections:
+      - { id: ai, guide: ai }
+    guides:
+      - { guide: ai, title: "Plain English on Pravaha (long form)", icon: stars, summary: "Every feature, what a model is sent, who may use which, the settings, the codes and the tests." }
+      - { guide: architecture-ai, title: "Architecture: the AI layer", icon: diagram-3, summary: "The providers, the policy every call goes through, the gateway, the folder of provider files and the admin endpoints (ADR-063)." }
+      - { guide: assist, title: "The assistant (CLI)", icon: chat-square-text, summary: "ADR-058's assistant: drafting and explaining from the command line with a model you configure, its router, profiles and budgets." }
+
+# Retired addresses. A topic merged into another answers 301 at /help/topics/<old> to the topic,
+# and the section of it, that took the subject over (`slug` or `slug#anchor`). Checked by a test:
+# every target is a topic and section that exists, and no help page still links to an old address.
+moved:
+  start-here: getting-started
+  first-view: "getting-started#your-first-maintained-view"
+  console-tour: "getting-started#the-console-screen-by-screen"
+  choosing-a-client: clients
+  client-snippets: "clients#snippets"
+  sdk-reference: "clients#sdk-reference"
+  point-reads: "views-and-keys#point-reads"
+  windows-worked: "windows#worked-examples"
+  late-data: "event-time-watermarks#late-data"
+  sql-types: "sql-reference#types-nulls-and-expressions"
+  sql-parameters: "sql-reference#parameters"
+  temporal-joins: "joins#temporal-joins"
+  compare-versions: "backfill-cutover#comparing-two-versions"
+  sizing-lanes: "lanes#sizing-lanes"
+  lane-sharing: "lanes#sharing-lanes"
+  metrics-alerts: observability
+  metrics-index: "observability#every-metric"
+  settings-index: "configuration#every-setting"
+  row-filters: row-filters-and-masks
+  admin-ai-models: "assistant#admin-ai-models"
+  cluster-mode: "standby#cluster-mode"
+
+# What each screen offers as help, most relevant first (at most three): the "About this page"
+# panel's "More in Help", the "?" beside a heading, and -- the first -- where F1 goes
+# (/help/context/<screen>). An entry is a topic, or `topic#section` for one part of a longer page.
+contextual:
+  start: ["getting-started#your-first-maintained-view", streams, views-and-keys]
+  overview: ["getting-started#the-console-screen-by-screen", observability, query-lifecycle]
+  workbench: [sql-reference, sql-refusals, "backfill-cutover#comparing-two-versions"]
+  catalog: [streams, catalog-and-grants, sources-overview]
+  catalog-object: [catalog-and-grants, row-filters-and-masks, streams]
+  stream: [streams, event-time-watermarks, sources-overview]
+  views: [views-and-keys, clients, ask-your-data]
+  view: ["views-and-keys#point-reads", clients, power-bi]
+  live: [subscriptions, zset-weights, "event-time-watermarks#late-data"]
+  operations: [observability, reading-a-plan, lanes]
+  alerts: [alerts, observability, views-and-keys]
+  queries: [query-lifecycle, sharing, "create-continuous-query#queries-on-queries"]
+  query: [query-lifecycle, sharing, backfill-cutover]
+  # B9. The blue/green screen (design 23.10): comparing the versions, what the backfill reads and
+  # why there is no ETA on it, what a cutover moves, and how long a rollback stays open.
+  replacement: [backfill-cutover, query-lifecycle, sharing]
+  # B9. The debugger (design 23.9, ADR-048): what a fork starts from, and what the weights on its
+  # view changes mean.
+  debug: [time-travel-debugger, checkpoints-recovery, zset-weights]
+  dead-letters: [dead-letters, sources-overview, observability]
+  plugins: [sources-overview, sinks-overview, connector-security]
+  admin-users: [authentication, "catalog-and-grants#user-attributes-as-claims", audit]
+  admin-keys: [authentication, authorization, audit]
+  admin-sessions: [authentication, audit, authorization]
+  admin-lanes: [lanes, observability, reading-a-plan]
+  admin-grants: [catalog-and-grants, row-filters-and-masks, authorization]
+  admin-policies: [row-filters-and-masks, catalog-and-grants, audit]
+  # Admin -> AI (the engine's AI layer and the console's), and the CLI assistant's models.
+  admin-ai: ["ai-features#turn-it-on", "ai-features#who-may", assistant]
+  ai-models: ["assistant#admin-ai-models", assistant, observability]
+  # Ask your data, its own page.
+  ask: [ask-your-data, ai-features, views-and-keys]
+  alert: [alerts, views-and-keys, subscriptions]
+  admin-access: [authorization, authentication, catalog-and-grants]
+  admin-audit: [audit, authorization, authentication]
+  admin-tenants: [configuration, sharing, audit]
+  components: ["getting-started#the-console-screen-by-screen"]
+  landing: [getting-started, zset-weights, views-and-keys]
+  login: [authentication]
+  login-reset: [authentication]
+  account: [authentication, authorization, clients]
+  account-password: [authentication]
+  about: [getting-started, faq, glossary]
+  competitive: [faq, glossary]
+  not-found: [getting-started, faq]
+  refused: [errors-overview, sql-refusals, authorization]

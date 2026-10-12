@@ -83,6 +83,17 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/ai/features" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "FeatureStatus",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/ai/models" : {
       "get" : {
         "hasBody" : false,
@@ -1489,6 +1500,12 @@
     },
     "ExportFixture" : {
       "name" : "optional string"
+    },
+    "FeatureStatus" : {
+      "enabled" : "optional boolean",
+      "features" : "optional map",
+      "features{}" : "required boolean",
+      "values" : "optional string"
     },
     "Fixture" : {
       "className" : "optional string",

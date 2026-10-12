@@ -13,11 +13,12 @@
       ('/catalog', 'collection', t('menu.item.streams'), t('menu.desc.streams'), '/catalog'),
       ('/catalog?tab=queries', 'diagram-3', t('menu.item.registered'), t('menu.desc.registered'), None),
       ('/catalog?tab=sinks', 'box-arrow-right', t('menu.item.sinks'), t('menu.desc.sinks'), None),
-      ('/views', 'table', t('menu.item.views'), t('menu.desc.views'), '/views')])]),
+      ('/views', 'table', t('menu.item.views'), t('menu.desc.views'), '/views'),
+      ('/ask', 'stars', t('menu.item.ask'), t('menu.desc.ask'), '/ask')])]),
   (t('menu.workbench'), 'tools', [
     (t('menu.col.design'), [
       ('/workbench', 'code-square', t('menu.item.workbench'), t('menu.desc.workbench'), None),
-      ('/workbench#assist-describe', 'chat-square-text', t('menu.item.describe'), t('menu.desc.describe'), None)]),
+      ('/workbench#ai-describe', 'chat-square-text', t('menu.item.describe'), t('menu.desc.describe'), None)]),
     (t('menu.col.change'), [
       ('/workbench?panel=diff', 'layout-split', t('menu.item.compare'), t('menu.desc.compare'), None),
       ('/queries?replace=1', 'arrow-left-right', t('menu.item.replace'), t('menu.desc.replace'), None)])]),
@@ -42,7 +43,7 @@
     (t('menu.col.integration'), [
       ('/plugins', 'plug', t('menu.item.plugins'), t('menu.desc.plugins'), None)]),
     (t('menu.col.operations'), [
-      ('/admin/ai-models', 'stars', t('menu.item.ai_models'), t('menu.desc.ai_models'), None)]),
+      ('/admin/ai', 'stars', t('menu.item.ai'), t('menu.desc.ai'), '/admin/ai')]),
     (t('menu.col.evidence'), [
       ('/admin/audit', 'journal-text', t('menu.item.audit'), t('menu.desc.audit'), None),
       ('/admin/access', 'clipboard-check', t('menu.item.access'), t('menu.desc.access'), None)])])] %}{% endif %}
@@ -52,7 +53,8 @@
       ('/help', 'book', t('menu.item.concepts'), t('menu.desc.concepts'), '/help/topics'),
       ('/help/guides', 'journal-bookmark', t('menu.item.guides'), t('menu.desc.guides'), None),
       ('/tutorials', 'mortarboard', t('menu.item.tutorials'), t('menu.desc.tutorials'), '/tutorials'),
-      ('/help/case-studies', 'briefcase', t('menu.item.case_studies'), t('menu.desc.case_studies'), '/help/case-studies')]),
+      ('/help/case-studies', 'briefcase', t('menu.item.case_studies'), t('menu.desc.case_studies'), '/help/case-studies'),
+      ('/help/examples', 'collection', t('menu.item.examples'), t('menu.desc.examples'), '/help/examples')]),
     (t('menu.col.reference'), [
       ('/start', 'flag', t('menu.item.start'), t('menu.desc.start'), None),
       ('/help/topics/cli-reference', 'terminal', t('menu.item.cli'), t('menu.desc.cli'), None),

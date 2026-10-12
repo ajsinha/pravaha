@@ -135,8 +135,8 @@ instances need sticky sessions.
 
 These work and are tested, and may still change in a minor release, said in the release notes:
 
-- **The assistant** — `pravaha.assist`, `pravaha ask`, `explain-sql`, `why`, `assist eval`, the
-  console's *Describe it* and *Explain*, and **Admin · AI models** ([../guides/ASSIST.md](../guides/ASSIST.md),
+- **The assistant** — `pravaha.assist`, `pravaha ask`, `explain-sql`, `why`, `assist eval`, and
+  **Admin · AI models** ([../guides/ASSIST.md](../guides/ASSIST.md),
   ADR-058). Model behaviour moves under it, and its configuration file's shape may change.
 - **The catalogue's unbuilt phases** — what ADR-059 plans beyond phases 1 and 2 is not in 1.0 or 2.0.
   What *is* built — privileges, grants, namespaces, row filters and masks as policies — is stable.

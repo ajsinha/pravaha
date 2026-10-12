@@ -1,0 +1,60 @@
+{
+  "streams": {
+    "txn": [
+      {
+        "txn_id": 11,
+        "user_id": "u9",
+        "merchant": "m-kiosk",
+        "amount": 50,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:02Z"
+      },
+      {
+        "txn_id": 12,
+        "user_id": "u9",
+        "merchant": "m-kiosk",
+        "amount": 50,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:09Z"
+      },
+      {
+        "txn_id": 13,
+        "user_id": "u9",
+        "merchant": "m-kiosk",
+        "amount": 50,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:17Z"
+      },
+      {
+        "txn_id": 14,
+        "user_id": "u9",
+        "merchant": "m-kiosk",
+        "amount": 50,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:31Z"
+      },
+      {
+        "txn_id": 15,
+        "user_id": "u1",
+        "merchant": "m-coffee",
+        "amount": 350,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:45Z"
+      },
+      {
+        "txn_id": 16,
+        "user_id": "u1",
+        "merchant": "m-coffee",
+        "amount": 350,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:01:20Z"
+      }
+    ]
+  }
+}

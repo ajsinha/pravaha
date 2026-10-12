@@ -1,4 +1,4 @@
-"""The assistant in the console (ADR-058 phase 3): Admin · AI models, "Describe it", Explain.
+"""The CLI assistant's models in the console (ADR-058 phase 3): Admin · AI models.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -7,6 +7,8 @@ The real console -- routes, middleware, templates, the one ModelRouter it holds 
 fake engine and the SDK's ``fake`` model provider: no real model and no network. The owner's
 requirement is the centre of it: several providers and models configured at once, and switched
 from the admin screen while the console runs, the next request using the change with no restart.
+The console's own "Describe it" and "Explain" are now the engine's plain-English features
+(test_ai_screens.py); what stays here is the configuration the command line reads on this host.
 """
 from __future__ import annotations
 
@@ -116,11 +118,6 @@ def change(client, op: str, **fields):
     return client.post(f"/admin/ai-models/{op}", data=body, follow_redirects=True)
 
 
-def ask(client, task: str, **fields):
-    token = csrf(client, "/workbench")
-    return client.post(f"/api/v1/assist/{task}", data=fields, headers={"X-CSRF-Token": token})
-
-
 def flashes(html: str) -> list[str]:
     return [re.sub(r"\s+", " ", m).strip() for m in re.findall(r'data-flash="[a-z]+">(.*?)</div>', html, re.DOTALL)]
 
@@ -206,31 +203,6 @@ def test_providers_and_models_are_added_enabled_disabled_reordered_and_removed(t
     assert all(e["actor"] == "admin" for e in log)
 
 
-def test_a_change_made_in_the_ui_is_used_by_the_very_next_request(two_models):
-    admin = two_models.client()
-    first = ask(admin, "explain-refusal", code="PRV-2050")
-    assert first.status_code == 200 and first.json()["result"]["answeredBy"]["modelId"] == "a"
-    change(admin, "profiles-down", profile="explain", model="a")      # b first now
-    second = ask(admin, "explain-refusal", code="PRV-2050")
-    assert second.json()["result"]["answeredBy"]["modelId"] == "b"
-    assert "meaning from b" in second.json()["html"]
-    # Disable-by-chain, then the other way round: still no restart.
-    change(admin, "profiles-drop", profile="explain", model="b")
-    change(admin, "models-disable", model="b")
-    assert ask(admin, "explain-refusal", code="PRV-2050").json()["result"]["answeredBy"]["modelId"] == "a"
-
-
-def test_a_change_another_process_stores_is_followed(two_models):
-    from pravaha.assist import AssistAdmin, FileConfigStore
-
-    admin = two_models.client()
-    assert ask(admin, "explain-refusal", code="PRV-2050").json()["result"]["answeredBy"]["modelId"] == "a"
-    # `pravaha assist use explain b --yes`, from a shell, on the same file.
-    AssistAdmin(FileConfigStore(two_models.config_path), actor="ops").set_chain("explain", ["b"])
-    two_models.service.watch.poll()
-    assert ask(admin, "explain-refusal", code="PRV-2050").json()["result"]["answeredBy"]["modelId"] == "b"
-
-
 def test_a_conflicting_edit_is_refused_and_said_as_one(two_models):
     admin = two_models.client()
     page = admin.get("/admin/ai-models").text
@@ -276,31 +248,6 @@ def test_a_key_is_named_never_shown_and_a_key_value_is_refused(tmp_path, monkeyp
     assert "other-m" not in console.config_path.read_text()
 
 
-def test_budgets_are_set_here_and_respected_by_the_next_request(two_models):
-    admin = two_models.client()
-    change(admin, "budgets-set", per_user_daily_tokens="", per_request_max_tokens="100")
-    assert two_models.stored()["budgets"] == {"per_request_max_tokens": 100}
-    answer = ask(admin, "explain-refusal", code="PRV-2050")
-    assert answer.status_code == 429 and 'data-assist-failure="budget"' in answer.json()["html"]
-    assert "Over budget" in answer.json()["html"]
-    bad = change(admin, "budgets-set", per_user_daily_tokens="lots", per_request_max_tokens="")
-    assert "whole number of tokens" in " ".join(flashes(bad.text))
-
-
-def test_usage_is_shown_per_model_and_per_person(two_models):
-    admin = two_models.client()
-    ann = two_models.client("ann")
-    ask(admin, "explain-refusal", code="PRV-2050")
-    ask(ann, "explain-refusal", code="PRV-2050")
-    page = admin.get("/admin/ai-models").text
-    models = page.split('id="usage-models"', 1)[1].split("</table>", 1)[0]
-    people = page.split('id="usage-people"', 1)[1].split("</table>", 1)[0]
-    assert ">a</th>" in models and ">admin</th>" in people and ">ann</th>" in people
-    ledger = json.loads((two_models.root / "usage.json").read_text())
-    today = max(ledger["days"])
-    assert set(ledger["days"][today]) == {"admin", "ann"}
-
-
 # ============================================================ CSRF
 
 def test_every_change_and_every_assist_request_needs_the_sessions_csrf_token(two_models):
@@ -314,162 +261,3 @@ def test_every_change_and_every_assist_request_needs_the_sessions_csrf_token(two
     assert refused.status_code == 403 and two_models.stored() == before
     assert admin.post("/api/v1/assist/explain-refusal", data={"code": "PRV-2050"}).status_code == 403
     assert admin.post("/assist/draft", data={"description": "x"}).status_code == 403
-
-
-# ============================================================ Describe it
-
-@pytest.fixture
-def drafting(tmp_path):
-    def make(replies: list) -> Console:
-        return Console(tmp_path, config=document({"d": replies, "e": [explanation("e"), refusal("e")]},
-                                                 {"draft": ["d"], "explain": ["e"]}))
-    return make
-
-
-def test_describe_it_drafts_and_the_engine_judges(drafting):
-    console = drafting([ACCEPTED])
-    admin = console.client()
-    workbench = admin.get("/workbench").text
-    assert 'id="assist-describe-form"' in workbench and 'id="assist-describe-empty"' not in workbench
-    answer = ask(admin, "draft", description="transactions over 500", next="/workbench")
-    body = answer.json()
-    assert answer.status_code == 200 and body["result"]["status"] == "accepted"
-    html = body["html"]
-    assert 'data-draft-status="accepted"' in html and 'data-assist-verdict="accepted"' in html
-    assert "CREATE CONTINUOUS QUERY big_spend" in html and "amount &gt; 500" in html
-    assert "data-assist-plan" in html and "amount is in cents" in html
-    assert 'href="/workbench?sql=SELECT' in html and "data-assist-copy" in html
-    register = html.split('id="assist-register-', 1)[1].split("</form>", 1)[0]
-    assert "disabled" not in register.split('type="submit"', 1)[1].split(">", 1)[0]
-
-
-def test_register_needs_an_accepted_draft_the_persons_confirmation_and_their_own_draft(drafting):
-    console = drafting([ACCEPTED])
-    admin = console.client()
-    draft_id = ask(admin, "draft", description="transactions over 500").json()["result"]["id"]
-    unconfirmed = ask(admin, "register", draft_id=draft_id, name="big_spend")
-    assert unconfirmed.status_code == 409 and "must confirm" in unconfirmed.json()["html"]
-    assert console.engine.registered == []
-    # Another person cannot register somebody else's draft by its id.
-    ann = console.client("ann")
-    assert ask(ann, "register", draft_id=draft_id, confirmed="yes").status_code == 409
-    assert console.engine.registered == []
-    done = ask(admin, "register", draft_id=draft_id, name="big_spend", confirmed="yes")
-    assert done.status_code == 200 and 'data-assist-registered="big_spend"' in done.json()["html"]
-    assert console.engine.registered == [{"name": "big_spend", "keys": [0], "sink": None, "retention": None,
-                                          "sql": "SELECT txn_id, user_id, amount FROM txn WHERE amount > 500"}]
-    log = [json.loads(line) for line in (console.root / "log.jsonl").read_text().splitlines()]
-    requests = [e for e in log if e["kind"] == "request"]
-    assert [(e["task"], e["registered"]) for e in requests][-1] == ("register", True)
-    assert all("transactions over 500" not in json.dumps(e) for e in requests)  # a hash, not the words
-
-
-def test_a_refused_draft_cannot_be_registered(drafting):
-    console = drafting([draft("SELECT txn_id, amout FROM txn")])
-    admin = console.client()
-    answer = ask(admin, "draft", description="the amounts")
-    result = answer.json()["result"]
-    assert result["status"] == "refused" and result["repairs"] == 3 and result["verdict"]["code"] == "PRV-2002"
-    html = answer.json()["html"]
-    assert 'data-draft-status="refused"' in html and "PRV-2002" in html
-    assert "Register is available once the engine accepts the draft." in html
-    # The refusal carries its own Explain.
-    assert 'action="/assist/explain-refusal"' in html and 'value="PRV-2002"' in html
-    refused = ask(admin, "register", draft_id=result["id"], confirmed="yes")
-    assert refused.status_code == 409 and "not accepted by the engine" in refused.json()["html"]
-    assert console.engine.registered == []
-
-
-def test_questions_are_answered_inline_and_drafted_again(drafting):
-    console = drafting([draft("", questions=["Which amount counts as big?"]), ACCEPTED])
-    admin = console.client()
-    first = ask(admin, "draft", description="big transactions", next="/workbench")
-    html = first.json()["html"]
-    assert first.json()["result"]["status"] == "questions"
-    assert "Which amount counts as big?" in html and 'name="answer_0"' in html and 'name="question_0"' in html
-    assert console.engine.registered == []
-    again = ask(admin, "draft", description="big transactions", question_0="Which amount counts as big?",
-                answer_0="over 500")
-    assert again.json()["result"]["status"] == "accepted"
-    asked = console.service.router.provider("d").requests[-1].messages[0].content
-    assert "big transactions" in asked and "Which amount counts as big? over 500" in asked
-
-
-def test_a_draft_the_same_as_a_running_query_offers_to_reuse_it(drafting):
-    console = drafting([draft("SELECT txn_id, user_id, amount FROM txn WHERE amount > 100")])
-    html = ask(console.client(), "draft", description="transactions over 100").json()["html"]
-    assert "A running query appears to compute the same thing" in html and 'href="/views/big_txn"' in html
-
-
-def test_describe_it_works_without_scripting(drafting):
-    console = drafting([ACCEPTED])
-    admin = console.client()
-    page = admin.post("/assist/draft", data={"csrf_token": csrf(admin, "/workbench"),
-                                              "description": "transactions over 500", "next": "/workbench"})
-    assert page.status_code == 200 and "<h1>A drafted query" in page.text
-    assert 'href="/workbench">' in page.text and "CREATE CONTINUOUS QUERY big_spend" in page.text
-
-
-# ============================================================ Explain buttons
-
-def test_query_detail_explains_the_query_and_every_refusal_code(tmp_path):
-    # The fake answers in script order: two explanations, then a refusal's explanation.
-    two_models = Console(tmp_path, config=document(
-        {"a": [explanation("a"), explanation("a"), refusal("a")]}, {"explain": ["a"]}))
-    admin = two_models.client()
-    page = admin.get("/queries/big_txn").text
-    assert 'id="assist-explain-form"' in page
-    # big_txn's sink is detached with PRV-8009: an Explain sits beside the code.
-    sink = page.split('id="sink-failure"', 1)[1].split("</div>", 1)[0]
-    assert 'action="/assist/explain-refusal"' in sink and 'value="PRV-8009"' in sink
-    explained = ask(admin, "explain-query", name="big_txn")
-    assert explained.status_code == 200 and "summary from a" in explained.json()["html"]
-    assert 'data-assist-answered-by="a"' in explained.json()["html"]
-    # Without scripting: a page of its own, and the way back.
-    plain = admin.post("/assist/explain-query", data={"csrf_token": csrf(admin), "name": "big_txn",
-                                                      "next": "/queries/big_txn"})
-    assert plain.status_code == 200 and "summary from" in plain.text and 'href="/queries/big_txn"' in plain.text
-    why = ask(admin, "explain-refusal", code="PRV-8009", sql="SELECT 1")
-    assert 'data-assist-explained="PRV-8009"' in why.json()["html"]
-
-
-def test_the_workbench_offers_explain_beside_a_refusal(two_models):
-    admin = two_models.client()
-    two_models.engine.fail("query_typed", status=400, code="PRV-2002", message="PRV-2002 column 'amout' not found")
-    page = admin.post("/workbench", data={"csrf_token": csrf(admin, "/workbench"),
-                                          "sql": "SELECT txn_id FROM txn WHERE amout > 1"}).text
-    why = page.split('action="/assist/explain-refusal"', 1)[1].split("</form>", 1)[0]
-    assert 'value="PRV-2002"' in why and "amout" in why and 'id="assist-why-workbench-refused"' in page
-    # The island's diagnostics offer the same, told by the mount that a model can answer.
-    assert 'data-assist-ready="1"' in page
-
-
-def test_an_engine_refusal_is_said_as_the_engines(two_models):
-    admin = two_models.client()
-    answer = ask(admin, "explain-query", name="no_such_query")
-    assert answer.status_code == 404 and 'data-assist-failure="engine"' in answer.json()["html"]
-    assert "PRV-8002" in answer.json()["html"]
-
-
-# ============================================================ the empty state
-
-@pytest.mark.parametrize("config", [None, document({"a": [explanation("a")]}, {}, default=None, disabled=("a",))])
-def test_with_no_usable_model_every_surface_shows_one_empty_state(tmp_path, config):
-    if config is not None:
-        config.pop("default_profile")
-    console = Console(tmp_path, config=config)
-    admin = console.client()
-    workbench = admin.get("/workbench").text
-    assert 'id="assist-describe-empty"' in workbench and 'href="/admin/ai-models"' in workbench
-    assert 'id="assist-describe-form"' not in workbench and "data-assist-ready" not in workbench
-    query = admin.get("/queries/big_txn").text
-    assert 'id="assist-explain-empty"' in query and 'action="/assist/explain-refusal"' not in query
-    answer = ask(admin, "explain-refusal", code="PRV-2050")
-    assert answer.status_code == 503 and "data-assist-empty" in answer.json()["html"]
-    # A person who is not an administrator is told whom to ask, not sent to a screen they cannot use.
-    ann = console.client("ann")
-    theirs = ann.get("/workbench").text
-    assert "Ask an administrator to configure one." in theirs
-    assert 'href="/admin/ai-models"' not in theirs.split('id="assist-describe-empty"', 1)[1].split("</div>", 1)[0]
-    status = admin.get("/admin/ai-models").text
-    assert "no model is configured" in status or "every model is disabled" in status

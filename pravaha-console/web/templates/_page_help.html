@@ -4,6 +4,7 @@
     remembers it closed for this browser and lets the ? in the top bar bring it into view.
     Expects `page_screen`. -#}
 {% set cards = help_for(page_screen) %}
+{% import "_ai.html" as ai with context %}
 <details class="page-help" id="page-help" data-screen="{{ page_screen }}" open>
   <summary>
     <span class="ph-title"><i class="bi bi-compass" aria-hidden="true"></i> {{ t('shell.page_help') }}</span>
@@ -29,4 +30,6 @@
     </ul>
   </nav>
   {% endif %}
+  {# Ask about this page (drishti's About drawer): the engine answers from this panel's words and these topics only. #}
+  {% if signed_in and ai_can(request, 'page') %}{{ ai.page_ask(page_screen) }}{% endif %}
 </details>

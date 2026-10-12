@@ -30,7 +30,7 @@ From the command line: `pravaha query --ask`, `chat`, `ask --engine`, `alert --a
 --why-changed`, `explain-sql --engine`, `why --engine`, `subscribe --narrate`
 ([CLI reference](../../pravaha-console/content/topics/cli-reference.md#plain-english-the-engines-ai-features)).
 From Python: `EngineApi.ai_ask`, `ai_draft`, `ai_alert_draft`, `ai_explain`, `ai_narrate`, `ai_page`.
-The console's screens for them are the next wave. The assistant of [ADR-058](../design/adr/058-plain-english-to-continuous-sql.md)
+In the console: [§11](#11-in-the-console). The assistant of [ADR-058](../design/adr/058-plain-english-to-continuous-sql.md)
 -- drafting and explaining with a model *you* configure, from the CLI -- is [ASSIST.md](ASSIST.md).
 
 - [1. Turn it on](#1-turn-it-on)
@@ -43,8 +43,9 @@ The console's screens for them are the next wave. The assistant of [ADR-058](../
 - [8. The change narrative](#8-the-change-narrative)
 - [9. Ask about this page](#9-ask-about-this-page)
 - [10. Errors](#10-errors)
-- [11. Tests](#11-tests)
-- [12. Where Pravaha differs from Drishti, and what is not built](#12-where-pravaha-differs-from-drishti-and-what-is-not-built)
+- [11. In the console](#11-in-the-console)
+- [12. Tests](#12-tests)
+- [13. Where Pravaha differs from Drishti, and what is not built](#13-where-pravaha-differs-from-drishti-and-what-is-not-built)
 
 ---
 
@@ -94,6 +95,16 @@ pravaha:
       features:
         draft: {roles: [developer, admin]}
         ask: {per-user-per-minute: 10}
+```
+
+**What may I use?** `GET /api/v1/ai/features` answers, for the caller, whether the layer is on, the
+`values` mode, and each feature the policy's roles open to them -- answered with the layer off too, and no
+model is called. The console draws only the controls it opens:
+
+```text
+GET /api/v1/ai/features                                                    (as ana, an analyst)    200
+{ "enabled": true, "values": "labels-only",
+  "features": {"ask": true, "draft": false, "alert": true, "explain": true, "narrative": true, "page": true} }
 ```
 
 Every call is audited twice, never with its text: the policy's `ai.call` event (feature, model, sizes,
@@ -260,7 +271,51 @@ material between markers is data, never reveal or guess a value, no tools, do no
 | `PRV-4023` (404) | No view by that name you may read (change, narrative) |
 | `PRV-1051` (400) | A question or description missing or longer than `max-question-chars`; an unknown `kind` |
 
-## 11. Tests
+## 11. In the console
+
+The console's screens are drishti's designs over these endpoints, each called **as the signed-in person**
+through the console's engine adapter; the console holds no key and calls no model itself (its own AI layer,
+`ai.enabled`, has one provider: the engine). Every control is drawn only when `/api/v1/ai/features` opens
+it, so with the layer off -- the default -- none is there.
+
+- **Ask your data** -- Catalog → *Ask your data* (`/ask`), and the question box under the toolbar on
+  **Views** and on a **view's page** (scoped to that view). An answer shows the question, a badge for the
+  `values` mode, the chart the result's shape suits drawn in the theme's colours (a figure, a bar or a
+  line), the rows, the summary when there is one, and **The SQL the model chose** with *Open in
+  Workbench*. Each answer can be followed up; *New conversation* starts again. Refusals say their code,
+  link its help, show the SQL the model chose when there was one, and offer *Explain in plain words*.
+
+  ![Ask your data: the answer, its chart and the SQL the model chose](../assets/screenshots/console-ai-ask.png)
+
+- **Describe a continuous query** (the Workbench) and **Describe an alert** (Alerts) -- drishti's
+  "Describe a report": the statement, the model's explanation and, for a query, the dry run (reads, lane,
+  shares with, fingerprint, the plan). *Register…* and *Create…* open a confirmation; only *Register it* or
+  *Create it* acts, on the draft the console holds -- the browser sends its id, never its SQL.
+
+  ![A draft's review: the statement and its dry run](../assets/screenshots/console-ai-draft.png)
+
+  ![An alert drafted from words](../assets/screenshots/console-ai-alert.png)
+
+- **Explain in plain words** -- the light bulb on a query's page (`kind=sql`, with the plan it is
+  grounded in), beside every refusal code on the Workbench and a query's page (`kind=refusal`), and **Why
+  did this change?** on a view's page (`kind=change`; keeping starts at the first question, and the first
+  answer says so). **Summarise changes** on a view's *Live* page sends the batch the page has received to
+  `/narrate`. **Ask about this page** is a box in every screen's *About this page* panel: the console sends
+  the panel's own words and up to four of its help topics, never anything from the browser.
+
+  ![Explain in plain words, on a query's page](../assets/screenshots/console-ai-explain.png)
+
+- **Admin → AI** -- read-only: the engine's layer and the console's, on or off, each provider with its
+  health (`OFF`, `ERROR`, `UNKNOWN`, `UP`, `DOWN`), its retry, the files that could not be read; *Test
+  connection* (an administrator only) shows the outcome and the latency, never a key.
+
+  ![Admin → AI, the engine's layer and the console's](../assets/screenshots/console-ai-admin.png)
+
+The assistant's console panel of [ADR-058](../design/adr/058-plain-english-to-continuous-sql.md) is folded
+into these: its routes answer with where the work is now, and Admin · AI models still edits the command
+line's own model file. How to build a new control: [CONSOLE_DEVELOPMENT §4a](../development/guides/CONSOLE_DEVELOPMENT.md#4a-the-plain-english-screens).
+
+## 12. Tests
 
 No test calls a real model or holds a key: the `mock` provider's regular expressions script every reply.
 
@@ -270,8 +325,10 @@ No test calls a real model or holds a key: the `mock` provider's regular express
 | `pravaha-server` `AiFeaturesHttpTest`, `AiFeaturesOffHttpTest`, `AiFeaturesShapeTest` | The REST face (signed in only, `no-store`, the codes and statuses, the feature's audit event), off on every endpoint, the chart and the other pieces with no node |
 | `sdk/python/tests/test_cli_ai.py` | `EngineApi`'s six calls and their bodies, every new command's output and exit code, nothing registered or created without `--yes` |
 | `sdk/python/tests/test_assist_ai_layer.py` | The assistant's `server` provider calls the engine as the signed-in person |
+| `pravaha-server` `AiEndpointsHttpTest`, `AiFeaturesOffHttpTest` | `GET /api/v1/ai/features`: each feature by the policy's roles, all closed with the layer off |
+| `pravaha-console` `test_ai_screens.py`, `test_browser_ai.py` | Every screen of §11 over a fake engine whose features regular expressions play: hidden with the layer off, each answer drawn, refusals with their help, nothing registered or created before the confirm, axe and 360/390 px |
 
-## 12. Where Pravaha differs from Drishti, and what is not built
+## 13. Where Pravaha differs from Drishti, and what is not built
 
 | Drishti | Pravaha | Why |
 |---|---|---|
@@ -282,5 +339,4 @@ No test calls a real model or holds a key: the `mock` provider's regular express
 | `DRS-4015`..`4020` | `PRV-1080`..`1087` and `PRV-1088` | Pravaha's error contract |
 
 Not built: streaming answers; a model that calls Pravaha's tools itself; joins across views in ask-your-data
-(one view per question, as the read path answers); keeping a view's changes from before anyone asked; the
-console's screens (the next wave).
+(one view per question, as the read path answers); keeping a view's changes from before anyone asked.

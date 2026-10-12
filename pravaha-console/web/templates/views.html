@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
+{% import "_ai.html" as ai with context %}
 {% block title %}{{ t('views.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -17,6 +18,8 @@
 </div>
 <div class="rule"></div>
 <p class="lede">{{ t('views.lede') }}</p>
+{# Ask your data (drishti's BI question box, under the toolbar): over every view this person may read. #}
+{% if ai_can(request, 'ask') %}{{ ai.ask_box() }}{% endif %}
 
 {% if queries is none %}
 {{ states.error(queries_error or t('views.down.title'), retry_href='/views', id='views-error', title=t('views.down.title'),

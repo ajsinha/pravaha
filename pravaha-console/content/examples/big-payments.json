@@ -1,0 +1,42 @@
+{
+  "streams": {
+    "txn": [
+      {
+        "txn_id": 31,
+        "user_id": "u1",
+        "merchant": "m-rail",
+        "amount": 4200,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:01Z"
+      },
+      {
+        "txn_id": 32,
+        "user_id": "u2",
+        "merchant": "m-coffee",
+        "amount": 300,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:04Z"
+      },
+      {
+        "txn_id": 33,
+        "user_id": "u1",
+        "merchant": "m-hotel",
+        "amount": 18000,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:09Z"
+      },
+      {
+        "txn_id": 34,
+        "user_id": "u4",
+        "merchant": "m-tv",
+        "amount": 1500,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:12Z"
+      }
+    ]
+  }
+}

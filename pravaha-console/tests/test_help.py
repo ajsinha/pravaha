@@ -53,6 +53,7 @@ from core.help_catalog import (
     MOVED,
     SCREEN_CARDS,
     SCREEN_HELP,
+    SECTIONS,
     TOPIC_AREA,
     HelpCatalog,
 )
@@ -105,14 +106,15 @@ def test_every_content_file_has_front_matter_that_parses():
 
 
 def test_every_topic_declares_what_the_catalog_needs(catalog):
-    ids = {c.id for c in CATEGORIES}
+    # A topic's front matter names a topic section of config/help.yaml; one that does not exist is a
+    # page no card links to.
+    ids = set(SECTIONS)
     slugs: dict[str, str] = {}
     for path in _topic_files():
         meta = _meta(path)
         missing = [k for k in REQUIRED if not meta.get(k)]
         assert not missing, f"{path.name} lacks {missing}"
         assert meta["slug"] == path.stem, f"{path.name}: the slug must be the file's name"
-        # A category that does not exist is a page no card links to.
         assert meta["category"] in ids, f"{path.name} names category {meta['category']!r}"
         assert meta["slug"] not in slugs, f"{meta['slug']} is claimed by {slugs.get(meta['slug'])} too"
         slugs[meta["slug"]] = path.name
@@ -151,8 +153,8 @@ def test_every_name_the_catalog_uses_is_a_page_that_exists(catalog):
     for digit, (_label, slug) in ERROR_FAMILIES.items():
         assert slug in topics, f"PRV-{digit}xxx is explained by {slug}, which does not exist"
     for category in CATEGORIES:
-        if category.guide:
-            assert category.guide.split("#")[0] in guides, f"{category.id}'s guide {category.guide}"
+        for section in category.sections:
+            assert section.guide.split("#")[0] in guides, f"{category.id}/{section.id}'s guide {section.guide}"
         for card in category.extras:
             if card.kind == "guide":
                 assert card.slug in guides, f"{category.id} carries guide {card.slug}, which is not served"
@@ -241,7 +243,7 @@ def _parse(html: str) -> _Links:
 
 
 def _help_pages(catalog) -> list[str]:
-    pages = ["/help", "/help/guides", "/help/codes", "/about", "/about/competitive", "/tutorials"]
+    pages = ["/help", "/help/guides", "/help/codes", "/help/examples", "/about", "/about/competitive", "/tutorials"]
     pages += [f"/help/topics/{t.slug}" for t in catalog.topics()]
     pages += [f"/help/{g.slug}" for g in catalog.guides()]
     return pages
@@ -299,9 +301,10 @@ def test_every_internal_link_on_every_help_page_resolves(anonymous, catalog):
 def test_every_code_a_topic_mentions_links_to_its_page(anonymous, catalog):
     for topic in catalog.topics():
         html = anonymous.get(f"/help/topics/{topic.slug}").text
-        article = html.split('<div class="card-body doc">', 1)[1].split("</article>", 1)[0]
+        article = html.split('<div class="doc">', 1)[1].split('<div class="help-footer">', 1)[0]
         # Outside <pre> and outside links, no code may stand bare.
-        text = re.sub(r"<pre.*?</pre>", "", article, flags=re.DOTALL)
+        # A captioned example (drishti's figure) is copied whole; its caption is its own first line.
+        text = re.sub(r"<pre.*?</pre>|<figcaption.*?</figcaption>", "", article, flags=re.DOTALL)
         text = re.sub(r"<a\b.*?</a>", "", text, flags=re.DOTALL)
         text = re.sub(r"<[^>]+>", "", text)
         assert not re.search(r"\bPRV-\d{4}\b", text), f"{topic.slug} mentions a code without a link"

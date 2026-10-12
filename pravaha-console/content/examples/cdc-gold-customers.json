@@ -1,0 +1,46 @@
+{
+  "streams": {
+    "crm_customers": [
+      {
+        "weight": 1,
+        "id": 1,
+        "name": "Asha",
+        "tier": "gold",
+        "region": "EU",
+        "updated_at": "2026-06-01T09:00:00Z"
+      },
+      {
+        "weight": 1,
+        "id": 2,
+        "name": "Ben",
+        "tier": "silver",
+        "region": "US",
+        "updated_at": "2026-06-01T09:00:05Z"
+      },
+      {
+        "weight": -1,
+        "id": 2,
+        "name": "Ben",
+        "tier": "silver",
+        "region": "US",
+        "updated_at": "2026-06-01T09:03:00Z"
+      },
+      {
+        "weight": 1,
+        "id": 2,
+        "name": "Ben",
+        "tier": "gold",
+        "region": "US",
+        "updated_at": "2026-06-01T09:03:00Z"
+      },
+      {
+        "weight": -1,
+        "id": 1,
+        "name": "Asha",
+        "tier": "gold",
+        "region": "EU",
+        "updated_at": "2026-06-01T09:07:00Z"
+      }
+    ]
+  }
+}

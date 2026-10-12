@@ -62,7 +62,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
             "pravaha.ai.default-model=mock/m",
             "pravaha.ai.test-per-minute=2",
             "pravaha.ai.policy.redact[0]=salary",
-            "pravaha.ai.policy.features.[api\\:secret].roles[0]=admin"
+            "pravaha.ai.policy.features.[api\\:secret].roles[0]=admin",
+            "pravaha.ai.policy.features.draft.roles[0]=admin"
         })
 @AutoConfigureMockMvc
 class AiEndpointsHttpTest {
@@ -102,6 +103,23 @@ class AiEndpointsHttpTest {
 
     private static String chat(String prompt, String feature) {
         return "{\"prompt\":\"" + prompt + "\",\"feature\":\"" + feature + "\"}";
+    }
+
+    @Test
+    void theFeaturesStatusOpensEachFeatureByThePolicysRolesAndNeverNamesAKey() throws Exception {
+        mvc.perform(get("/api/v1/ai/features").header("Authorization", "Bearer reader-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.values").value("labels-only"))
+                .andExpect(jsonPath("$.features.ask").value(true))
+                .andExpect(jsonPath("$.features.draft").value(false))
+                .andExpect(jsonPath("$.features.alert").value(true))
+                .andExpect(jsonPath("$.features.explain").value(true))
+                .andExpect(jsonPath("$.features.narrative").value(true))
+                .andExpect(jsonPath("$.features.page").value(true));
+        mvc.perform(get("/api/v1/ai/features").header("Authorization", "Bearer admin-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.features.draft").value(true));
     }
 
     @Test

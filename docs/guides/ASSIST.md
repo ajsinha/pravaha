@@ -28,9 +28,9 @@ reconfiguration, the configuration store and its administration facade; the expl
 `pravaha explain-sql` and `pravaha why`; **drafting a query from a description**, `pravaha ask`,
 judged by the engine with up to three repair turns and registered only when a person confirms it;
 and the **evaluation harness**, `pravaha assist eval`, over a golden set built from the case
-studies; and **in the console** (phase 3), the *Describe it* panel on the workbench, *Explain* on a
-query's page and beside every refusal code, and **Admin · AI models**, where an administrator
-configures several providers and models and switches between them while the console runs. **Not
+studies; and **in the console** (phase 3) **Admin · AI models**, where an administrator
+configures several providers and models and switches between them while the console runs (the
+console's own drafting and explaining are now the engine's features: [AI.md §11](AI.md#11-in-the-console)). **Not
 yet:** the `azure-openai`, `bedrock` and `vertex` providers of their own (phase 4) — Azure OpenAI,
 Bedrock and Gemini (AI Studio, not Vertex) are reachable through the `ai` type on the shared AI layer,
 and the recommended provider is `server`, the engine's own layer (ADR-063, [Providers](#providers)).
@@ -468,26 +468,14 @@ whether it was registered — which is where the usage view's request counts com
 counts come from the router's ledger (`assist.usage`, the SDK's `assist-usage.json` beside the
 configuration by default), charged to the name the engine signed each person in with.
 
-**The tasks run as the person.** The console hands `Assistant` an adapter over its one engine
-adapter (the same one every screen uses), so validate, explain, the catalogue's listings and the
-registration carry the signed-in person's engine session, and the engine authorises and audits each
-as theirs. A draft is **held by the console** between drafting and registering, per person, for an
-hour: the browser's Register sends the draft's id and a confirmation, never SQL, so what is
-registered is exactly what the engine judged, and `Assistant.register(confirmed=True)` still refuses
-a draft the engine did not accept.
-
-| Surface | Where | Calls |
-|---|---|---|
-| Describe it | the workbench | `Assistant.draft` (profile `draft`); questions answered in place and drafted again; *Copy to editor*; *Register* → `Assistant.register(confirmed=True)` |
-| Explain this query | a query's page | `Assistant.explain_query(query_name=...)` (profile `explain`) |
-| Explain | beside a refusal code: the workbench (its refusal and its diagnostics), a query's page, a refused draft | `Assistant.explain_refusal(code, sql)` |
-
-Every surface is a server-rendered form that works with scripting off; with scripting,
-`web/static/app/assist.js` posts the same form to `/api/v1/assist/{draft,register,explain-query,explain-refusal}`
-and puts the fragment the server rendered in place, in a live region. Budgets apply to each; a
-refusal of one is shown before anything is sent. With no model configured or none enabled, each
-surface shows one empty state — linking an administrator to Admin · AI models, and telling anyone
-else to ask one.
+**Folded into the engine's features.** The console's own surfaces of phase 3 -- *Describe it* on the
+workbench, *Explain this query* and *Explain* beside a refusal code -- are now the engine's plain-English
+features ([AI.md §11](AI.md#11-in-the-console)): *Describe a continuous query*, *Explain in plain words*
+and the rest, answered by the engine's AI layer as the signed-in person, with the same confirm before
+anything is registered. One assistant in the console, the engine's. Their old routes (`/assist/*`,
+`/api/v1/assist/*`) answer with where the work is now. **Admin · AI models** stays, reached from
+Admin → AI: it edits this assistant's model file on the console's host, which `pravaha ask`,
+`pravaha explain-sql`, `pravaha why` and `pravaha assist` read there, and shows what each model costs.
 
 ## Commands
 

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{#- Pravaha console -- Admin -> AI (drishti's admin/ai.html). Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+    All rights reserved. Read-only: the engine's AI layer (GET /api/v1/admin/ai) -- on or off, each provider
+    with its health, its retry, the files that could not be read -- and the console's own layer, whose one
+    provider is the engine. Test connection makes one real call through the engine (an administrator only,
+    bounded and rate-limited there) and shows its outcome and latency, never a key: no key is ever here. -#}
+{% from "_admin_head.html" import admin_head with context %}
+{% block title %}{{ t('admin.ailayer.page_title') }} — {{ app_name }}{% endblock %}
+{% macro layer(title, d, where) %}
+<section class="pnl adm-sec mb-3" data-ai-layer="{{ where }}">
+  <div class="pnl-h"><h2>{{ title }}</h2><span class="chip {{ 'ok' if d.enabled else 'mute' }}" data-ai-layer-state="{{ 'on' if d.enabled else 'off' }}"><span class="dot"></span>{{ t('admin.ailayer.on') if d.enabled else t('admin.ailayer.off') }}</span></div>
+  <div class="pnl-b">
+    <p class="mono small mb-2">{{ t('admin.ailayer.folder') }} <span>{{ d.dir or '—' }}</span> · {{ t('admin.ailayer.types') }} {{ (d.types or [])|join(', ') or '—' }}{% if d.defaultModel %} · {{ t('admin.ailayer.default_model') }} {{ d.defaultModel }}{% endif %}</p>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr><th scope="col">{{ t('admin.ailayer.provider') }}</th><th scope="col">{{ t('admin.ailayer.type') }}</th><th scope="col">{{ t('admin.ailayer.status') }}</th><th scope="col">{{ t('admin.ailayer.models') }}</th><th scope="col">{{ t('admin.ailayer.detail') }}</th></tr></thead>
+      <tbody>{% for p in d.providers or [] %}{% set h = p.health or {} %}
+      <tr data-provider="{{ p.name }}">
+        <td class="mono">{{ p.name }}</td><td>{{ p.type }}</td>
+        <td><span class="ai-health" data-health="{{ h.status }}">{{ h.status or 'UNKNOWN' }}</span></td>
+        <td class="mono small">{% for m in p.models or [] %}<div>{{ m.ref or (p.name ~ '/' ~ m.name) }}{% if m.capabilities %} <span class="text-muted-d">({{ m.capabilities|join(', ') }})</span>{% endif %}</div>{% else %}—{% endfor %}</td>
+        <td class="small">{% if p.retry %}<span class="ai-retry" data-retry>{{ t('admin.ailayer.retry', attempts=p.retry.attempts or p.retry.failures or 1, at=p.retry.nextRetry or p.retry.next_retry or '') }}</span> {% endif %}{{ h.detail }}{% if p.baseUrl %} · <span class="mono">{{ p.baseUrl }}</span>{% endif %}{% if p.keySet %} · {{ t('admin.ailayer.key_set') }}{% endif %}
+          {% if where == 'engine' and is_admin and d.enabled and p.models %}{% set m = p.models[0] %}
+          <div class="ai-test"><button type="button" class="btn-pill btn-ghost btn-sm-pill" data-ai-test="{{ m.ref or (p.name ~ '/' ~ m.name) }}"
+               title="{{ t('admin.ailayer.test_title') }}">{{ t('admin.ailayer.test') }}</button>
+            <span class="small" data-ai-test-result="{{ m.ref or (p.name ~ '/' ~ m.name) }}" role="status" aria-live="polite"></span></div>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="5">{{ t('admin.ailayer.no_providers') }}{% if not d.enabled %} {{ t('admin.ailayer.layer_off') }}{% endif %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% for f, why in (d.fileErrors or {}).items() %}<p class="adm-warn text-danger small mb-0 mt-2" role="alert" data-ai-file-error><span class="mono">{{ f }}</span>: {{ why }}</p>{% endfor %}
+  </div>
+</section>
+{% endmacro %}
+{% block content %}
+{{ admin_head('ai', t('admin.ailayer.page_heading')) }}
+<p class="lede">{{ t('admin.ailayer.page_lede') }}</p>
+{% if engine_layer %}{{ layer(t('admin.ailayer.engine_layer'), engine_layer, 'engine') }}
+{% elif layer_error and layer_error.status in (401, 403) %}
+<div class="state" id="admin-ai-not-permitted"><h2>{{ t('admin.ailayer.denied_title') }}</h2><p>{{ layer_error.message }}</p></div>
+{% else %}
+<section class="pnl adm-sec mb-3" data-ai-layer="engine"><div class="pnl-h"><h2>{{ t('admin.ailayer.engine_layer') }}</h2></div>
+  <div class="pnl-b"><p class="text-danger mb-0" role="alert">{{ t('admin.ailayer.engine_unread') }}{% if layer_error %}: {% if layer_error.code %}<a class="mono" href="/help/codes/{{ layer_error.code }}">{{ layer_error.code }}</a> {% endif %}{{ layer_error.message }}{% endif %}</p></div></section>
+{% endif %}
+{{ layer(t('admin.ailayer.console_layer'), console_layer, 'console') }}
+<p class="small text-muted-d">{{ t('admin.ailayer.assistant_before') }} <a href="/admin/ai-models">{{ t('admin.ailayer.assistant_link') }}</a> {{ t('admin.ailayer.assistant_after') }}</p>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/app/admin-ai.js?v={{ asset_version }}"></script>{% endblock %}

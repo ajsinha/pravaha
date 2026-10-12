@@ -3,24 +3,26 @@ Pravaha console — the help catalog.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
-One declarative catalog, and the help index is rendered from it.
+One declarative catalogue, ``config/help.yaml`` (drishti's design: its ``help.yaml`` and
+``core/guides.py``), and the help index is rendered from it: five categories -- Start, Use,
+Build, Operate, AI -- each a list of topic sections and the guides it offers; the retired
+addresses (``moved:``); and the help each screen opens (``contextual:``, F1's target first).
 
 Three kinds of help live side by side, and each has one home:
 
 * **Topics** -- ``content/topics/*.md``. Short enough to finish, deep enough that a reader
   never has to open the repository: an options table, a complete worked example with its
   expected output, the pitfalls, and a link to the long-form guide for the rest. A topic
-  **registers itself**: its front matter names its ``category`` and the index picks it up.
+  **registers itself**: its front matter names its ``category`` -- one of the catalogue's topic
+  sections -- and the index picks it up.
   Nothing here lists topics by name, so adding one is adding a file.
 * **Guides** -- ``content/help/*.md``, each an ``include:`` of a document in ``docs/``. The
   long form, rendered in place. A topic names its companion guide (``guide:``), which the
   shared footer turns into "Full reference"; a category names the default one.
 * **Codes** -- every ``PRV-nnnn``, at ``/help/codes/{code}``, gathered from the documents.
 
-What this module owns: the categories and their order, the extra cards a category carries
-that are not topics (a guide, the code browser), which topics each product screen offers as
-contextual help, and the lookups the routes and templates need. What it does not own: any
-topic's words.
+What this module owns: reading the catalogue, and the lookups the routes and templates need.
+What it does not own: the categories, which are in help.yaml, or any topic's words.
 
 The checks that keep it honest live in ``tests/test_help.py``: a category nobody fills, a
 topic whose category does not exist (a page no card links to), a card or screen entry that
@@ -30,9 +32,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+import yaml
+
 from core.content.library import ContentLibrary, Topic
+
+#: The one catalogue (drishti's design): categories, the guides each lists, moved, contextual.
+CATALOGUE = Path(__file__).resolve().parents[1] / "config" / "help.yaml"
 
 #: The area under content/ that holds the topics, and the URL they are served under.
 TOPIC_AREA = "topics"
@@ -50,9 +58,11 @@ class Card:
     title: str
     summary: str
     icon: str
-    badge: str = ""
+    badge: str = ""           # the upper-case label a topic may carry (SOURCE, PRV-2XXX)
     keywords: str = ""        # extra words the index search matches, never shown
     anchor: str = ""          # a section of the topic, for a screen card that wants one part of it
+    #: drishti's ``badge-kind``: tutorial, reference, guide or examples.
+    type: str = "guide"
 
     @property
     def href(self) -> str:
@@ -63,235 +73,60 @@ class Card:
         return self.slug
 
 
+@dataclass(frozen=True)
+class Section:
+    """A group of topics inside a category -- what a topic's front matter ``category:`` names --
+    and the long-form guide a topic in it points at when it names none itself."""
+    id: str
+    guide: str = ""
+
+
 @dataclass
 class Category:
     id: str
     name: str
     icon: str
     blurb: str
-    #: The long-form guide a topic in this category points at when it names none itself.
+    #: The long-form guide of the category's first section, for a caller that wants one.
     guide: str = ""
     #: Cards that are not topics: a guide, the code browser. Shown after the topics.
     extras: list[Card] = field(default_factory=list)
+    #: The topic sections gathered here, in order.
+    sections: list[Section] = field(default_factory=list)
 
 
-def _guide(slug: str, title: str, icon: str, summary: str, badge: str = "GUIDE") -> Card:
-    return Card("guide", slug, title, summary, icon, badge)
+def _extra(entry: dict[str, Any]) -> Card:
+    """A ``guides:`` entry of help.yaml as a card: ``guide:`` a long-form guide, ``href:`` a page."""
+    common = {"title": str(entry["title"]), "summary": str(entry.get("summary", "")),
+              "icon": str(entry.get("icon", "journal-text")), "keywords": str(entry.get("keywords", ""))}
+    if entry.get("guide"):
+        return Card("guide", str(entry["guide"]), type=str(entry.get("kind", "reference")), **common)
+    return Card("page", str(entry["href"]), type=str(entry.get("kind", "reference")), **common)
 
 
-def _page(path: str, title: str, icon: str, summary: str, badge: str = "", keywords: str = "") -> Card:
-    return Card("page", path, title, summary, icon, badge, keywords)
+def load(path: Path = CATALOGUE) -> tuple[list[Category], dict[str, str], dict[str, list[str]]]:
+    """help.yaml as its categories, its retired addresses and its screens' help."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    categories = []
+    for c in data.get("categories") or []:
+        sections = [Section(str(s["id"]), str(s.get("guide", ""))) for s in c.get("sections") or []]
+        categories.append(Category(str(c["id"]), str(c["name"]), str(c.get("icon", "book")),
+                                   str(c.get("blurb", "")), sections[0].guide if sections else "",
+                                   [_extra(g) for g in c.get("guides") or []], sections))
+    moved = {str(k): str(v) for k, v in (data.get("moved") or {}).items()}
+    contextual = {str(k): [str(e) for e in v] for k, v in (data.get("contextual") or {}).items()}
+    return categories, moved, contextual
 
 
-CATEGORIES: list[Category] = [
-    Category("start", "Getting started", "flag",
-             "What Pravaha is, a first maintained view end to end, and which way in suits you.",
-             guide="quickstart",
-             extras=[_guide("quickstart", "Quick start (long form)", "flag",
-                            "From an empty engine to a maintained view, including the refusals — "
-                            "every command real."),
-                     _page("/tutorials", "Tutorials", "journal-code",
-                           "Learn Pravaha step by step: a first maintained view, following a view, changing a "
-                           "running query safely, investigating an incident, and joining Aerospike with a CSV file.",
-                           "TUTORIALS", "tutorial lesson learn walkthrough aerospike"),
-                     _page("/help/case-studies", "Case studies", "journal-code",
-                           "Worked systems, one domain each, from their data to their continuous queries — "
-                           "each study's README, with the output of a real run.",
-                           "CASE STUDIES", "case study worked example domain banking trading biology"),
-                     _guide("developing-in-an-ide", "Running in IntelliJ and PyCharm", "laptop",
-                            "The server in IntelliJ IDEA and the console in PyCharm: shared run configurations, "
-                            "the JVM flags Flight needs, debugging and tests.")]),
-    Category("concepts", "Concepts", "lightbulb",
-             "The ideas the engine is built on: streams, continuous queries, views and keys, "
-             "weights and retractions, windows, event time, corrections and sharing.",
-             guide="concepts",
-             extras=[_guide("concepts", "Concepts (long form)", "lightbulb",
-                            "The model underneath everything else, with the soundness rule it rests on.")]),
-    Category("sql", "Writing SQL", "code-square",
-             "The SQL the engine runs and the SQL it refuses — with the reason for every refusal — "
-             "the statements that register and manage queries, windows, joins and parameters.",
-             guide="continuous-queries",
-             extras=[_guide("continuous-queries", "Streams, queries and SQL (long form)", "code-square",
-                            "The single source of truth for what you write and what happens when you write it.")]),
-    Category("reading", "Reading answers", "eye",
-             "A view is read, not re-run: point reads, subscriptions to its changes, what a read "
-             "is consistent with, the PostgreSQL gateway, Power BI, the HTTP API, and every client and SDK.",
-             guide="user-guide",
-             extras=[_guide("user-guide", "User guide (long form)", "book",
-                            "Registering, reading and subscribing from the CLI and both SDKs."),
-                     _guide("python-sdk", "Python SDK", "code-slash",
-                            "The Python client: queries, subscriptions, registration, the catalog, errors."),
-                     _guide("python-api-guide", "Python integration guide", "plug",
-                            "Every SDK call and REST endpoint, one by one, each with a verified sample: "
-                            "the page to hand a team connecting an application.")]),
-    Category("sources", "Sources", "box-arrow-in-right",
-             "Where rows come from. One page per connector: its options, a complete binding, what "
-             "it pushes down, what it guarantees, and how it goes wrong.",
-             guide="continuous-queries#21-every-source-type-configured",
-             extras=[_guide("connectors", "Connectors (long form)", "plug",
-                            "The plugin SPI, a worked source end to end, the TCK, cross-source joins "
-                            "and change-data-capture.")]),
-    Category("sinks", "Sinks", "box-arrow-right",
-             "Where answers go. How a query names a sink, the shape check, delivery from at-least-once "
-             "to exactly-once, and one page per shipped sink.",
-             guide="continuous-queries#4-reading-the-answer"),
-    Category("operating", "Operating", "speedometer2",
-             "Running a node: configuration and every setting, lanes (sized, shared, dedicated), state and "
-             "spill, checkpoints and recovery, standby, observability and alerts, changing a running query.",
-             guide="operations",
-             extras=[_guide("operations", "Operations (long form)", "gear",
-                            "Every setting, every metric, and the runbooks."),
-                     _guide("execution-model", "Execution model", "cpu",
-                            "How a registered query executes: lanes, batches, commits and checkpoints."),
-                     _guide("deploying", "Deploying", "box-seam",
-                            "The one root under /opt/pravaha, a QA host from two images and two files, "
-                            "the container image, the Helm chart, upgrades and releases.")]),
-    Category("security", "Security", "shield-lock",
-             "Who may connect, what they may read and do, the grants and namespaces of the catalogue, the "
-             "row filters and masks that follow them into every view, the audit trail, and TLS everywhere.",
-             guide="security",
-             extras=[_guide("security", "Security (long form)", "shield-lock",
-                            "Authentication, the policies, row-level security and the audit trail."),
-                     _guide("connector-tls", "TLS everywhere (long form)", "shield-lock-fill",
-                            "Every encrypted connection Pravaha makes or accepts.")]),
-    Category("embedding", "Embedding", "plug",
-             "Pravaha inside your own JVM process: the embedded engine and the Spring Boot starter.",
-             guide="architecture-hosts"),
-    Category("errors", "Errors", "exclamation-octagon",
-             "Every PRV code, range by range: what it means, why the engine says it, and what to do.",
-             guide="troubleshooting",
-             extras=[_page("/help/codes", "Every code", "list-ol",
-                           "All PRV codes in one table, each opening its own page.", "INDEX",
-                           "prv code error number list"),
-                     _guide("troubleshooting", "Troubleshooting (long form)", "life-preserver",
-                            "Nothing is happening, the numbers are wrong, it ran out of memory — by symptom.")]),
-    Category("reference", "Reference", "journal-bookmark",
-             "The glossary, the CLI and the assistant — "
-             "and the long-form guides behind all of it.",
-             guide="operations",
-             extras=[_page("/help/guides", "All guides", "journal-richtext",
-                           "Every long-form document the engine ships with, rendered in place.",
-                           "BROWSER", "guide document long form reference manual"),
-                     _guide("architecture", "Architecture", "diagram-3",
-                            "How every component fits together: the module graph, a row and a registration "
-                            "traced end to end, and the query and feed lifecycles."),
-                     _guide("architecture-components", "Architecture, component by component", "diagram-3",
-                            "One page per layer — planning, runtime, registry, ingest, serving, governance, "
-                            "hosts, clients — with key types, threads, invariants, codes and examples."),
-                     _guide("decisions", "Decision records", "signpost-split",
-                            "Every architecture decision, numbered and never renumbered."),
-                     _guide("system-design", "System design", "diagram-2",
-                            "The whole design, including what is not built yet.")]),
-    # What the product is as a product: the questions people actually ask, what changed, what
-    # is left, and where it stands against the alternatives. The notes and the roadmap are guides
-    # over documents in docs/, and the landscape is its own page drawn from one, so no page can
-    # say something its document does not.
-    Category("about", "About Pravaha", "info-circle",
-             "The questions a QA team or an integrator asks first, what changed in each cut, what "
-             "is still to build, and where Pravaha stands against the alternatives — losses included.",
-             guide="whats-new",
-             extras=[_page("/about", "About Pravaha", "info-circle",
-                           "What it is, the problems it solves, what is built and measured, and who made it.",
-                           "", "about overview author licence version"),
-                     _guide("whats-new", "What's new", "megaphone",
-                            "The release notes: what changed in each cut, with the numbers and the "
-                            "defects still open.", "NOTES"),
-                     _guide("roadmap", "Roadmap", "map",
-                            "What is left to build, in batches, and what is deliberately not scheduled.",
-                            "PLAN"),
-                     _page("/about/competitive", "Competitive landscape", "bar-chart-steps",
-                           "Scored by category against dataflow engines, streaming databases and "
-                           "Kafka-native tools, with a card per row saying how — and where Pravaha loses.",
-                           "COMPARE", "competitive landscape comparison flink materialize risingwave "
-                           "ksqldb kafka streams hazelcast versus alternative")]),
-]
+CATEGORIES, MOVED, SCREEN_HELP = load()
 
 CATEGORY_IDS = [c.id for c in CATEGORIES]
+#: Every topic section, and the category that holds it.
+SECTIONS: dict[str, tuple[Category, Section]] = {s.id: (c, s) for c in CATEGORIES for s in c.sections}
 
 #: The most cards a screen offers. Three is what a person reads at the foot of a page; the rest
 #: of the help is one click away on the index.
 SCREEN_CARDS = 3
-
-#: The contextual help each product screen offers, most relevant first. The first is also the
-#: target of the screen's "?" link. An entry is a topic, or ``topic#section`` for one part of a
-#: longer page. Checked by a test: every entry is a topic that exists, every section one it has,
-#: no screen offers more than SCREEN_CARDS, and every screen a template names is here.
-SCREEN_HELP: dict[str, list[str]] = {
-    "start": ["getting-started#your-first-maintained-view", "streams", "views-and-keys"],
-    "overview": ["getting-started#the-console-screen-by-screen", "observability", "query-lifecycle"],
-    "workbench": ["sql-reference", "sql-refusals", "backfill-cutover#comparing-two-versions"],
-    "catalog": ["streams", "catalog-and-grants", "sources-overview"],
-    "catalog-object": ["catalog-and-grants", "row-filters-and-masks", "streams"],
-    "stream": ["streams", "event-time-watermarks", "sources-overview"],
-    "views": ["views-and-keys", "clients", "pgwire"],
-    "view": ["views-and-keys#point-reads", "clients", "power-bi"],
-    "live": ["subscriptions", "zset-weights", "event-time-watermarks#late-data"],
-    "operations": ["observability", "reading-a-plan", "lanes"],
-    "alerts": ["alerts", "observability", "views-and-keys"],
-    "queries": ["query-lifecycle", "sharing", "create-continuous-query#queries-on-queries"],
-    "query": ["query-lifecycle", "sharing", "backfill-cutover"],
-    # B9. The blue/green screen (design 23.10): comparing the versions, what the backfill reads and
-    # why there is no ETA on it, what a cutover moves, and how long a rollback stays open.
-    "replacement": ["backfill-cutover", "query-lifecycle", "sharing"],
-    # B9. The debugger (design 23.9, ADR-048): what a fork starts from, and what the weights on
-    # its view changes mean.
-    "debug": ["time-travel-debugger", "checkpoints-recovery", "zset-weights"],
-    "dead-letters": ["dead-letters", "sources-overview", "observability"],
-    "plugins": ["sources-overview", "sinks-overview", "connector-security"],
-    "admin-users": ["authentication", "catalog-and-grants#user-attributes-as-claims", "audit"],
-    "admin-keys": ["authentication", "authorization", "audit"],
-    "admin-sessions": ["authentication", "audit", "authorization"],
-    "admin-lanes": ["lanes", "observability", "reading-a-plan"],
-    "admin-grants": ["catalog-and-grants", "row-filters-and-masks", "authorization"],
-    "admin-policies": ["row-filters-and-masks", "catalog-and-grants", "audit"],
-    # ADR-058 phase 3: Admin · AI models, and an assist answer drawn as a page of its own.
-    "ai-models": ["assistant#admin-ai-models", "assistant", "observability"],
-    "assistant": ["assistant", "sql-refusals", "create-continuous-query"],
-    # The rest of the pages, for their "About this page" panel (core/page_help.py), whose
-    # "More in Help" links are these.
-    "alert": ["alerts", "views-and-keys", "subscriptions"],
-    "admin-access": ["authorization", "authentication", "catalog-and-grants"],
-    "admin-audit": ["audit", "authorization", "authentication"],
-    "admin-tenants": ["configuration", "sharing", "audit"],
-    "components": ["getting-started#the-console-screen-by-screen"],
-    "landing": ["getting-started", "zset-weights", "views-and-keys"],
-    "login": ["authentication"],
-    "login-reset": ["authentication"],
-    "account": ["authentication", "authorization", "clients"],
-    "account-password": ["authentication"],
-    "about": ["getting-started", "faq", "glossary"],
-    "competitive": ["faq", "glossary"],
-    "not-found": ["getting-started", "faq"],
-    "refused": ["errors-overview", "sql-refusals", "authorization"],
-}
-
-#: Topics that were merged into another, and where each one's content now is. The old address
-#: answers 301 to the new one, so a bookmark, a link in somebody's runbook or a page not yet
-#: updated keeps working. Checked by a test: every target is a topic and section that exists, and
-#: no page the help serves still links to an old address.
-MOVED: dict[str, str] = {
-    "start-here": "getting-started",
-    "first-view": "getting-started#your-first-maintained-view",
-    "console-tour": "getting-started#the-console-screen-by-screen",
-    "choosing-a-client": "clients",
-    "client-snippets": "clients#snippets",
-    "sdk-reference": "clients#sdk-reference",
-    "point-reads": "views-and-keys#point-reads",
-    "windows-worked": "windows#worked-examples",
-    "late-data": "event-time-watermarks#late-data",
-    "sql-types": "sql-reference#types-nulls-and-expressions",
-    "sql-parameters": "sql-reference#parameters",
-    "temporal-joins": "joins#temporal-joins",
-    "compare-versions": "backfill-cutover#comparing-two-versions",
-    "sizing-lanes": "lanes#sizing-lanes",
-    "lane-sharing": "lanes#sharing-lanes",
-    "metrics-alerts": "observability",
-    "metrics-index": "observability#every-metric",
-    "settings-index": "configuration#every-setting",
-    "row-filters": "row-filters-and-masks",
-    "admin-ai-models": "assistant#admin-ai-models",
-    "cluster-mode": "standby#cluster-mode",
-}
 
 #: Each PRV range and the errors topic that explains it (the /help/codes browser and each
 #: code's own page link here). Checked by a test like the screens.
@@ -331,10 +166,28 @@ class HelpCatalog:
         return self.content.get(GUIDE_AREA, slug.split("#", 1)[0])
 
     def category(self, category_id: str) -> Category | None:
-        return next((c for c in CATEGORIES if c.id == category_id), None)
+        """A category by its id, or the category that holds a topic section of that id."""
+        found = next((c for c in CATEGORIES if c.id == category_id), None)
+        return found or (SECTIONS[category_id][0] if category_id in SECTIONS else None)
+
+    @staticmethod
+    def listing(slug_or_href: str) -> Category | None:
+        """The category whose ``guides:`` offer a guide (by slug) or a page (by its path)."""
+        return next((c for c in CATEGORIES for card in c.extras
+                     if card.slug == slug_or_href), None)
+
+    @staticmethod
+    def section(topic: Topic) -> Section | None:
+        """The topic section a topic's front matter names, or None."""
+        held = SECTIONS.get(str(topic.meta.get("category", "")))
+        return held[1] if held else None
 
     def topics_in(self, category_id: str) -> list[Topic]:
-        return [t for t in self.topics() if t.meta.get("category") == category_id]
+        """A category's topics, section by section in the catalogue's order; or one section's."""
+        category = next((c for c in CATEGORIES if c.id == category_id), None)
+        wanted = [s.id for s in category.sections] if category else [category_id]
+        found = self.topics()
+        return [t for sid in wanted for t in found if t.meta.get("category") == sid]
 
     @staticmethod
     def card(topic: Topic) -> Card:
@@ -344,7 +197,7 @@ class HelpCatalog:
         keywords = " ".join(str(k) for k in (meta.get("keywords") or []))
         return Card("topic", topic.slug, topic.title, topic.summary,
                     meta.get("icon", topic.icon) or "file-text", str(meta.get("badge", "") or ""),
-                    f"{keywords} {headings} {codes}".strip())
+                    f"{keywords} {headings} {codes}".strip(), type=str(meta.get("kind", "guide")))
 
     # ----------------------------------------------------------------- index
     def index(self) -> list[dict[str, Any]]:
@@ -364,8 +217,8 @@ class HelpCatalog:
     # ---------------------------------------------------------------- footer
     def companion(self, topic: Topic) -> dict[str, str] | None:
         """The long-form guide behind a topic: its own ``guide:``, else its category's."""
-        category = self.category(str(topic.meta.get("category", "")))
-        target = str(topic.meta.get("guide") or (category.guide if category else "") or "")
+        section = self.section(topic)
+        target = str(topic.meta.get("guide") or (section.guide if section else "") or "")
         if not target:
             return None
         slug, _, anchor = target.partition("#")
@@ -380,8 +233,9 @@ class HelpCatalog:
         category = self.category(str(topic.meta.get("category", "")))
         named = [self.topic(s) for s in (topic.meta.get("related") or [])]
         named_cards = [self.card(t) for t in named if t is not None and t.slug != topic.slug]
-        siblings = [self.card(t) for t in self.topics_in(category.id)
-                    if t.slug != topic.slug and t.slug not in {c.slug for c in named_cards}] if category else []
+        section = self.section(topic)
+        siblings = [self.card(t) for t in self.topics() if t.meta.get("category") == section.id
+                    if t.slug != topic.slug and t.slug not in {c.slug for c in named_cards}] if section else []
         return {"category": category, "companion": self.companion(topic),
                 "named": named_cards, "siblings": siblings}
 
@@ -416,6 +270,13 @@ class HelpCatalog:
                             card.icon, card.badge, card.keywords, anchor)
             cards.append(card)
         return cards
+
+    def context(self, screen: str) -> str:
+        """Where F1 goes on a screen (drishti's ``/help/context/{screen}``): its first help topic,
+        at its section when it names one; the help index for a screen with none."""
+        for card in self.for_screen(screen)[:1]:
+            return card.href
+        return "/help"
 
     @staticmethod
     def moved(slug: str) -> str | None:

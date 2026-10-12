@@ -5,14 +5,6 @@
    Every colour is a token (static/css/tokens.css), so each theme is the redefinition of that one file
    and nothing here: no hex, no rgba of a brand colour. */
 
-/* ------------------------------------------------------------------ index */
-/* The help hero, as drishti's: centred on a soft wash of the accent, its title in gradient text.
-   About keeps its band: the bar's own gradient, white on every stop. */
-.help-hero{position:relative;overflow:hidden;text-align:center;border-radius:16px;padding:2.6rem 1.25rem 2rem;margin-bottom:1.4rem;
-  border:1px solid var(--rule);background:radial-gradient(900px 320px at 50% -20%,var(--d-accent-tint),transparent 70%),var(--surface)}
-.help-hero h1{font-size:2rem;font-weight:800;margin:.5rem auto}
-.help-hero .lede{color:var(--muted)!important;margin-left:auto;margin-right:auto}
-.help-hero .d-flex{justify-content:center}
 .about-hero{position:relative;overflow:hidden;text-align:center;color:var(--on-bar);border-radius:20px;
   padding:2.4rem 1.5rem;margin-bottom:1.4rem;background:linear-gradient(120deg,var(--bar-from),var(--bar-via) 50%,var(--bar-to));
   box-shadow:0 24px 50px -24px color-mix(in srgb,var(--bar-to) 70%,transparent)}
@@ -27,32 +19,42 @@
 .about-hero .btn-primary{--bs-btn-bg:var(--on-bar);--bs-btn-color:var(--bar-from);--bs-btn-border-color:var(--on-bar);
   --bs-btn-hover-bg:var(--on-bar);--bs-btn-hover-color:var(--bar-from);background-image:none}
 
-.help-hero .lede{max-width:48rem;line-height:1.6}
-.help-toolbar{position:sticky;top:56px;z-index:5;background:var(--canvas);padding:.8rem 0 .6rem;
-  border-bottom:1px solid var(--hairline);margin-bottom:1.1rem}
-.help-search{display:flex;gap:.5rem;max-width:44rem}
-.help-search input{flex:1;min-width:0;padding:.55rem .85rem;font-size:1rem;border:1px solid var(--edge);
-  border-radius:999px;background:var(--surface);color:var(--ink)}
-.help-search input:focus{outline:2px solid var(--flow);outline-offset:1px}
-.cat-chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.65rem;padding:0;list-style:none}
-.cat-chips a{display:inline-flex;align-items:center;gap:.35rem;font-size:.8rem;padding:.18rem .7rem;
-  border:1px solid var(--rule);border-radius:999px;text-decoration:none;color:var(--slate);background:var(--surface)}
-.cat-chips a:hover,.cat-chips a:focus{border-color:var(--flow);color:var(--ink)}
-.cat-chips .n{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.72rem}
-
-.help-cat{border:1px solid var(--rule);border-radius:10px;margin-bottom:1rem;background:var(--surface)}
-.help-cat>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:.7rem;padding:.8rem 1rem}
+/* ------------------------------------------------------------------ index */
+/* Drishti's help centre (drishti-console static/css/help.css): the hero on a soft wash of the
+   accent, the sticky toolbar with the pill search and the category chips, a collapsible category
+   with its cards three to a row, the kind badge, the guide layout (contents beside the article),
+   captioned examples and the tip / warning / note boxes. */
+.help-hero{text-align:center;padding:2.6rem 1.25rem 2rem;border-bottom:1px solid var(--d-border);margin:0;
+  background:radial-gradient(900px 320px at 50% -20%,var(--d-accent-tint),transparent 70%)}
+.help-hero .hero-ico{font-size:2.2rem;color:var(--d-accent)}
+.help-hero h1{font-size:2rem;font-weight:800;margin:.5rem auto;display:block;text-align:center}
+.help-hero .lede{color:var(--d-muted)!important;max-width:70ch;margin:0 auto;line-height:1.6}
+.help-page .help-wrap{padding-left:0;padding-right:0}
+.help-cta{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-top:1.1rem}
+.help-wrap{max-width:1240px;margin:0 auto;padding:1.2rem 0 2.5rem}
+.help-toolbar{position:sticky;top:58px;z-index:5;background:var(--d-bg);padding:.8rem 0;border-bottom:1px solid var(--d-border);margin-bottom:1rem}
+.help-search{display:flex;align-items:center;gap:.6rem;background:var(--d-surface);border:1px solid var(--d-border);border-radius:999px;padding:.45rem .9rem;max-width:44rem}
+.help-search:focus-within{border-color:var(--d-accent)}
+.help-search .bi{color:var(--d-muted)}
+.help-search input{flex:1;min-width:0;background:none;border:0;color:var(--d-ink);outline:none;font-size:1rem}
+.help-search.small{border-radius:6px;padding:.3rem .6rem;margin-bottom:1rem;font-size:.85rem}
+.help-search.small input{font-size:.85rem}
+.cat-chips{display:flex;flex-wrap:wrap;gap:.45rem;margin:.7rem 0 0;padding:0;list-style:none}
+.cat-chips .chip{display:inline-flex;align-items:center;gap:.3rem;border:1px solid var(--d-border);border-radius:999px;padding:.2rem .7rem;font-size:.82rem;color:var(--d-ink);text-decoration:none;background:none}
+.cat-chips .chip .n{color:var(--d-muted);margin-left:.2rem}
+.cat-chips .chip:hover,.cat-chips .chip:focus{border-color:var(--d-accent);text-decoration:none;color:var(--d-ink)}
+.help-cat{margin:1.2rem 0}
+.help-cat>summary{display:flex;justify-content:space-between;align-items:center;gap:.7rem;cursor:pointer;list-style:none;padding:.4rem 0}
 .help-cat>summary::-webkit-details-marker{display:none}
-.help-cat>summary h2{font-size:1.08rem;margin:0;display:flex;align-items:center;gap:.55rem}
-.help-cat>summary h2 .bi{color:var(--flow)}
-.help-cat>summary .count{font-size:.75rem;font-weight:600;color:var(--muted);background:var(--stripe);
-  border-radius:999px;padding:.08rem .6rem;font-variant-numeric:tabular-nums}
-.help-cat>summary .caret{margin-left:auto;color:var(--muted);transition:transform .15s}
+.cat-name{font-size:1.15rem;font-weight:700;display:inline-flex;gap:.55rem;align-items:center;margin:0}
+.cat-ico,.hc-ico{color:var(--d-accent)}
+.cat-count{color:var(--d-muted);font-family:var(--d-font-mono);margin-left:auto}
+.help-cat>summary .caret{color:var(--d-muted);transition:transform .15s}
 .help-cat[open]>summary .caret{transform:rotate(180deg)}
-.help-cat[open]>summary{border-bottom:1px solid var(--hairline)}
-.help-cat .blurb{color:var(--muted);font-size:.9rem;margin:.75rem 1rem .1rem}
-.help-cat .cards{padding:.7rem 1rem 1rem}
-
+.cat-blurb{color:var(--d-muted);margin:.1rem 0 .8rem}
+.help-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
+.help-item{display:flex}
+/* The card every help list draws (guides, tutorials, case studies) ... */
 .help-card{display:flex;flex-direction:column;height:100%;padding:.8rem .9rem;border:1px solid var(--rule);
   border-radius:8px;text-decoration:none;color:var(--ink);background:var(--raised)}
 .help-card:hover,.help-card:focus{border-color:var(--flow);box-shadow:0 0 0 1px var(--flow)}
@@ -60,18 +62,37 @@
 .help-card .t .bi{color:var(--flow);font-size:1.1rem}
 .help-card .s{color:var(--slate);font-size:.84rem;line-height:1.5;margin-top:.3rem;flex:1}
 .help-card .go{font-size:.78rem;color:var(--flow);margin-top:.45rem}
+/* ... and drishti's, on the index: a lift on hover, the accent border, the kind badge. */
+.help-cards .help-card{flex:1;height:auto;background:var(--d-surface);border-color:var(--d-border);border-radius:10px;
+  padding:.9rem 1rem;color:var(--d-ink);transition:transform .15s,border-color .15s}
+.help-cards .help-card:hover,.help-cards .help-card:focus{transform:translateY(-2px);border-color:var(--d-accent);box-shadow:none;text-decoration:none;color:var(--d-ink)}
+.help-cards .help-card .s{color:var(--d-muted);font-size:.88rem;margin:.4rem 0}
+.hc-title{display:flex;gap:.55rem;font-weight:700}
+.badge-kind{font-size:.68rem;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--d-muted);
+  border:1px solid var(--d-border);border-radius:3px;padding:0 .35rem;vertical-align:middle;white-space:nowrap}
+.more{color:var(--d-link);font-size:.85rem}
 .badge-help{font-size:.62rem;font-weight:700;letter-spacing:.04em;padding:.1rem .4rem;border-radius:4px;
   background:var(--info-soft);color:var(--info);margin-left:auto}
-.help-nohits{display:none;color:var(--muted);text-align:center;padding:2rem 1rem}
-.help-quick dt{font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
-.help-quick dd{margin-bottom:.6rem}
+.help-article header .badge-help{margin-left:.4rem}
+.help-nohits{display:none;color:var(--d-muted);text-align:center;padding:2rem 1rem}
 
-/* ------------------------------------------------------------------ topic */
+/* ------------------------------------------------------------------ a guide or a topic */
 .crumbs{font-size:.82rem;color:var(--muted);margin-bottom:.4rem}
 .crumbs a{color:var(--muted)}
-.topic-head .lede{font-size:1.05rem;line-height:1.6;color:var(--slate);max-width:52rem}
-.topic-meta{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0 0;align-items:center}
-.topic-meta .badge-help{margin-left:0}
+.help-crumbs{margin-bottom:1rem}
+.crumbs .sep{margin:0 .4rem;color:var(--d-faint)}
+.help-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:2rem}
+.help-toc{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 90px);overflow:auto;font-size:.86rem}
+.help-toc h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--d-muted);margin:1rem 0 .4rem}
+.help-toc ol,.help-toc ul{list-style:none;padding-left:0;margin:0}
+.help-toc li{margin:.1rem 0}
+.help-toc a{color:var(--d-ink);display:inline-block;padding:.15rem 0;min-height:24px}
+.help-toc [aria-current="page"] a{color:var(--d-accent);font-weight:700}
+.help-article{min-width:0;line-height:1.65}
+.help-article header h1{font-size:1.9rem;font-weight:800;margin:.3rem 0}
+.help-article .lead{color:var(--d-muted);font-size:1.05rem}
+.help-article header .chip{margin-left:.4rem}
+.help-foot{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--d-border);color:var(--d-faint);font-size:.8rem}
 .doc h2{font-size:1.2rem;margin:2rem 0 .7rem;padding-top:.6rem;border-top:1px solid var(--hairline)}
 .doc h2:first-child{border-top:0;margin-top:0;padding-top:0}
 .doc h3{font-size:1.02rem;margin:1.4rem 0 .5rem}
@@ -84,17 +105,42 @@
 /* At phone width a table must fit rather than push the page sideways: long names and code wrap. */
 @media (max-width:767px){.doc td,.doc th,.doc td code{overflow-wrap:anywhere;word-break:break-word}.doc td,.doc th{padding:.3rem .4rem}}
 .doc blockquote{border-left:3px solid var(--flow);padding-left:.9rem;color:var(--slate);margin:1rem 0}
-.doc .admonition{border:1px solid var(--rule);border-left:4px solid var(--flow);border-radius:6px;
-  padding:.7rem .9rem;margin:1rem 0;background:var(--raised)}
-.doc .admonition p{margin:.3rem 0}
-.doc .admonition-title{font-weight:700;color:var(--ink);margin-top:0!important}
-.doc .admonition.warning,.doc .admonition.danger{border-left-color:var(--bad)}
-.doc .admonition.warning{border-left-color:var(--warn)}
-.doc .admonition.tip,.doc .admonition.success{border-left-color:var(--ok)}
+/* drishti's article, inside the help's own pages: its headings, links, code and pictures. */
+.help-article .doc h1{font-size:1.9rem;font-weight:800;margin:.3rem 0 1rem}
+.help-article .doc h2{font-size:1.35rem;font-weight:750;border-top-color:var(--d-border);scroll-margin-top:70px}
+.help-article .doc h3{font-size:1.08rem;font-weight:700;scroll-margin-top:70px}
+.help-article .doc p,.help-article .doc li{color:var(--d-ink)}
+.help-article .doc a{color:var(--d-link)}
+.help-article .doc code{background:var(--d-surface-2);padding:.05rem .3rem;border-radius:3px;color:var(--d-accent)}
+.help-article .doc pre code{background:none;padding:0;color:var(--d-ink)}
+.help-article .doc img{max-width:100%;height:auto}
 .doc a.prv{font-family:var(--mono,monospace);white-space:nowrap}
+.help-example{margin:1rem 0;border:1px solid var(--d-border);border-radius:8px;overflow:hidden;background:var(--d-surface)}
+.help-example figcaption{display:flex;gap:.8rem;align-items:center;padding:.4rem .8rem;border-bottom:1px solid var(--d-border);font-size:.8rem;color:var(--d-muted)}
+.help-example .lang{margin-left:auto;font-family:var(--d-font-mono)}
+.help-example .copy{background:none;border:1px solid var(--d-border);color:var(--d-ink);border-radius:4px;font-size:.75rem;padding:.1rem .5rem}
+.help-example pre{margin:0;padding:.9rem 1rem;overflow-x:auto;font-size:.84rem;background:var(--d-surface)}
+.help-box{border-left:3px solid var(--d-link);background:var(--d-highlight);padding:.6rem .9rem;margin:1rem 0;border-radius:0 6px 6px 0}
+.help-box.tip{border-left-color:var(--d-ok)}
+.help-box.warn{border-left-color:var(--d-warn)}
+.help-box .hb-title{font-weight:700;margin:0 0 .2rem}
+.help-box p:last-child{margin-bottom:0}
+.help-results{padding-left:1.2rem}
+.help-results li{margin:.8rem 0}
+.help-results p{color:var(--d-muted);margin:.2rem 0;font-size:.9rem}
+.help-search-title{font-size:1.6rem;font-weight:800;margin:0 0 .8rem}
+.help-example-item{margin:0 0 2rem}
+.help-example-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.8rem;margin:.4rem 0 .8rem}
+.help-example-actions .inline-form{margin:0}
+.help-example-item details{margin:.4rem 0}
+.help-example-item summary{cursor:pointer;font-family:var(--d-font-mono);font-size:.85rem}
 .toc a{display:block;padding:.18rem 0;font-size:.82rem;color:var(--muted);text-decoration:none}
 .toc a:hover,.toc a:focus{color:var(--flow)}
 .toc-side{position:sticky;top:84px}
+.help-toc .toc a{display:inline-block;padding:.15rem 0;font-size:inherit;color:var(--d-ink)}
+.help-toc .toc a:hover,.help-toc .toc a:focus{color:var(--d-accent)}
+@media (max-width:1000px){.help-cards{grid-template-columns:1fr}.help-layout{grid-template-columns:1fr}.help-toc{position:static;max-height:none}}
+@media (min-width:1001px) and (max-width:1199px){.help-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* the shared footer */
 .help-footer{margin-top:1.6rem}

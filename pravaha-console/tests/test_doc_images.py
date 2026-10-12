@@ -83,7 +83,7 @@ def test_each_declared_shot_names_a_page_the_harness_has_or_a_path_and_a_known_a
     tool = _tool()
     harness = (CONSOLE / "tests" / "browser_harness.py").read_text(encoding="utf-8")
     for shot in tool.SHOTS:
-        assert shot.source in ("fake", "node"), shot
+        assert shot.source in ("fake", "node", "ai"), shot
         if shot.page:
             assert f'("{shot.page}", "/' in harness, f"{shot.name}: no harness page {shot.page!r}"
         else:

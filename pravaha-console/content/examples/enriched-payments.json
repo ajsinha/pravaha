@@ -1,0 +1,31 @@
+{
+  "streams": {
+    "txn": [
+      {
+        "txn_id": 21,
+        "user_id": "u1",
+        "merchant": "m-books",
+        "amount": 1200,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:05Z"
+      },
+      {
+        "txn_id": 22,
+        "user_id": "u3",
+        "merchant": "m-coffee",
+        "amount": 300,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:09Z"
+      }
+    ],
+    "user_profile": [
+      {
+        "user_id": "u1",
+        "tier": "gold",
+        "region": "EU"
+      }
+    ]
+  }
+}

@@ -2,6 +2,7 @@
 title: Getting started
 slug: getting-started
 category: start
+kind: tutorial
 order: 10
 icon: signpost-2
 summary: "What Pravaha is and the three nouns it is built from; your first maintained view end to end, with the output of every step; and the console, screen by screen — the bar, the menus, the themes."
@@ -632,7 +633,7 @@ the top holds the mark and the three brand lines, then five menus, each opening 
 | Menu | What is in it |
 |---|---|
 | **Catalog** | Streams, registered queries, sinks, views |
-| **Workbench** | Design: the workbench, *Describe it*. Change safely: compare versions, replace a running query |
+| **Workbench** | Design: the workbench, *Describe a continuous query*. Change safely: compare versions, replace a running query |
 | **Operate** | Watch: operations, overview, alerts. Run: queries (each query's dead letters, replacement and debugger are on its page), lanes |
 | **Admin** | For administrators: users, API keys, sessions, tenants, grants, row filters and masks; plugins; AI models; the audit trail and access |
 | **Help** | Concepts and topics, guides, tutorials, case studies; get started, the command line, error codes, search; About |

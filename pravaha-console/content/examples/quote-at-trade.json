@@ -1,0 +1,29 @@
+{
+  "streams": {
+    "trades": [
+      {
+        "trade_id": 201,
+        "account": "acc-7",
+        "symbol": "ACME",
+        "side": "BUY",
+        "qty": 100,
+        "price_cents": 15030,
+        "event_time": "2026-06-01T09:00:10Z"
+      }
+    ],
+    "quotes": [
+      {
+        "symbol": "ACME",
+        "bid_cents": 15020,
+        "ask_cents": 15030,
+        "event_time": "2026-06-01T09:00:07Z"
+      },
+      {
+        "symbol": "ACME",
+        "bid_cents": 15010,
+        "ask_cents": 15040,
+        "event_time": "2026-06-01T09:00:01Z"
+      }
+    ]
+  }
+}

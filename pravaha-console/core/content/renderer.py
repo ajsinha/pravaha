@@ -12,7 +12,7 @@ is reading through a restricted desktop, which in a bank is a real audience
 rather than a hypothetical one.
 
 Extensions are chosen for what technical documentation actually needs: tables,
-fenced code with highlighting, definition lists, footnotes, and heading anchors
+fenced code as captioned, copyable examples, definition lists, footnotes, and heading anchors
 so a section can be linked to directly from a runbook.
 """
 from __future__ import annotations
@@ -26,10 +26,9 @@ import markdown
 
 logger = logging.getLogger(__name__)
 
-EXTENSIONS = ["extra", "tables", "fenced_code", "codehilite", "toc",
+EXTENSIONS = ["extra", "tables", "fenced_code", "toc",
               "sane_lists", "attr_list", "admonition", "footnotes"]
 CONFIG: dict[str, dict[str, Any]] = {
-    "codehilite": {"css_class": "highlight", "guess_lang": False},
     "toc": {"permalink": False, "toc_depth": "2-3"},
 }
 
@@ -111,7 +110,32 @@ class MarkdownRenderer:
         # A code block wider than its card scrolls, and a region that scrolls must be reachable
         # by keyboard (WCAG 2.1.1; axe's scrollable-region-focusable), so every <pre> is a tab stop.
         html = html.replace("<pre>", '<pre tabindex="0">')
+        html = self._FIGURE.sub(self._figure, html)
+        html = self._BOX_OPEN.sub(lambda m: f'<div class="help-box {self._BOXES.get(m.group(1), "note")}">\n<p class="hb-title">', html)
         return html, self._headings(getattr(engine, "toc_tokens", []))
+
+    # Drishti's help language (drishti-console core/guides.py): a fenced block is a captioned,
+    # copyable example -- its caption the block's own first comment line, else its language -- and
+    # ``!!! tip | warning | note`` is a box. Server-side, so both read with scripting off; the copy
+    # button is help-keys.js's.
+    _FIGURE = re.compile(r'<pre tabindex="0"><code(?: class="language-([\w+-]+)")?>(.*?)</code></pre>', re.S)
+    _BOX_OPEN = re.compile(r'<div class="admonition (\w+)">\s*<p class="admonition-title">')
+    _BOXES: ClassVar[dict[str, str]] = {"tip": "tip", "success": "tip", "warning": "warn", "danger": "warn",
+                                        "caution": "warn", "note": "note", "info": "note", "example": "note"}
+    _COMMENT = re.compile(r"^(?:#|//|--)\s+(.{1,78})$")
+
+    @classmethod
+    def _figure(cls, m: re.Match) -> str:
+        lang = m.group(1) or "text"
+        body = m.group(2)
+        first = html_text.unescape(re.sub(r"<[^>]+>", "", body)).strip().split("\n", 1)[0]
+        said = cls._COMMENT.match(first)
+        caption = said.group(1).strip() if said else lang
+        return (f'<figure class="help-example"><figcaption><span><i class="bi bi-terminal" aria-hidden="true"></i> '
+                f'{html_text.escape(caption)}</span><span class="lang">{html_text.escape(lang)}</span>'
+                f'<button type="button" class="copy" data-copy aria-label="Copy this example">'
+                f'<i class="bi bi-clipboard" aria-hidden="true"></i> <span data-copy-label>Copy</span></button></figcaption>'
+                f'<pre tabindex="0"><code>{body}</code></pre></figure>')
 
     @staticmethod
     def _brackets(text: str) -> str:

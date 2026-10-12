@@ -33,12 +33,13 @@
 <link href="/static/css/nav.css?v={{ asset_version }}" rel="stylesheet">
 <link href="/static/css/gradients.css?v={{ asset_version }}" rel="stylesheet">
 <link href="/static/app/product.css?v={{ asset_version }}" rel="stylesheet">
+<link href="/static/css/ai.css?v={{ asset_version }}" rel="stylesheet">
 {% block head %}{% endblock %}
 {# Last, so its narrow-screen rules settle what a page's own stylesheet left (static/app/mobile.css). #}
 <link href="/static/app/mobile.css?v={{ asset_version }}" rel="stylesheet">
 </head>
 {% set bare = bare_page is defined and bare_page and not signed_in %}
-<body class="{{ 'pv-public' if bare else 'pv-app' }}">
+<body class="{{ 'pv-public' if bare else 'pv-app' }}"{% if not bare %} data-screen="{{ page_screen or 'help' }}"{% endif %}>
 <a class="visually-hidden-focusable pv-skip" href="#main">{{ t('shell.skip') }}</a>
 <!-- The one announcer, present from the first byte: every screen's async updates -- a filter
      applied, a query paused, a theme chosen -- are spoken through it. -->
@@ -84,6 +85,7 @@
 </div>
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/static/js/theme.js?v={{ asset_version }}"></script>
+<script src="/static/js/help-keys.js?v={{ asset_version }}"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/states.js"></script>
 {# The islands are ES modules with no bundler: this map is the whole "build". Every entry
@@ -98,6 +100,8 @@
 </script>
 <script type="application/json" id="i18n-messages">{{ t.for_script()|tojson }}</script>
 <script type="module" src="/static/app/palette.js?v={{ asset_version }}"></script>
+{# The plain-English controls (_ai.html): drawn only where the engine's AI layer is on for this person. #}
+{% if signed_in %}<script type="module" src="/static/app/ai.js?v={{ asset_version }}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

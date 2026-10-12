@@ -172,7 +172,13 @@
       else if (event.key === "/") {
         var search = document.querySelector('main input[type="search"]');
         if (search) { event.preventDefault(); search.focus(); }
-      } else if (event.key === "?") { window.location.href = "/help"; }
+      } else if (event.key === "?") {
+        /* drishti's ?: About this page, where the page has one (the ? in the top bar); else the
+           help for this screen. F1 always opens the screen's help (help-keys.js). */
+        var about = document.querySelector("[data-page-help]");
+        if (about) { event.preventDefault(); about.click(); }
+        else { window.location.href = "/help/context/" + encodeURIComponent(document.body.getAttribute("data-screen") || "help"); }
+      }
     });
   });
 

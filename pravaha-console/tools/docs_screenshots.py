@@ -9,6 +9,10 @@ Every image under ``docs/assets/screenshots/`` is one :data:`SHOTS` entry, made 
   and real Chrome over the **fake engine** the product tests use, so names and numbers are the fake's
   (``big_txn``, ``hot``) and the same every run. The console screens in
   ``docs/design/architecture/console-screens.md`` and ``CONSOLE_DEVELOPMENT.md`` are these.
+* ``ai`` -- a scratch node with its **AI layer on and the ``mock`` provider** (regular expressions play
+  the model: no network, no key), ``txn`` read from a small CSV and one view, ``big_txn``, registered
+  through the console: the plain-English screens of ``docs/guides/AI.md`` -- Ask your data, a draft's
+  review, an alert draft, Explain in plain words and Admin -> AI -- each after its action has run.
 * ``node`` -- a **scratch node** (``sdk/python/tools/cli_captures.py``'s: the server jar the build
   made, free ports that are never the defaults, a temporary home, profiles ``dev,users``) with a
   ``txn`` stream declared in its configuration, and a console over it signed in as ``admin``. The two
@@ -86,6 +90,55 @@ SHOTS: tuple[Shot, ...] = (
     Shot("ide-console-signed-in", "node", page="landing"),
     Shot("ide-workbench-explain", "node", path="/workbench?new=1",
          ready="document.querySelector('[data-template=filter]')", action="explain-filter"),
+    Shot("console-ai-ask", "ai", path="/ask", ready="document.querySelector('[data-ai-q]')", action="ai-ask"),
+    Shot("console-ai-draft", "ai", path="/workbench?new=1",
+         ready="document.querySelector('[data-ai-open=ai-describe-form]:not([hidden])')", action="ai-draft"),
+    Shot("console-ai-alert", "ai", path="/alerts",
+         ready="document.querySelector('[data-ai-open=ai-describe-alert-form]:not([hidden])')", action="ai-alert"),
+    Shot("console-ai-explain", "ai", path="/queries/big_txn",
+         ready="document.querySelector('[data-ai-explain=sql]:not([hidden])')", action="ai-explain"),
+    Shot("console-ai-admin", "ai", path="/admin/ai", ready="document.querySelector('[data-ai-test]')",
+         action="ai-test"),
+)
+
+#: The ``ai`` shots' node: ``txn`` read once from a CSV, and the engine's AI layer on (cli_captures's
+#: AI_ARGS: the mock provider in ``ai/``, a ``log`` notifier for the alert draft).
+AI_CONFIG = """\
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,ts:TIMESTAMP"
+      event-time: ts
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: "{csv}"
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,ts:TIMESTAMP"
+        event.time: ts
+        skip.header: "true"
+"""
+AI_CSV = ("txn_id,user_id,amount,ts\n1,ann,1200,2026-09-19T09:00:05Z\n2,bob,300,2026-09-19T09:00:40Z\n"
+          "3,ann,800,2026-09-19T09:01:10Z\n4,cat,2500,2026-09-19T09:02:00Z\n5,bob,950,2026-09-19T09:02:30Z\n")
+#: What the console registers once signed in: the view every AI shot asks about.
+AI_VIEW = {"name": "big_txn", "sql": "SELECT txn_id, user_id, amount FROM txn WHERE amount > 100", "keys": [0]}
+_PER_USER = r"[\s\S]*UNTRUSTED (question|description) id=[0-9a-f]+>>>\n[^\n]*"
+#: The mock provider's rules: each matches the last user turn, which starts ``TASK: <name>``.
+AI_RULES = (
+    ("TASK: ask" + _PER_USER + "per user",
+     '{"sql": "SELECT user_id, SUM(amount) AS total FROM big_txn GROUP BY user_id", '
+     '"explanation": "Adds up each user\'s payments in big_txn."}'),
+    ("TASK: draft",
+     '{"name": "spend_per_minute", "sql": "SELECT user_id, window_start, window_end, SUM(amount) AS spend '
+     'FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL \'1\' MINUTE)) GROUP BY user_id, window_start, '
+     'window_end", "keys": ["user_id", "window_start"], "options": {"retention": null, "sink": null, "lane": null}, '
+     '"explanation": "Each user\'s spend in every one-minute window of event time."}'),
+    ("TASK: alert",
+     '{"statement": "CREATE ALERT big_payment ON big_txn WHERE amount > 1000 NOTIFY ops_log '
+     'WITH (severity = \'critical\')", "explanation": "Notifies when a payment over 1000 enters big_txn."}'),
+    ("TASK: explain-sql",
+     "It keeps every payment over 100 from txn, one row per payment, keyed by its id. Nothing is "
+     "aggregated, so each payment appears as soon as it is read and stays until it is retracted."),
 )
 
 
@@ -112,7 +165,54 @@ def _explain_filter(page: Any) -> None:
               "window.scrollTo(0, 0); return true; })()")
 
 
-ACTIONS: dict[str, Callable[[Any], None]] = {"explain-filter": _explain_filter}
+def _ai_submit(page: Any, form: str, field: str, text: str, answered: str) -> None:
+    page.eval(f"""(() => {{ const f = document.querySelector({form!r}); f.hidden = false;
+        f.querySelector({field!r}).value = {text!r}; f.requestSubmit(); return true; }})()""")
+    page.wait_for(answered, timeout=30)
+    page.eval("(() => { document.activeElement && document.activeElement.blur(); window.scrollTo(0, 0); return true; })()")
+
+
+ACTIONS: dict[str, Callable[[Any], None]] = {
+    "explain-filter": _explain_filter,
+    "ai-ask": lambda p: _ai_submit(p, "form[data-ai-task=ask]", "[data-ai-q]", "total spend per user",
+                                   "document.querySelector('[data-ai-answer] .ai-chart canvas')"),
+    "ai-draft": lambda p: _ai_submit(p, "#ai-describe-form", "textarea", "spend per user per minute",
+                                     "document.querySelector('[data-ai-draft] [data-ai-dry-run]')"),
+    "ai-alert": lambda p: _ai_submit(p, "#ai-describe-alert-form", "textarea",
+                                     "tell me when a payment over 1000 comes in",
+                                     "document.querySelector('[data-ai-alert-draft]')"),
+    "ai-explain": lambda p: (p.click("[data-ai-explain=sql]"),
+                             p.wait_for("document.querySelector('[data-ai-explained=sql]')", timeout=30),
+                             p.eval("(() => { document.activeElement && document.activeElement.blur(); "
+                                    "document.getElementById('ai-explain-query').scrollIntoView({block: 'center'}); "
+                                    "return true; })()")),
+    "ai-test": lambda p: (p.click("[data-ai-test]"),
+                          p.wait_for("document.querySelector('[data-ai-test-result][data-ok]')", timeout=30)),
+}
+
+
+def _ai_node(tool: Any) -> Any:
+    """The ``ai`` shots' scratch node: users on, the AI layer on with the mock provider, txn from a CSV."""
+    home = pathlib.Path(tempfile.mkdtemp(prefix="pravaha-doc-shots-ai-"))
+    (home / "txn.csv").write_text(AI_CSV, encoding="utf-8")
+    config = home / "ai-node.yaml"
+    config.write_text(AI_CONFIG.format(csv=home / "txn.csv"), encoding="utf-8")
+    node = tool.ScratchNode(args=("--spring.profiles.active=dev,users", *tool.AI_ARGS,
+                                  f"--spring.config.additional-location=file:{config}"))
+    (node.home / "ai").mkdir()
+    (node.home / "ai" / "mock.yaml").write_text(
+        "type: mock\ndefault-model: m\nmodels:\n  - name: m\nmock:\n  rules:\n" + "".join(
+            f"    - match: {tool._yaml(m)}\n      reply: {tool._yaml(r)}\n" for m, r in AI_RULES), encoding="utf-8")
+    return node
+
+
+def _register_view(page: Any) -> None:
+    """``big_txn``, registered through the console as the signed-in administrator."""
+    import json
+
+    page.eval("""(async (view) => { const token = document.querySelector('meta[name=csrf-token]').content;
+        const r = await fetch('/api/v1/queries', {method: 'POST', headers: {'Content-Type': 'application/json',
+          'X-CSRF-Token': token}, body: JSON.stringify(view)}); return r.status; })(""" + json.dumps(AI_VIEW) + ")")
 
 
 def _standard_ports(page: Any, node: Any) -> None:
@@ -169,7 +269,7 @@ def take(shots: list[Shot], out: pathlib.Path = OUT) -> list[pathlib.Path]:
     written: list[pathlib.Path] = []
     browser = Browser(executable)
     try:
-        for source in ("fake", "node"):
+        for source in ("fake", "node", "ai"):
             batch = [s for s in shots if s.source == source]
             if not batch:
                 continue
@@ -179,16 +279,21 @@ def take(shots: list[Shot], out: pathlib.Path = OUT) -> list[pathlib.Path]:
                 password = harness.PASSWORD
             else:
                 tool = _sdk_tool()
-                config = pathlib.Path(tempfile.mkdtemp(prefix="pravaha-doc-shots-node-")) / "txn.yaml"
-                config.write_text(NODE_CONFIG, encoding="utf-8")
-                node = tool.ScratchNode(args=("--spring.profiles.active=dev,users",
-                                              f"--spring.config.additional-location=file:{config}"))
+                if source == "ai":
+                    node = _ai_node(tool)
+                else:
+                    config = pathlib.Path(tempfile.mkdtemp(prefix="pravaha-doc-shots-node-")) / "txn.yaml"
+                    config.write_text(NODE_CONFIG, encoding="utf-8")
+                    node = tool.ScratchNode(args=("--spring.profiles.active=dev,users",
+                                                  f"--spring.config.additional-location=file:{config}"))
                 node.__enter__()
                 from core.config.properties_configurator import PropertiesConfigurator
 
                 settings = PropertiesConfigurator(str(CONSOLE / "config" / "application.yaml"))
                 settings.set("engine.url", node.url)
                 settings.set("engine.http_url", node.http)
+                # The console's own AI layer: its one provider is the engine (core/ai.py).
+                settings.set("ai.enabled", "true" if source == "ai" else "false")
                 console = harness.Console(None)  # type: ignore[arg-type]  # the real engine adapter
                 console.engine = types.SimpleNamespace(closed=threading.Event())
                 password = "pravaha-dev-admin"  # the users profile's published dev password
@@ -199,6 +304,9 @@ def take(shots: list[Shot], out: pathlib.Path = OUT) -> list[pathlib.Path]:
                 tab.before_every_document("try{localStorage.removeItem('pravaha.workbench.tabs')}catch(e){}")
                 tab.emulate(reduced_motion=True, scheme="light")
                 harness.sign_in(tab, console, password=password)
+                if source == "ai":
+                    harness.open_page(tab, console, "/views", "true")
+                    _register_view(tab)
                 for shot in batch:
                     path, ready = pages[shot.page] if shot.page else (shot.path, shot.ready)
                     harness.open_page(tab, console, str(path), ready, timeout=40)

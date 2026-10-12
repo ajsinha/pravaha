@@ -29,9 +29,13 @@
   {% if tab in ('grants', 'policies') %}
   <a href="/admin/policies" {% if tab == 'policies' %}aria-current="page"{% endif %}>{{ t('admin.tab.policies') }}</a>
   {% endif %}
-  {# ADR-058 phase 3: the assistant's models, offered to an administrator; the screen asks the engine again. #}
-  {% if is_admin or tab == 'ai-models' %}
-  <a href="/admin/ai-models" {% if tab == 'ai-models' %}aria-current="page"{% endif %}>{{ t('admin.tab.ai_models') }}</a>
+  {# Admin -> AI (drishti's tab): the engine's AI layer and the console's. The CLI assistant's models
+     (ADR-058) are reached from it, and keep their tab while that page is open. #}
+  {% if is_admin or tab in ('ai', 'ai-models') %}
+  <a href="/admin/ai" {% if tab == 'ai' %}aria-current="page"{% endif %}>{{ t('admin.tab.ai') }}</a>
+  {% endif %}
+  {% if tab == 'ai-models' %}
+  <a href="/admin/ai-models" aria-current="page">{{ t('admin.tab.ai_models') }}</a>
   {% endif %}
   <a href="/plugins">{{ t('admin.tab.plugins') }}</a>
 </nav>

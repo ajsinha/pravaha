@@ -46,7 +46,8 @@ TEMPLATES: dict[str, str] = {
     "debug.html": "debug",
     "dead_letters.html": "dead-letters",
     "plugins.html": "plugins",
-    "assist_result.html": "assistant",
+    "ask.html": "ask",
+    "admin_ai.html": "admin-ai",
     "components.html": "components",
     "admin_access.html": "admin-access",
     "admin_audit.html": "admin-audit",
@@ -82,6 +83,7 @@ EXEMPT: dict[str, str] = {
     "help_code.html": "one error code: Help itself",
     "help_case_studies.html": "the case studies: Help itself",
     "help_case_study.html": "one case study: Help itself",
+    "help_examples.html": "the examples gallery: Help itself",
 }
 
 #: Each screen's tiles, as their icons (Bootstrap Icons names), in order: tile n is
@@ -105,7 +107,8 @@ TILES: dict[str, tuple[str, ...]] = {
     "debug": ("bezier2", "skip-forward", "file-earmark-code"),
     "dead-letters": ("arrow-repeat", "archive", "slash-circle"),
     "plugins": ("plug", "exclamation-triangle", "shield-lock"),
-    "assistant": ("shield-check", "stars"),
+    "ask": ("chat-square-dots", "code-square", "shield-check"),
+    "admin-ai": ("toggle-on", "activity", "key"),
     "components": ("palette", "layers"),
     "admin-access": ("person-check", "eye-slash", "lock"),
     "admin-audit": ("link-45deg", "shield-lock", "window"),

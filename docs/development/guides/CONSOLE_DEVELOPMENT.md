@@ -166,9 +166,43 @@ related: [state-spill, observability, reading-a-plan, sharing, backfill-cutover]
 ---
 ```
 
-`category` is one of `help_catalog.CATEGORIES`; `icon` a name the vendored Bootstrap Icons font has;
-`guide` the long-form guide (a `content/help` slug, optionally `#anchor`) behind the footer's *Full
-reference* link.
+`category` is one of the topic **sections** of `config/help.yaml`; `icon` a name the vendored Bootstrap
+Icons font has; `guide` the long-form guide (a `content/help` slug, optionally `#anchor`) behind the
+footer's *Full reference* link (a section names the default one); `kind` the badge on its card —
+`guide` when left out, `tutorial` or `reference` otherwise.
+
+### The catalogue: `config/help.yaml`
+
+The help centre is drishti's design and is drawn from one catalogue, `pravaha-console/config/help.yaml`
+(read by `core/help_catalog.py`, whose public API — `CATEGORIES`, `SCREEN_HELP`, `MOVED`, `HelpCatalog` —
+the templates and tests use):
+
+- **`categories:`** — Start, Use, Build, Operate, AI, in display order. Each has an `id`, a `name`, an
+  `icon`, a `blurb`, its topic **`sections`** (`{id, guide}`: the values a topic's `category:` may take,
+  in the order its cards appear, and each one's default *Full reference*) and the **`guides`** it offers
+  as cards after its topics — `{guide: <slug>}` for a long-form guide, `{href: <path>}` for any other page,
+  each with `title`, `icon`, `summary`, optional `keywords` and a `kind` (`tutorial`, `reference`, `guide`,
+  `examples`). A **new category** is an entry here and at least one section a topic names; a **new guide**
+  is a `content/help/<nn>-<slug>.md` with `include: docs/<path>.md` and, to give it a card, a line in
+  a category's `guides:` (otherwise it is listed under Help · Guides only).
+- **`moved:`** — a topic that was merged or renamed: `old-slug: new-slug` or `new-slug#section`.
+  `/help/topics/<old>` answers **301** there; `test_help.py` holds that every target exists and that no
+  help page still links to an old address. Rename a topic by moving its file *and* adding the line.
+- **`contextual:`** — each screen's help, most relevant first, at most three: the "About this page"
+  panel's *More in Help*, the `?` beside a heading, and — the first — where **F1** goes
+  (`/help/context/<screen>`, `static/js/help-keys.js`; `?` opens the About panel, `theme.js`). A new page
+  adds its screen here and in `core/page_help.py`.
+
+**Examples.** The gallery at `/help/examples` is drishti's: each example is three files in
+`content/examples/` — `<name>.sql` (statements; a `-- sql: read` line marks a read of a view),
+`<name>.json` (`{"streams": {"<stream>": [rows]}}`, the columns of `streams.properties`; a `weight` of
+`1`/`-1` for a changelog) and `<name>.md` (the note, its `# ` line the title). *Open as a copy in the
+Workbench* is `/workbench?example=<name>` — the editor prefilled, nothing registered. `pravaha-it`'s
+`HelpExamplesSqlTest` plans every statement (a `CREATE ALERT` must follow a view the file creates, on
+columns it has) and `tests/test_help_catalogue.py` holds the data to the streams; an example that stops
+planning fails the build. Rendered documents get drishti's help language from `core/content/renderer.py`:
+a fenced block is a captioned figure with a *Copy* button (its caption the block's first comment line),
+and `!!! tip | warning | note` is a box.
 
 The rules `test_help.py` and `test_help_accuracy.py` enforce, so a topic cannot drift from the engine:
 
@@ -188,6 +222,35 @@ links. A long document becomes readable in the console by a `content/help/<nn>-<
 links between included documents are rewritten to console routes by `core/content/renderer.py`
 (`ROUTES`), and a link to a document the console does not serve is shown as text rather than as a link that
 would 404.
+
+## 4a. The plain-English screens
+
+The AI features are the engine's (`/api/v1/ai/*`, [AI.md](../../guides/AI.md)); the console's screens for
+them follow drishti's designs and live in `routes/ai_routes.py` (pages and the console's JSON tasks),
+`core/ai_features.py` (the calls, one refusal shape, drafts held server-side for their confirmation),
+`web/templates/_ai.html` (the controls, as macros), `_ai_fragment.html` (every answer, drawn once on the
+server), `static/app/ai.js` (shows the controls, posts a form to `/api/v1/ai/<task>`, puts the fragment in
+place, draws the chart) and `static/css/ai.css`. Rules a new control keeps:
+
+- **Drawn only when open.** Wrap it in `{% if ai_can(request, '<feature>') %}` — the engine's
+  `GET /api/v1/ai/features` (asked once per request) says whether the layer is on and the policy opens the
+  feature (`ask`, `draft`, `alert`, `explain`, `narrative`, `page`) to this person. Off is the default, and
+  then nothing is drawn; a call that still arrives answers the `PRV-1080` fragment.
+- **A box.** `data-ai-box` around a form with `data-ai-task="<task>"` (one of `routes.ai_routes.TASKS`) and
+  an output `data-ai-out` (a live region); `data-ai-control hidden` on what needs scripting. Anything the
+  model wrote is text in the fragment — never markup — and no key ever reaches a page.
+- **Nothing without a confirm.** A draft's answer carries an id; the browser posts the id and
+  `confirmed=yes`, never the SQL, and the console registers (`QueryService.register`) or creates (the
+  statement through the Workbench's read path) what the engine judged.
+- **Tested with no model.** `tests/fake_ai.py` plays the engine's features with regular expressions (the
+  way the engine's `mock` provider plays the model); `test_ai_screens.py` drives them through the routes and
+  `test_browser_ai.py` through Chrome (axe, 360 and 390 px). `tools/docs_screenshots.py`'s `ai` shots run
+  a scratch node with the real `mock` provider.
+
+**Admin → AI** (`/admin/ai`) shows the engine's layer (`GET /api/v1/admin/ai`) and the console's own
+(`core.ai.console_ai_layer(...).status()`); *Test connection* posts to the console's
+`/api/v1/admin/ai/test`, which asks the engine's (an administrator only). The command-line assistant's
+model file (ADR-058) is still edited at Admin · AI models, linked from there.
 
 ## 5. Testing
 
@@ -211,7 +274,9 @@ declares (`SHOTS`): the console screens with the same harness — `Console(Brows
 Chrome through `tests/cdp.py`, the `DETERMINISM` script and the Crimson theme, at 1400×900 — so they show
 the fake engine's data, not a live node's; the two IDE-guide shots against a scratch node (the server
 jar on free ports, profiles `dev,users`, a `txn` stream) with a console over it signed in as `admin`,
-its ports shown as the standard ones.
+its ports shown as the standard ones; and the plain-English screens (`console-ai-*`) against a scratch node
+with its AI layer on and the `mock` provider, `txn` read from a CSV and `big_txn` registered through the
+console, each shot taken after its action (a question asked, a draft drafted, Test connection pressed).
 
 ```bash
 cd pravaha-console
