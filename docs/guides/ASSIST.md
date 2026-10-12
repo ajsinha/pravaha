@@ -23,7 +23,9 @@ and the **evaluation harness**, `pravaha assist eval`, over a golden set built f
 studies; and **in the console** (phase 3), the *Describe it* panel on the workbench, *Explain* on a
 query's page and beside every refusal code, and **Admin · AI models**, where an administrator
 configures several providers and models and switches between them while the console runs. **Not
-yet:** the `azure-openai`, `bedrock` and `vertex` providers (phase 4).
+yet:** the `azure-openai`, `bedrock` and `vertex` providers of their own (phase 4) — Azure OpenAI,
+Bedrock and Gemini (AI Studio, not Vertex) are reachable through the `ai` type on the shared AI layer,
+and the recommended provider is `server`, the engine's own layer (ADR-063, [Providers](#providers)).
 
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
@@ -138,9 +140,37 @@ always a decision someone made.
 | `openai-compatible` | Chat Completions | optional | **required** — the server's base URL, e.g. `http://localhost:8000/v1` | in the prompt, unless the model option `structured_output: json_schema` | `GET /models` |
 | `ollama` | Ollama's own `POST /api/chat` | none (optional behind a proxy) | `http://localhost:11434` | natively, `format` | `POST /api/show` |
 | `fake` | nothing — scripted answers | none | — | as configured | nothing |
+| `server` | the engine's own AI layer, `POST /api/v1/ai/chat` (ADR-063) | your **engine** token (`api_key_env`), optional | **required** — the engine's HTTP URL, e.g. `https://engine:18080` | in the prompt | nothing: the layer's readiness |
+| `mock` | nothing — the AI layer's deterministic provider, regex `rules` | none | — | in the prompt | nothing |
+| `ai` | any type of the AI layer, by the option `type`: `gemini`, `cohere`, `bedrock`, `azure_openai`, `mistral`, `groq`, `together`, ... | as that type needs | that type's (its `base-url`) | in the prompt | the type's model list where it has one |
 
 Each is written against the HTTP API with the standard library (`urllib`), as `EngineApi` is: no
 provider SDK is installed or used.
+
+**The shared AI layer (ADR-063).** `server`, `mock` and `ai` run the SDK's `pravaha.ai` — the same
+layer, with the same names, as the engine's `pravaha-ai` ([ai.md](../design/architecture/ai.md)) —
+behind this page's contract: chains, budgets, the structured-output fallback with its one repair turn,
+the four errors below, and the engine as the judge of every draft are unchanged. **`server` is the
+recommended provider**: the model key, the policy (feature roles, per-person limits, masking) and the
+audit row stay in the engine, which must have its layer on (`PRAVAHA_AI_ENABLED=true`; otherwise every
+call is `PRV-1080`); `model` is the engine's `provider/model` or `default`. `mock` takes the engine
+mock's settings as options (`rules: [{match, reply | tool, tool-args | error, latency-ms}]`, `reply`,
+`fail`, `fail-every`) and plays the `fake` provider's part configured the way the engine's is. `ai`
+passes every option but `type` to the layer's settings block (`region`, `api-style`, `deployments`,
+...), `endpoint` as its `base-url` and the key named by `api_key_env` as its key. The layer's failures
+become the four: its `rate_limited` is `ModelRateLimited`; a timeout or a failure `ModelUnavailable`;
+a configuration problem, an unknown model, an unsupported request or the engine's policy refusing
+(`PRV-1084`) `ModelUnavailable` that is not retryable — so a chain still falls through to its next
+model.
+
+```json
+{"providers": [{"id": "engine", "type": "server", "endpoint": "https://engine:18080", "api_key_env": "PRAVAHA_TOKEN"},
+               {"id": "rules", "type": "mock", "options": {"rules": [{"match": "(?i)hello", "reply": "Hi there"}]}},
+               {"id": "g", "type": "ai", "api_key_env": "GEMINI_API_KEY", "options": {"type": "gemini"}}],
+ "models": [{"id": "corp", "provider": "engine", "model": "default"},
+            {"id": "flash", "provider": "g", "model": "gemini-2.5-flash"}],
+ "profiles": {"explain": ["corp", "flash"], "draft": ["corp"]}}
+```
 
 **Chat Completions, not Responses, for OpenAI.** `POST /chat/completions` is the one wire shape that
 OpenAI and every server imitating it speak — vLLM, LM Studio, llama.cpp's server, LiteLLM, most

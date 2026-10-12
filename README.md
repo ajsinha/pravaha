@@ -388,7 +388,7 @@ Python and console suites: [docs/development/TESTING.md](docs/development/TESTIN
 **Modules**, in build order — checked against `pom.xml` by `DocumentationFreshnessTest`:
 `pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,
 `pravaha-sql`, `pravaha-runtime`, `pravaha-codegen`, `pravaha-state`, `pravaha-backfill`,
-`pravaha-security`, `pravaha-identity`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
+`pravaha-security`, `pravaha-identity`, `pravaha-ai`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
 `pravaha-pgwire`, `pravaha-connect`, `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`,
 `pravaha-bindings`, `pravaha-embedded`, `pravaha-cli`, `pravaha-server`, `pravaha-spring-boot-starter`.
 

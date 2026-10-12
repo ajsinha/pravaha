@@ -10,6 +10,25 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **An AI layer, on Drishti's design, off by default (ADR-063).** A new module, `pravaha-ai`: provider
+  and model interfaces, one YAML file per provider in `pravaha.ai.dir` (keys only from `${ENV}` -- a
+  literal key is refused when the file is read), a registry with health and hot reload, a policy of
+  feature roles, per-person minute/day and cost budgets and prompt masking, one audit event per call
+  without the prompt or the answer, and one `LlmGateway`; every provider type on plain HTTP with no
+  vendor SDK -- `mock`, `openai` and the OpenAI-compatible presets, `azure_openai`, `anthropic`,
+  `gemini`, `cohere`, `ollama`, `bedrock` (SigV4 by hand). The server serves `POST /api/v1/ai/chat`,
+  `GET /api/v1/ai/models`, `GET /api/v1/admin/ai` and `POST /api/v1/admin/ai/test`, with codes
+  `PRV-1080` (off) to `PRV-1087`. The Python SDK's `pravaha.ai` is the same layer for the CLI, the
+  assistant (new provider types `server`, `mock`, `ai`) and the console, whose recommended provider,
+  `server`, keeps the keys in the engine. `pravaha.ai.enabled` is `false`: nothing changes until an
+  administrator turns it on.
+
+---
+
+Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.4.2 — 2026-10-12
 
 **The console on a phone, and on the network.** 2.4.2 makes every console page usable at phone
