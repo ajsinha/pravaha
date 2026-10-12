@@ -33,7 +33,7 @@ TEMPLATES = CONSOLE_ROOT / "web" / "templates"
 #: Not pages: the JSON API, the probes, the metrics scrape, static files, the API docs, the
 #: assistant's fragments -- and Help, whose topics end with their own footer.
 NOT_A_PAGE = ("/api/", "/health", "/metrics", "/static", "/docs", "/openapi", "/redoc", "/assist/",
-              "/help", "/tutorials")
+              "/help", "/tutorials", "/favicon.ico")
 #: GET routes that answer with a redirect or a file rather than a page.
 NOT_HTML = {"/home": "a redirect to the person's landing", "/admin": "a redirect to Admin · Access",
             "/about/papers/{name}": "the paper and the deck, as files"}
