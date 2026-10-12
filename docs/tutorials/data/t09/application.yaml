@@ -1,0 +1,55 @@
+# Tutorial 9 (docs/tutorials/09-exactly-once-sinks.md): payments, each user's spend per minute kept in a
+# table, and the big payments logged to two tables -- one transactionally, one not.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: data/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+  sinks:
+    # The view, kept in a table: upserted and deleted by key, applied once per checkpoint.
+    spend_table:
+      plugin: jdbc-sink
+      options:
+        url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
+        user: sa
+        table: spend_by_user
+        schema: "user_id:STRING,window_start:TIMESTAMP,window_end:TIMESTAMP,spend:INT64"
+        key.columns: "user_id,window_end"
+        mode: upsert
+        transactional: "true"
+    # Every big payment, appended: exactly once, because it is transactional.
+    payments_log:
+      plugin: jdbc-sink
+      options:
+        url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
+        user: sa
+        table: payments_log
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+        mode: append
+        transactional: "true"
+    # The same, without a transaction: each batch straight into the table. At least once.
+    payments_log_plain:
+      plugin: jdbc-sink
+      options:
+        url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
+        user: sa
+        table: payments_log_plain
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+        mode: append
+        transactional: "false"
+  # A transactional sink commits what each checkpoint covers once it is durable: no checkpoints, no
+  # exactly once. (PRAVAHA_HOME's layout already puts the directory at data/checkpoints.)
+  checkpoint:
+    interval: 30s
+    keep: 5
