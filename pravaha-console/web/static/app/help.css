@@ -24,7 +24,7 @@
    accent, the sticky toolbar with the pill search and the category chips, a collapsible category
    with its cards three to a row, the kind badge, the guide layout (contents beside the article),
    captioned examples and the tip / warning / note boxes. */
-.help-hero{text-align:center;padding:2.6rem 1.25rem 2rem;border-bottom:1px solid var(--d-border);margin:0 -1rem 0;
+.help-hero{text-align:center;padding:2.6rem 1.25rem 2rem;border-bottom:1px solid var(--d-border);margin:0;
   background:radial-gradient(900px 320px at 50% -20%,var(--d-accent-tint),transparent 70%)}
 .help-hero .hero-ico{font-size:2.2rem;color:var(--d-accent)}
 .help-hero h1{font-size:2rem;font-weight:800;margin:.5rem 0}
@@ -40,9 +40,9 @@
 .help-search.small{border-radius:6px;padding:.3rem .6rem;margin-bottom:1rem;font-size:.85rem}
 .help-search.small input{font-size:.85rem}
 .cat-chips{display:flex;flex-wrap:wrap;gap:.45rem;margin:.7rem 0 0;padding:0;list-style:none}
-.chip{display:inline-flex;align-items:center;gap:.3rem;border:1px solid var(--d-border);border-radius:999px;padding:.2rem .7rem;font-size:.82rem;color:var(--d-ink);text-decoration:none}
-.chip .n{color:var(--d-muted);margin-left:.2rem}
-.chip:hover,.chip:focus{border-color:var(--d-accent);text-decoration:none;color:var(--d-ink)}
+.cat-chips .chip{display:inline-flex;align-items:center;gap:.3rem;border:1px solid var(--d-border);border-radius:999px;padding:.2rem .7rem;font-size:.82rem;color:var(--d-ink);text-decoration:none;background:none}
+.cat-chips .chip .n{color:var(--d-muted);margin-left:.2rem}
+.cat-chips .chip:hover,.cat-chips .chip:focus{border-color:var(--d-accent);text-decoration:none;color:var(--d-ink)}
 .help-cat{margin:1.2rem 0}
 .help-cat>summary{display:flex;justify-content:space-between;align-items:center;gap:.7rem;cursor:pointer;list-style:none;padding:.4rem 0}
 .help-cat>summary::-webkit-details-marker{display:none}
@@ -74,8 +74,8 @@
 .help-toc{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 90px);overflow:auto;font-size:.86rem}
 .help-toc h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--d-muted);margin:1rem 0 .4rem}
 .help-toc ol,.help-toc ul{list-style:none;padding-left:0;margin:0}
-.help-toc li{margin:.2rem 0}
-.help-toc a{color:var(--d-ink)}
+.help-toc li{margin:.1rem 0}
+.help-toc a{color:var(--d-ink);display:inline-block;padding:.15rem 0;min-height:24px}
 .help-toc [aria-current="page"] a{color:var(--d-accent);font-weight:700}
 .help-article{min-width:0;line-height:1.65}
 .help-article header h1{font-size:1.9rem;font-weight:800;margin:.3rem 0}
@@ -89,7 +89,7 @@
 .doc h4{font-size:.95rem;margin:1.1rem 0 .4rem}
 .doc p,.doc li{line-height:1.7;color:var(--d-ink)}
 .doc a{color:var(--d-link)}
-.doc code{background:var(--d-surface-2);padding:.05rem .3rem;border-radius:3px;font-size:.88em;color:var(--d-accent)}
+.doc code{background:var(--d-surface-2);padding:.05rem .3rem;border-radius:3px;color:var(--d-accent)}
 .doc pre code{background:none;padding:0;color:var(--d-ink)}
 .doc table{width:100%;margin:1rem 0;font-size:.9rem}
 .doc th{background:var(--d-surface-2);color:var(--d-ink)}
@@ -118,7 +118,7 @@
 .help-example-actions .inline-form{margin:0}
 .help-example-item details{margin:.4rem 0}
 .help-example-item summary{cursor:pointer;font-family:var(--d-font-mono);font-size:.85rem}
-.toc a{display:block;padding:.15rem 0;text-decoration:none}
+.toc a{text-decoration:none}
 .toc a:hover,.toc a:focus{color:var(--d-accent)}
 @media (max-width:1000px){.help-cards{grid-template-columns:1fr}.help-layout{grid-template-columns:1fr}.help-toc{position:static;max-height:none}}
 @media (min-width:1001px) and (max-width:1199px){.help-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}

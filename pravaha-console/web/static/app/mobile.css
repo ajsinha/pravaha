@@ -121,4 +121,13 @@
   .cat-chips .n, details summary .count, .help-quick dt, .finding, .search-results .where, .result .where, .badge-help {
     font-size: 12px !important; }
   .field-type, .fig-caption, kbd, pre.small { font-size: 11px !important; }
+
+  /* -------------------------------------------------------------- the help centre and the AI answers
+     drishti's help (help.css) and the plain-English answers (ai.css), held to the same targets and text. */
+  .badge-kind, .help-foot, .help-toc h2, .help-example figcaption, .help-example .copy, .help-card .more,
+  .help-article header .chip, .ai-values, .ai-kind, .help-results .where { font-size: 12px !important; }
+  .help-example pre, .help-example code { font-size: 11px !important; }
+  .help-example .copy, .help-example-actions .btn-pill, .state .btn-pill, .help-cta .btn-pill,
+  .help-toc a, .help-search input { min-height: 40px; display: inline-flex; align-items: center; }
+  .help-search input { min-height: 40px; }
 }
