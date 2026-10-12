@@ -26,9 +26,8 @@ SDK and the command line.
 
 Built (phases 1 to 3 of ADR-058): `pravaha ask` to draft a query, `pravaha explain-sql`,
 `pravaha why`, `pravaha assist` to see, check and switch models, and `pravaha assist eval` to measure
-one — and in this console, **Describe it** on the workbench, **Explain** on a query's page and beside
-every refusal code, and [Admin · AI models](/help/topics/assistant#admin-ai-models) to configure and switch
-models while the console runs.
+one — and in this console [Admin · AI models](/help/topics/assistant#admin-ai-models), to configure and
+switch models while the console runs.
 
 ## The engine's own features
 
@@ -43,31 +42,12 @@ then refused `PRV-1088` ([codes](/help/topics/errors-config)).
 
 ## In the console
 
-**Describe it** (the workbench, above the editor). Say what the view should answer; the console
-drafts it as you, with your own engine session, exactly as `pravaha ask` does, and shows:
-
-- the `CREATE CONTINUOUS QUERY` statement, the model's explanation and its assumptions;
-- the engine's verdict — *accepted* (validated and planned), or *refused* with the engine's code and
-  sentence, and an **Explain** beside the code — and every repair turn;
-- the engine's own plan, and the guarantee of the sink it writes to, if any;
-- the model's **questions**, when it could not decide — answer them in place and **Draft again**;
-  the engine is asked nothing until the description is clear enough;
-- a running query that appears to compute the same thing, with a link to read it instead;
-- **Copy to editor**, which opens the SQL as a new draft tab in the workbench;
-- **Register**, disabled until the engine accepts the draft, and even then only once you tick that
-  you have read the SQL and the plan. It registers through the ordinary call, as you — the draft
-  the console holds, exactly as the engine judged it; the browser sends only its id.
-
-**Explain this query** (a query's page) explains the registered query in plain English, grounded in
-the engine's plan for it. **Explain** beside a refusal code — on the workbench, in its diagnostics,
-on a query's page, on a refused draft — says what that code means for *this* statement and what to
-change; a rewrite the model proposes is shown with the engine's verdict on it.
-
-Every answer says which model gave it, after which others were unavailable, and what it cost. The
-budgets apply: a request over one is refused before anything is sent, and the page says so. When no
-model is configured, or none is enabled, each of these shows one notice instead — with a link to
-Admin · AI models for an administrator, and "ask an administrator" for anyone else. Each works with
-scripting off too: the form posts, and the answer comes back as a page.
+The console's drafting and explaining are the **engine's** plain-English features, not this assistant:
+**Describe a continuous query** on the Workbench, **Explain in plain words** on a query's page and beside
+every refusal code, and the rest ([drafts](/help/topics/ai-drafts), [explain](/help/topics/ai-explain)).
+They are answered by the engine's AI layer as you, with the same rule — nothing is registered until you
+confirm. What stays here is **Admin · AI models** (below), reached from Admin → AI: the model file this
+assistant reads on the console's host, for the command line.
 
 ## Configure a model
 
@@ -277,7 +257,8 @@ Where an administrator decides which models answer, in the console rather than a
 **Admin · AI models** (`/admin/ai-models`) is where an administrator decides which language models
 the [assistant](/help/topics/assistant) asks — several providers and several models at once — and
 switches between them while the console runs. A change made here is checked in full, saved, and used
-by the very next "Describe it" or "Explain" request, with no restart.
+by the very next `pravaha ask`, `explain-sql` or `why` on this host, with no restart. (The console's own
+plain-English screens are the engine's, configured on the engine: [Admin → AI](/help/topics/ai-features#turn-it-on).)
 
 Only a person the engine gives the **`admin` role** may use it. The console asks the engine
 (`GET /api/v1/auth/me`) on every request to this screen — not the roles it remembered when you
@@ -295,9 +276,8 @@ shown a *Not permitted* state, and a form posted anyway changes nothing.
 | Usage | tokens (today, and over the days the ledger keeps) and requests, per model and per person | read-only |
 | Recent changes | who changed what, the element before and after, and the version | read-only |
 
-The profiles the console's surfaces ask for are **`draft`** ("Describe it") and **`explain`**
-("Explain this query", and "Explain" beside a refusal). A task whose own profile is missing uses the
-**default** profile.
+The profiles the assistant's tasks ask for are **`draft`** (`pravaha ask`) and **`explain`**
+(`pravaha explain-sql`, `pravaha why`). A task whose own profile is missing uses the **default** profile.
 
 ### Switching models while things run
 

@@ -108,7 +108,8 @@ is told it works; registering a draft needs a person to confirm it.
 
 It lives in the Python SDK (`pravaha.assist`: `provider`, `providers/`, `router`, `drafting`,
 `evaluate`, `store`, `admin`) and is reached through `pravaha ask`, `pravaha explain-sql`, `pravaha why`,
-`pravaha assist`, and the console's *Describe it*, *Explain* and *Admin · AI models*. What a model is told
+`pravaha assist`, and the console's *Admin · AI models* (the console's drafting and explaining are the
+engine's AI features, [AI.md §11](../../guides/AI.md#11-in-the-console)). What a model is told
 about the dialect is a card generated from [`CONTINUOUS_QUERIES.md`](../../guides/CONTINUOUS_QUERIES.md)
 by `sdk/python/tools/build_dialect_card.py` into `pravaha/assist/resources/dialect-card.json`, so the
 assistant cannot describe a dialect the guide does not. Configuration, providers and writing a provider

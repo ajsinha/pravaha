@@ -346,7 +346,7 @@ ship none.
 **How Pravaha does it.**
 
 - A model drafts, the engine validates and explains, and a person confirms: `pravaha ask`, and
-  *Describe it* on the console's workbench. The draft is planned by the engine under the caller's own
+  *Describe a continuous query* on the console's workbench. The draft is planned by the engine under the caller's own
   credentials, fingerprinted, and repaired at most three times without changing what it reads; it is
   registered only when a person says so ([ADR-058](../design/adr/058-plain-english-to-continuous-sql.md),
   [the assistant](../../pravaha-console/content/topics/assistant.md), [`../guides/ASSIST.md`](../guides/ASSIST.md)).

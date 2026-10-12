@@ -13,7 +13,7 @@ product tests use, so the names and numbers are the fake's (`big_txn`, `hot`), n
 | ![Operations: what needs attention, per-query meters](../../assets/screenshots/console-operations.png) | ![A query's page: definition, state, sink, source, controls](../../assets/screenshots/console-query.png) |
 | **Operations** — the health verdict, what needs attention, per-query state against its ceiling, backpressure, watermark lag, checkpoints | **A query** — its SQL, state, rows in, fingerprint, key, retention, owner, inputs, its sink's state (a `PRV-8009` detach here), its feed, the controls |
 | ![The SQL workbench: streams, editor, diagnostics](../../assets/screenshots/console-workbench.png) | ![A view: point reads and client code](../../assets/screenshots/console-view.png) |
-| **Workbench** — validate, explain, run and register against the engine's own planner; *Describe it* asks the assistant | **A view** — read it by key, and the client code to do the same from each SDK, `psql` or HTTP |
+| **Workbench** — validate, explain, run and register against the engine's own planner; *Describe a continuous query* asks the engine's AI layer | **A view** — read it by key, and the client code to do the same from each SDK, `psql` or HTTP |
 
 | ![The catalogue: streams, queries, sinks, objects and grants](../../assets/screenshots/console-catalog.png) | ![The registered queries](../../assets/screenshots/console-queries.png) |
 | **Catalogue** — what exists and what reads it: streams with their event time and source, queries, sinks, objects and grants; the help cards the screen offers at its foot | **Queries** — every registered query the caller may see, with its state |

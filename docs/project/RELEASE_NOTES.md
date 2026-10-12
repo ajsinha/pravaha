@@ -49,6 +49,30 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   off-screen and on request, and stands still for reduced motion. Contrast is checked for every text
   token on every ground in all seven themes; the visual baselines are 7 themes × 2 widths, and compact
   in Crimson and Terminal.
+- **Help, in drishti's design: one catalogue, `pravaha-console/config/help.yaml`.** Five categories —
+  Start, Use, Build, Operate, AI — each its topic sections and the guides it offers, with a kind badge
+  (tutorial, reference, guide, examples) on every card; `moved:` (a retired topic answers 301 to its new
+  home) and `contextual:` (each screen's help) live there too. **F1** opens the help for the screen you are
+  on (`/help/context/{screen}`) and `?` opens its About panel. The index, guides, topics and search are
+  drishti's pages: the hero with the count and the F1 hint, the pill search filtering titles as you type,
+  the category chips, a contents column beside every article, captioned examples with *Copy*, and
+  `!!! tip | warning | note` boxes. New: AI topics (turning it on and who may, ask your data, drafts,
+  explain) and the AI guides.
+- **An examples gallery, `/help/examples`.** Twelve working examples — tumbling and hopping windows,
+  `HAVING`, late data, a time-bounded join, a quote join, a lookup, a filtered view and a read of it, an
+  alert, PostgreSQL CDC, Kafka in and Kafka out — each a `.sql`, its sample data and a note; *Open as a
+  copy in the Workbench* prefills the editor and registers nothing. `HelpExamplesSqlTest` plans every one.
+- **The console's plain-English screens (drishti's designs, over [AI.md](../guides/AI.md)).** **Ask your
+  data** (Catalog → Ask your data, and a question box on Views and on a view's page): the SQL the model
+  chose, the rows, a chart from the result's shape in the theme's colours, the values badge, follow-ups.
+  **Describe a continuous query** on the Workbench and **Describe an alert** on Alerts: the statement, the
+  dry run, and *Register* / *Create* only after a confirmation, on the draft the console holds.
+  **Explain in plain words** on a query and beside every refusal, **Why did this change?** on a view,
+  **Summarise changes** on the Live page, **Ask about this page** in every About panel, and **Admin → AI**
+  (both AI layers, provider health, retry, file errors, *Test connection*). Every control is drawn only
+  when the engine's new **`GET /api/v1/ai/features`** opens it to the person — so with the layer off,
+  the default, nothing changes — and no key reaches the browser. The assistant's console panel (ADR-058)
+  is folded into these; Admin · AI models stays for the command line's model file.
 
 ---
 
