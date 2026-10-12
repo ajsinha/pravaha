@@ -1,0 +1,42 @@
+# Tutorial 3 (docs/tutorials/03-joins-and-lookups.md): orders, the payments for them, and a customer table.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    orders:
+      schema: "order_id:STRING,customer_id:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 10s
+    payments:
+      schema: "payment_id:STRING,order_id:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 10s
+  sources:
+    orders:
+      plugin: filesystem
+      options:
+        path: data/incoming/orders.csv
+        schema: "order_id:STRING,customer_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+    payments:
+      plugin: filesystem
+      options:
+        path: data/incoming/payments.csv
+        schema: "payment_id:STRING,order_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+  lookups:
+    # A table a query asks, row by row, and never consumes. Here an H2 database file in the node's
+    # home, so the tutorial needs no database server; in production the same plugin reads PostgreSQL,
+    # MySQL, Oracle or any database with a JDBC driver in plugins/.
+    customers:
+      plugin: jdbc-lookup
+      options:
+        url: "jdbc:h2:./data/ref/customers;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE"
+        user: sa
+        table: customers              # the name a query joins
+        key.columns: customer_id
+        pool.size: "2"
+        cache.seconds: "0"            # ask every time: a change to the table is seen at once
