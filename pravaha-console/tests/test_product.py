@@ -315,6 +315,16 @@ def test_the_query_page_shows_a_detached_sink_and_its_failure(signed_in):
     page = signed_in.get("/queries/big_txn").text
     assert 'id="sink-failure"' in page and "PRV-8009" in page and "detached" in page
     assert "PT24H" in page
+    assert "7 rows written" in page
+
+
+def test_the_query_page_says_one_row_written(engine, monkeypatch):
+    # ROWSPLURAL-1: "1 rows written".
+    described = engine.describe_query
+    monkeypatch.setattr(engine, "describe_query", lambda name: {
+        **described(name), "sink": {**described(name)["sink"], "rowsWritten": 1}})
+    page = _signed_in_on(engine).get("/queries/big_txn").text
+    assert "1 row written" in page and "1 rows written" not in page
 
 
 # ============================================================ FEED-1: a stopped source
