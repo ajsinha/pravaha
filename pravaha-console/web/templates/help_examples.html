@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{#- Pravaha console -- the examples gallery, /help/examples. Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Drishti's examples (drishti-console templates/help/_examples.html inside its guide page): each example
+    is a triple under content/examples -- <name>.sql, its sample data (<name>.json or .csv) and a note,
+    <name>.md -- shown as the note, then the SQL and the data in disclosures with a copy button, and
+    "Open as a copy in the Workbench", which prefills the editor and registers nothing. pravaha-it's
+    HelpExamplesSqlTest plans every example, so none can rot. -#}
+{% block title %}{{ t('help.examples.title') }} — {{ t('help.index.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block main_class %} help-page{% endblock %}
+{% block content %}
+<div class="help-wrap help-guide">
+  <nav class="crumbs help-crumbs" aria-label="{{ t('help.topic.breadcrumb') }}">
+    <a href="/help">{{ t('help.index.title') }}</a>{% if category %}<span class="sep">/</span><a href="/help#cat-{{ category.id }}">{{ category.name }}</a>{% endif %}
+    <span class="sep">/</span><span>{{ t('help.examples.title') }}</span>
+  </nav>
+  <div class="help-layout">
+    <aside class="help-toc" aria-label="{{ t('help.on_this_page') }}">
+      <form class="help-search small" action="/help/search" method="get" role="search" aria-label="{{ t('help.search.label') }}">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <label class="visually-hidden" for="examples-search">{{ t('help.search.label') }}</label>
+        <input id="examples-search" name="q" type="search" placeholder="{{ t('help.search.short') }}">
+      </form>
+      <h2>{{ t('help.on_this_page') }}</h2>
+      <nav class="toc" aria-label="{{ t('help.on_this_page') }}"><ol>
+        {% for e in examples %}<li><a href="#{{ e.name }}">{{ e.title }}</a></li>{% endfor %}
+      </ol></nav>
+    </aside>
+    <article class="help-article">
+      <header><span class="badge-kind">{{ t('help.kind.examples') }}</span><h1>{{ t('help.examples.title') }}</h1>
+        <p class="lead">{{ t('help.examples.lede', n=examples|length) }}</p></header>
+      {% for e in examples %}
+      <section class="help-example-item" id="{{ e.name }}" data-example="{{ e.name }}">
+        <h2>{{ e.title }}</h2>
+        <div class="help-example-actions">
+          <form method="get" action="/workbench" class="inline-form"><input type="hidden" name="example" value="{{ e.name }}">
+            <button type="submit" class="btn-pill btn-accent btn-sm-pill" data-example-copy="{{ e.name }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ t('help.examples.open') }}</button></form>
+          <span class="mono text-muted-d">{{ e.name }}.sql · {{ e.name }}.{{ e.data_kind }}</span></div>
+        <div class="doc">{{ e.note|safe }}</div>
+        <details><summary>{{ e.name }}.sql</summary>
+          <figure class="help-example"><figcaption><span><i class="bi bi-terminal" aria-hidden="true"></i> {{ e.name }}.sql</span><span class="lang">sql</span><button type="button" class="copy" data-copy aria-label="{{ t('help.examples.copy_label') }}"><i class="bi bi-clipboard" aria-hidden="true"></i> <span data-copy-label>{{ t('help.examples.copy') }}</span></button></figcaption><pre tabindex="0"><code>{{ e.sql }}</code></pre></figure></details>
+        <details><summary>{{ e.name }}.{{ e.data_kind }}</summary>
+          <figure class="help-example"><figcaption><span><i class="bi bi-terminal" aria-hidden="true"></i> {{ e.name }}.{{ e.data_kind }}</span><span class="lang">{{ e.data_kind }}</span><button type="button" class="copy" data-copy aria-label="{{ t('help.examples.copy_label') }}"><i class="bi bi-clipboard" aria-hidden="true"></i> <span data-copy-label>{{ t('help.examples.copy') }}</span></button></figcaption><pre tabindex="0"><code>{{ e.data }}</code></pre></figure></details>
+      </section>
+      {% endfor %}
+      <footer class="help-foot">{{ t('help.examples.source') }}</footer>
+    </article>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/help.js?v={{ asset_version }}" defer></script>{% endblock %}

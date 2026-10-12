@@ -582,13 +582,14 @@ class UIRoutes(Routes):
         # --------------------------------------------------------- workbench
         @self.app.get("/workbench", response_class=HTMLResponse, tags=["ui"])
         def workbench(request: Request, query: str = "", sql: str = "", template: str = "",
-                      stream: str = ""):
+                      stream: str = "", example: str = ""):
             """The SQL Workbench: the analyst's landing (design 23.7).
 
             Gated now, because it renders the catalog -- which streams exist and what is in
             them -- and prefills from a registered query's own SQL. ``?query=`` opens a
             registered query, ``?sql=`` a piece of SQL, ``?template=`` a library template
-            written against ``?stream=``.
+            written against ``?stream=``, ``?example=`` a copy of one of Help's examples
+            (core/content/examples.py) -- prefilled, never registered.
             """
             if (refusal := login_required(request)) is not None:
                 return refusal
@@ -600,6 +601,12 @@ class UIRoutes(Routes):
                 found = _safe(lambda: services.queries.get(query), None)
                 if found is not None:
                     prefill, origin = found.sql, query
+            elif example:
+                from core.content.examples import Examples
+
+                found_example = Examples(self.ctx["content"].root / "examples").get(example)
+                if found_example is not None:
+                    prefill = found_example.workbench_sql
             elif template:
                 chosen = next((s for s in streams if s.get("name") == stream), None)
                 for item in authoring.templates(chosen or (streams[0] if streams else None)):

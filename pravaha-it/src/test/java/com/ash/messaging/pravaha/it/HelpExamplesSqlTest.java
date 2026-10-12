@@ -207,6 +207,74 @@ class HelpExamplesSqlTest {
                 .isGreaterThan(100);
     }
 
+    /**
+     * The examples gallery ({@code /help/examples}): every {@code <name>.sql} beside its note and its data
+     * plans as the gallery says. A {@code CREATE CONTINUOUS QUERY} plans as a registration would and its view
+     * becomes readable by the file's later statements; a statement after a {@code -- sql: read} line is a read
+     * of a view, prepared through {@link ViewQuery}; a {@code CREATE ALERT} must follow a view the file or the
+     * fixture maintains, and compare columns that view has. An example that stops planning fails the build,
+     * so "open as a copy in the Workbench" never opens SQL the engine refuses.
+     */
+    @Test
+    void everyGalleryExamplePlansAsItsNoteSays() throws IOException {
+        PravahaSchema schema = schema();
+        Map<String, ServedView> declared = declaredViews(schema);
+        Path dir = repoRoot().resolve("pravaha-console/content/examples");
+        List<Path> files;
+        try (Stream<Path> listed = Files.list(dir)) {
+            files = listed.filter(p -> p.toString().endsWith(".sql")).sorted().toList();
+        }
+        List<String> failures = new ArrayList<>();
+        int checked = 0;
+        for (Path file : files) {
+            String name = file.getFileName().toString().replaceFirst("\\.sql$", "");
+            if (!Files.exists(dir.resolve(name + ".md"))
+                    || !(Files.exists(dir.resolve(name + ".json")) || Files.exists(dir.resolve(name + ".csv")))) {
+                failures.add(name + " lacks its note (.md) or its data (.json or .csv)");
+            }
+            Map<String, ServedView> views = new LinkedHashMap<>(declared);
+            for (String statement : statements(Files.readString(file, StandardCharsets.UTF_8))) {
+                boolean read = statement.lines().anyMatch(l -> l.strip().equals("-- sql: read"));
+                try {
+                    Optional<ContinuousStatement> recognized = ContinuousStatements.recognize(statement);
+                    if (read) {
+                        ViewCatalog catalog = new ViewCatalog();
+                        views.values().forEach(catalog::register);
+                        new ViewQuery(catalog).prepare(statement, Principal.ANONYMOUS);
+                    } else if (recognized.isPresent()
+                            && recognized.get() instanceof ContinuousStatement.Alert alert
+                            && alert.statement()
+                                    instanceof com.ash.messaging.pravaha.sql.AlertStatement.Create create) {
+                        ServedView view = views.get(create.view());
+                        if (view == null) {
+                            failures.add(name + ": alert " + create.name() + " follows " + create.view()
+                                    + ", which no statement before it maintains");
+                        } else {
+                            for (var condition : create.where()) {
+                                if (!view.schema().hasField(condition.column())) {
+                                    failures.add(name + ": alert " + create.name() + " compares " + condition.column()
+                                            + ", which " + create.view() + " has not");
+                                }
+                            }
+                        }
+                    } else {
+                        continuous(schema, statement).ifPresent(v -> views.put(v.name(), v));
+                    }
+                } catch (RuntimeException e) {
+                    failures.add(name + " does not plan: " + firstLine(e));
+                }
+                checked++;
+            }
+        }
+        assertThat(failures)
+                .as("the examples gallery must hold SQL the engine plans, as each example's note says")
+                .isEmpty();
+        assertThat(files)
+                .as("the gallery covers windows, joins, lookups, late data, alerts, CDC and Kafka")
+                .hasSizeGreaterThanOrEqualTo(10);
+        System.out.printf("HelpExamplesSqlTest: %d statements in %d gallery examples planned%n", checked, files.size());
+    }
+
     // ------------------------------------------------------------------------------ planning
 
     /**

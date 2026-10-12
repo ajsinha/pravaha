@@ -1,0 +1,42 @@
+{
+  "streams": {
+    "txn": [
+      {
+        "txn_id": 41,
+        "user_id": "u7",
+        "merchant": "m-tv",
+        "amount": 450,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:03Z"
+      },
+      {
+        "txn_id": 42,
+        "user_id": "u7",
+        "merchant": "m-tv",
+        "amount": 120,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:20Z"
+      },
+      {
+        "txn_id": 43,
+        "user_id": "u8",
+        "merchant": "m-coffee",
+        "amount": 90,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:00:30Z"
+      },
+      {
+        "txn_id": 44,
+        "user_id": "u8",
+        "merchant": "m-coffee",
+        "amount": 90,
+        "currency": "GBP",
+        "status": "OK",
+        "event_time": "2026-06-01T09:01:15Z"
+      }
+    ]
+  }
+}

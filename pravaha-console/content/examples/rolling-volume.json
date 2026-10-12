@@ -1,0 +1,42 @@
+{
+  "streams": {
+    "trades": [
+      {
+        "trade_id": 101,
+        "account": "acc-7",
+        "symbol": "ACME",
+        "side": "BUY",
+        "qty": 100,
+        "price_cents": 15025,
+        "event_time": "2026-06-01T09:00:10Z"
+      },
+      {
+        "trade_id": 102,
+        "account": "acc-3",
+        "symbol": "ACME",
+        "side": "SELL",
+        "qty": 40,
+        "price_cents": 15030,
+        "event_time": "2026-06-01T09:01:30Z"
+      },
+      {
+        "trade_id": 103,
+        "account": "acc-7",
+        "symbol": "GLOBX",
+        "side": "BUY",
+        "qty": 500,
+        "price_cents": 2210,
+        "event_time": "2026-06-01T09:02:00Z"
+      },
+      {
+        "trade_id": 104,
+        "account": "acc-9",
+        "symbol": "ACME",
+        "side": "BUY",
+        "qty": 60,
+        "price_cents": 15010,
+        "event_time": "2026-06-01T09:06:05Z"
+      }
+    ]
+  }
+}
