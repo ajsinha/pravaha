@@ -923,7 +923,28 @@ def test_snippets_keep_numbers_numeric_and_never_carry_a_token():
     assert "PRAVAHA_TOKEN" in everything          # read from the environment...
     assert "System.getenv" in code["java"]["read"]
     plain = snippets.snippets("v", engine_url="grpc://dev:19090")
-    assert "--token" not in plain["cli"]["read"]  # ...and not sent over plaintext
+    assert "--token" not in plain["cli"]["read"]  # ...and never written into the command line
+
+
+def test_a_plaintext_engines_snippets_still_sign_in():
+    # SNIPPETTOKEN-1: the console's node always has sign-in on, and a grpc:// snippet that sent no
+    # token was refused with PRV-7001. Both SDKs refuse a token over plaintext unless allowed by name.
+    import ast
+
+    code = snippets.snippets("v", engine_url="grpc://localhost:19090", key_column="id", key_value="7")
+    for mode in ("read", "subscribe"):
+        java = code["java"][mode]
+        assert ".token(System.getenv(\"PRAVAHA_TOKEN\"))" in java and ".allowInsecureToken(true)" in java
+        assert "PravahaFlightClient.connect(options)" in java
+        python = code["python"][mode]
+        ast.parse(python)
+        assert "token=os.environ.get(\"PRAVAHA_TOKEN\"), allow_insecure_token=True" in python
+        assert "connect(options=options)" in python
+    assert "--insecure-token" in code["cli"]["read"] and "--insecure-token" in code["cli"]["subscribe"]
+    tls = snippets.snippets("v", engine_url="grpc+tls://prod:19090")
+    assert "allowInsecureToken" not in tls["java"]["read"]
+    assert "allow_insecure_token" not in tls["python"]["read"]
+    ast.parse(tls["python"]["subscribe"])
 
 
 def test_snippets_refuse_names_that_are_not_identifiers():
