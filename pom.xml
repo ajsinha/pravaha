@@ -39,6 +39,7 @@
     <module>pravaha-backfill</module>
     <module>pravaha-security</module>
     <module>pravaha-identity</module>
+    <module>pravaha-ai</module>
     <module>pravaha-serving</module>
     <module>pravaha-cluster</module>
     <module>pravaha-registry</module>

@@ -1,0 +1,6 @@
+com.ash.messaging.pravaha.ai.MockProvider$Factory
+com.ash.messaging.pravaha.ai.AnthropicProvider$Factory
+com.ash.messaging.pravaha.ai.GeminiProvider$Factory
+com.ash.messaging.pravaha.ai.CohereProvider$Factory
+com.ash.messaging.pravaha.ai.OllamaProvider$Factory
+com.ash.messaging.pravaha.ai.BedrockProvider$Factory
