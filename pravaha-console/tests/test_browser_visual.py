@@ -1,5 +1,5 @@
-"""Visual regression: every page, in MAYA's four themes (Crimson, Dark, Blue, Green), narrow and wide, comfortable
-and compact, against committed baselines.
+"""Visual regression: every page, in drishti's seven themes, narrow and wide, against committed baselines -- comfortable
+in all seven, compact in Crimson (the default) and Terminal (the dark one drishti leads with).
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -8,7 +8,7 @@ Design 23.18 asks for "no unreviewed pixel change" in both themes. Each page is 
 (the viewport, not the whole scroll height -- the first screen is what a person judges, and a
 full-page capture of a long table is a baseline that changes whenever a row does) and compared
 with ``tests/visual/baselines/<page>-<theme>-<viewport>.png`` (``...-compact.png`` in the compact
-density). A page may differ from its
+density; ``MATRIX`` is which combinations are taken). A page may differ from its
 baseline in at most ``TOLERANCE`` of its pixels, each by more than ``THRESHOLD`` in some
 channel; beyond that the test fails and writes the actual screenshot and a diff image (changed
 pixels in red) to ``tests/visual/failures/``, which is git-ignored.
@@ -45,6 +45,8 @@ from browser_harness import (
     BrowserEngine,
     Console,
     compare_png,
+    DARK_THEMES,
+    THEMES,
     density_script,
     open_page,
     sign_in,
@@ -59,11 +61,16 @@ BASELINES = VISUAL / "baselines"
 FAILURES = VISUAL / "failures"
 UPDATE = os.environ.get("PRAVAHA_UPDATE_BASELINES") == "1"
 
-THEMES = ["light", "dark", "blue", "green"]
 VIEWPORTS = {"wide": (1280, 800), "narrow": (390, 844)}
 #: Design 23.4's two densities. Comfortable is the default and keeps the baselines' original
 #: names; compact's carry a ``-compact`` suffix.
 DENSITIES = ["comfortable", "compact"]
+#: Density moves no colour, so compact is photographed in two themes, not seven: Crimson, the
+#: default, and Terminal, the dark one. Comfortable is photographed in every theme. 18 shots a page.
+COMPACT_THEMES = ["crimson", "terminal"]
+MATRIX = ([(theme, viewport, "comfortable") for theme in THEMES for viewport in VIEWPORTS]
+          + [(theme, viewport, "compact") for theme in COMPACT_THEMES for viewport in VIEWPORTS])
+MATRIX_IDS = ["-".join(m) for m in MATRIX]
 
 #: At most this share of pixels may differ, each by more than THRESHOLD (0-255) in a channel.
 TOLERANCE = 0.002
@@ -123,7 +130,7 @@ def shooters(chrome: Browser, console: Console):
             # and whether it did depended on which tests ran first. test_browser_accessibility
             # clears the same key for the same reason.
             tab.before_every_document("try{localStorage.removeItem('pravaha.workbench.tabs')}catch(e){}")
-            tab.emulate(reduced_motion=True, scheme="dark" if theme == "dark" else "light")
+            tab.emulate(reduced_motion=True, scheme="dark" if theme in DARK_THEMES else "light")
             sign_in(tab, console)
             tabs[key] = tab
         return tabs[key]
@@ -166,9 +173,7 @@ def _baseline_name(name: str, theme: str, viewport: str, density: str) -> str:
     return f"{name}-{theme}-{viewport}" + ("" if density == "comfortable" else f"-{density}")
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 @pytest.mark.parametrize("name,path,ready", SHOTS, ids=[s[0] for s in SHOTS])
 def test_every_page_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                          name, path, ready, theme, viewport, density):
@@ -201,9 +206,7 @@ def test_every_page_matches_its_baseline(shooters, comparer, console, baseline_c
                 f"({share:.3%}, tolerance {TOLERANCE:.1%}); see tests/visual/failures/{stem}.*.png")
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 def test_the_audit_trail_when_not_permitted_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                                  theme, viewport, density):
     """The engine's refusal is a designed state, so it has a baseline like any page."""
@@ -216,9 +219,7 @@ def test_the_audit_trail_when_not_permitted_matches_its_baseline(shooters, compa
         console.engine.audit_allowed = True
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 def test_a_backfill_in_flight_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                    theme, viewport, density):
     """The state design 23.10 is about, and the one the page's whole shape argues with: a job
@@ -237,9 +238,7 @@ def test_a_backfill_in_flight_matches_its_baseline(shooters, comparer, console, 
         console.engine.replacements_by_name.clear()
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 def test_a_replacement_that_has_cut_over_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                               theme, viewport, density):
     """With the rollback window open, which is the half of the screen an operator reads
@@ -257,9 +256,7 @@ def test_a_replacement_that_has_cut_over_matches_its_baseline(shooters, comparer
         console.engine.replacements_by_name.clear()
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 def test_a_debug_session_stepped_once_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                            theme, viewport, density):
     """The screen design 23.9 is about: a fork open, the DEBUG banner that never comes off,
@@ -279,9 +276,7 @@ def test_a_debug_session_stepped_once_matches_its_baseline(shooters, comparer, c
         console.engine.debug_calls.clear()
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 def test_a_plan_with_its_operator_numbers_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                                theme, viewport, density):
     """B6's numbers drawn on the operators, with the bottleneck marked. Photographed whole,
@@ -293,9 +288,7 @@ def test_a_plan_with_its_operator_numbers_matches_its_baseline(shooters, compare
         "document.querySelector('svg g.plan-node.bottleneck')", theme, viewport, density)
 
 
-@pytest.mark.parametrize("density", DENSITIES)
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme,viewport,density", MATRIX, ids=MATRIX_IDS)
 def test_a_screen_whose_engine_call_failed_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                                 theme, viewport, density):
     """The error state of design 23.12 as a screen draws it -- what failed, the retry, the
@@ -325,7 +318,7 @@ def test_compact_is_denser_and_keeps_its_targets(shooters, console):
         .map(e => e.getBoundingClientRect().height))"""
     sizes = {}
     for density in DENSITIES:
-        page = shooters("light", "wide", density)
+        page = shooters("crimson", "wide", density)
         open_page(page, console, "/operations", "document.querySelector('#chart-rate canvas')")
         sizes[density] = page.eval(table)
         open_page(page, console, "/queries/big_txn", "true")
@@ -338,7 +331,7 @@ def test_compact_is_denser_and_keeps_its_targets(shooters, console):
 
 def test_the_comparison_itself_catches_a_change(comparer, shooters, console):
     """A regression test that could never fail would be a picture gallery."""
-    page = shooters("light", "wide")
+    page = shooters("crimson", "wide")
     before = _shoot(page, console, "/catalog", "true")
     page.eval("document.querySelector('h1').textContent = 'Something else entirely'")
     after = page.screenshot()
@@ -358,6 +351,6 @@ def test_the_landing_figure_is_a_still_frame_here(shooters, console, theme):
     assert page.eval("matchMedia('(prefers-reduced-motion: reduce)').matches") is True
     assert page.eval("window.PravahaLanding.running()") is False
     assert page.eval("window.PravahaLanding.frames()") == 0
-    drawn = """(() => ['hero-flow', 'windows-flow', 'diyas-flow'].map(id =>
+    drawn = """(() => ['hero-flow', 'windows-flow', 'highway-flow'].map(id =>
         document.getElementById(id).querySelectorAll('*').length))()"""
     assert all(n > 10 for n in page.eval(drawn)), "a still frame drew nothing"

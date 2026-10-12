@@ -164,8 +164,8 @@ def test_the_footer_is_mayas_closing_line(admin, anonymous):
     for client, path in ((admin, "/catalog"), (anonymous, "/help"), (anonymous, "/login")):
         foot = client.get(path).text.split('<footer class="pv-foot">')[1].split("</footer>")[0]
         text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", foot)).strip()
-        assert text == (f"Ask once. Answer always. Pravaha {_console_version()} · Help · About · "
-                        "© 2026 Ashutosh Sinha. All rights reserved."), text
+        assert text == (f"Ask once. Answer always. Pravaha {_console_version()} Help About Competitive analysis "
+                        "Release notes © 2026 Ashutosh Sinha. All rights reserved."), text
 
 
 def _console_version() -> str:
@@ -204,3 +204,23 @@ def test_a_flash_is_drawn_as_mayas_dismissible_alert(admin):
     assert 'class="pv-flashes" aria-live="polite"' in page
     assert re.search(r'class="alert alert-danger alert-dismissible fade show py-2"[^>]*data-flash="danger"', page)
     assert 'data-bs-dismiss="alert"' in page
+
+
+def test_the_theme_is_set_before_the_stylesheets_by_a_file_not_an_inline_script(anonymous):
+    """drishti's theme-init.js: the stored theme goes on <html> before any stylesheet is parsed, from a
+    script of this server's (the CSP allows no inline script without a nonce), and the page arrives
+    as Crimson, Pravaha's default, when nothing is stored."""
+    page = anonymous.get("/").text
+    assert '<html lang="en" data-theme="crimson" data-bs-theme="light">' in page
+    head = page.split("</head>")[0]
+    init = head.index('<script src="/static/js/theme-init.js')
+    assert init < head.index('/static/css/tokens.css') < head.index('/static/css/theme.css')
+    assert "pravaha.theme" not in head            # nothing inline reads the choice any more
+
+
+def test_the_theme_menu_offers_drishtis_seven_with_swatches(anonymous):
+    page = anonymous.get("/").text
+    menu = page.split('class="dropdown-menu dropdown-menu-end theme-menu"')[1].split("</ul>")[0]
+    choices = re.findall(r'data-theme-choice="([a-z-]+)"><span class="swatch swatch-\1" aria-hidden="true"></span>([^<]+)</button>', menu)
+    assert choices == [("terminal", "Terminal"), ("light", "Parchment"), ("blue", "Blue"), ("wallstreet", "Wall Street"),
+                       ("green", "Green"), ("crimson", "Crimson"), ("crimson-dark", "Crimson dark")]

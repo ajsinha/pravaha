@@ -440,9 +440,15 @@ def page(chrome: Browser) -> Iterator[Page]:
         tab.close()
 
 
+#: drishti's seven themes, in its menu's order (static/js/theme.js holds the list for the page).
+THEMES = ["terminal", "light", "blue", "wallstreet", "green", "crimson", "crimson-dark"]
+#: The three whose ground is dark: they ask the browser for the dark colour scheme.
+DARK_THEMES = ("terminal", "wallstreet", "crimson-dark")
+
+
 def theme_script(theme: str) -> str:
     """Chosen the way a person chooses it -- the picker's own localStorage key."""
-    return f"try{{localStorage.setItem('pravaha.theme', {json.dumps(theme)})}}catch(e){{}}"
+    return f"try{{localStorage.setItem('pravaha.theme.v2', {json.dumps(theme)})}}catch(e){{}}"
 
 
 def density_script(density: str) -> str:

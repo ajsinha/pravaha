@@ -32,19 +32,25 @@ And the bar itself (``test_the_menu_opens_and_every_entry_is_reachable``): the m
 it; every top-level entry, every mega-menu panel and every item in it, the tools, the theme and
 account menus can be reached by scrolling the open menu, are inside the viewport, and are
 targets of the same size; everything works by tap -- nothing in it depends on hover.
+
+In Crimson, the default, at both widths; and in Terminal, drishti's dark theme, at 390 px: a theme
+moves no layout, but the bar's wordmark, the glass bar and the dark grounds are its own.
 """
 from __future__ import annotations
 
 import json
 
 import pytest
-from browser_harness import DETERMINISM, PAGES, BrowserEngine, Console, open_page, sign_in
+from browser_harness import DETERMINISM, PAGES, BrowserEngine, Console, open_page, sign_in, theme_script
 from cdp import Browser, Page
 
 pytestmark = pytest.mark.browser
 
 #: A small Android phone, and the iPhone the visual test's "narrow" baselines are taken at.
 VIEWPORTS = {"360": (360, 740), "390": (390, 844)}
+#: (theme, viewport) pairs: the default at both widths, a dark theme at the iPhone's.
+SCREENS = [("crimson", "360"), ("crimson", "390"), ("terminal", "390")]
+SCREEN_IDS = [f"{t}-{v}" for t, v in SCREENS]
 TARGET = 40
 BODY_TEXT = 12
 CODE_TEXT = 11
@@ -202,14 +208,15 @@ def mobile_console():
 
 @pytest.fixture(scope="module")
 def phones(chrome: Browser, mobile_console: Console):
-    tabs: dict[tuple[str, bool], Page] = {}
+    tabs: dict[tuple[str, bool, str], Page] = {}
 
-    def get(viewport: str, signed_in: bool = True) -> Page:
-        key = (viewport, signed_in)
+    def get(viewport: str, signed_in: bool = True, theme: str = "crimson") -> Page:
+        key = (viewport, signed_in, theme)
         if key not in tabs:
             width, height = VIEWPORTS[viewport]
             tab = chrome.new_page(width=width, height=height)
             tab.before_every_document(DETERMINISM)
+            tab.before_every_document(theme_script(theme))
             tab.before_every_document("try{localStorage.removeItem('pravaha.workbench.tabs')}catch(e){}")
             tab.emulate(reduced_motion=True)
             if signed_in:
@@ -222,13 +229,13 @@ def phones(chrome: Browser, mobile_console: Console):
         tab.close()
 
 
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme,viewport", SCREENS, ids=SCREEN_IDS)
 @pytest.mark.parametrize("name,path,ready", [(n, p, r) for n, p, _, r in ALL_PAGES], ids=[p[0] for p in ALL_PAGES])
-def test_every_page_fits_a_phone(phones, mobile_console, name, path, ready, viewport):
-    page = phones(viewport)
+def test_every_page_fits_a_phone(phones, mobile_console, name, path, ready, theme, viewport):
+    page = phones(viewport, theme=theme)
     open_page(page, mobile_console, path, ready)
     found = problems(audit(page, VIEWPORTS[viewport][0]))
-    assert not found, f"{path} at {viewport}px:\n  " + "\n  ".join(found)
+    assert not found, f"{path} at {viewport}px ({theme}):\n  " + "\n  ".join(found)
 
 
 @pytest.mark.parametrize("name,path,ready", [(n, p, r) for n, p, _, r in PUBLIC], ids=[p[0] for p in PUBLIC])
@@ -269,9 +276,9 @@ def _count(page: Page, selector: str) -> int:
     return int(page.eval(f"document.querySelectorAll({json.dumps(selector)}).length"))
 
 
-@pytest.mark.parametrize("viewport", list(VIEWPORTS))
-def test_the_menu_opens_and_every_entry_is_reachable(phones, mobile_console, viewport):
-    page = phones(viewport)
+@pytest.mark.parametrize("theme,viewport", SCREENS, ids=SCREEN_IDS)
+def test_the_menu_opens_and_every_entry_is_reachable(phones, mobile_console, theme, viewport):
+    page = phones(viewport, theme=theme)
     open_page(page, mobile_console, "/operations", "document.querySelector('#chart-rate canvas')")
     wrong = _reach(page, ".pv-nav .navbar-toggler", 0, "the menu button")
     page.click(".pv-nav .navbar-toggler")

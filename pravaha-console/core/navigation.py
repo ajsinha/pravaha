@@ -17,6 +17,7 @@ from __future__ import annotations
 
 EXCLUDED: dict[str, str] = {
     "/": "the landing page: the brand in the public bar links to it",
+    "/favicon.ico": "the tab icon a browser asks for by itself; not a screen",
     "/home": "a redirect to the signed-in person's landing: the brand in the bar links to it",
     "/login": "the public bar's Sign in",
     "/login/reset": "linked from the sign-in form",

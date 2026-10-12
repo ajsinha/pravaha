@@ -938,8 +938,8 @@ def test_the_slogan_is_on_every_page_in_italics(signed_in, path):
     assert "Ask once. Answer always." in page, path
     assert 'class="pv-foot-slogan slogan"' in page, path
     assert "/static/css/theme.css" in page and '<footer class="pv-foot">' in page, path
-    theme = (CONSOLE_ROOT / "web" / "static" / "css" / "theme.css").read_text(encoding="utf-8")
-    assert ".pv-foot-slogan { font-style: italic;" in theme
+    nav = (CONSOLE_ROOT / "web" / "static" / "css" / "nav.css").read_text(encoding="utf-8")
+    assert ".pv-foot-slogan { font-style: italic;" in nav
 
 
 def test_the_slogan_is_on_a_page_nobody_has_signed_in_for(anonymous):
@@ -1012,7 +1012,7 @@ def test_the_landing_page_tells_a_stranger_nothing_about_this_deployment(anonymo
 def test_the_figure_is_an_island_that_says_in_words_what_it_draws(anonymous):
     """Three figures drawn by the page's own script: decorative and aria-hidden, their labels from
     the catalog, and everything they draw said in text beside them -- the +1 and the −1 in the
-    legend, the correction in "How it works", the windows and the lamps in their captions."""
+    legend, the correction in "How it works", the windows and the highway in their captions."""
     from html import unescape
 
     page = anonymous.get("/").text
@@ -1022,7 +1022,7 @@ def test_the_figure_is_an_island_that_says_in_words_what_it_draws(anonymous):
     assert (flow["ask"], flow["answer"]) == ("Ask once.", "Answer always.")
     assert flow["question"].startswith("SELECT ") and flow["users"] == "u1,u2,u3,u4"
     assert (flow["plus"], flow["minus"]) == ("+1", "−1")
-    for figure in ('id="windows-flow"', 'id="diyas-flow"'):
+    for figure in ('id="windows-flow"', 'id="highway-flow"'):
         assert figure in page, figure
     # Said in words: the legend under the hero, "How it works", and each figure's caption.
     assert 'class="w plus">+1<' in page and 'class="w minus">−1<' in page
