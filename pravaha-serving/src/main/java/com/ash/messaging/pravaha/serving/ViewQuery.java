@@ -402,12 +402,6 @@ public final class ViewQuery {
     }
 
     /**
-     * Authorizes one read, records the decision either way, and refuses if it was denied.
-     *
-     * <p>Recorded whether allowed or denied: an audit log holding only refusals answers "who was
-     * stopped" and not "who read the salary view", which is the question that gets asked.
-     */
-    /**
      * The refusal of a read. The decision's own reason when it already says who may not read what --
      * the catalogue's does -- rather than that clause twice over (GOVMSG-1).
      */
@@ -418,6 +412,12 @@ public final class ViewQuery {
                 SecurityErrors.FORBIDDEN, reason.startsWith(clause) ? reason : clause + ": " + reason);
     }
 
+    /**
+     * Authorizes one read, records the decision either way, and refuses if it was denied.
+     *
+     * <p>Recorded whether allowed or denied: an audit log holding only refusals answers "who was
+     * stopped" and not "who read the salary view", which is the question that gets asked.
+     */
     private AccessDecision authorizeRead(Principal principal, String view, String sql) {
         AccessDecision decision = policy.mayRead(principal, view);
         audit.record(AuditEvent.of(principal, "query", view, decision, sql));

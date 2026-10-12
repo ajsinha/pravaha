@@ -1015,6 +1015,18 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     }
 
     /**
+     * A plugin's failure as the operator should read it (CDCOPENMSG-1): a coded refusal by its own
+     * message, which carries its code -- not {@code toString()}, which put a Java class name in front.
+     * Anything else keeps its type, since a bare "Connection refused" says less than with it.
+     */
+    static String causeOf(Exception e) {
+        if (e instanceof PravahaException coded && coded.getMessage() != null) {
+            return coded.getMessage();
+        }
+        return e.toString();
+    }
+
+    /**
      * What to add to an open failure when descriptor exhaustion is the likelier explanation.
      *
      * <p>Appended rather than substituted, because the plugin's own message may well be right. It is
@@ -1028,18 +1040,6 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * because the client throws that away. Looking at the descriptor count is the only way to tell
      * the two apart (SRC-4).
      */
-    /**
-     * A plugin's failure as the operator should read it (CDCOPENMSG-1): a coded refusal by its own
-     * message, which carries its code -- not {@code toString()}, which put a Java class name in front.
-     * Anything else keeps its type, since a bare "Connection refused" says less than with it.
-     */
-    static String causeOf(Exception e) {
-        if (e instanceof PravahaException coded && coded.getMessage() != null) {
-            return coded.getMessage();
-        }
-        return e.toString();
-    }
-
     private static String descriptorHint() {
         return com.ash.messaging.pravaha.common.io.FileDescriptors.exhaustionHint()
                 .map(hint -> " " + hint)
