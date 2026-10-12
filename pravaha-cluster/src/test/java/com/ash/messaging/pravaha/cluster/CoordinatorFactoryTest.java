@@ -234,7 +234,8 @@ class CoordinatorFactoryTest {
 
     @Test
     void twoSocketNodesFindEachOtherAndAgreeOnALeader() throws Exception {
-        List<Member> peers = List.of(new Member("a", "127.0.0.1", 19081), new Member("b", "127.0.0.1", 19082));
+        List<Member> peers =
+                List.of(new Member("a", "127.0.0.1", freePort()), new Member("b", "127.0.0.1", freePort()));
         AtomicReference<Optional<Member>> leaderOfA = new AtomicReference<>(Optional.empty());
 
         try (SocketCoordinator a = new SocketCoordinator(peers, Duration.ofMillis(100), Duration.ofMillis(500));
@@ -262,7 +263,8 @@ class CoordinatorFactoryTest {
 
     @Test
     void aNodeThatGoesAwayLeavesTheMembership() throws Exception {
-        List<Member> peers = List.of(new Member("a", "127.0.0.1", 19083), new Member("b", "127.0.0.1", 19084));
+        List<Member> peers =
+                List.of(new Member("a", "127.0.0.1", freePort()), new Member("b", "127.0.0.1", freePort()));
 
         try (SocketCoordinator a = new SocketCoordinator(peers, Duration.ofMillis(100), Duration.ofMillis(400))) {
             SocketCoordinator b = new SocketCoordinator(peers, Duration.ofMillis(100), Duration.ofMillis(400));
@@ -287,6 +289,16 @@ class CoordinatorFactoryTest {
             // is exactly why this coordinator declares no consensus.
             assertThat(a.members()).hasSize(1);
             assertThat(a.isLeader()).isTrue();
+        }
+    }
+
+    /** A port nothing listens on now: fixed ports collided with whatever else the machine was running. */
+    private static int freePort() {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
         }
     }
 }
