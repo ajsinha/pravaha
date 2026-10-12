@@ -32,6 +32,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Fake vendor HTTP servers on loopback (an ephemeral port) that speak each API well enough for the provider
@@ -174,7 +175,7 @@ final class LlmFakes implements AutoCloseable {
     }
 
     /** boom, limit, slow; null when the text is plain. */
-    private static Object[] gate(String text) throws InterruptedException {
+    private static Object @Nullable [] gate(String text) throws InterruptedException {
         if (text.contains("boom")) {
             return new Object[] {
                 500,

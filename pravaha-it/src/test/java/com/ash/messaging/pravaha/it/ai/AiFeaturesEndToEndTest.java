@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -450,7 +451,8 @@ class AiFeaturesEndToEndTest {
         assertThat(e.plan()).isNotBlank();
         assertThat(prompts.get(0).messages().get(0).content())
                 .contains("UNTRUSTED plan")
-                .contains(e.plan().strip());
+                .contains(Objects.requireNonNull(e.plan(), "an sql explanation carries its plan")
+                        .strip());
 
         AiAnswers.ExplainAnswer r =
                 ai.explain(OPS, "refusal", "SELECT nope FROM payments", null, "PRV-2002", null, null);
@@ -468,7 +470,9 @@ class AiFeaturesEndToEndTest {
         AiFeatures ai = features("labels-only");
         AiAnswers.ExplainAnswer first = ai.explain(ANA, "change", null, null, null, null, "payments");
         assertThat(first.change()).isNotNull();
-        assertThat(first.change().commits()).isZero(); // kept from the first question on
+        assertThat(Objects.requireNonNull(first.change(), "a change explanation")
+                        .commits())
+                .isZero(); // kept from the first question on
         prompts.clear();
         pay("p4", "EU", "4444-4444", 444);
         pay("p5", "US", "4555-5555", 555);
@@ -485,11 +489,11 @@ class AiFeaturesEndToEndTest {
             Thread.sleep(50);
         }
         assertThat(seen).isNotNull();
-        assertThat(seen.entered())
+        assertThat(Objects.requireNonNull(seen).entered())
                 .as("the row filter applies: bob's row is not ana's")
                 .isEqualTo(1);
         assertThat(seen.enteredKeys()).containsExactly(List.of("p4"));
-        assertThat(e.explanation()).isEqualTo("One payment entered the view.");
+        assertThat(Objects.requireNonNull(e).explanation()).isEqualTo("One payment entered the view.");
         String told = prompts.get(prompts.size() - 1).messages().get(0).content();
         assertThat(told)
                 .contains("p4")

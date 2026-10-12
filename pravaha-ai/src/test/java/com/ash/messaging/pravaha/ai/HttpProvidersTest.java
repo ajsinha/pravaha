@@ -23,6 +23,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -365,12 +366,13 @@ class HttpProvidersTest {
                         seen.body().getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         "application/json",
                         "AKIDEXAMPLE",
-                        ENV.get("ASECRET"),
+                        Objects.requireNonNull(ENV.get("ASECRET"), "the test sets it"),
                         "",
                         "us-east-1",
                         "bedrock",
                         at);
-                return again.get("Authorization").equals(seen.header("Authorization"));
+                return Objects.requireNonNull(again.get("Authorization"), "the provider sent one")
+                        .equals(seen.header("Authorization"));
             });
             LlmProvider p = make("bedrock", s.url(), Map.of());
             assertThat(ask(p, "ping").text()).isEqualTo("echo: ping");

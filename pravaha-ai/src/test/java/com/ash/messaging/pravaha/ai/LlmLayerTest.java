@@ -24,6 +24,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -223,7 +224,8 @@ class LlmLayerTest {
         reg.reload();
         assertThat(reg.health(reg.provider("az").orElseThrow()).status()).isEqualTo(LlmRegistry.Status.ERROR);
         assertThat(board.failing("az")).isTrue();
-        assertThat(board.statuses().get("az").permanent())
+        assertThat(Objects.requireNonNull(board.statuses().get("az"), "az is tracked")
+                        .permanent())
                 .as("a missing base-url will not mend by waiting")
                 .isTrue();
         env.put("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com");
@@ -237,7 +239,9 @@ class LlmLayerTest {
         clock.advance(Duration.ofSeconds(6));
         assertThat(board.due()).containsExactly("x");
         board.failed("x", "temporary", false);
-        assertThat(board.statuses().get("x").attempts()).isEqualTo(2);
+        assertThat(Objects.requireNonNull(board.statuses().get("x"), "x is tracked")
+                        .attempts())
+                .isEqualTo(2);
         assertThat(board.retryAllNow()).isEqualTo(1);
         assertThat(board.due()).containsExactly("x");
     }
