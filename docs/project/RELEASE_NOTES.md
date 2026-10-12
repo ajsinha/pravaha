@@ -10,7 +10,22 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.4.2 — 2026-10-12
+
+**The console on a phone, and on the network.** 2.4.2 makes every console page usable at phone
+width, has the console listen on every interface by default so a phone can open it, gives the
+browser tab the logo, and rebuilds the slide deck as a 56-slide showcase. The engine is unchanged.
+
+**Read before upgrading from 2.4.1.**
+
+- **The console listens on `0.0.0.0` by default** (was `127.0.0.1`), and the compose stack publishes
+  its port on every interface (`PRAVAHA_CONSOLE_BIND`). Every page but the landing page and the docs
+  needs a sign-in; to keep it to one machine set `CONSOLE_HOST=127.0.0.1` (or
+  `PRAVAHA_CONSOLE_BIND=127.0.0.1` in compose), and put a TLS terminator in front before exposing it
+  beyond a trusted network.
+- **Open:** none.
+
+What changed, in detail:
 
 - **The console listens on every interface by default** (`server.host` / `CONSOLE_HOST`, now
   `0.0.0.0`; was `127.0.0.1`), so a phone or another machine on the network can open it, as the
