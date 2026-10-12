@@ -390,8 +390,7 @@ public final class ViewQuery {
         AccessDecision decision = policy.mayRead(principal, source);
         audit.record(AuditEvent.of(principal, "schema", source, decision, sql));
         if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
+            throw readRefused(principal, source, decision);
         }
         // Admitted too, and not because planning is expensive -- it is not, next to a scan. A
         // metadata call that skipped admission would be an unmetered way in: a client asking only
@@ -408,12 +407,22 @@ public final class ViewQuery {
      * <p>Recorded whether allowed or denied: an audit log holding only refusals answers "who was
      * stopped" and not "who read the salary view", which is the question that gets asked.
      */
+    /**
+     * The refusal of a read. The decision's own reason when it already says who may not read what --
+     * the catalogue's does -- rather than that clause twice over (GOVMSG-1).
+     */
+    private static PravahaException readRefused(Principal principal, String view, AccessDecision decision) {
+        String clause = principal.id() + " may not read '" + view + "'";
+        String reason = String.valueOf(decision.reason());
+        return new PravahaException(
+                SecurityErrors.FORBIDDEN, reason.startsWith(clause) ? reason : clause + ": " + reason);
+    }
+
     private AccessDecision authorizeRead(Principal principal, String view, String sql) {
         AccessDecision decision = policy.mayRead(principal, view);
         audit.record(AuditEvent.of(principal, "query", view, decision, sql));
         if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + view + "': " + decision.reason());
+            throw readRefused(principal, view, decision);
         }
         return decision;
     }
@@ -528,8 +537,7 @@ public final class ViewQuery {
         AccessDecision decision = policy.mayRead(principal, source);
         audit.record(AuditEvent.of(principal, "prepare", source, decision, sql));
         if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN, principal.id() + " may not read '" + source + "': " + decision.reason());
+            throw readRefused(principal, source, decision);
         }
         StreamSchema resultSchema = physicalOf(rel, unresolvedFor(parameters)).outputSchema();
         Prepared prepared = new Prepared(sql, rel, parameters, resultSchema, source);
@@ -644,9 +652,7 @@ public final class ViewQuery {
         AccessDecision decision = policy.mayRead(principal, prepared.view());
         audit.record(AuditEvent.of(principal, "prepare", prepared.view(), decision, sql));
         if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN,
-                    principal.id() + " may not read '" + prepared.view() + "': " + decision.reason());
+            throw readRefused(principal, prepared.view(), decision);
         }
         return prepared;
     }
@@ -717,9 +723,7 @@ public final class ViewQuery {
         AccessDecision decision = policy.mayRead(principal, prepared.view());
         audit.record(AuditEvent.of(principal, "query", prepared.view(), decision, prepared.sql()));
         if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN,
-                    principal.id() + " may not read '" + prepared.view() + "': " + decision.reason());
+            throw readRefused(principal, prepared.view(), decision);
         }
 
         PhysicalOperator plan = physicalOf(prepared.rel(), parameters);

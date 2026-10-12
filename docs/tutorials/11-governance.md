@@ -182,7 +182,7 @@ token from        env
 <!-- capture: t11-ann-refused -->
 ```text
 $ PRAVAHA_TOKEN=$ANN pravaha query --sql 'SELECT * FROM payments_view'
-PRV-7002  ann may not read 'payments_view': ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
+PRV-7002  ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
   look PRV-7002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)
 ```
@@ -483,7 +483,7 @@ revoked SELECT on sales.payments_view from ROLE analyst
 <!-- capture: t11-ann-revoked -->
 ```text
 $ PRAVAHA_TOKEN=$ANN pravaha query --sql 'SELECT * FROM payments_view'
-PRV-7002  ann may not read 'payments_view': ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
+PRV-7002  ann may not read 'payments_view': ann holds no SELECT on public.sales.payments_view: no grant on it, its namespace, its tenant or the catalogue reaches USER ann or the roles [analyst], and they do not own it
   look PRV-7002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 (exit 1)
 ```
