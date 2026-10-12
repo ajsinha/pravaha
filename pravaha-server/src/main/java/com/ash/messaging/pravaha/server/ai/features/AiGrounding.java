@@ -225,8 +225,9 @@ final class AiGrounding {
 
     /** Material for the model, between markers only this request's id closes. */
     static String block(String name, String id, String body) {
-        return "<<<BEGIN UNTRUSTED " + name + " id=" + id + ">>>\n" + body.strip() + "\n<<<END UNTRUSTED " + name
-                + " id=" + id + ">>>\n";
+        String open = "<<<BEGIN UNTRUSTED " + name + " id=" + id + ">>>\n";
+        String close = "\n<<<END UNTRUSTED " + name + " id=" + id + ">>>\n";
+        return open + clean(body, Integer.MAX_VALUE) + close;
     }
 
     /** Control characters to spaces, marker-like runs defused, cut to {@code max} characters. */
