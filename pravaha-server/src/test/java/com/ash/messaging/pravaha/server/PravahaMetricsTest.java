@@ -48,6 +48,12 @@ class PravahaMetricsTest {
 
     private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
 
+    private static final StreamSchema CLICKS = StreamSchema.builder("clicks")
+            .field("user_id", Types.string())
+            .field("ts", Types.timestamp())
+            .eventTime("ts")
+            .build();
+
     private SimpleMeterRegistry meters;
     private PravahaNode node;
     private PravahaMetrics metrics;
@@ -59,6 +65,7 @@ class PravahaMetricsTest {
                 .field("user_id", Types.string())
                 .field("amount", Types.int64())
                 .build());
+        catalog.register(CLICKS);
         node = PravahaNode.builder()
                 .withCatalog(catalog)
                 .withSecurity(openServer())
@@ -202,6 +209,44 @@ class PravahaMetricsTest {
                         .tag("query", "acme.default.stalled")
                         .functionCounter())
                 .isNotNull();
+    }
+
+    /** TOOLATE-1: rows too late to correct any window are counted where an operator can see them. */
+    @Test
+    void rowsTooLateForAnyWindowAreCounted() {
+        var query = node.registry()
+                .orElseThrow()
+                .register(
+                        "per_window",
+                        "SELECT user_id, COUNT(*) AS n FROM clicks GROUP BY user_id, TUMBLE(ts, INTERVAL '10' SECOND)",
+                        List.of(0),
+                        DANA);
+        metrics.sync();
+        var late = meters.find("pravaha.query.late.records")
+                .tag("query", "acme.default.per_window")
+                .functionCounter();
+        assertThat(late).isNotNull();
+        assertThat(late.count()).isZero();
+
+        com.ash.messaging.pravaha.common.row.RowLayout layout =
+                com.ash.messaging.pravaha.common.row.RowLayout.of(CLICKS);
+        try (var arena = new com.ash.messaging.pravaha.common.arena.RowArena(
+                com.ash.messaging.pravaha.common.memory.MemoryAccess.best(), 1 << 16, 2)) {
+            query.advanceWatermark(30_000_000_000L); // no lateness: [0,10) is final
+            var writer = new com.ash.messaging.pravaha.common.row.BinaryRowWriter(layout);
+            long handle = arena.allocate(layout.rowSize(64));
+            writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+            writer.setString(0, "u1").setLong(1, 1_000_000_000L);
+            writer.weight(1L).eventTimestampNanos(1_000_000_000L).sequence(1).commit();
+            arena.trimTo(handle, writer.sizeSoFar());
+            query.accept(
+                    "clicks",
+                    new com.ash.messaging.pravaha.common.row.BinaryRowView(layout)
+                            .wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+            query.awaitApplied(java.time.Duration.ofSeconds(10));
+        }
+
+        assertThat(late.count()).isEqualTo(1.0);
     }
 
     @Test

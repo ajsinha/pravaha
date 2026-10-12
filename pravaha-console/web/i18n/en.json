@@ -1466,7 +1466,10 @@
     "access_paths": "Reads of its view",
     "access_paths_counts": "{point} by key, {range} by range, {index} by index, {scan} scanned",
     "index_entries": "{n} entries",
-    "index_clause": "INDEX ({col})"
+    "index_clause": "INDEX ({col})",
+    "late_rows": "Late rows",
+    "late_rows_title": "Rows that arrived after their window's allowed lateness had passed, so they are in no answer. Rising steadily means the stream's allowed lateness is shorter than its data needs.",
+    "late_rows_count": "{n} too late for any window"
   },
   "refused": {
     "title": "Refused",

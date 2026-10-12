@@ -1296,6 +1296,12 @@ Allowed lateness is the stream's: `allowed-lateness` under `pravaha.streams.<nam
 closes and drops a row that arrives after. Until HLP-7 a server had no way to set it, so the
 correction above could only happen in an embedded engine.
 
+**A row too late to correct anything is counted, not lost silently** (TOOLATE-1). Each one adds to
+`lateRecords` in `GET /api/v1/queries/{name}` (`late rows` in `pravaha describe` and on the console's
+query page) and to the `pravaha_query_late_records_total{query}` counter. A count that keeps rising
+is the sign that the stream's allowed lateness is shorter than its data needs; zero with a long
+lateness may mean it could be shorter, and cheaper (below).
+
 **A correction is published at the query's next commit** (EMIT-2): the late row is applied to the
 window's state when it arrives, and the retraction and the corrected row reach the view and its
 subscribers with the commit after it — within the feed's publish interval — not at the next

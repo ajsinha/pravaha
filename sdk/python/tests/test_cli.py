@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import stat
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -360,6 +361,15 @@ def test_describe_shows_the_lane_and_escapes_the_name(engine, home):
     assert code == EXIT_OK
     assert "shared #2" in out
     assert last()["path"] == "/api/v1/queries/a%2Fb"
+
+
+def test_describe_shows_the_rows_too_late_for_any_window(engine, home):
+    # TOOLATE-1: the count that says whether allowed lateness is set right.
+    answer("GET", "/api/v1/queries/spend", {"name": "spend", "state": "RUNNING", "rowsIn": 40,
+                                             "lateRecords": 3, "sql": "SELECT 1"})
+    code, out, _ = run("describe", "spend", "--http", engine)
+    assert code == EXIT_OK
+    assert re.search(r"late rows\s+3", out)
 
 
 def test_plan_prints_nodes_with_their_measurements(engine, home):

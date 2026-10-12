@@ -290,6 +290,14 @@ def test_the_query_page_names_its_owner(signed_in):
     assert '<dd class="col-8 mono" id="query-owner">ops</dd>' in page
 
 
+def test_the_query_page_shows_rows_too_late_for_any_window(engine, monkeypatch):
+    # TOOLATE-1: the engine's QueryDetail.lateRecords, which says whether allowed lateness is right.
+    described = engine.describe_query
+    monkeypatch.setattr(engine, "describe_query", lambda name: {**described(name), "lateRecords": 1234})
+    page = _signed_in_on(engine).get("/queries/big_txn").text
+    assert 'id="late-rows"' in page and "1,234 too late for any window" in page
+
+
 def test_the_query_page_shows_a_detached_sink_and_its_failure(signed_in):
     page = signed_in.get("/queries/big_txn").text
     assert 'id="sink-failure"' in page and "PRV-8009" in page and "detached" in page

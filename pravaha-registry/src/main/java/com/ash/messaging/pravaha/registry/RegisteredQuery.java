@@ -271,6 +271,18 @@ public final class RegisteredQuery implements AutoCloseable {
                 .toList();
     }
 
+    /**
+     * Rows that arrived too late to correct any window: past the watermark by more than the
+     * allowed lateness, so the window they belong to has emitted and released its state
+     * (TOOLATE-1). Zero for a query without a windowed aggregate.
+     *
+     * <p>Counted from registration, across every lane. What says whether {@code allowed_lateness}
+     * is set right: rising steadily means rows are being lost to it.
+     */
+    public long lateRecords() {
+        return execution.lateRecords();
+    }
+
     /** Rows accepted since registration. */
     public long rowsIn() {
         // Both halves, because rows arrive by two routes and an operator counting them does not

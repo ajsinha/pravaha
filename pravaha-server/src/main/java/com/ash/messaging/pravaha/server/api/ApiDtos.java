@@ -208,6 +208,8 @@ public final class ApiDtos {
      *     a query can be blocked by a neighbour and this is where that shows
      * @param inboxDepth rows queued into the lane and not yet taken, now
      * @param inboxCells what that depth is out of
+     * @param lateRecords rows too late to correct any window: past the watermark by more than the
+     *     allowed lateness, so not counted in any answer (TOOLATE-1)
      */
     public record QueryTelemetry(
             long rowsIn,
@@ -220,7 +222,8 @@ public final class ApiDtos {
             double backpressureWaitSeconds,
             double blockedFraction,
             int inboxDepth,
-            int inboxCells) {}
+            int inboxCells,
+            long lateRecords) {}
 
     /** A key column of a view: its name, and the ordinal registration took. */
     public record KeyColumn(String name, int ordinal) {}
@@ -387,6 +390,10 @@ public final class ApiDtos {
      *     or replace it without a grant ({@code pravaha.security.administer}); null when none is recorded
      * @param checkpoint whether it checkpoints, when it last did, and why its last checkpoint failed
      *     (CKPTWHY-1); null for a registration refused at recovery
+     * @param lateRecords rows that arrived too late to correct any window -- past the watermark by
+     *     more than the allowed lateness -- and so are in no answer, counted since it started;
+     *     {@code -1} when withheld, as {@code rowsIn} is (TOOLATE-1). Rising steadily means
+     *     {@code allowed_lateness} is shorter than the data needs
      */
     public record QueryDetail(
             String name,
@@ -410,7 +417,8 @@ public final class ApiDtos {
             List<String> dependants,
             @Nullable AccessPaths accessPaths,
             @Nullable String owner,
-            @Nullable QueryCheckpoint checkpoint) {}
+            @Nullable QueryCheckpoint checkpoint,
+            long lateRecords) {}
 
     /**
      * A registered query's checkpoints (CKPTWHY-1): the failure count was a metric and the reason was

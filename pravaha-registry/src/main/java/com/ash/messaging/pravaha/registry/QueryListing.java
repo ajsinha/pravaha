@@ -103,6 +103,11 @@ public final class QueryListing {
             return restricted ? -1 : query.rowsIn();
         }
 
+        /** Rows too late to correct any window (TOOLATE-1), {@code -1} when withheld, as rows in is. */
+        public long lateRecords() {
+            return restricted ? -1 : query.lateRecords();
+        }
+
         /** Rows this name's sink has accepted, {@code -1} when withheld, zero when there is no sink. */
         public long rowsWrittenToSink() {
             return restricted ? -1 : sinkRowsWritten;
