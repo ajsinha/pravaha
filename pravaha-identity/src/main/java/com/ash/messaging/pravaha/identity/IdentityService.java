@@ -72,6 +72,8 @@ public final class IdentityService {
     private final Map<String, Instant> lastSeen = new HashMap<>();
     private final Map<String, Instant> verifiedKeys = new ConcurrentHashMap<>();
     private final java.util.function.@Nullable Supplier<@Nullable String> initialAdminPassword;
+    /** The captive users' names (pravaha.identity.captive-users); guarded by this service's lock. */
+    private Set<String> captive = Set.of();
 
     IdentityService(IdentityStore store, IdentitySettings settings, @Nullable AuditSink audit, Clock clock) {
         this(store, settings, audit, clock, null);
@@ -176,6 +178,63 @@ public final class IdentityService {
                 null);
     }
 
+    /**
+     * Ensures every captive user, after {@link #bootstrap()}: creates one that is missing, and brings one
+     * that exists back to its configuration -- its roles exactly, active, not locked, its configured
+     * password -- writing and auditing ({@code identity.captive_ensured}) only what changed, so a second
+     * start with nothing changed writes nothing. From now on those users refuse an administrator's
+     * disable, role change and password reset ({@code PRV-7023}).
+     *
+     * @param accounts from {@link CaptiveUsers#resolve}, already validated
+     */
+    public synchronized void ensureCaptive(List<CaptiveUsers.Account> accounts) {
+        Set<String> names = new LinkedHashSet<>();
+        for (CaptiveUsers.Account account : accounts) {
+            names.add(account.username());
+            Instant now = clock.instant();
+            Identities.User existing = store.users.get(account.username());
+            if (existing == null) {
+                store.putUser(CaptiveUsers.created(account, now));
+                record(
+                        system(),
+                        "identity.captive_ensured",
+                        account.username(),
+                        true,
+                        "created, roles " + new java.util.TreeSet<>(account.roles()),
+                        null);
+                continue;
+            }
+            Optional<CaptiveUsers.Reconciled> reconciled = CaptiveUsers.reconcile(existing, account, now);
+            if (reconciled.isEmpty()) {
+                continue;
+            }
+            store.putUser(reconciled.get().user());
+            throttle.forget(account.username());
+            if (reconciled.get().passwordReset()) {
+                endAllSessionsOf(account.username());
+            }
+            record(
+                    system(),
+                    "identity.captive_ensured",
+                    account.username(),
+                    true,
+                    String.join(", ", reconciled.get().changes()),
+                    null);
+        }
+        captive = Set.copyOf(names);
+    }
+
+    /** Whether {@code username} is a captive user, which the configuration manages. */
+    public synchronized boolean isCaptive(@Nullable String username) {
+        return username != null && captive.contains(username);
+    }
+
+    private void requireNotCaptive(String username, String what) {
+        if (captive.contains(username)) {
+            throw CaptiveUsers.managed(username, what);
+        }
+    }
+
     /** True while the bootstrap admin still has its well-known password. */
     public synchronized boolean defaultAdminPasswordInUse() {
         Identities.User admin = store.users.get(ADMIN);
@@ -245,7 +304,9 @@ public final class IdentityService {
                 }
                 throw refused();
             }
-            boolean expired = !settings.maxAge().isZero()
+            // A captive user's password never expires: the configuration sets it again at every start.
+            boolean expired = !captive.contains(current.username())
+                    && !settings.maxAge().isZero()
                     && current.passwordChangedAt() != null
                     && current.passwordChangedAt().plus(settings.maxAge()).isBefore(now);
             String hash = Kdf.needsRehash(current.passwordHash())
@@ -469,6 +530,7 @@ public final class IdentityService {
     /** A signed-in person changing their own password. Ends every other session of theirs. */
     public synchronized void changePassword(Principal who, @Nullable String current, @Nullable String replacement) {
         Identities.User user = requireUser(who.id());
+        requireNotCaptive(who.id(), "changing its password");
         if (!Kdf.verify(current == null ? "" : current, user.passwordHash())) {
             recordFailure(user, clock.instant(), null);
             throw refused();
@@ -509,6 +571,7 @@ public final class IdentityService {
     public synchronized Reset issueReset(Principal admin, String username) {
         requireAdmin(admin);
         requireUser(username);
+        requireNotCaptive(username, "issuing a password reset");
         String token = "prv_r_" + Kdf.randomToken(32);
         Instant expires = clock.instant().plus(settings.resetTokenLife());
         store.putReset(new Identities.ResetToken(Kdf.sha256Hex(token), username, expires, admin.id()));
@@ -526,6 +589,7 @@ public final class IdentityService {
                     "this reset token is unknown, already used or expired; ask an administrator for another");
         }
         Identities.User user = requireUser(reset.username());
+        requireNotCaptive(user.username(), "a password reset");
         accept(user, password, false);
         store.useReset(reset.tokenHash());
         endAllSessionsOf(user.username());
@@ -651,6 +715,9 @@ public final class IdentityService {
         if (status != null && !status.equals("active") && !status.equals("disabled")) {
             throw new PravahaException(IdentityErrors.INVALID_REQUEST, "a user's status is 'active' or 'disabled'");
         }
+        if ("disabled".equals(status)) {
+            requireNotCaptive(username, "disabling it");
+        }
         Identities.User changed = user.withProfile(
                 displayName == null ? user.displayName() : displayName,
                 email == null ? user.email() : email,
@@ -667,6 +734,7 @@ public final class IdentityService {
     public synchronized UserView setRoles(Principal admin, String username, Set<String> roles) {
         requireAdmin(admin);
         Identities.User user = requireUser(username);
+        requireNotCaptive(username, "changing its roles");
         if (username.equals(admin.id()) && !roles.contains(ADMIN_ROLE)) {
             throw new PravahaException(
                     IdentityErrors.WOULD_WIDEN,
@@ -744,6 +812,7 @@ public final class IdentityService {
     public synchronized void setPassword(Principal admin, String username, String password) {
         requireAdmin(admin);
         Identities.User user = requireUser(username);
+        requireNotCaptive(username, "setting its password");
         accept(user, password, settings.forceChange() && !username.equals(admin.id()));
         endAllSessionsOf(username);
         record(admin, "user.password_reset", username, true, "set by an administrator", null);

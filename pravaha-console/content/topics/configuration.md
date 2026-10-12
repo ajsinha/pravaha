@@ -89,7 +89,8 @@ answer to "did my setting take?".
 ### The `users` profile
 
 `dev,users` is what the guides start a node with for the console. `users` turns on the engine's own
-user store and token authentication, and sets `pravaha.security.policy: authenticated`: a signed-in
+user store and token authentication, ensures the captive development administrator
+`pravaha-dev-admin` / `pravaha-dev-admin123` (`pravaha.identity.captive-users`, dev only), and sets `pravaha.security.policy: authenticated`: a signed-in
 user reads views and registers queries, drop, pause, resume and replace go by ownership, grants or
 the `admin` role, and only `admin` reads the audit trail. Until 2.0.1 it left `permissive` in force
 (PERMISSIVEUSERS-1). A home whose catalogue imported `permissive` under that profile refuses to

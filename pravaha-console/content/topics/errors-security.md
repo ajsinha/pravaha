@@ -169,7 +169,7 @@ would send the right person nowhere. See [Authorization](/help/topics/authorizat
   [Row filters](/help/topics/row-filters-and-masks), [Audit](/help/topics/audit)
 - [Security (long form)](/help/security)
 
-## PRV-7010 to PRV-7021 — users, passwords, API keys and sessions
+## PRV-7010 to PRV-7023 — users, passwords, API keys and sessions
 
 These come from the identity the node keeps itself (`pravaha.identity.enabled`, ADR-052). A
 transport never tells a caller why a credential was refused: Flight, the PostgreSQL gateway and
@@ -191,6 +191,8 @@ because the person using them needs it to act.
 | PRV-7019 | IDENTITY_DEFAULT_ADMIN_PASSWORD | `admin` still has its published default password on a node outside the dev profile, which refuses to start | Change the password, or set `pravaha.identity.allow-default-admin-password` on purpose |
 | PRV-7020 | IDENTITY_INVALID_REQUEST | A user name outside the allowed form, a user that exists, an unknown status, or a key life outside 1 to 365 days | Correct the request |
 | PRV-7021 | IDENTITY_NOT_FOUND | No user, or no session, by that name | Check the name |
+| PRV-7022 | IDENTITY_CAPTIVE_USERS_INVALID | `pravaha.identity.captive-users` cannot be honoured and the node refuses to start: a duplicate or malformed name, no password source or more than one, an unset variable or unreadable file, a password the policy refuses, `admin` without the `admin` role, or a literal `password` outside the dev profile | Fix the entry the message names; use `password-env` or `password-file`, or set `pravaha.identity.allow-literal-captive-passwords` on purpose |
+| PRV-7023 | IDENTITY_CAPTIVE_USER_MANAGED | A captive user cannot be disabled, re-roled or have its password reset or changed: it is managed by configuration, `pravaha.identity.captive-users` | Change the configuration and restart the node |
 
 ## PRV-7006 and PRV-7007 — masks and policy changes
 

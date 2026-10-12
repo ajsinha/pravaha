@@ -195,7 +195,10 @@ public class IdentityController {
         }
         IdentityService users = identity();
         IdentityService.UserView user = users.me(principal);
-        Instant expires = users.settings().maxAge().isZero() || user.passwordChangedAt() == null
+        // A captive user's password never expires: the configuration sets it at every start.
+        Instant expires = users.settings().maxAge().isZero()
+                        || user.passwordChangedAt() == null
+                        || users.isCaptive(user.username())
                 ? null
                 : user.passwordChangedAt().plus(users.settings().maxAge());
         return new Me(

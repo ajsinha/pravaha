@@ -30,8 +30,11 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -74,6 +77,45 @@ class UsersProfileTest {
                 .getResponse()
                 .getContentAsString();
         return json.readTree(body).get("token").asText();
+    }
+
+    @Test
+    void theCaptiveDevAdminSignsInWithTheAdminRoleAndIsManagedByConfiguration() throws Exception {
+        String dev = login("pravaha-dev-admin", "pravaha-dev-admin123");
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + dev))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roles[0]").value("admin"))
+                .andExpect(jsonPath("$.passwordExpiresAt").doesNotExist());
+
+        // Another administrator cannot disable it, change its roles or reset its password (PRV-7023).
+        String admin = login("admin", "pravaha-dev-admin");
+        mvc.perform(patch("/api/v1/users/pravaha-dev-admin")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"disabled\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRV-7023"));
+        mvc.perform(put("/api/v1/users/pravaha-dev-admin/roles")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roles\":[\"guest\"]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRV-7023"));
+        mvc.perform(post("/api/v1/users/pravaha-dev-admin/password-reset").header("Authorization", "Bearer " + admin))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRV-7023"));
+        // There is no delete: users are disabled, never deleted.
+        mvc.perform(delete("/api/v1/users/pravaha-dev-admin").header("Authorization", "Bearer " + admin))
+                .andExpect(
+                        result -> assertThat(result.getResponse().getStatus()).isIn(404, 405));
+
+        // And it is a user like any other: it issues itself a key and signs in again.
+        mvc.perform(post("/api/v1/keys")
+                        .header("Authorization", "Bearer " + dev)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"laptop\"}"))
+                .andExpect(status().isOk());
+        login("pravaha-dev-admin", "pravaha-dev-admin123");
     }
 
     @Test

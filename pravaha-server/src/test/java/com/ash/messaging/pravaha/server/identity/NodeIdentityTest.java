@@ -166,6 +166,24 @@ class NodeIdentityTest {
     }
 
     @Test
+    void aCaptiveUserWithALiteralPasswordOutsideDevRefusesToStartUnlessAllowed() {
+        IdentityProperties properties = identity(false);
+        IdentityProperties.CaptiveUser ops = new IdentityProperties.CaptiveUser();
+        ops.setUsername("ops-admin");
+        ops.setRoles(java.util.List.of("admin"));
+        ops.setPassword("Ops-admin-pass1");
+        properties.setCaptiveUsers(java.util.List.of(ops));
+        assertThatThrownBy(() -> node(tokens(Map.of()), properties).identity())
+                .hasMessageContaining("PRV-7022")
+                .hasMessageContaining("allow-literal-captive-passwords");
+
+        properties.setAllowLiteralCaptivePasswords(true);
+        IdentityService users = properties.service(event -> {}).orElseThrow();
+        assertThat(users.isCaptive("ops-admin")).isTrue();
+        users.login("ops-admin", "Ops-admin-pass1", null);
+    }
+
+    @Test
     void offByDefault() {
         PravahaNode node = node(tokens(Map.of()), new IdentityProperties());
         assertThat(node.identity()).isEmpty();

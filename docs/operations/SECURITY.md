@@ -788,7 +788,7 @@ names `via`, `session`, `key` and `mustChangePassword` are the engine's own clai
 at most 32 attributes, each value 1 to 256 characters with no control characters (`PRV-7020`).
 Restoring a registration now asks the identity store for its owner before the token table; before,
 a registration by a store user was refused at every restart.
-The codes are `PRV-7010` to `PRV-7021` ([`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md)). Forcing a change
+The codes are `PRV-7010` to `PRV-7023` ([`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md)). Forcing a change
 of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
 set. Single sign-on and MFA are not built (the owner dropped them on 2026-09-27), so
 `pravaha.identity.mode` takes one value, `password` (the default): `sso` or `hybrid` stops the node at
@@ -800,6 +800,38 @@ outside the dev profile refuses to start while the default is still its password
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
 still work beside all this, logged as deprecated.
 
+**Captive users** are accounts declared in configuration, `pravaha.identity.captive-users`, which the
+node ensures at every start, after the bootstrap admin:
+
+```yaml
+pravaha:
+  identity:
+    captive-users:
+      - username: ops-admin            # required
+        roles: [admin]
+        display-name: Operations admin # optional, as are tenant (default public) and email
+        password-env: PRAVAHA_OPS_ADMIN_PASSWORD   # or password-file: /run/secrets/ops-admin
+```
+
+Each entry has exactly one password source: `password-env` (an environment variable), `password-file`
+or `password`, a literal. A literal is allowed only in the dev profile, as the default admin password
+is: elsewhere it stops the node unless `pravaha.identity.allow-literal-captive-passwords: true` says it
+is on purpose, so a password written into configuration never reaches a production node silently. The
+node also refuses to start (`PRV-7022`) on a duplicated name, a name outside the user-name form, no
+password source or more than one, an unset variable or unreadable file, a password the policy refuses,
+and `admin` declared without the `admin` role, which would take administration from the bootstrap
+account. At start a missing captive user is created; an existing one gets exactly the configured
+roles, is re-enabled, has any lockout cleared and any forced change dropped, and gets the configured
+password again if it no longer verifies -- each change audited as `identity.captive_ensured` with what
+changed, never the password; nothing changed writes nothing. A captive user's password never expires
+and keeps no history, since the configuration sets it again at every start. At runtime the
+configuration owns it: disabling it, setting its roles, an administrator's password reset or set, and
+its own password change are refused with `409 PRV-7023` ("managed by configuration:
+pravaha.identity.captive-users"), from the API, the CLI and the console alike. It signs in, holds
+sessions, issues its own API keys and changes its profile and attributes like anyone. Users are never
+deleted, so there is no delete to refuse. The `users` profile ships one, the development account
+`pravaha-dev-admin` / `pravaha-dev-admin123` with the `admin` role.
+
 **The shipped profiles, and what each grants (PERMISSIVEUSERS-1).** `dev` sets
 `pravaha.security.allow-anonymous: true` and lets `admin` keep its published password: alone it serves
 every view to every caller under the default `permissive` policy — one developer on loopback, never
@@ -810,7 +842,9 @@ grants or the `admin` role; the audit trail is for `pravaha.security.audit-reade
 `[admin]`); `GET /api/v1/tenants` shows each user their own tenant. Until 2.0.1 it left `permissive` in
 force, so every signed-in user could pause any view and read the trail. A home whose catalogue imported
 `permissive` under that profile refuses the new one with `PRV-7034`: set `pravaha.security.policy:
-permissive` to keep what was imported, or `pravaha.catalog.authority: catalog`.
+permissive` to keep what was imported, or `pravaha.catalog.authority: catalog`. `users` also ensures
+the captive development account `pravaha-dev-admin` (password `pravaha-dev-admin123`, role `admin`),
+whose literal password, like `admin`'s default, only the dev profile allows.
 
 **Failed sign-ins and lockout (LOCKENUM-1).** The policy, and why each half is what it is:
 

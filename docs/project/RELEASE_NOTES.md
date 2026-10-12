@@ -50,6 +50,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   token on every ground in all seven themes; the visual baselines are 7 themes × 2 widths, and compact
   in Crimson and Terminal.
 
+- **Captive users: accounts the configuration keeps.** `pravaha.identity.captive-users` declares users
+  the node ensures at every start -- created when missing, and given back exactly their configured roles,
+  an active status, no lockout and the configured password when an administrator or a sign-in changed
+  them (audited as `identity.captive_ensured`, never with the password). Each entry has one password
+  source: `password-env`, `password-file`, or a literal `password`, which only the dev profile allows
+  unless `pravaha.identity.allow-literal-captive-passwords` is set. At runtime a captive user cannot be
+  disabled, re-roled or re-passworded (`409 PRV-7023`), from the API, the CLI or the console; it signs
+  in and issues API keys like anyone, and its password never expires or keeps a history. A bad entry
+  stops the node with `PRV-7022`. The `users` profile ships the development administrator
+  `pravaha-dev-admin` / `pravaha-dev-admin123`, so `dev,users` always has an admin with a known
+  password ([SECURITY.md](../operations/SECURITY.md)).
+
 ---
 
 Register: **583 findings — 564 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.

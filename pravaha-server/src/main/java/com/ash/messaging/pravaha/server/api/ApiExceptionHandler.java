@@ -201,6 +201,8 @@ public class ApiExceptionHandler {
             case "PRV-7012", "PRV-7017", "PRV-7020" -> HttpStatus.BAD_REQUEST;
             case "PRV-7015", "PRV-7018" -> HttpStatus.FORBIDDEN;
             case "PRV-7021" -> HttpStatus.NOT_FOUND;
+            // A captive user is the configuration's: the request conflicts with how the node is set up.
+            case "PRV-7023" -> HttpStatus.CONFLICT;
             // ADR-059's catalogue: off is a conflict with how the node is configured, not a refusal of
             // the caller; an unknown (or unseeable) object is 404; a bad request is 400.
             case "PRV-7030", "PRV-7036" -> HttpStatus.CONFLICT;

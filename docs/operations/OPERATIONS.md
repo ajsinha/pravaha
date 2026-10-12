@@ -461,6 +461,14 @@ reads and discards before it closes the connection.
 single sign-on is not built, so `sso` or `hybrid` stops the node at start with `PRV-7004` naming the
 setting (SSOMODE-1; until 2.1 both were accepted and ignored). See [`SECURITY.md`](SECURITY.md).
 
+**Accounts that must always exist** are `pravaha.identity.captive-users`: each entry (`username`,
+`roles`, optional `display-name`, `tenant`, `email`, and one of `password-env`, `password-file` or --
+dev only, unless `allow-literal-captive-passwords` -- `password`) is created at start when missing and
+brought back to its entry when it was disabled, re-roled, locked or re-passworded (audited as
+`identity.captive_ensured`). An administrator cannot disable it, change its roles or reset its password
+(`PRV-7023`); to change one, change the configuration and restart. A bad entry stops the node with
+`PRV-7022`. Details in [`SECURITY.md`](SECURITY.md).
+
 **Failed sign-ins** are bounded too (LOCKENUM-1); every refusal answers `401 PRV-7010` alike, and the
 policy and its reasons are in [`SECURITY.md`](SECURITY.md):
 

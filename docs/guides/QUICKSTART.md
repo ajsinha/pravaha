@@ -311,8 +311,10 @@ pravaha-server --spring.profiles.active=dev,users &
 ```
 
 The node creates `admin` on first start. With `dev`, `admin` keeps the published password
-`pravaha-dev-admin`; without `dev` the node refuses to start on it. From now on every caller presents a
-credential: you sign in to the console as `admin`, and the CLI and the SDKs use an API key you issue
+`pravaha-dev-admin`; without `dev` the node refuses to start on it. The profile also ensures the
+development account `pravaha-dev-admin` / `pravaha-dev-admin123`, an administrator that is always there
+(a captive user, set in configuration). From now on every caller presents a
+credential: you sign in to the console as `admin` or `pravaha-dev-admin`, and the CLI and the SDKs use an API key you issue
 from the console's **Account** page (`pravaha query --token <key> ...`).
 
 **What the two profiles grant.** `dev` alone serves every view to every caller, credential or not —

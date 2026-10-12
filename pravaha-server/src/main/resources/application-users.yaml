@@ -5,8 +5,10 @@
 # The `users` profile: a node that keeps its own users, passwords, API keys and sessions (ADR-052), for
 # running the console locally. `--spring.profiles.active=dev,users`. With `dev`, the bootstrap `admin`
 # keeps its published password, pravaha-dev-admin; without it, the node refuses to start on that
-# password (PRV-7019). Every caller now presents a credential: people sign in to the console, and the
-# CLI and the SDKs use an API key issued from the console's Account page.
+# password (PRV-7019). It also ensures the captive development account pravaha-dev-admin, password
+# pravaha-dev-admin123, with the admin role, whose literal password likewise needs `dev` (PRV-7022).
+# Every caller now presents a credential: people sign in to the console, and the CLI and the SDKs use
+# an API key issued from the console's Account page.
 #
 # PERMISSIVEUSERS-1: and what a signed-in person may do follows from who they are. The node's default
 # policy, `permissive`, lets every caller read every view, drop or pause any query and read the audit
@@ -24,3 +26,12 @@ pravaha:
   identity:
     enabled: true
     store: data/identity/identity.journal
+    # A development account, ensured at every start (captive: it cannot be disabled, re-roled or
+    # re-passworded at runtime, and comes back as configured after a restart). Its password is a
+    # literal, which only the dev profile allows (PRV-7022): this profile runs with `dev` locally.
+    # Never copy this entry to a deployment; there, use password-env or password-file.
+    captive-users:
+      - username: pravaha-dev-admin
+        display-name: Pravaha dev admin
+        password: pravaha-dev-admin123
+        roles: [admin]

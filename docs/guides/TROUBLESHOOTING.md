@@ -127,6 +127,8 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-7019` default admin password | The bootstrap user `admin` still has its published default password (ADR-052), and this node is not the dev profile, so it refuses to start. Change the password, or set `pravaha.identity.allow-default-admin-password` to run like this on purpose |
 | `PRV-7020` identity request invalid | An identity request that cannot be carried out as written: a user name outside `[a-z][a-z0-9._-]{1,63}`, a user that exists, a status other than `active` or `disabled`, a key life outside 1 to `pravaha.identity.key.max-days` |
 | `PRV-7021` identity not found | No user, or no session, by that name |
+| `PRV-7022` captive users invalid | `pravaha.identity.captive-users` cannot be honoured, so the node refuses to start: a user name declared twice or outside `[a-z][a-z0-9._-]{1,63}`, an entry with no password source or more than one of `password`, `password-env` and `password-file`, an environment variable that is unset or a file that cannot be read, a password the policy refuses, `admin` declared without the `admin` role, or a literal `password` on a node outside the dev profile. The message names the entry. For the last, use `password-env` or `password-file`, or set `pravaha.identity.allow-literal-captive-passwords: true` on purpose |
+| `PRV-7023` captive user managed by configuration | `409`: disabling a captive user, setting its roles, resetting or setting its password (by an administrator or by itself) is refused; `pravaha.identity.captive-users` owns the account and the next start would undo the change. Change the configuration and restart the node |
 | `PRV-7030` catalog disabled | A catalogue statement (`GRANT`, `SHOW GRANTS`, `CREATE NAMESPACE`, …) or `/api/v1/catalog` call on a node whose catalogue is off (`pravaha.catalog.enabled: false`). Who may do what is decided by `pravaha.security.policy` there, and there are no grants to show or change. Turn the catalogue on (ADR-059) |
 | `PRV-7031` catalog: no such object | No object by that name that you may see. The same answer for a name that does not exist and one in a namespace you may not `USE`, so it confirms nothing. `SHOW NAMESPACES` and `pravaha catalog ls` list what you may |
 | `PRV-7032` privilege not applicable | A privilege that means nothing on that kind of object — `WRITE` on a view, `CREATE` on a sink, `SUBSCRIBE` on a stream. The message lists what applies there |
@@ -1223,6 +1225,8 @@ client models the error rather than an empty object.
 | `PRV-7019` | IDENTITY_DEFAULT_ADMIN_PASSWORD | security |
 | `PRV-7020` | IDENTITY_INVALID_REQUEST | security |
 | `PRV-7021` | IDENTITY_NOT_FOUND | security |
+| `PRV-7022` | IDENTITY_CAPTIVE_USERS_INVALID | security |
+| `PRV-7023` | IDENTITY_CAPTIVE_USER_MANAGED | security |
 | `PRV-7030` | CATALOG_DISABLED | security |
 | `PRV-7031` | CATALOG_NO_SUCH_OBJECT | security |
 | `PRV-7032` | CATALOG_PRIVILEGE_NOT_APPLICABLE | security |

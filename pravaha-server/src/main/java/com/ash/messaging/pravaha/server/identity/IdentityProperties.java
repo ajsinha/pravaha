@@ -23,6 +23,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.identity.CaptiveUsers;
 import com.ash.messaging.pravaha.identity.IdentityService;
 import com.ash.messaging.pravaha.identity.IdentitySettings;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -40,6 +41,10 @@ import com.ash.messaging.pravaha.security.SecurityErrors;
  *     mode: password            # password, the only value: SSO is not built (SSOMODE-1)
  *     password:
  *       force-change: false     # first sign-in and admin resets must change the password
+ *     captive-users:            # accounts the node ensures at every start (see CaptiveUsers)
+ *       - username: ops-admin
+ *         roles: [admin]
+ *         password-env: PRAVAHA_OPS_ADMIN_PASSWORD   # or password-file, or (dev only) password
  * </pre>
  *
  * <p>Off by default until the migration stage, so a node configured before ADR-052 starts exactly as
@@ -62,6 +67,8 @@ public class IdentityProperties {
     private final Key key = new Key();
     private Duration resetTokenLife = Duration.ofMinutes(60);
     private String bootstrapPasswordFile = "";
+    private java.util.List<CaptiveUser> captiveUsers = new java.util.ArrayList<>();
+    private boolean allowLiteralCaptivePasswords;
 
     private @Nullable IdentityService service;
 
@@ -135,6 +142,34 @@ public class IdentityProperties {
 
     public void setBootstrapPasswordFile(String bootstrapPasswordFile) {
         this.bootstrapPasswordFile = bootstrapPasswordFile;
+    }
+
+    public java.util.List<CaptiveUser> getCaptiveUsers() {
+        return captiveUsers;
+    }
+
+    public void setCaptiveUsers(java.util.List<CaptiveUser> captiveUsers) {
+        this.captiveUsers = captiveUsers == null ? new java.util.ArrayList<>() : captiveUsers;
+    }
+
+    public boolean isAllowLiteralCaptivePasswords() {
+        return allowLiteralCaptivePasswords;
+    }
+
+    public void setAllowLiteralCaptivePasswords(boolean allow) {
+        this.allowLiteralCaptivePasswords = allow;
+    }
+
+    /**
+     * {@code pravaha.identity.captive-users} validated and with their passwords read, or {@code PRV-7022},
+     * before the store is opened.
+     */
+    public java.util.List<CaptiveUsers.Account> captiveAccounts() {
+        return CaptiveUsers.resolve(
+                captiveUsers.stream().map(CaptiveUser::entry).toList(),
+                settings(),
+                allowLiteralCaptivePasswords,
+                System::getenv);
     }
 
     public Duration getResetTokenLife() {
@@ -233,7 +268,10 @@ public class IdentityProperties {
                                 + "pravaha.identity.store is not set; it is the file every user and key is kept in, on "
                                 + "the data volume that is backed up");
             }
-            service = IdentityService.open(Path.of(store), settings(), audit, this::bootstrapPassword);
+            java.util.List<CaptiveUsers.Account> captive = captiveAccounts();
+            IdentityService opened = IdentityService.open(Path.of(store), settings(), audit, this::bootstrapPassword);
+            opened.ensureCaptive(captive);
+            service = opened;
         }
         return java.util.Optional.of(service);
     }
@@ -251,6 +289,12 @@ public class IdentityProperties {
                 environment,
                 effectiveMode(),
                 password.isForceChange() ? "on" : "off");
+        if (!captiveUsers.isEmpty()) {
+            log.info(
+                    "identity: captive users {} ensured from pravaha.identity.captive-users; they cannot be disabled, "
+                            + "re-roled or re-passworded at runtime",
+                    captiveUsers.stream().map(CaptiveUser::getUsername).toList());
+        }
         if (users.defaultAdminPasswordInUse()) {
             log.warn("identity: the user 'admin' still has the default password; change it before anyone else can "
                     + "reach this node");
@@ -284,6 +328,96 @@ public class IdentityProperties {
                             + "); the identity store is empty, so this "
                             + "is the password the first administrator would be created with",
                     e);
+        }
+    }
+
+    /**
+     * One {@code pravaha.identity.captive-users} entry: {@code username}, {@code roles}, optional {@code
+     * display-name}, {@code tenant} and {@code email}, and one password source -- {@code password} (dev
+     * only, or with {@code allow-literal-captive-passwords}), {@code password-env} or {@code password-file}.
+     */
+    public static class CaptiveUser {
+        private @Nullable String username;
+        private @Nullable String displayName;
+        private @Nullable String email;
+        private @Nullable String tenant;
+        private java.util.List<String> roles = new java.util.ArrayList<>();
+        private @Nullable String password;
+        private @Nullable String passwordEnv;
+        private @Nullable String passwordFile;
+
+        CaptiveUsers.Entry entry() {
+            return new CaptiveUsers.Entry(
+                    username, displayName, email, tenant, roles, password, passwordEnv, passwordFile);
+        }
+
+        public @Nullable String getUsername() {
+            return username;
+        }
+
+        public void setUsername(@Nullable String username) {
+            this.username = username;
+        }
+
+        public @Nullable String getDisplayName() {
+            return displayName;
+        }
+
+        public void setDisplayName(@Nullable String displayName) {
+            this.displayName = displayName;
+        }
+
+        public @Nullable String getEmail() {
+            return email;
+        }
+
+        public void setEmail(@Nullable String email) {
+            this.email = email;
+        }
+
+        public @Nullable String getTenant() {
+            return tenant;
+        }
+
+        public void setTenant(@Nullable String tenant) {
+            this.tenant = tenant;
+        }
+
+        public java.util.List<String> getRoles() {
+            return roles;
+        }
+
+        public void setRoles(java.util.List<String> roles) {
+            this.roles = roles == null ? new java.util.ArrayList<>() : roles;
+        }
+
+        public @Nullable String getPassword() {
+            return password;
+        }
+
+        public void setPassword(@Nullable String password) {
+            this.password = password;
+        }
+
+        public @Nullable String getPasswordEnv() {
+            return passwordEnv;
+        }
+
+        public void setPasswordEnv(@Nullable String passwordEnv) {
+            this.passwordEnv = passwordEnv;
+        }
+
+        public @Nullable String getPasswordFile() {
+            return passwordFile;
+        }
+
+        public void setPasswordFile(@Nullable String passwordFile) {
+            this.passwordFile = passwordFile;
+        }
+
+        @Override
+        public String toString() {
+            return "CaptiveUser[" + username + "]"; // never the password
         }
     }
 

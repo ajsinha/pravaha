@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -48,6 +49,16 @@ class NoSecretsInConfigurationTest {
     private static final Pattern SAFE = Pattern.compile(
             "\"\"|''|\"?@@[A-Z0-9_]+@@\"?|\"?\\$\\{[^}]*}\"?|([\"']?)(true|false|[0-9]+|[0-9]+(ms|s|m|h|d))\\1|\\{\\}|\\[\\]");
 
+    /**
+     * Published development credentials, each allowed only in the one file that ships it. They are no
+     * secret -- the guides print them, like the bootstrap admin's {@code pravaha-dev-admin} -- and the
+     * engine refuses each outside the dev profile: the captive {@code pravaha-dev-admin}'s literal
+     * password is {@code PRV-7022} on a node without {@code dev}, as the default admin password is
+     * {@code PRV-7019}.
+     */
+    static final Map<String, String> PUBLISHED_DEV_CREDENTIALS =
+            Map.of("pravaha-server/src/main/resources/application-users.yaml", "pravaha-dev-admin123");
+
     @Test
     void noTrackedConfigurationHoldsALiteralSecret() throws IOException {
         List<String> found = new ArrayList<>();
@@ -73,6 +84,20 @@ class NoSecretsInConfigurationTest {
                 .isFalse();
         assertThat(isShippedConfiguration(Path.of("pravaha-server/target/classes/application.yaml")))
                 .isFalse();
+    }
+
+    @Test
+    void thePublishedDevPasswordIsAllowedOnlyInTheUsersProfile() {
+        String yaml = """
+                      captive-users:
+                        - username: pravaha-dev-admin
+                          password: pravaha-dev-admin123
+                          password-env: PRAVAHA_OPS_PASSWORD
+                      """;
+        assertThat(secretsIn("pravaha-server/src/main/resources/application-users.yaml", yaml))
+                .isEmpty();
+        assertThat(secretsIn("deploy/qa/server.application.yaml", yaml))
+                .containsExactly("deploy/qa/server.application.yaml:3 password");
     }
 
     @Test
@@ -104,7 +129,8 @@ class NoSecretsInConfigurationTest {
             Matcher secret = SECRET.matcher(line);
             if (secret.matches()
                     && !namesWhereASecretIs(secret.group(1))
-                    && !SAFE.matcher(secret.group(2)).matches()) {
+                    && !SAFE.matcher(secret.group(2)).matches()
+                    && !secret.group(2).equals(PUBLISHED_DEV_CREDENTIALS.get(name))) {
                 found.add(name + ":" + (i + 1) + " " + secret.group(1));
             }
             Matcher entry = TOKEN_ENTRY.matcher(line);
@@ -121,7 +147,11 @@ class NoSecretsInConfigurationTest {
      */
     private static boolean namesWhereASecretIs(String key) {
         String k = key.toLowerCase(java.util.Locale.ROOT);
-        return k.endsWith("-file") || k.equals("existingsecret") || k.equals("pullsecrets") || k.equals("secretname");
+        return k.endsWith("-file")
+                || k.endsWith("-env")
+                || k.equals("existingsecret")
+                || k.equals("pullsecrets")
+                || k.equals("secretname");
     }
 
     private static Path repoRoot() {
