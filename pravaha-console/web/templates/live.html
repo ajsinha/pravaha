@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helplink %}
+{% import "_ai.html" as ai with context %}
 {% block title %}{{ t('live.title', name=query.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/views/{{ query.name }}">&larr; {{ query.name }}</a></p>
@@ -17,6 +18,9 @@
 <div class="rule"></div>
 <p class="lede">{{ t('live.lede_before') }} <span class="weight plus">+1</span> {{ t('live.lede_plus') }}
   <span class="weight minus">−1</span> {{ t('live.lede_minus') }}</p>
+
+{# Summarise changes: the batch this page has received, in two or three sentences (the change narrative). #}
+{% if ai_can(request, 'narrative') %}{{ ai.narrate(query.name) }}{% endif %}
 
 <noscript><div class="alert alert-info">{{ t('live.noscript_before') }}
   <a href="/views/{{ query.name }}">{{ t('live.noscript_link') }}</a> {{ t('live.noscript_after') }}</div></noscript>

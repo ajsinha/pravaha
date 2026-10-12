@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
-{% import "_assist.html" as assist with context %}
+{% import "_ai.html" as ai with context %}
+{% set ai_explain = ai_can(request, 'explain') %}
 {% block title %}{{ query.name }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/queries">&larr; {{ t('query.all') }}</a></p>
@@ -57,7 +58,7 @@
             {% if detail.sink.rowsWritten is not none and detail.sink.rowsWritten >= 0 %}<span class="text-muted">{{ t('query.rows_written', n="{:,}".format(detail.sink.rowsWritten)) }}</span>{% endif %}
             {% if detail.sink.failure %}<div class="alert alert-danger py-2 small mt-2 mb-0" id="sink-failure"><a href="/help/codes/{{ detail.sink.failure.code }}">{{ detail.sink.failure.code }}</a> {{ detail.sink.failure.message }}
               {{ t('query.sink_detached') }}
-              {{ assist.explain_code(detail.sink.failure.code, query.sql, 'sink') }}</div>{% endif %}
+              {% if ai_explain %}{{ ai.explain('refusal', {'code': detail.sink.failure.code, 'message': detail.sink.failure.message, 'sql': query.sql}) }}{% endif %}</div>{% endif %}
             {% else %}<span class="text-muted">{{ t('query.no_sink') }}</span>{% endif %}</dd>
           {% if detail.feed %}{% set feed = detail.feed %}
           <dt class="col-4">{{ t('query.feed') }}</dt><dd class="col-8" id="feed"><span class="chip {{ 'bad' if feed.state == 'STOPPED' else 'ok' if feed.state == 'RUNNING' else 'mute' }}">{{ t('query.feed_state.' ~ feed.state|lower) if feed.state in ('RUNNING', 'PAUSED', 'STOPPED', 'NONE') else feed.state }}</span>
@@ -65,9 +66,9 @@
             {% if feed.failure %}<div class="alert alert-danger py-2 small mt-2 mb-0" id="feed-failure" role="status"><a href="/help/codes/{{ feed.failure.code }}">{{ feed.failure.code }}</a> {{ feed.failure.message }}
               {% for s in feed.sources or [] %}{% if s.state == 'STOPPED' and s.origin %}<div class="mono mt-1">{{ t('query.feed_source', where=s.stream ~ '#' ~ s.partition, at=s.stoppedAt or '') }}</div>{% endif %}{% endfor %}
               <div class="mt-1">{{ t('query.feed_stopped') }}</div>
-              {{ assist.explain_code(feed.failure.code, query.sql, 'feed') }}</div>{% endif %}</dd>
+              {% if ai_explain %}{{ ai.explain('refusal', {'code': feed.failure.code, 'message': feed.failure.message, 'sql': query.sql}) }}{% endif %}</div>{% endif %}</dd>
           {% endif %}
-          {% if detail.failure %}<dt class="col-4">{{ t('query.failure') }}</dt><dd class="col-8"><a href="/help/codes/{{ detail.failure.code }}">{{ detail.failure.code }}</a> {{ detail.failure.message }} {{ assist.explain_code(detail.failure.code, query.sql, 'failure') }}</dd>{% endif %}
+          {% if detail.failure %}<dt class="col-4">{{ t('query.failure') }}</dt><dd class="col-8"><a href="/help/codes/{{ detail.failure.code }}">{{ detail.failure.code }}</a> {{ detail.failure.message }} {% if ai_explain %}{{ ai.explain('refusal', {'code': detail.failure.code, 'message': detail.failure.message, 'sql': query.sql}) }}{% endif %}</dd>{% endif %}
           {% if detail.countsWithheld %}<dd class="col-12 text-muted">{{ t('query.withheld') }}</dd>{% endif %}
         </dl>
         {% endif %}
@@ -139,8 +140,11 @@
   </div>
 </div>
 
-{# ADR-058 phase 3: this query in plain English, grounded in the engine's own plan. #}
-{{ assist.explain_query_panel(query) }}
+{# Explain in plain words (the light bulb): this query, grounded in the engine's own plan for it. #}
+{% if ai_explain %}<section class="pnl mt-3" id="ai-explain-query" aria-labelledby="ai-explain-query-h">
+  <div class="pnl-h"><h3 id="ai-explain-query-h"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ t('ai.explain.query_heading') }}</h3></div>
+  <div class="pnl-b">{{ ai.explain('sql', {'query': query.name}, note=t('ai.explain.query_note')) }}</div>
+</section>{% endif %}
 
 {% if not refused %}
 <div class="modal fade" id="dropConfirmModal" tabindex="-1" aria-labelledby="dropConfirmLabel" aria-hidden="true">
@@ -181,4 +185,4 @@
    typed-name drop dialog -- found by the first browser journey that pressed Drop. #}
 {% block scripts %}<script src="/static/js/tail.js"></script>
 <script src="/static/js/query-detail.js"></script>
-{{ assist.script() }}{% endblock %}
+{% endblock %}
