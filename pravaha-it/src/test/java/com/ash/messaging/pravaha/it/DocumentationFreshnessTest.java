@@ -878,7 +878,8 @@ class DocumentationFreshnessTest {
      * jar -- not a module. {@code pravaha-console} is the console's directory, a Python project
      * rather than a Maven module.
      */
-    private static final Set<String> NOT_MODULES = Set.of("pravaha-dev-admin", "pravaha-engine", "pravaha-console");
+    private static final Set<String> NOT_MODULES =
+            Set.of("pravaha-dev-admin", "pravaha-dev-admin123", "pravaha-engine", "pravaha-console");
 
     private static Set<String> mavenModules() throws IOException {
         String pom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);

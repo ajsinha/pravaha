@@ -351,6 +351,19 @@ pravaha:
     # can be deleted once the node has started. The QA installer generates it. Unset: the published
     # default above, which only the dev profile may keep.
     bootstrap-password-file: ""
+    # Captive users: accounts this node ensures at every start -- created when missing, and brought back
+    # to their entry when an administrator disabled them, changed their roles, or they were locked out
+    # or their password changed (audited as identity.captive_ensured). At runtime nobody can disable one,
+    # change its roles or reset its password (PRV-7023); it signs in and issues API keys like anyone.
+    # Each entry: username, roles, optional display-name, tenant (public) and email, and exactly one of
+    # password-env (an environment variable), password-file, or password -- a literal, refused outside
+    # the dev profile (PRV-7022) unless allow-literal-captive-passwords is true. A captive user's
+    # password never expires and keeps no history: the configuration sets it again at every start.
+    #   - username: ops-admin
+    #     roles: [admin]
+    #     password-env: PRAVAHA_OPS_ADMIN_PASSWORD
+    captive-users: []
+    allow-literal-captive-passwords: false
     password:
       min-length: 12
       # of lower case, upper case, digits and symbols

@@ -254,9 +254,12 @@ page; start order does not matter.
 
 ### Signing in
 
-Open <http://localhost:17070> and sign in as **`admin` / `pravaha-dev-admin`**, the `users` profile's
-bootstrap account. A banner says the password is the published default; change it from the banner (or
-**Admin → Users**) if anyone else can reach your machine. The status line under the header reads
+Open <http://localhost:17070> and sign in as **`pravaha-dev-admin` / `pravaha-dev-admin123`**, the
+`users` profile's captive development account with the `admin` role: the node ensures it at every
+start, so it is always there with that password, and nobody can disable it, change its roles or reset
+its password at runtime. Or sign in as **`admin` / `pravaha-dev-admin`**, the bootstrap account; a
+banner says that password is the published default, so change it from the banner (or **Admin →
+Users**) if anyone else can reach your machine. The status line under the header reads
 `engine up · Engine grpc://localhost:19090`.
 
 ![The console signed in as admin, the status line reading "engine up", against a server started from IntelliJ's run configuration on JDK 21](../../assets/screenshots/ide-console-signed-in.png)

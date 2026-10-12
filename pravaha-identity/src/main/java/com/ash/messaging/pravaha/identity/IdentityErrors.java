@@ -17,7 +17,7 @@ package com.ash.messaging.pravaha.identity;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
 
-/** The identity module's codes, PRV-7010 to PRV-7021 (ADR-052). */
+/** The identity module's codes, PRV-7010 to PRV-7023 (ADR-052). */
 public final class IdentityErrors {
 
     /** One answer for a wrong user and a wrong password, so the answer says nothing about which. */
@@ -59,6 +59,16 @@ public final class IdentityErrors {
 
     /** No user, or no session, by that name. */
     public static final ErrorCode NOT_FOUND = new ErrorCode(7021, "IDENTITY_NOT_FOUND");
+
+    /**
+     * {@code pravaha.identity.captive-users} cannot be honoured: a duplicate, a bad name, no password
+     * source or more than one, a password the policy refuses, the bootstrap admin's name without its role,
+     * or a literal password outside the dev profile. Refused at start.
+     */
+    public static final ErrorCode CAPTIVE_USERS_INVALID = new ErrorCode(7022, "IDENTITY_CAPTIVE_USERS_INVALID");
+
+    /** A change to a captive user the configuration owns: disabling it, its roles, its password. */
+    public static final ErrorCode CAPTIVE_USER_MANAGED = new ErrorCode(7023, "IDENTITY_CAPTIVE_USER_MANAGED");
 
     private IdentityErrors() {}
 }

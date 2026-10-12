@@ -55,6 +55,13 @@ from `pravaha.identity.bootstrap-password-file`, which the QA installer generate
 sessions are administered under **Admin · Users / API keys / Sessions**, with `pravaha user`, `pravaha
 key` and `pravaha session`, or over `/api/v1/users`, `/api/v1/keys` and `/api/v1/sessions`.
 
+**Captive users** are declared in `pravaha.identity.captive-users` (a user name, roles, and one of
+`password-env`, `password-file` or, in the dev profile only, `password`). The node creates each at
+start, and puts back its roles, active status and password if they were changed. Nobody can disable
+one, change its roles or reset its password at runtime: that answers `PRV-7023`, managed by
+configuration. A bad entry stops the node with `PRV-7022`. The `users` profile ships the development
+administrator `pravaha-dev-admin` / `pravaha-dev-admin123`.
+
 ## How a credential travels
 
 The same token on every surface — as an `authorization: Bearer <token>` header on every Flight and
