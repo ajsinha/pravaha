@@ -88,8 +88,9 @@ public interface PartitionReader extends AutoCloseable {
      * checkpoint will say the same thing again.
      *
      * <p>A no-op by default, which is right for every source whose position lives only in the
-     * checkpoint. A reader shared by several queries is not told: the queries checkpoint at
-     * different positions, and confirming any one of them could release what another still needs.
+     * checkpoint. A reader shared by several queries is told only what every one of them has made
+     * durable -- the earliest of their newest checkpoints -- since confirming any one query's alone
+     * could release what another, further behind, still needs.
      */
     default void checkpointed(SourceOffset offset) {}
 
