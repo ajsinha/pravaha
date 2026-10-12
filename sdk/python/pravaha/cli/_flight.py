@@ -400,6 +400,13 @@ def parse_filters(values: Optional["list[str]"]) -> "dict[str, str]":
     return filters
 
 
+def filter_text(filters: "dict[str, str]") -> str:
+    """``{"user_id": "alice"}`` as ``user_id = 'alice'``, joined by AND (CLIFILTER-1): what the
+    filter means, where the note used to print a Python dict."""
+    return " AND ".join(f"{column} = '{value.replace(chr(39), chr(39) * 2)}'"
+                         for column, value in filters.items())
+
+
 def weight_text(weight: int) -> str:
     return f"+{weight}" if weight > 0 else str(weight)
 
@@ -444,7 +451,7 @@ def subscribe(ctx: Context) -> int:
     ctx.out.note(
         f"subscribing to {view}"
         + (" (its answer)" if answer else "")
-        + (f" {filters}" if filters else "")
+        + (f" where {filter_text(filters)}" if filters else "")
         + first
         + " changes print as they are committed"
         + (f", until {limit} row{'' if limit == 1 else 's'} (at the end of that commit)" if limit else "")

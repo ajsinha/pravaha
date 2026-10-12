@@ -1466,7 +1466,10 @@
     "access_paths": "Reads of its view",
     "access_paths_counts": "{point} by key, {range} by range, {index} by index, {scan} scanned",
     "index_entries": "{n} entries",
-    "index_clause": "INDEX ({col})"
+    "index_clause": "INDEX ({col})",
+    "late_rows": "Late rows",
+    "late_rows_title": "Rows that arrived after their window's allowed lateness had passed, so they are in no answer. Rising steadily means the stream's allowed lateness is shorter than its data needs.",
+    "late_rows_count": "{n} too late for any window"
   },
   "refused": {
     "title": "Refused",
@@ -2050,6 +2053,12 @@
       "queries": "Registered queries",
       "sinks": "Sinks"
     },
+    "lookups": {
+      "heading": "Lookup tables",
+      "table": "Table",
+      "plugin": "Plugin",
+      "note": "A lookup table is joined with JOIN … FOR SYSTEM_TIME AS OF, and asked one key at a time by the plugin that answers it."
+    },
     "streams_error": {
       "title": "The stream catalog is not answering",
       "where": "Streams are read from the engine's REST API at",
@@ -2063,9 +2072,9 @@
     },
     "stream": {
       "version": "v{version}",
-      "event_time_title": "Event time, and how late a row may be",
+      "event_time_title": "Event time, and how far out of order a row may arrive and still be on time",
       "event_time": "event time",
-      "late": "{lateness} late",
+      "late": "{lateness} out of order",
       "no_event_time_title": "No window over this stream can close",
       "no_event_time": "no event time",
       "source_title": "The plugin a source binding feeds it from",
@@ -2211,7 +2220,10 @@
     "none_declared": "none declared",
     "no_window_closes": "no window over this stream can close",
     "out_of_orderness": "Out-of-orderness",
-    "lateness_meaning": "how late a row may be before a window stops waiting",
+    "out_of_orderness_meaning": "how far behind the newest event time a row may arrive and still be on time: windows wait this long before they close",
+    "allowed_lateness": "Allowed lateness",
+    "allowed_lateness_meaning": "how long after a window closes a late row may still correct its answer; later rows are counted and dropped",
+    "allowed_lateness_zero": "none: a window is final when it closes, and a row arriving after is counted and dropped",
     "source": "Source",
     "not_bound": "not bound — rows arrive only if something writes them",
     "readers": "Registered queries that read it",
@@ -2638,6 +2650,8 @@
     "refused_access": "What this console is allowed to do",
     "none": {
       "title": "{name} is not being debugged",
+      "open_title": "{name} has {n} open debug session(s)",
+      "open_body": "Each is listed below: open one to go on stepping it from where it stopped. A new session runs this query a second time under inspection from one of the checkpoints this node still retains, beside any already open.",
       "body": "A debug session runs this query a second time under inspection. It starts from one of the checkpoints this node still retains, so it begins with the state the query actually had, and it reads the same sources from the positions that checkpoint recorded — the same rows, in order, from that moment on. You drive it: one row, ten rows, on to the next commit, on to a watermark, or on until a column of the view crosses a value."
     },
     "absence": {
@@ -3299,7 +3313,7 @@
       "points": {
         "1": {
           "heading": "Event time and lateness",
-          "text": "Lateness is how long a window waits for a late row. A stream with no event-time column has no window that can close."
+          "text": "Out-of-orderness is how long windows wait for rows arriving out of order before they close. Allowed lateness is how long after a window closes a late row may still correct its answer; a row later than that is counted on its query as a late row and dropped. A stream with no event-time column has no window that can close."
         },
         "2": {
           "heading": "Where rows come from",

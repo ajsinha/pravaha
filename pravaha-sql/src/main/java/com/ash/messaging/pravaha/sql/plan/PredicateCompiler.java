@@ -170,8 +170,10 @@ public final class PredicateCompiler {
      *     comparison with the opposite operator -- and stays false for null operands, as it must
      */
     private Predicate comparison(RexCall call, boolean negated) {
-        RexNode left = call.getOperands().get(0);
-        RexNode right = call.getOperands().get(1);
+        // TSEQ-1: a timestamp literal Calcite wrapped in a cast to the column's timestamp type is
+        // the literal, so it takes the column-against-literal path `>=` already took.
+        RexNode left = timestampLiteral(call.getOperands().get(0));
+        RexNode right = timestampLiteral(call.getOperands().get(1));
         if (negated && (isFloatingPoint(left) || isFloatingPoint(right))) {
             return negatedFloatingComparison(call, left, right);
         }
@@ -220,6 +222,16 @@ public final class PredicateCompiler {
             return compare(ref.getIndex(), flip(op), boundValue(ref.getIndex(), param));
         }
         return compareExpressions(call, op);
+    }
+
+    /** The literal under a cast between timestamp types that keeps every digit, else {@code node}. */
+    private static RexNode timestampLiteral(RexNode node) {
+        if (node instanceof RexCall cast
+                && ExpressionCompiler.isWideningTimestampCast(cast)
+                && cast.getOperands().get(0) instanceof RexLiteral literal) {
+            return literal;
+        }
+        return node;
     }
 
     /**

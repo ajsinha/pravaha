@@ -463,6 +463,7 @@ pravaha_query_state_fraction{query="user_volume"} 0.87
 | `pravaha_query_watermark_partitions_idle{query}` | gauge | How many of them are **excluded right now** for having gone quiet | non-zero while lag climbs: a quiet partition is holding the watermark, or `idle-after` is longer than its normal gap |
 | `pravaha_query_watermark_idle_exclusions_total{query}` | counter | How often a partition has been excluded since the query started | rising steadily: a partition keeps going quiet, so windows keep firing early and its rows keep arriving late |
 | `pravaha_query_watermark_regressions_total{query}` | counter | How often a partition reported a watermark **below** the lane's — a source-side fault | non-zero at all: that source's time runs backwards, and its rows will be late from here on |
+| `pravaha_query_late_records_total{query}` | counter | Rows too late to correct any window — past the watermark by more than the stream's allowed lateness, so in no answer | rising steadily: the stream's `allowed-lateness` is shorter than its data needs |
 
 ### Per query: state
 

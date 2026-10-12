@@ -85,6 +85,15 @@
     {% endfor %}
   </div>
   {% endif %}
+  {#- CATALOGLOOKUP-1: configured lookup tables, which were only in the plugins page's bindings. #}
+  {% if lookups %}
+  <h2 class="h6 mt-4">{{ t('catalog.lookups.heading') }}</h2>
+  <div class="card"><div class="table-responsive"><table class="table mb-0" id="lookups-table">
+    <thead><tr><th>{{ t('catalog.lookups.table') }}</th><th>{{ t('catalog.lookups.plugin') }}</th></tr></thead>
+    <tbody>{% for l in lookups %}<tr><td class="mono">{{ l.name }}</td><td class="mono small">{{ l.plugin }}</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+  <p class="small text-muted mt-2">{{ t('catalog.lookups.note') }}</p>
+  {% endif %}
 
 {% elif tab == 'queries' %}
   {% if queries_error %}

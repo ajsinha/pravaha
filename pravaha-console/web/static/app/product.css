@@ -40,7 +40,9 @@
 .field-list li:last-child{border-bottom:0;}
 
 .copyable{position:relative;}
-.copyable pre{padding-right:4.6rem;white-space:pre;max-height:26rem;}
+/* SNIPPETCOPY-1: the first line sits below the Copy button, not under it: a long line scrolls
+   sideways under the button whatever the right padding, and the psql snippet starts with one. */
+.copyable pre{padding-top:2.6rem;padding-right:4.6rem;white-space:pre;max-height:26rem;}
 .copyable .copy{position:absolute;top:.4rem;right:.4rem;}
 
 /* ------------------------------------------------------------ command palette

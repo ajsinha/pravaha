@@ -287,6 +287,15 @@ def test_a_query_nothing_is_debugging_says_what_a_fork_is_and_what_it_cannot_tou
     assert page.text.index("4471") < page.text.index("4469")
 
 
+def test_a_query_with_an_open_session_is_not_said_to_be_not_debugged(signed_in):
+    # DEBUGPAGE-1: the page said "big_txn is not being debugged" above the list of its open sessions.
+    session = _forked(signed_in)
+    page = signed_in.get("/queries/big_txn/debug").text
+    assert 'id="dbg-open"' in page and session in page
+    assert "is not being debugged" not in page
+    assert "big_txn has 1 open debug session(s)" in page
+
+
 def test_a_node_with_no_checkpoint_of_this_query_does_not_guess_which_reason(signed_in, engine):
     """Three different things read the same from the list -- this node does not checkpoint,
     this query has not taken one, every one has been pruned -- and the screen says so rather

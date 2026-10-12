@@ -270,9 +270,22 @@ def test_the_sinks_tab_lists_what_the_engine_publishes_and_nothing_it_does_not(s
 def test_the_stream_page_shows_event_time_lateness_source_and_engine_lineage(signed_in):
     page = signed_in.get("/catalog/streams/txn").text
     assert "event_time" in page and "PT10S" in page and "filesystem" in page
+    # STREAMLATE-1: allowed lateness is shown, and out-of-orderness is not described as lateness.
+    assert 'id="stream-allowed-lateness"><span class="mono">PT30S</span>' in page
+    assert "how late a row may be before a window stops waiting" not in page
     assert "From the engine: the streams each query" in page
     catalog = signed_in.get("/catalog").text
     assert "no event time" not in catalog and "event time" in catalog
+    assert "PT10S out of order" in catalog and "PT10S late" not in catalog  # STREAMLATE-1
+
+
+def test_the_catalog_lists_the_lookup_tables(engine):
+    # CATALOGLOOKUP-1: configured lookups were only in the plugins page's bindings.
+    engine.plugins_list[0] = {**engine.plugins_list[0], "bindings": [
+        {"kind": "source", "name": "txn"}, {"kind": "lookup", "name": "customers"}]}
+    page = _signed_in_on(engine).get("/catalog?tab=streams").text
+    assert 'id="lookups-table"' in page
+    assert '<td class="mono">customers</td><td class="mono small">filesystem</td>' in page
 
 
 def test_the_view_page_shows_its_key_retention_and_sink_from_the_engine(signed_in):
@@ -288,6 +301,14 @@ def test_the_query_page_names_its_owner(signed_in):
     # Who may pause, replace or drop it without a grant: the engine's QueryDetail.owner.
     page = signed_in.get("/queries/big_txn").text
     assert '<dd class="col-8 mono" id="query-owner">ops</dd>' in page
+
+
+def test_the_query_page_shows_rows_too_late_for_any_window(engine, monkeypatch):
+    # TOOLATE-1: the engine's QueryDetail.lateRecords, which says whether allowed lateness is right.
+    described = engine.describe_query
+    monkeypatch.setattr(engine, "describe_query", lambda name: {**described(name), "lateRecords": 1234})
+    page = _signed_in_on(engine).get("/queries/big_txn").text
+    assert 'id="late-rows"' in page and "1,234 too late for any window" in page
 
 
 def test_the_query_page_shows_a_detached_sink_and_its_failure(signed_in):
@@ -915,7 +936,38 @@ def test_snippets_keep_numbers_numeric_and_never_carry_a_token():
     assert "PRAVAHA_TOKEN" in everything          # read from the environment...
     assert "System.getenv" in code["java"]["read"]
     plain = snippets.snippets("v", engine_url="grpc://dev:19090")
-    assert "--token" not in plain["cli"]["read"]  # ...and not sent over plaintext
+    assert "--token" not in plain["cli"]["read"]  # ...and never written into the command line
+
+
+def test_a_plaintext_engines_snippets_still_sign_in():
+    # SNIPPETTOKEN-1: the console's node always has sign-in on, and a grpc:// snippet that sent no
+    # token was refused with PRV-7001. Both SDKs refuse a token over plaintext unless allowed by name.
+    import ast
+
+    code = snippets.snippets("v", engine_url="grpc://localhost:19090", key_column="id", key_value="7")
+    for mode in ("read", "subscribe"):
+        java = code["java"][mode]
+        assert ".token(System.getenv(\"PRAVAHA_TOKEN\"))" in java and ".allowInsecureToken(true)" in java
+        assert "PravahaFlightClient.connect(options)" in java
+        python = code["python"][mode]
+        ast.parse(python)
+        assert "token=os.environ.get(\"PRAVAHA_TOKEN\"), allow_insecure_token=True" in python
+        assert "connect(options=options)" in python
+    assert "--insecure-token" in code["cli"]["read"] and "--insecure-token" in code["cli"]["subscribe"]
+    tls = snippets.snippets("v", engine_url="grpc+tls://prod:19090")
+    assert "allowInsecureToken" not in tls["java"]["read"]
+    assert "allow_insecure_token" not in tls["python"]["read"]
+    ast.parse(tls["python"]["subscribe"])
+
+
+def test_a_snippets_first_line_starts_below_its_copy_button():
+    # SNIPPETCOPY-1: the button is pinned to the pre's top-right corner, and the psql snippet's long
+    # first line ran under it. Right padding cannot help a line that scrolls sideways; top padding does.
+    css = (CONSOLE_ROOT / "web" / "static" / "app" / "product.css").read_text(encoding="utf-8")
+    pre = re.search(r"\.copyable pre\{([^}]*)\}", css).group(1)
+    top = float(re.search(r"padding-top:([\d.]+)rem", pre).group(1))
+    button = re.search(r"\.copyable \.copy\{([^}]*)\}", css).group(1)
+    assert "top:.4rem" in button and top >= 2.4
 
 
 def test_snippets_refuse_names_that_are_not_identifiers():

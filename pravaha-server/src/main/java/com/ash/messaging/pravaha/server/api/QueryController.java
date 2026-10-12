@@ -387,7 +387,8 @@ public class QueryController {
                 List.of(),
                 null,
                 refused.owner().isEmpty() ? null : refused.owner(),
-                null);
+                null,
+                -1);
     }
 
     /**
@@ -493,7 +494,8 @@ public class QueryController {
                         query.isCheckpointing(),
                         query.lastCheckpoint().orElse(null),
                         query.checkpointFailures(),
-                        query.lastCheckpointFailure().map(registry::redact).orElse(null)));
+                        query.lastCheckpointFailure().map(registry::redact).orElse(null)),
+                entry.lateRecords());
     }
 
     /** How this view's reads found their rows (IDXVIS-1), read from the view's own counters. */
@@ -580,7 +582,8 @@ public class QueryController {
                 pump[1] / 1e9,
                 lanes.blockedFraction(),
                 lanes.inboxDepth(),
-                lanes.inboxCells());
+                lanes.inboxCells(),
+                entry.lateRecords());
     }
 
     /**

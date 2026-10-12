@@ -103,26 +103,28 @@ def snippets(view: str, *, engine_url: str, pgwire: str = "localhost:5432",
                    if keyed else f"SELECT {projection} FROM {view}")
     host, port = pgwire_parts(pgwire)
 
-    # A token over plaintext is refused by both SDKs unless asked for by name, so a snippet
-    # for a grpc:// engine connects without one and says how to add it over TLS.
+    # SNIPPETTOKEN-1. The console runs only against a node with sign-in on, so a snippet that
+    # connects without a token is refused with PRV-7001. Every snippet reads PRAVAHA_TOKEN and
+    # passes it; unset, both SDKs send none, which is right for a node without sign-in. Over
+    # plaintext both SDKs refuse a token unless asked by name, so a grpc:// snippet asks, and says
+    # why -- a loopback or development address is what grpc:// is for.
     tls = "://" not in engine_url or engine_url.startswith(("grpc+tls://", "grpcs://", "https://"))
 
     # ---- Java
     java_args = f", {_java_literal(value)}" if keyed else ""
     java_filter = (f"Map.of({_java_string(str(key_column))}, {_java_string(str(value))})"
                    if keyed else "Map.of()")
-    if tls:
-        java_imports = ("import com.ash.messaging.pravaha.sdk.ClientOptions;\n"
-                        "import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;\n")
-        java_connect = (f"ClientOptions options = ClientOptions.builder({_java_string(engine_url)})\n"
-                        "        .token(System.getenv(\"PRAVAHA_TOKEN\"))\n"
-                        "        .build();\n")
-        java_client = "PravahaFlightClient.connect(options)"
-    else:
-        java_imports = "import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;\n"
-        java_connect = ("// Plaintext grpc:// carries no token. Over grpc+tls:// build ClientOptions\n"
-                        "// with .token(System.getenv(\"PRAVAHA_TOKEN\")) instead.\n")
-        java_client = f"PravahaFlightClient.connect({_java_string(engine_url)})"
+    java_imports = ("import com.ash.messaging.pravaha.sdk.ClientOptions;\n"
+                    "import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;\n")
+    java_connect = ("// PRAVAHA_TOKEN signs in; unset, no token is sent (a node without sign-in).\n"
+                    + ("" if tls else
+                       "// Plaintext grpc:// carries it only when allowed by name: use grpc+tls://\n"
+                       "// anywhere but loopback.\n")
+                    + f"ClientOptions options = ClientOptions.builder({_java_string(engine_url)})\n"
+                    "        .token(System.getenv(\"PRAVAHA_TOKEN\"))\n"
+                    + ("" if tls else "        .allowInsecureToken(true)\n")
+                    + "        .build();\n")
+    java_client = "PravahaFlightClient.connect(options)"
     java_read = f"""{java_imports}import com.ash.messaging.pravaha.sdk.flight.QueryResult;
 import com.ash.messaging.pravaha.sdk.flight.Row;
 
@@ -147,16 +149,16 @@ var subscription = client.subscribe({_java_string(view)}, {java_filter}, batch -
     # ---- Python
     py_params = f", [{value!r}]" if keyed else ""
     py_filter = f", {{{key_column!r}: {str(value)!r}}}" if keyed else ""
-    if tls:
-        py_connect = ("import os\nfrom pravaha import connect\nfrom pravaha.options import ClientOptions\n\n"
-                      f"options = ClientOptions.create({engine_url!r}, "
-                      "token=os.environ.get(\"PRAVAHA_TOKEN\"))\n"
-                      "with connect(options=options) as client:\n")
-    else:
-        py_connect = ("from pravaha import connect\n\n"
-                      "# Plaintext grpc:// carries no token; over grpc+tls:// pass\n"
-                      "# options=ClientOptions.create(url, token=os.environ[\"PRAVAHA_TOKEN\"]).\n"
-                      f"with connect({engine_url!r}) as client:\n")
+    py_connect = ("import os\nfrom pravaha import connect\nfrom pravaha.options import ClientOptions\n\n"
+                  "# PRAVAHA_TOKEN signs in; unset, no token is sent (a node without sign-in).\n"
+                  + ("" if tls else
+                     "# Plaintext grpc:// carries it only when allowed by name: use grpc+tls://\n"
+                     "# anywhere but loopback.\n")
+                  + f"options = ClientOptions.create({engine_url!r}, "
+                  "token=os.environ.get(\"PRAVAHA_TOKEN\")"
+                  + ("" if tls else ", allow_insecure_token=True")
+                  + ")\n"
+                  "with connect(options=options) as client:\n")
     python_read = f"""{py_connect}    for row in client.query({sql_param!r}{py_params}):
         print(row.to_dict())"""
     python_subscribe = f"""{py_connect}    # One list per commit. row.weight is +1 appearing, -1 withdrawn.
@@ -172,7 +174,8 @@ var subscription = client.subscribe({_java_string(view)}, {java_filter}, batch -
                       "-- Use the CLI, the Java SDK or the Python SDK to watch changes.")
 
     # ---- CLI
-    cli_token = " --token \"$PRAVAHA_TOKEN\"" if tls else ""
+    # The CLI reads PRAVAHA_TOKEN itself, and over plaintext refuses to send it unless told.
+    cli_token = " --token \"$PRAVAHA_TOKEN\"" if tls else " --insecure-token"
     cli_params = f" --params {shlex.quote(str(value))}" if keyed else ""
     cli_read = (f"pravaha query --url {shlex.quote(engine_url)}{cli_token} \\\n"
                 f"  --sql {shlex.quote(sql_param)}{cli_params}")

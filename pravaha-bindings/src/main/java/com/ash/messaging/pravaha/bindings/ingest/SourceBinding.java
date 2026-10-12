@@ -45,6 +45,8 @@ public record SourceBinding(String streamName, String plugin, Map<String, String
 
     @Override
     public String toString() {
-        return streamName + " <- " + plugin + options.keySet();
+        // LOGORDER-1: sorted, because Map.copyOf iterates in an order that changes between runs, and
+        // the startup line "sources bound: ..." with it.
+        return streamName + " <- " + plugin + new java.util.TreeSet<>(options.keySet());
     }
 }

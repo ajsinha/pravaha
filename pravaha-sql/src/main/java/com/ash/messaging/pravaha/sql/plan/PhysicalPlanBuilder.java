@@ -438,7 +438,7 @@ public final class PhysicalPlanBuilder {
                 throw unsupported("a filter on a column of the lookup table is refused: a lookup is asked "
                         + "one key at a time and returns that key's row, so there is nothing on its side to "
                         + "filter before the join. Write the join as a LEFT JOIN ... FOR SYSTEM_TIME AS OF "
-                        + "and keep the condition in WHERE, which filters the joined rows and plans");
+                        + "and keep the condition in WHERE, which filters the joined rows and plans.");
             }
             throw unsupported(
                     "correlated subqueries are not supported; the only correlated form Pravaha runs is a join "
@@ -1464,7 +1464,9 @@ public final class PhysicalPlanBuilder {
     private static PravahaException unsupported(String detail) {
         return new PravahaException(
                 SqlErrors.UNSUPPORTED_OPERATOR,
-                detail + " See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+                // LOOKUPMSG-1: a detail missing its full stop gets one, or the pointer runs on from it.
+                detail + (detail.endsWith(".") ? "" : ".")
+                        + " See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /** Renders a plan as an indented tree, for EXPLAIN and for golden-plan tests. */

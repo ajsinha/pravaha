@@ -791,6 +791,7 @@ key          user_id,window_start
 retention    forever
 sink         -
 rows in      0
+late rows    0
 registered   <time>
 shared with  -
 reads        txn

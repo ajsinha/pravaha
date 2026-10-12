@@ -252,6 +252,8 @@ def describe(ctx: Context) -> int:
     if lane == "shared" and query.get("sharedLane") is not None:
         lane = f"shared #{query.get('sharedLane')}"
     rows_in = "-" if query.get("countsWithheld") else query.get("rowsIn")
+    # TOOLATE-1: rows past the allowed lateness, in no answer. Absent from a node before it.
+    late = "-" if query.get("countsWithheld") else query.get("lateRecords")
     sink_text: Any = None
     if sink:
         sink_text = f"{sink.get('name')} ({'attached' if sink.get('attached') else 'detached'}, " \
@@ -267,6 +269,7 @@ def describe(ctx: Context) -> int:
             ("retention", query.get("retention")),
             ("sink", sink_text),
             ("rows in", rows_in),
+            ("late rows", late),
             ("registered", query.get("registeredAt")),
             ("shared with", query.get("sharedWith")),
             ("reads", query.get("reads")),

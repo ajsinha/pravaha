@@ -82,7 +82,8 @@ public final class OffsetSplicedReader implements PartitionReader {
 
     private @Nullable PartitionReader history;
     private @Nullable PartitionReader live;
-    private BackfillPhase phase;
+    /** Written by the feed's thread; volatile because a feed's status reads it from another (FEEDLABEL-1). */
+    private volatile BackfillPhase phase;
 
     private long historyRows;
     private long liveRows;

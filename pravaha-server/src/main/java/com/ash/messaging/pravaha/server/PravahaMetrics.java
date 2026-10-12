@@ -305,6 +305,13 @@ public final class PravahaMetrics implements AutoCloseable {
                 .tags(tags)
                 .register(meters)
                 .getId());
+        // TOOLATE-1. Rows past the watermark by more than the allowed lateness, so too late to
+        // correct any window: counted and kept out of every answer. Without this an operator could
+        // not tell whether allowed_lateness was set right -- the rows simply were not there.
+        ids.add(FunctionCounter.builder("pravaha.query.late.records", query, q -> (double) q.lateRecords())
+                .tags(tags)
+                .register(meters)
+                .getId());
         ids.add(gauge("pravaha.query.running", tags, query, q -> q.state().isTerminal() ? 0 : 1));
         // FEED-1. A query whose source failed mid-read stays RUNNING -- so `running` above says 1 --
         // and its view stops moving. This is the number to alert on: 1 while any of its sources has
