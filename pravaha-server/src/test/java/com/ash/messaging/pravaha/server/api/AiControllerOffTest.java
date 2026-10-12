@@ -105,7 +105,9 @@ class AiControllerOffTest {
                 1086,
                 HttpStatus.GATEWAY_TIMEOUT,
                 1087,
-                HttpStatus.BAD_GATEWAY);
+                HttpStatus.BAD_GATEWAY,
+                1088,
+                HttpStatus.UNPROCESSABLE_ENTITY);
         want.forEach((n, s) -> assertThat(ApiExceptionHandler.statusFor(new ErrorCode(n, "X")))
                 .as("PRV-" + n)
                 .isEqualTo(s));

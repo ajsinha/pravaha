@@ -723,6 +723,38 @@ class Engine:
         """The models a caller may name: ``GET /api/v1/ai/models``."""
         return list(self._identity("GET", "/ai/models") or [])
 
+    # The plain-English features (docs/guides/AI.md): the engine judges and runs what the model wrote,
+    # as the person -- so each goes through _identity, under their session. Nothing is saved by any.
+
+    def ai_ask(self, question: str, conversation: list | None = None) -> dict:
+        """Ask your data: the SQL the model chose, the rows as the engine answered the person, the
+        chart the result's shape suits. ``POST /api/v1/ai/ask``."""
+        body: dict = {"question": question}
+        if conversation:
+            body["conversation"] = conversation
+        return dict(self._identity("POST", "/ai/ask", body) or {})
+
+    def ai_draft(self, description: str, name: str | None = None) -> dict:
+        """A continuous query drafted, judged and dry-run; not registered. ``POST /api/v1/ai/draft``."""
+        return dict(self._identity("POST", "/ai/draft", {"description": description, "name": name}) or {})
+
+    def ai_alert_draft(self, description: str, name: str | None = None) -> dict:
+        """A ``CREATE ALERT`` drafted and judged; not created. ``POST /api/v1/ai/alert-draft``."""
+        return dict(self._identity("POST", "/ai/alert-draft", {"description": description, "name": name}) or {})
+
+    def ai_explain(self, body: dict) -> dict:
+        """``{kind: sql|refusal|change, ...}`` explained. ``POST /api/v1/ai/explain``."""
+        return dict(self._identity("POST", "/ai/explain", body) or {})
+
+    def ai_narrate(self, view: str, changes: list) -> dict:
+        """A batch of a view's changes in words. ``POST /api/v1/ai/narrate``."""
+        return dict(self._identity("POST", "/ai/narrate", {"view": view, "changes": changes}) or {})
+
+    def ai_page(self, screen: str, about: str, question: str, topics: list | None = None) -> dict:
+        """Ask about this page, from its About text and help topics only. ``POST /api/v1/ai/page``."""
+        body = {"screen": screen, "about": about, "question": question, "topics": topics or []}
+        return dict(self._identity("POST", "/ai/page", body) or {})
+
     def admin_ai(self) -> dict:
         """The layer as an administrator sees it: ``GET /api/v1/admin/ai``."""
         return dict(self._identity("GET", "/admin/ai") or {})

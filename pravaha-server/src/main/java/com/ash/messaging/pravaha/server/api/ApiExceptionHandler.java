@@ -184,6 +184,7 @@ public class ApiExceptionHandler {
             case "PRV-1085" -> HttpStatus.TOO_MANY_REQUESTS;
             case "PRV-1086" -> HttpStatus.GATEWAY_TIMEOUT;
             case "PRV-1087" -> HttpStatus.BAD_GATEWAY;
+            case "PRV-1088" -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> null;
         };
     }

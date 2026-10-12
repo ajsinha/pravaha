@@ -80,6 +80,9 @@ Run it again after an upgrade if you saved it to a file. Every `pravaha <command
 | `policy ls`, `show`, `create-filter`, `create-mask`, `bind`, `unbind`, `drop` | HTTP | Row filters and column masks (`unbind` and `drop` need `--yes`) |
 | `alerts ls`, `channels`, `show`, `pause`, `resume`, `snooze`, `ack` | HTTP | Alerts: what is firing, and quieting or acknowledging one |
 | `alert create`, `alert drop` | Flight | `CREATE ALERT` / `DROP ALERT`, as `query --sql` would send them (`drop` needs `--yes`) |
+| `query --ask`, `chat` | HTTP | Ask your data in plain English: the SQL the model chose, run as you ([Plain English](#plain-english-the-engines-ai-features)) |
+| `ask --engine`, `alert --ask` | HTTP, then Flight | A continuous query or an alert drafted and judged by the engine; registered or created only on `--yes` |
+| `explain --why-changed`, `explain-sql --engine`, `why --engine`, `subscribe --narrate` | HTTP (`subscribe`: Flight) | Why a view changed, a query or a refusal explained, a line per commit |
 | `login`, `logout`, `whoami`, `password`, `user`, `key`, `session` | HTTP | Identity |
 
 `pravaha --help` lists every command; `pravaha <command> --help` prints one command's flags and exits
@@ -1020,6 +1023,139 @@ refused (`PRV-7020`).
 ends. `user disable` and `key revoke` print what would happen unless `--yes`. `user`, `key --all`,
 `key report` and `session --all` need the admin role. See [Authentication](/help/topics/authentication).
 
+## Plain English: the engine's AI features
+
+These ask the engine's own AI layer (`pravaha.ai.enabled`, [The assistant](/help/topics/assistant)) over `--http`, **as
+you**: the model writes names and SQL, never answers; the engine checks what it wrote and runs it under
+your grants, row filters and masks, and every answer starts with **the SQL (or statement) the model
+chose**. Nothing is registered or created unless you confirm it — `--yes`, or `y` at a terminal — and
+then over Flight (`--url`), exactly as `register` and `alert create` would. No assistant configuration
+is needed. A layer that is off answers `PRV-1080`; an answer the engine refused twice (one repair turn
+in between), or no answer at all, `PRV-1088`; the engine's own refusal of what the model chose keeps
+its code (`PRV-7002` for a view you may not read). All exit `1`.
+
+```text
+pravaha query --ask "<question>" [--chart] [--json]
+pravaha chat [--once "<question>"] [--chart] [--json]
+pravaha ask "<description>" --engine [--name N] [--register [--yes]] [--json]
+pravaha alert --ask "<description>" [--name N] [--yes] [--json]
+pravaha explain --why-changed VIEW [--json]
+pravaha explain-sql (--sql <sql> | --query <name>) --engine [--show-plan]
+pravaha why PRV-nnnn [--sql <sql>] --engine
+pravaha subscribe --view VIEW --narrate [...]
+```
+
+`query --ask` prints the SQL the model chose, then the rows as `query` would, and with `--chart` the
+chart Pravaha chose from the result's shape — `stat` for one value, `line` over a time column, `bar`
+for one category and one measure (up to 30 rows), else `table`. `chat` is the same with follow-ups:
+each question is sent with the last three and the SQL chosen for them, so "and only for EU?" works; a
+refusal is printed and the conversation goes on; `--once` asks one question for a script (`--json`
+prints one object per line).
+
+<!-- capture: ai-query-ask -->
+```text
+$ pravaha query --ask "total spend per user" --chart
+the SQL the model chose
+  SELECT user_id, SUM(spend) AS total FROM spend_by_minute GROUP BY user_id
+Adds up each user's spend over every minute the view holds.
+
+chart  bar  x=user_id y=total
+0 rows; run as you; values sent to the model: labels-only; nothing saved
+```
+<!-- /capture -->
+
+`ask --engine` lets the engine draft the continuous query: it is judged as registering it would be,
+named so it does not collide, and dry-run — its fingerprint, what it reads, the lane it would take,
+and the registered queries whose computation it would share. `--register` registers it after you
+confirm. `alert --ask` drafts a `CREATE ALERT` the same way and creates it only with `--yes` or a `y`.
+
+<!-- capture: ai-ask-engine -->
+```text
+$ pravaha ask "spend per user per minute" --engine
+the engine accepts it
+
+  CREATE CONTINUOUS QUERY spend_per_minute
+    KEYED BY (user_id, window_start)
+  AS
+  SELECT user_id, window_start, window_end, SUM(amount) AS spend FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) GROUP BY user_id, window_start, window_end
+
+What it does
+  Each user's spend in every one-minute window of event time.
+
+Dry run (nothing registered)
+fingerprint  <fp>
+reads        txn
+lane         the lane of spend_by_minute's computation, which it would share: no new computation
+shares with  spend_by_minute
+columns      user_id VARCHAR, window_start TIMESTAMP(3) WITH LOCAL TIME ZONE, window_end TIMESTAMP(3) WITH LOCAL TIME ZONE, spend INT64
+
+The engine's plan (physical)
+  WindowedAggregate(TUMBLING 60000ms, keys=[0, 1, 2], [SUM(amount)->spend])
+    Project[user_id, window_start, window_end, amount]
+      WindowAssign(TUMBLING size=60000ms slide=60000ms on ts)
+        Project[user_id, amount, ts]
+          Scan(txn)
+nothing was registered; add --register to register it after you confirm
+```
+<!-- /capture -->
+
+<!-- capture: ai-alert-ask -->
+```text
+$ pravaha alert --ask "tell me when a user spends over 500 in a minute"
+the engine accepts it
+
+  CREATE ALERT big_spender ON spend_by_minute
+    WHERE spend > 500
+    NOTIFY ops_log
+    WITH (severity = 'critical')
+Notifies when a user spends over 500 in a minute.
+nothing was created; run again with --yes, or run the statement with `pravaha query --sql`
+```
+<!-- /capture -->
+
+`explain --why-changed` explains a view's recent committed changes as you may see them — keys and
+counts, and the rows only where the node allows values (`pravaha.ai.values: aggregates`). Pravaha keeps
+a view's changes from the first time someone asks about it, so the first answer says so:
+
+<!-- capture: ai-why-changed -->
+```text
+$ pravaha explain --why-changed spend_by_minute
+Pravaha has kept this view's changes since <time> and none has been committed since then. Ask again after it changes.
+
+view          spend_by_minute
+kept since    <time>
+commits       0
+rows entered  0
+rows left     0
+key           user_id, window_start
+keys entered  -
+keys left     -
+values sent to the model: labels-only; your row filter and masks applied
+```
+<!-- /capture -->
+
+`explain-sql --engine` and `why --engine` are `explain-sql` and `why` answered by the engine's layer
+rather than a model of your own: the explanation is grounded in the engine's plan, and a refusal's SQL
+is re-checked by the engine first.
+
+<!-- capture: ai-explain-sql -->
+```text
+$ pravaha explain-sql --query spend_by_minute --engine
+It reads txn, puts each payment in the one-minute window of its event time and adds up the amount per user per window. A window's total is published when the watermark passes its end, so it can change for late rows within the allowed lateness.
+```
+<!-- /capture -->
+
+<!-- capture: ai-why -->
+```text
+$ pravaha why PRV-2050 --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" --engine
+PRV-2050  It means the query keeps a running count for every user forever: the stream never ends, so its state never stops growing. Count per window instead. Try: SELECT user_id, window_end, COUNT(*) AS n FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) GROUP BY user_id, window_start, window_end
+the engine raised PRV-2050 for this statement
+```
+<!-- /capture -->
+
+`subscribe --narrate` adds a line after each commit, `-- <what changed>`, from
+`POST /api/v1/ai/narrate`; a refusal is said once on stderr and the rows keep printing.
+
 ## The assistant
 
 Four commands ask a language model you configure — any provider, several at once — with the engine
@@ -1201,7 +1337,8 @@ with another): the plan lists them under *not known without doing it* rather tha
 ## Captured output
 
 The output blocks on this page marked as captured are not typed by hand. `sdk/python/tools/cli_captures.py`
-starts a scratch node from the build (free ports, a temporary directory, the `dev` profile), declares
+starts a scratch node from the build (free ports, a temporary directory, the `dev` profile, the AI
+layer on with the deterministic `mock` provider standing in for a model), declares
 a stream `txn` and registers `spend_by_minute`, runs each documented command and writes what it
 printed here, with what differs between runs normalised: ports to the defaults, versions to
 `<version>`, instants to `<time>`, durations to `N`, fingerprints to `<fp>`. A test runs it with

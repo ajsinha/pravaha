@@ -40,6 +40,8 @@ public class AiProperties {
     private Duration reloadInterval = Duration.ofSeconds(5);
     private int testPerMinute = 6;
     private Policy policy = new Policy();
+    private String values = "labels-only";
+    private Features features = new Features();
 
     public boolean isEnabled() {
         return enabled;
@@ -93,6 +95,111 @@ public class AiProperties {
 
     public void setPolicy(@Nullable Policy policy) {
         this.policy = policy == null ? new Policy() : policy;
+    }
+
+    /**
+     * {@code pravaha.ai.values} (Drishti's {@code drishti.bi.ai.values}): {@code labels-only}, the default --
+     * the plain-English features send a model names, types, keys and counts and never a value -- or
+     * {@code aggregates}, which also lets them send the reader's own results and changes (unmasked columns
+     * only, bounded) to be worded. Anything else reads as {@code labels-only}.
+     */
+    public String getValues() {
+        return values;
+    }
+
+    public void setValues(@Nullable String values) {
+        this.values =
+                "aggregates".equalsIgnoreCase(values == null ? "" : values.strip()) ? "aggregates" : "labels-only";
+    }
+
+    /** Whether {@link #getValues()} lets a model see the reader's own figures. */
+    public boolean aggregates() {
+        return "aggregates".equals(values);
+    }
+
+    public Features getFeatures() {
+        return features;
+    }
+
+    public void setFeatures(@Nullable Features features) {
+        this.features = features == null ? new Features() : features;
+    }
+
+    /**
+     * {@code pravaha.ai.features.*}: the plain-English features (ask your data, drafts, alerts, explain,
+     * narrative, ask about this page; docs/guides/AI.md). Bounds, so no answer or prompt is unbounded.
+     */
+    public static class Features {
+        private String model = "";
+        private int maxQuestionChars = 600;
+        private int maxTokens = 2000;
+        private int timeoutSeconds = 30;
+        private int askRows = 200;
+        private int changeCommits = 50;
+        private int changeViews = 16;
+
+        /** The model the features use ({@code provider/model}); empty is {@code pravaha.ai.default-model}. */
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(@Nullable String model) {
+            this.model = model == null ? "" : model.strip();
+        }
+
+        /** The longest question or description accepted. */
+        public int getMaxQuestionChars() {
+            return maxQuestionChars;
+        }
+
+        public void setMaxQuestionChars(int maxQuestionChars) {
+            this.maxQuestionChars = maxQuestionChars <= 0 ? 600 : maxQuestionChars;
+        }
+
+        /** The longest answer asked of the model. */
+        public int getMaxTokens() {
+            return maxTokens;
+        }
+
+        public void setMaxTokens(int maxTokens) {
+            this.maxTokens = maxTokens <= 0 ? 2000 : maxTokens;
+        }
+
+        /** How long one model call may take, in seconds (at most 120). */
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds <= 0 ? 30 : Math.min(120, timeoutSeconds);
+        }
+
+        /** The most rows an ask-your-data answer holds, and the most a model sees of them under {@code aggregates}. */
+        public int getAskRows() {
+            return askRows;
+        }
+
+        public void setAskRows(int askRows) {
+            this.askRows = askRows <= 0 ? 200 : askRows;
+        }
+
+        /** The most recent commits of a view kept to explain why it changed. */
+        public int getChangeCommits() {
+            return changeCommits;
+        }
+
+        public void setChangeCommits(int changeCommits) {
+            this.changeCommits = changeCommits <= 0 ? 50 : changeCommits;
+        }
+
+        /** The most views whose changes are kept at once; the one asked about longest ago is let go first. */
+        public int getChangeViews() {
+            return changeViews;
+        }
+
+        public void setChangeViews(int changeViews) {
+            this.changeViews = changeViews <= 0 ? 16 : changeViews;
+        }
     }
 
     /** {@code pravaha.ai.policy.*}: the hooks around every call. A limit of 0 means none. */

@@ -228,8 +228,12 @@ class ModelRouter:
         ledger: Optional[UsageLedger] = None,
         user: Optional[str] = None,
         providers: Optional[Mapping[str, ModelProvider]] = None,
+        engine: Any = None,
     ) -> None:
         self._environ = os.environ if environ is None else environ
+        #: The signed-in person's engine session, given to every request that has none: a ``server``
+        #: provider then calls the engine as that person (their policy, their audit row).
+        self.engine = engine
         if config is None:
             config = store.load() if store is not None else AssistConfig()
         self._store = store
@@ -370,6 +374,8 @@ class ModelRouter:
         else:
             chain = config.chain(profile)
         who = self._user(request, user)
+        if self.engine is not None and request.engine is None:
+            request = dataclasses.replace(request, engine=self.engine)
         if request.max_tokens is None:
             request = dataclasses.replace(request, max_tokens=DEFAULT_MAX_TOKENS)
         self._budget(config, request, who)

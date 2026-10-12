@@ -227,6 +227,13 @@ would (`--print-sql` prints it instead); `alert drop` changes nothing without `-
 A password left out is asked for without echo on a terminal, or read from stdin with
 `--password-stdin` / `--new-stdin`.
 
+The engine's plain-English features ([`AI.md`](AI.md)) ask the node's own AI layer over `--http`, as
+you, and need no assistant configuration: `query --ask "<question>" [--chart]` (the SQL the model chose,
+then the rows), `chat [--once Q]` (with follow-ups), `ask "<description>" --engine [--register [--yes]]`,
+`alert --ask "<description>" [--name N] [--yes]`, `explain --why-changed VIEW`, `explain-sql --engine`,
+`why --engine`, `subscribe --narrate`. Nothing is registered or created without `--yes` or a `y`; see the
+[CLI reference](../../pravaha-console/content/topics/cli-reference.md#plain-english-the-engines-ai-features).
+
 The assistant (ADR-058; configured in `~/.config/pravaha/assist.json` — see [`ASSIST.md`](ASSIST.md)):
 
 | Command | What it does |

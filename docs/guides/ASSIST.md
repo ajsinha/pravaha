@@ -7,6 +7,14 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 > release — its configuration file included; the release notes will say so. See
 > [what 1.x promises](../operations/COMPATIBILITY.md).
 
+> **The AI features' home is [AI.md](AI.md).** This page is the assistant of ADR-058: drafting and
+> explaining with models *you* configure, from the CLI and the console. The engine's own features --
+> ask your data, drafts and alert drafts judged and dry-run by the engine, why a view changed, the change
+> narrative, ask about this page -- need no configuration here and are in [AI.md](AI.md); `pravaha ask
+> --engine`, `explain-sql --engine` and `why --engine` are this page's commands answered by them. The
+> `server` provider below now calls the engine **as the signed-in person**: the CLI lends its own
+> `--http` session, the console the person's, and `endpoint` / `api_key_env` are only the fallback.
+
 The assistant drafts a continuous query from a plain-English description, explains a continuous
 query in plain English, and explains a refusal — what `PRV-2050` means for *this* statement and
 what to change. It asks a language model you configure,
@@ -140,7 +148,7 @@ always a decision someone made.
 | `openai-compatible` | Chat Completions | optional | **required** — the server's base URL, e.g. `http://localhost:8000/v1` | in the prompt, unless the model option `structured_output: json_schema` | `GET /models` |
 | `ollama` | Ollama's own `POST /api/chat` | none (optional behind a proxy) | `http://localhost:11434` | natively, `format` | `POST /api/show` |
 | `fake` | nothing — scripted answers | none | — | as configured | nothing |
-| `server` | the engine's own AI layer, `POST /api/v1/ai/chat` (ADR-063) | your **engine** token (`api_key_env`), optional | **required** — the engine's HTTP URL, e.g. `https://engine:18080` | in the prompt | nothing: the layer's readiness |
+| `server` | the engine's own AI layer, `POST /api/v1/ai/chat` (ADR-063) | the signed-in person's session, lent by the CLI or the console; else your **engine** token (`api_key_env`) | optional: the CLI and the console lend their own; else the engine's HTTP URL, e.g. `https://engine:18080` | in the prompt | nothing: the layer's readiness |
 | `mock` | nothing — the AI layer's deterministic provider, regex `rules` | none | — | in the prompt | nothing |
 | `ai` | any type of the AI layer, by the option `type`: `gemini`, `cohere`, `bedrock`, `azure_openai`, `mistral`, `groq`, `together`, ... | as that type needs | that type's (its `base-url`) | in the prompt | the type's model list where it has one |
 

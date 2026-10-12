@@ -122,6 +122,21 @@ public class AiConfiguration {
         return new LLMFactory(gateway, null);
     }
 
+    /**
+     * The plain-English features (docs/guides/AI.md): ask your data, drafts, alerts, explanations, the change
+     * narrative and ask about this page, each through the gateway under its own feature name.
+     */
+    @Bean(destroyMethod = "close")
+    com.ash.messaging.pravaha.server.ai.features.AiFeatures aiFeatures(
+            LlmGateway gateway,
+            AiProperties ai,
+            com.ash.messaging.pravaha.server.PravahaNode node,
+            AuditSink audit,
+            com.ash.messaging.pravaha.server.ReadLimitsProperties reads) {
+        return new com.ash.messaging.pravaha.server.ai.features.AiFeatures(
+                gateway, ai, node, audit, reads.getDeadline());
+    }
+
     /** Looks at the folder every {@code pravaha.ai.reload-interval} while the layer is on; stopped with the application. */
     @Bean(destroyMethod = "close")
     AiFolderWatch aiFolderWatch(AiProperties ai, LlmRegistry registry) {

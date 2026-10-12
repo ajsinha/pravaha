@@ -30,6 +30,17 @@ one — and in this console, **Describe it** on the workbench, **Explain** on a 
 every refusal code, and [Admin · AI models](/help/topics/assistant#admin-ai-models) to configure and switch
 models while the console runs.
 
+## The engine's own features
+
+Beside the assistant, the node itself answers plain English when its AI layer is on: **ask your data**
+(the SQL the model chose, run as you, with a chart chosen from the result's shape), **drafts** and
+**alert drafts** judged and dry-run by the engine, **why a view changed**, a **narrative** of a batch of
+changes and **ask about this page**. The model is told only the schema of what you may read, never a
+value unless the node allows it (`pravaha.ai.values`), and nothing is registered or created for you. From
+the command line: `pravaha query --ask`, `chat`, `ask --engine`, `alert --ask`, `explain --why-changed`,
+`subscribe --narrate` ([CLI reference](/help/topics/cli-reference)). A refused answer is repaired once,
+then refused `PRV-1088` ([codes](/help/topics/errors-config)).
+
 ## In the console
 
 **Describe it** (the workbench, above the editor). Say what the view should answer; the console

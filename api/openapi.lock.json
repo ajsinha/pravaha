@@ -23,6 +23,30 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/ai/alert-draft" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "DraftBody",
+        "responseBodies" : {
+          "200" : "AlertDraftAnswer",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/ai/ask" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "AskBody",
+        "responseBodies" : {
+          "200" : "AskAnswer",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/ai/chat" : {
       "post" : {
         "hasBody" : true,
@@ -35,12 +59,60 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/ai/draft" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "DraftBody",
+        "responseBodies" : {
+          "200" : "DraftAnswer",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/ai/explain" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "ExplainBody",
+        "responseBodies" : {
+          "200" : "ExplainAnswer",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/ai/models" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
         "responseBodies" : {
           "200" : "ModelInfo[]",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/ai/narrate" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "NarrateBody",
+        "responseBodies" : {
+          "200" : "NarrateAnswer",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/ai/page" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "requestBody" : "PageBody",
+        "responseBodies" : {
+          "200" : "PageAnswer",
           "default" : "ApiError"
         },
         "responses" : [ "200", "default" ]
@@ -1020,6 +1092,17 @@
       "providers[].type" : "optional string",
       "types[]" : "optional string"
     },
+    "AlertDraftAnswer" : {
+      "channels[]" : "optional string",
+      "condition" : "optional string",
+      "created" : "optional boolean",
+      "description" : "optional string",
+      "explanation" : "optional string",
+      "name" : "optional string",
+      "statement" : "optional string",
+      "turns" : "optional integer/int32",
+      "view" : "optional string"
+    },
     "AlertPage" : {
       "items[]" : "optional object",
       "items[].channels[]" : "optional string",
@@ -1050,6 +1133,31 @@
       "message" : "optional string",
       "path" : "optional string",
       "timestamp" : "optional string/date-time"
+    },
+    "AskAnswer" : {
+      "chart" : "optional object",
+      "chart.kind" : "optional string",
+      "chart.series" : "optional string",
+      "chart.x" : "optional string",
+      "chart.y" : "optional string",
+      "columns[]" : "optional object",
+      "columns[].name" : "optional string",
+      "columns[].type" : "optional string",
+      "explanation" : "optional string",
+      "question" : "optional string",
+      "rowCount" : "optional integer/int32",
+      "rows[][]" : "optional any",
+      "sql" : "optional string",
+      "summary" : "optional string",
+      "truncated" : "optional boolean",
+      "turns" : "optional integer/int32",
+      "values" : "optional string"
+    },
+    "AskBody" : {
+      "conversation[]" : "optional object",
+      "conversation[].question" : "optional string",
+      "conversation[].sql" : "optional string",
+      "question" : "optional string"
     },
     "Attributes" : {
       "attributes" : "optional map",
@@ -1274,6 +1382,58 @@
       "notifications[].kind" : "optional string",
       "notifications[].outcome" : "optional string"
     },
+    "DraftAnswer" : {
+      "description" : "optional string",
+      "dryRun" : "optional object",
+      "dryRun.fingerprint" : "optional string",
+      "dryRun.lane" : "optional string",
+      "dryRun.outputFields[]" : "optional object",
+      "dryRun.outputFields[].name" : "optional string",
+      "dryRun.outputFields[].type" : "optional string",
+      "dryRun.plan" : "optional string",
+      "dryRun.reads[]" : "optional string",
+      "dryRun.sharesWith[]" : "optional string",
+      "explanation" : "optional string",
+      "keys[]" : "optional string",
+      "name" : "optional string",
+      "options" : "optional map",
+      "options{}" : "required string",
+      "registered" : "optional boolean",
+      "sql" : "optional string",
+      "statement" : "optional string",
+      "turns" : "optional integer/int32"
+    },
+    "DraftBody" : {
+      "description" : "optional string",
+      "name" : "optional string"
+    },
+    "ExplainAnswer" : {
+      "change" : "optional object",
+      "change.commits" : "optional integer/int32",
+      "change.entered" : "optional integer/int32",
+      "change.enteredKeys[][]" : "optional any",
+      "change.keyColumns[]" : "optional string",
+      "change.left" : "optional integer/int32",
+      "change.leftKeys[][]" : "optional any",
+      "change.since" : "optional string/date-time",
+      "change.view" : "optional string",
+      "code" : "optional string",
+      "engineCodes[]" : "optional string",
+      "explanation" : "optional string",
+      "kind" : "optional string",
+      "plan" : "optional string",
+      "sql" : "optional string",
+      "valid" : "optional boolean",
+      "values" : "optional string"
+    },
+    "ExplainBody" : {
+      "code" : "optional string",
+      "kind" : "optional string",
+      "message" : "optional string",
+      "query" : "optional string",
+      "sql" : "optional string",
+      "view" : "optional string"
+    },
     "ExplainResult" : {
       "fingerprint" : "optional string",
       "fingerprintRefusal" : "optional object",
@@ -1452,6 +1612,19 @@
       "ref" : "optional string",
       "temperature" : "optional number/double"
     },
+    "NarrateAnswer" : {
+      "entered" : "optional integer/int32",
+      "left" : "optional integer/int32",
+      "narrative" : "optional string",
+      "values" : "optional string",
+      "view" : "optional string"
+    },
+    "NarrateBody" : {
+      "changes[]" : "optional object",
+      "changes[].values[]" : "optional any",
+      "changes[].weight" : "optional integer/int64",
+      "view" : "optional string"
+    },
     "NewKey" : {
       "expiresDays" : "optional integer/int32",
       "forUser" : "optional string",
@@ -1600,6 +1773,19 @@
       "tenants[].stateKeys" : "optional integer/int64",
       "tenants[].stateRefusals" : "optional integer/int64",
       "tenants[].tenant" : "optional string"
+    },
+    "PageAnswer" : {
+      "answer" : "optional string",
+      "screen" : "optional string",
+      "sources[]" : "optional string"
+    },
+    "PageBody" : {
+      "about" : "optional string",
+      "question" : "optional string",
+      "screen" : "optional string",
+      "topics[]" : "optional object",
+      "topics[].text" : "optional string",
+      "topics[].title" : "optional string"
     },
     "Permissions" : {
       "anonymous" : "optional boolean",

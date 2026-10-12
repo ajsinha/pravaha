@@ -45,8 +45,20 @@ def _actor() -> str:
         return "unknown"
 
 
-def _router() -> ModelRouter:
-    return ModelRouter.from_store(_store())
+def _router(ctx: Optional[Context] = None) -> ModelRouter:
+    """The assistant's router, lending it the signed-in person's engine session: a ``server``
+    provider then calls the engine as them -- their AI policy, their audit row -- never with a token
+    of its own (ADR-063)."""
+    return ModelRouter.from_store(_store(), engine=_engine(ctx))
+
+
+def _engine(ctx: Optional[Context]) -> Any:
+    if ctx is None:
+        return None
+    try:
+        return ctx.api
+    except Exception:  # the connection settings are wrong; a model that needs no engine still answers
+        return None
 
 
 def _answered(ctx: Context, answered_by: dict[str, Any], prompt: str) -> None:
@@ -80,7 +92,10 @@ def explain_sql(ctx: Context) -> int:
     level = ctx.arg("level", "physical")
     if level not in ("physical", "logical"):
         raise UsageError(f"--level must be physical or logical; got '{level}'")
-    router = _router()
+    if ctx.arg("engine"):
+        from pravaha.cli import _ai
+        return _ai.explain_sql(ctx, sql, name)
+    router = _router(ctx)
     result = Assistant(router, ctx.api).explain_query(
         sql, query_name=name, level=level, profile=ctx.arg("profile"), model=ctx.arg("model")
     )
@@ -111,7 +126,10 @@ def why(ctx: Context) -> int:
     if not code.startswith("PRV-") or len(code) != 8 or not code[4:].isdigit():
         raise UsageError(f"{code!r} is not a code: codes look like PRV-2050")
     sql = _optional_sql(ctx)
-    router = _router()
+    if ctx.arg("engine"):
+        from pravaha.cli import _ai
+        return _ai.why(ctx, code, sql)
+    router = _router(ctx)
     assistant = Assistant(router, ctx.api if sql else None)
     result = assistant.explain_refusal(
         code, sql, profile=ctx.arg("profile"), model=ctx.arg("model"),
@@ -223,6 +241,9 @@ def _print_draft(ctx: Context, draft: Draft) -> None:
 
 
 def ask(ctx: Context) -> int:
+    if ctx.arg("engine"):
+        from pravaha.cli import _ai
+        return _ai.draft(ctx)
     description = " ".join(ctx.arg("description", [])).strip()
     if not description:
         raise UsageError('describe the query you want: pravaha ask "..."')
@@ -231,7 +252,7 @@ def ask(ctx: Context) -> int:
         raise UsageError("--repairs is 0 to 3")
     if ctx.arg("yes") and not ctx.arg("register"):
         raise UsageError("--yes confirms --register; without --register nothing is registered")
-    router = _router()
+    router = _router(ctx)
     assistant = Assistant(router, ctx.api)
     draft = assistant.draft(description, name=ctx.arg("name"), profile=ctx.arg("profile"),
                             model=ctx.arg("model"), max_repairs=repairs)
@@ -368,7 +389,7 @@ def _providers(ctx: Context) -> int:
 
 
 def _check(ctx: Context) -> int:
-    router = _router()
+    router = _router(ctx)
     chosen = csv(ctx.arg("model")) or None
     results = router.check(chosen)
     if ctx.out.json_mode:
@@ -431,7 +452,7 @@ def _progress(ctx: Context) -> Any:
 
 
 def _eval(ctx: Context) -> int:
-    router = _router()
+    router = _router(ctx)
     run = bool(ctx.arg("register_and_compare"))
     assistant = Assistant(router, ctx.api)
     evaluator = Evaluator(

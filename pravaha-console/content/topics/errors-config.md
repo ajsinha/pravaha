@@ -4,7 +4,7 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1087: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1088: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
 keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, tls handshake, certificate, PRV-1046, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
@@ -24,7 +24,7 @@ They are grouped here by who raises them:
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1046 | The Java and Python SDKs | Constructing a client, or talking to the node |
-| PRV-1080 – PRV-1087 | The AI layer (ADR-063) | An AI call while the layer is off, or a provider, a model, the policy or the model endpoint refusing it |
+| PRV-1080 – PRV-1088 | The AI layer (ADR-063) and its plain-English features | An AI call while the layer is off, a provider, a model, the policy or the model endpoint refusing it, or a model's answer the engine could not use |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
@@ -438,3 +438,14 @@ PRV-1087 the model endpoint failed (`502`). The message never carries a key, the
 
 **Do:** an administrator reads `GET /api/v1/admin/ai` -- each provider's health and the files that
 could not be read -- and `docs/guides/TROUBLESHOOTING.md` has a line for each code.
+
+### PRV-1088 — AI_ANSWER_UNUSABLE
+
+`422`. A plain-English feature (ask your data, a draft, an alert draft) could not use the model's
+answer: the engine refused the SQL or statement the model chose, and refused it again after one repair
+turn in which the model was told the engine's words; or the model answered no query, statement or JSON
+at all; or it said the question cannot be answered from what you may read. Nothing was run,
+registered or created. The message quotes the last refusal or the model's reason.
+
+**Do:** say it more plainly, name the view or the columns you mean, or write the SQL yourself; a
+refusal by your grants is not this code but the engine's own (`PRV-7002`).

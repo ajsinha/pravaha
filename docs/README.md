@@ -26,6 +26,7 @@ The documents are in six folders, by who reads them and when:
 | [Building and testing with Docker](development/setup/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker: images, the compose stack, a query end to end, every test suite in containers | When you want it running without installing a JDK or Python |
 | [Running in IntelliJ and PyCharm](development/setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md) | The server in IntelliJ IDEA and the console in PyCharm: shared run configurations, debugging, tests | When you change the code |
 | [Python integration guide](guides/PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each | When you connect an application |
+| [Plain English (AI features)](guides/AI.md) | Ask your data, drafts and alert drafts judged by the engine, why a view changed, the change narrative, ask about this page: what a model is told, values modes, codes | When you want to ask the engine in words |
 | [The assistant](guides/ASSIST.md) | Plain English to and from continuous SQL through any model, with the engine as the judge: configuration, providers, runtime switching, plugins, security | When you want a query or a refusal explained |
 | [Case studies](../examples/case-studies/) | Worked systems with stores, data and code to copy | When you want a template |
 
@@ -39,6 +40,7 @@ The documents are in six folders, by who reads them and when:
 | [Streams, queries and SQL](guides/CONTINUOUS_QUERIES.md) | A stream becomes a query becomes a view, with worked examples — and every SQL construct that runs or is refused, checked by a test. The single source of truth for what you write |
 | [The command line](guides/CLI.md) | `pravaha` for a running engine, `pravaha-engine` for SQL with no server |
 | [Python integration guide](guides/PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each |
+| [Plain English (AI features)](guides/AI.md) | Ask your data, drafts, alerts and explanations through the engine's AI layer |
 | [The assistant](guides/ASSIST.md) | Plain English to and from continuous SQL through any model |
 | [Connectors](guides/CONNECTORS.md) | The connectors that ship and what each can honestly promise, cross-source joins, and change-data-capture. Writing one is the [connector developer guide](development/guides/CONNECTOR_DEVELOPMENT.md) |
 | [TLS](guides/CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts — connector, server and SDK — and the configuration that turns each one on. The single source of truth for TLS |

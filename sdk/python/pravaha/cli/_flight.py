@@ -46,6 +46,11 @@ def coerce(value: str) -> Any:
 
 
 def query(ctx: Context) -> int:
+    if ctx.arg("ask") is not None:
+        from pravaha.cli import _ai  # the HTTP half: the engine's AI layer, as you
+        return _ai.query_ask(ctx)
+    if ctx.arg("chart"):
+        raise UsageError("--chart goes with --ask")
     sql = ctx.sql()
     params = [coerce(v.strip()) for v in ctx.arg("params").split(",")] if ctx.arg("params") else []
     result = ctx.client.query(sql, params or None)
@@ -447,6 +452,10 @@ def subscribe(ctx: Context) -> int:
     )
     header = False
     seen = 0
+    narrator = None
+    if ctx.arg("narrate"):
+        from pravaha.cli import _ai
+        narrator = _ai.Narrator(ctx, view)
     try:
         for batch in stream:
             if batch.reconnected:
@@ -470,6 +479,8 @@ def subscribe(ctx: Context) -> int:
                     )
                 seen += 1
             _close_batch(ctx, batch)
+            if narrator is not None and not batch.snapshot:
+                narrator.batch(list(batch))
             if limit and seen >= limit:
                 break
             ctx.out.out.flush()

@@ -8,9 +8,10 @@ and its one repair turn, the four normalised errors, the router's chains and bud
 judge of every draft -- and gains, through one adapter, every provider type the engine's AI layer has:
 
 * ``server`` -- the engine's own AI layer (``POST /api/v1/ai/chat``): keys, policy, masking, limits and the
-  audit row stay in the engine. The recommended provider: ``endpoint`` is the engine's HTTP URL,
-  ``api_key_env`` names the variable holding your engine token, ``model`` is the engine's
-  ``provider/model`` (or ``default``);
+  audit row stay in the engine. The recommended provider. Each call carries the signed-in person's own
+  engine session when the host has one (the CLI's ``--http``/``--token``, the console's session), so the
+  engine applies *their* policy and audits *them*; ``endpoint`` and ``api_key_env`` (a token) are only
+  the fallback for a host with no session. ``model`` is the engine's ``provider/model`` (or ``default``);
 * ``mock`` -- the layer's deterministic provider, regex ``rules`` -> ``reply`` / ``tool`` / ``error`` /
   ``latency-ms``, ``fail-every``: the ``fake`` provider's role, configured the way the engine's mock is;
 * ``ai`` -- any other type of the layer, named by the option ``type``: ``gemini``, ``cohere``,
@@ -121,10 +122,14 @@ class AiLayerProvider(BaseProvider):
     def _send(self, request: ChatRequest, *, native_schema: bool) -> ChatResponse:
         model = request.model
         bound = self._wire(model).chat_model("assist")
+        context: Dict[str, Any] = {"feature": "assist"}
+        if request.engine is not None:
+            # The person's own session: a server provider calls the engine as them (ADR-063).
+            context["engine"] = request.engine
         layer = LayerRequest(model=None, system=request.system or "",
                              messages=tuple(LayerMessage(m.role, m.content) for m in request.messages),
                              temperature=request.temperature, max_tokens=request.max_tokens,
-                             timeout=request.timeout_s, context={"feature": "assist"})
+                             timeout=request.timeout_s, context=context)
         try:
             answer = bound.chat(layer)
         except LlmError as e:
@@ -152,12 +157,10 @@ class ServerProvider(AiLayerProvider):
     layer_type = "server"
 
     def __init__(self, settings: Optional[ProviderSettings] = None) -> None:
+        # No endpoint is needed when the host gives the person's own engine session per call (the
+        # CLI and the console do); ``endpoint`` and ``api_key_env`` are the fallback for a program
+        # that uses the assistant with no session of its own to lend.
         super().__init__(settings)
-        if not self.settings.endpoint:
-            raise AssistConfigError(
-                f"provider {self.settings.id or self.name!r} (server) needs an endpoint: the engine's HTTP "
-                f"URL, such as https://engine:18080"
-            )
 
     def _block(self, model: str) -> Dict[str, Any]:
         block = super()._block(model)

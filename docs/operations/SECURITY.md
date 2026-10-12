@@ -555,7 +555,36 @@ feature on `LlmGateway` -- and does so only when an administrator turns it on.
   depends on it (`ArchitectureRulesTest.aiLayerDependsOneWay`), and no model output is executed: the
   assistant's drafts are still judged by the engine and registered only on a person's confirmation.
 - **Clients hold no key** when they use the SDK's `server` provider (the console does): the call is the
-  person's own, under their engine session, and the engine's policy and audit apply.
+  person's own, under their engine session, and the engine's policy and audit apply. The CLI's assistant
+  lends the provider its own `--http` session too, so a `server` model is called as the person running
+  the command, never with a token of the provider's own unless no session is there to lend.
+
+### What leaves the node in a prompt: the plain-English features
+
+The features of [AI.md](../guides/AI.md) -- ask your data, drafts, alert drafts, explain, the change
+narrative, ask about this page -- follow Drishti's rule: **the model writes names and SQL, never answers**.
+
+- **A prompt carries the schema of what the asking person may read** -- view, stream and column names,
+  types, keys, catalogue descriptions -- and their own words. A relation the policy refuses them is not
+  named; **a column masked for them is left out**. Every person-written text sits between markers with a
+  per-request random id, and the system text says it is data.
+- **No row and no value** under `pravaha.ai.values: labels-only` (the default): a change is told as its
+  key values and counts only. `aggregates` also sends the person's own results and changes -- after their
+  row filter and masks, masked columns left out, at most `pravaha.ai.features.ask-rows` rows -- to the
+  model's provider; set it only for a provider you may send such figures to.
+- **What the model writes is run as the person**, through the same `ViewQuery` as Flight and the
+  PostgreSQL gateway: their grants, row filters, masks, read admission and deadline. A view they may not
+  read is refused `PRV-7002` whatever the model, or a description pretending to be an instruction, says.
+  Drafts and alert drafts are judged by registration's and `CREATE ALERT`'s own checks and are **never
+  registered or created** by the feature: that is the person's own confirmed call.
+- **Two gates**: the engine's capability first (no readable view, or no right to register, never reaches
+  a model), then the AI policy per feature (`ask`, `draft`, `alert`, `explain`, `narrative`, `page`).
+- **Audited without text**: the `ai.call` event, and the feature's own `ai.<feature>` event (target,
+  outcome, sizes such as `questionChars=24 turns=2 rows=3`). Never a prompt, an answer, a row or SQL.
+- **Why a view changed** keeps a bounded window of a view's recent commits in the server's memory from
+  the first question about it (`change-commits`, `change-views`); the window holds the engine's rows, and
+  each reader's row filter and masks are applied when they ask. A view whose reads a security policy
+  filters inside the plan is not explained (`PRV-7003`).
 
 ## Transport
 

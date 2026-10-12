@@ -508,6 +508,21 @@ pravaha:
       #   api:explain:
       #     roles: [analyst, admin]
       #     per-user-per-minute: 10
+      # The plain-English features are named ask, draft, alert, explain, narrative and page.
+    # What the plain-English features may send a model (docs/guides/AI.md): labels-only (names, types,
+    # keys and counts; never a value) or aggregates (also the reader's own results, unmasked columns only).
+    values: labels-only
+    features:
+      # provider/model the features use; empty is default-model.
+      model: ""
+      max-question-chars: 600
+      max-tokens: 2000
+      timeout-seconds: 30
+      # The most rows an ask-your-data answer holds.
+      ask-rows: 200
+      # Why did a view change: the commits kept per view, and the views kept at once.
+      change-commits: 50
+      change-views: 16
 
   # Alerts (ADR-057): CREATE ALERT ... NOTIFY <channel>. Every decision about every key is journalled
   # before anything is sent (exactly-once state); a notification is sent until the channel accepts it,

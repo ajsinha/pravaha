@@ -738,5 +738,75 @@ class EngineApi:
         body = {k: v for k, v in (("model", model), ("prompt", prompt)) if v}
         return dict(self._rest.post("/api/v1/admin/ai/test", body) or {})
 
+    # ------------------------------------------------------------------ the AI features (docs/guides/AI.md)
+    #
+    # The model writes names and SQL, never answers: the engine judges what it wrote and runs it as
+    # *you* -- this client's token -- so your grants, row filters and masks apply and the audit trail
+    # names you. Nothing below registers, creates or saves anything.
+
+    def ai_ask(self, question: str, conversation: Optional[Sequence[Mapping[str, Any]]] = None) -> dict[str, Any]:
+        """Ask your data: ``sql`` (the SQL the model chose), ``explanation``, ``columns``, ``rows`` (as
+        the engine answered you), ``rowCount``, ``truncated``, ``chart`` (``kind`` stat, line, bar or
+        table, chosen from the result's shape), ``values`` and ``summary`` (``aggregates`` mode only).
+        ``conversation`` is earlier ``{"question", "sql"}`` turns, oldest first, for a follow-up.
+        ``POST /api/v1/ai/ask``."""
+        body: dict[str, Any] = {"question": question}
+        if conversation:
+            body["conversation"] = [{"question": t.get("question"), "sql": t.get("sql")} for t in conversation]
+        return dict(self._rest.post("/api/v1/ai/ask", body) or {})
+
+    def ai_draft(self, description: str, name: Optional[str] = None) -> dict[str, Any]:
+        """A continuous query drafted from ``description``, judged by the engine as registering it
+        would be, with its ``dryRun`` (``fingerprint``, ``plan``, ``reads``, ``lane``, ``sharesWith``).
+        ``statement`` is what to register; nothing is registered. ``POST /api/v1/ai/draft``."""
+        body = {"description": description, **({"name": name} if name else {})}
+        return dict(self._rest.post("/api/v1/ai/draft", body) or {})
+
+    def ai_alert_draft(self, description: str, name: Optional[str] = None) -> dict[str, Any]:
+        """A ``CREATE ALERT`` drafted from ``description`` and judged as creating it would be;
+        nothing is created. ``POST /api/v1/ai/alert-draft``."""
+        body = {"description": description, **({"name": name} if name else {})}
+        return dict(self._rest.post("/api/v1/ai/alert-draft", body) or {})
+
+    def ai_explain(
+        self,
+        kind: str,
+        *,
+        sql: Optional[str] = None,
+        query: Optional[str] = None,
+        code: Optional[str] = None,
+        message: Optional[str] = None,
+        view: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """An explanation: ``kind="sql"`` (``sql`` or a registered ``query``, grounded in the
+        engine's plan), ``"refusal"`` (``code``, optionally ``message`` and the ``sql`` the engine
+        re-checks) or ``"change"`` (why ``view`` changed: its recent commits as you may see them).
+        ``POST /api/v1/ai/explain``."""
+        body = {k: v for k, v in (("kind", kind), ("sql", sql), ("query", query), ("code", code),
+                                  ("message", message), ("view", view)) if v}
+        return dict(self._rest.post("/api/v1/ai/explain", body) or {})
+
+    def ai_narrate(self, view: str, changes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """A batch of ``view``'s changes in plain English: each change ``{"weight": 1 | -1, "values":
+        [...]}`` in the view's column order. Keys and counts only reach the model under
+        ``labels-only``. ``POST /api/v1/ai/narrate``."""
+        body = {"view": view, "changes": [{"weight": c.get("weight"), "values": list(c.get("values") or [])}
+                                          for c in changes]}
+        return dict(self._rest.post("/api/v1/ai/narrate", body) or {})
+
+    def ai_page(
+        self,
+        screen: str,
+        about: str,
+        question: str,
+        topics: Optional[Sequence[Mapping[str, str]]] = None,
+    ) -> dict[str, Any]:
+        """Ask about a console page, answered from its ``about`` text and the help ``topics`` sent
+        (``{"title", "text"}``) only -- no data. ``POST /api/v1/ai/page``."""
+        body: dict[str, Any] = {"screen": screen, "about": about, "question": question}
+        if topics:
+            body["topics"] = [dict(t) for t in topics]
+        return dict(self._rest.post("/api/v1/ai/page", body) or {})
+
 
 __all__ = ["EngineApi"]

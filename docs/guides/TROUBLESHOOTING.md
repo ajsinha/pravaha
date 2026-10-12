@@ -151,6 +151,7 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-1085` AI limit | **429**: a per-user limit (`per-user-per-minute`, a feature's own, `per-user-per-day`, `cost-per-user-per-day`), the vendor's own rate limit (its HTTP 429, after the file's `retries`), or more than `pravaha.ai.test-per-minute` test connections. The message says which and, for the minute, how long to wait |
 | `PRV-1086` AI timeout | **504**: the model endpoint did not answer within the call's `timeoutSeconds` (the test connection's 15 s) or the file's `timeout`. A local model loading for the first time is slow: raise `timeout` in its file |
 | `PRV-1087` AI model failed | **502**: the model endpoint answered an error or something unusable -- the status and a hint (401/403 the key or its permission, 404 the path or the model id), **never the vendor's body**, which can echo the prompt. `GET /api/v1/admin/ai` shows the provider `DOWN` with the same words |
+| `PRV-1088` AI answer unusable | **422**: a plain-English feature (`POST /api/v1/ai/ask`, `/draft`, `/alert-draft`; `pravaha query --ask`, `chat`, `ask --engine`, `alert --ask`) could not use the model's answer: the engine refused the SQL or statement the model chose, and again after one repair turn with the engine's words; or the answer was no query, statement or JSON; or the model said the question cannot be answered from what you may read. Nothing was run, registered or created; the message quotes the last refusal or the model's reason. Say it more plainly or name the view and columns, or write the SQL. A view you may not read is the engine's own `PRV-7002`, with the SQL the model chose quoted ([AI.md](AI.md#10-errors)) |
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`; on any endpoint, an `?offset=` or `?limit=` that is present and empty or not a number, an empty `?level=` or `?format=` on `/explain`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
 
 `7001`'s message says only that the credential was not accepted, never *why*: "expired" versus
@@ -997,6 +998,7 @@ client models the error rather than an empty object.
 | `PRV-1085` | AI_RATE_LIMITED | ai |
 | `PRV-1086` | AI_TIMEOUT | ai |
 | `PRV-1087` | AI_FAILED | ai |
+| `PRV-1088` | AI_ANSWER_UNUSABLE | ai |
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |

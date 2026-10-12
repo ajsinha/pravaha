@@ -16,7 +16,9 @@ node did not answer. docs: the console's CLI reference, "Exit codes" and "JSON o
 
 The assistant's commands (``ask``, ``explain-sql``, ``why``, ``assist``) keep the contract: a
 model that failed exits ``1`` with the normalised error, a wrong assistant configuration exits
-``2``; ``ask`` exits ``1`` when the engine still refuses the draft after its repair turns.
+``2``; ``ask`` exits ``1`` when the engine still refuses the draft after its repair turns. The engine's
+AI features (``query --ask``, ``chat``, ``--engine``, ``alert --ask``, ``explain --why-changed``,
+``subscribe --narrate``) keep it too: the engine's refusal exits ``1`` with its code.
 
 Every option that says how to reach the engine (``--url``, ``--http``, ``--token``, ``--json``,
 the TLS options...) is accepted before the command or after it, because the Java CLI took them
@@ -35,6 +37,7 @@ from typing import Any, NoReturn, Optional, Sequence, TextIO
 import pravaha
 from pravaha.assist.errors import AssistConfigError, AssistError
 from pravaha.cli import (
+    _ai,
     _alerts,
     _assist,
     _catalog,
@@ -96,8 +99,14 @@ Offline -- planning or running SQL with no server -- is the Java tool `pravaha-e
 (validate --schema, explain --schema, run).
 
 The assistant (ask, explain-sql, why, assist) asks a configured model, with the engine as the
-judge; see docs/guides/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
+judge; see docs/guides/AI.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
 when the engine still refuses the draft after its repair turns. Only --register registers.
+
+The engine's own AI features ask its AI layer as you, over --http: query --ask and chat (ask your data;
+the SQL the model chose is printed first), ask --engine, alert --ask, explain --why-changed,
+explain-sql --engine, why --engine, subscribe --narrate. The engine judges and runs everything under
+your grants; nothing is registered or created without --yes or a y at the terminal. PRV-1088 (exit 1):
+the model's answer could not be used.
 
 pravaha <command> --help prints one command's flags, and examples, without contacting anything.
 Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine,
@@ -267,6 +276,15 @@ def build_parser() -> _Parser:
                    help="values for the ? placeholders, in order: integer, then decimal, else text")
     p.add_argument("--tsv", action="store_true",
                    help="tab-separated with a header, NULL for null (the Java CLI's format)")
+    p.add_argument("--ask", metavar="QUESTION",
+                   help="ask your data in plain English instead of --sql: the engine's AI layer writes the "
+                        "SQL, runs it as you (--http) and prints it with the rows")
+    p.add_argument("--chart", action="store_true",
+                   help="with --ask, the chart the result's shape suits (stat, line, bar or table)")
+
+    p = b.add("chat", _ai.chat, "Ask your data in plain English, with follow-ups (the engine's AI layer).")
+    p.add_argument("--once", metavar="QUESTION", help="ask one question and exit, for a script")
+    p.add_argument("--chart", action="store_true", help="print the chart each result's shape suits")
 
     p = b.add("register", _flight.register, "Register a continuous query. It runs until dropped.")
     p.add_argument("--name", help="the view's name")
@@ -345,6 +363,9 @@ def build_parser() -> _Parser:
     p.add_argument("--buffer-rows", type=int, metavar="N", help="the server's buffer for you")
     p.add_argument("--overflow", choices=["CONFLATE", "DROP_OLDEST", "FAIL"], type=str.upper,
                    help="what the server does when you fall behind")
+    p.add_argument("--narrate", action="store_true",
+                   help="after each commit, a plain-English line about it from the engine's AI layer "
+                        "(keys and counts only, unless the node allows values)")
 
     p = b.add("dlq", _flight.dlq, "Dead letters: the records a query's feed could not decode.")
     add = b.verbs(p, _flight.dlq, required=True)
@@ -493,6 +514,9 @@ def build_parser() -> _Parser:
     p.add_argument("--schema", help=argparse.SUPPRESS)
     p = b.add("explain", _http.explain, "The plan the node would run for SQL.")
     _sql_options(p)
+    p.add_argument("--why-changed", dest="why_changed", metavar="VIEW",
+                   help="instead of a plan: why VIEW changed lately, in plain English, from its commits as "
+                        "you may see them (the engine's AI layer)")
     p.add_argument("--level", default="physical", help="physical (default), logical or codegen")
     p.add_argument("--graph", action="store_true", help="with --json, the plan as nodes and edges")
     p.add_argument("--schema", help=argparse.SUPPRESS)
@@ -611,6 +635,9 @@ def build_parser() -> _Parser:
                    help="with --register, register without asking")
     p.add_argument("--show-context", action="store_true",
                    help="also print what the model was told about the catalogue")
+    p.add_argument("--engine", action="store_true",
+                   help="let the engine's AI layer draft it (no assistant configuration): judged, "
+                        "dry-run and shown; --register still asks first")
     _assist_options(p, "draft")
 
     p = b.add("explain-sql", _assist.explain_sql,
@@ -620,6 +647,8 @@ def build_parser() -> _Parser:
     p.add_argument("--level", default="physical", help="the plan given to the model: physical "
                                                        "(default) or logical")
     p.add_argument("--show-plan", action="store_true", help="print the engine's plan too")
+    p.add_argument("--engine", action="store_true",
+                   help="ask the engine's AI layer instead of the assistant's models")
     _assist_options(p)
 
     p = b.add("why", _assist.why,
@@ -628,6 +657,8 @@ def build_parser() -> _Parser:
     _sql_options(p)
     p.add_argument("--no-check", action="store_true",
                    help="do not ask the engine to validate a rewrite the model proposes")
+    p.add_argument("--engine", action="store_true",
+                   help="ask the engine's AI layer instead of the assistant's models")
     _assist_options(p)
 
     p = b.add("assist", _assist.assist, "The assistant's models, profiles and providers.")
@@ -773,7 +804,12 @@ def build_parser() -> _Parser:
     v.add_argument("--key", metavar="'COL=V, COL=V'", help="one key as `alerts show` prints it; default all")
 
     p = b.add("alert", _alerts.alert, "Create or drop an alert (a CREATE ALERT statement, over Flight).")
-    add = b.verbs(p, _alerts.alert, required=True)
+    p.add_argument("--ask", metavar="DESCRIPTION",
+                   help="draft the alert from words (the engine's AI layer judges it), show it, and create "
+                        "it only with --yes or a y at the terminal")
+    p.add_argument("--name", help="with --ask, the alert's name (default: the model's)")
+    _yes(p, "with --ask, create the drafted alert")
+    add = b.verbs(p, _alerts.alert)
     v = add("create", "Notify when a key's row enters a view (fired) and when it leaves (cleared).")
     v.add_argument("name", metavar="<alert>")
     v.add_argument("--on", metavar="VIEW", help="the continuous query's view it watches")

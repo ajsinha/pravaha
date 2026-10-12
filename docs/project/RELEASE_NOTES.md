@@ -12,6 +12,20 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+- **Plain English on the engine, on Drishti's BI AI design ([AI.md](../guides/AI.md)).** Six features on
+  the AI layer, each under its own policy name and audited without text: **ask your data**
+  (`POST /api/v1/ai/ask`: the SQL the model chose, run as you -- your grants, row filters and masks --
+  the chart chosen from the result's shape, follow-ups), **drafts** (`/draft`: a continuous query judged
+  as registering it would be, with its dry run -- plan, reads, lane, the queries it would share),
+  **plain-English alerts** (`/alert-draft`, judged by `CREATE ALERT`'s own checks), **explain**
+  (`/explain`: a query from its plan, a refusal, why a view changed), the **change narrative**
+  (`/narrate`) and **ask about this page** (`/page`). The model is told only the schema of what you may
+  read -- masked columns left out -- and never a value unless `pravaha.ai.values: aggregates`; a refusal
+  gets one repair turn, then `PRV-1088`; nothing is registered or created. CLI: `query --ask`, `chat`,
+  `ask --engine`, `alert --ask`, `explain --why-changed`, `explain-sql --engine`, `why --engine`,
+  `subscribe --narrate`; SDK: `EngineApi.ai_ask` and five more. The assistant's `server` provider now
+  calls the engine as the signed-in person (the CLI's and the console's session), not with a token of its
+  own.
 - **An AI layer, on Drishti's design, off by default (ADR-063).** A new module, `pravaha-ai`: provider
   and model interfaces, one YAML file per provider in `pravaha.ai.dir` (keys only from `${ENV}` -- a
   literal key is refused when the file is read), a registry with health and hot reload, a policy of
