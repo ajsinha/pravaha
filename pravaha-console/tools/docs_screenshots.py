@@ -195,7 +195,7 @@ def take(shots: list[Shot], out: pathlib.Path = OUT) -> list[pathlib.Path]:
             try:
                 tab = browser.new_page(width=WIDTH, height=HEIGHT)
                 tab.before_every_document(harness.DETERMINISM)
-                tab.before_every_document(harness.theme_script("light"))
+                tab.before_every_document(harness.theme_script("crimson"))
                 tab.before_every_document("try{localStorage.removeItem('pravaha.workbench.tabs')}catch(e){}")
                 tab.emulate(reduced_motion=True, scheme="light")
                 harness.sign_in(tab, console, password=password)

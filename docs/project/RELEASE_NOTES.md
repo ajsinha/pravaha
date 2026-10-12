@@ -10,6 +10,24 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **The console wears drishti's design.** drishti's seven themes under its names and ids — Terminal,
+  Parchment, Blue, Wall Street, Green, Crimson and Crimson dark — with its token values exactly
+  (`tokens.css`, the only place a colour lives), Crimson the default; its glass or coloured top bar,
+  mega-menu panels, round tools, gradient avatar, pill buttons, gradient-headed panels, chips, footer
+  and landing page; the theme applied before the first paint by `theme-init.js`, and an older choice
+  carried over (`dark` becomes Crimson dark). The landing page's last figure is now a highway: orders
+  and payments joined on `user_id`, held at a one-minute window's toll gate, delivered into a view and
+  on to a subscriber, a chart and a sink, with a late pair corrected as a −1 and a +1; it pauses
+  off-screen and on request, and stands still for reduced motion. Contrast is checked for every text
+  token on every ground in all seven themes; the visual baselines are 7 themes × 2 widths, and compact
+  in Crimson and Terminal.
+
+---
+
+Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 2.4.2 — 2026-10-12
 
 **The console on a phone, and on the network.** 2.4.2 makes every console page usable at phone

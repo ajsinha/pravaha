@@ -5,7 +5,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 How to change the console: add or change a screen, add an engine call, add a help topic, and test all of
 it. **The console's own [`README.md`](../../../pravaha-console/README.md) is the canonical description** of its
-layout, its design rules (MAYA), its vendored libraries, its help system and its test tiers; this guide is
+layout, its design rules (drishti's), its vendored libraries, its help system and its test tiers; this guide is
 the task-by-task path through it and does not repeat it. Running it from PyCharm is
 [`RUNNING_IN_INTELLIJ_AND_PYCHARM.md`](../setup/RUNNING_IN_INTELLIJ_AND_PYCHARM.md#the-console-in-pycharm); where it sits in the system
 is [clients and console](../../design/architecture/clients-and-console.md#the-console). Conventions:
@@ -102,6 +102,31 @@ renders to a screen. To give a new page its panel:
 words or tiles, and words for a screen no page shows. Help's own pages are exempt (`EXEMPT`): each topic
 already ends with its own footer, and a second would say the same thing twice.
 
+### Themes
+
+The console wears drishti's seven themes, under drishti's ids: **Terminal** (`terminal`, navy and amber), **Parchment** (`light`), **Blue** (`blue`), **Wall Street** (`wallstreet`, Bloomberg black and amber), **Green** (`green`), **Crimson** (`crimson`, Pravaha's brand and the default) and **Crimson dark** (`crimson-dark`).
+`web/static/css/tokens.css` is the only place a colour is defined — a stylesheet, template or script
+that states a hex colour fails `tests/test_contrast.py` (the brand SVGs and the theme menu's swatches,
+which live in `tokens.css`, are the exceptions). Use a token: drishti's `--d-*` names (`--d-accent`,
+`--d-ink`, `--d-muted`, `--d-link`, `--d-surface`, …) or the console's role aliases (`--pv-crimson` is
+the accent, `--flow` and `--muted` in the product stylesheets). Gradients belong on the chrome only
+(`gradients.css`): the page wash, the bar, panel headers, big titles, accent buttons — never a table,
+a panel body or a number.
+
+To add a theme:
+
+1. Add a `:root[data-theme="<id>"]` block to `tokens.css` declaring **every** token the Crimson block
+   declares (the test fails on a missing one), including the band stops `--d-nav-from/via/to`,
+   `--pv-heading`, `--pv-retract` and the eight `--pv-series-*`.
+2. Add `.swatch-<id>` beside the other swatches in `tokens.css`, and the id to `THEMES` in
+   `static/js/theme.js` and `static/js/theme-init.js` (and `DARK` in both if its ground is dark), to
+   the list in `_theme_menu.html`, and its name to `shell.themes` in `web/i18n/en.json`.
+3. If its bar is a coloured band rather than glass, add it to the `:root:is(...)` selectors in
+   `nav.css` and `gradients.css`; set its gradient strengths (`--g-*`) in `gradients.css`.
+4. Add it to `THEMES` in `tests/test_contrast.py` and `tests/browser_harness.py`, run
+   `test_contrast.py` until it passes, then take its baselines with `PRAVAHA_UPDATE_BASELINES=1` and
+   look at them.
+
 ### Mobile
 
 Every page must work on a phone. `tests/test_browser_mobile.py` loads every page in `PAGES` (plus the
@@ -183,7 +208,7 @@ so. Run the browser suites when pages change, not on every edit.
 
 Every image in `docs/assets/screenshots/` is made by `tools/docs_screenshots.py` from the list it
 declares (`SHOTS`): the console screens with the same harness — `Console(BrowserEngine())`, real
-Chrome through `tests/cdp.py`, the `DETERMINISM` script and the light theme, at 1400×900 — so they show
+Chrome through `tests/cdp.py`, the `DETERMINISM` script and the Crimson theme, at 1400×900 — so they show
 the fake engine's data, not a live node's; the two IDE-guide shots against a scratch node (the server
 jar on free ports, profiles `dev,users`, a `txn` stream) with a console over it signed in as `admin`,
 its ports shown as the standard ones.

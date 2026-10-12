@@ -7,7 +7,7 @@ icon: signpost-2
 summary: "What Pravaha is and the three nouns it is built from; your first maintained view end to end, with the output of every step; and the console, screen by screen — the bar, the menus, the themes."
 badge: START
 audience: Everyone
-keywords: [overview, introduction, what is pravaha, orientation, stream, view, continuous query, mental model, tutorial, quickstart, walkthrough, first run, csv, follow, psql, python, console, ui, workbench, catalog, operations, admin, palette, deep link, roles, ports, menu, mega menu, navigation, theme, crimson, dark, blue, green, maya]
+keywords: [overview, introduction, what is pravaha, orientation, stream, view, continuous query, mental model, tutorial, quickstart, walkthrough, first run, csv, follow, psql, python, console, ui, workbench, catalog, operations, admin, palette, deep link, roles, ports, menu, mega menu, navigation, theme, crimson, crimson dark, terminal, parchment, wall street, blue, green, drishti]
 guide: quickstart
 related: [clients, streams, views-and-keys, event-time-watermarks, zset-weights, subscriptions]
 ---
@@ -626,7 +626,7 @@ exactly what the engine's policy lets you see. It is remembered for you on that 
 
 ### Finding your way: the bar, the menu, the themes
 
-The console is drawn in the design language of MAYA, its sibling product. Signed in, the bar across
+The console is drawn in the design language of drishti, its sibling product. Signed in, the bar across
 the top holds the mark and the three brand lines, then five menus, each opening a panel of columns:
 
 | Menu | What is in it |
@@ -644,10 +644,13 @@ that jumps to the page's *About this page*, alerts, the
 *Compact rows*, and Sign out. Signed out, the bar is the public one: Help, About, the theme menu
 and Sign in.
 
-**Themes.** Four, as MAYA has them: **Crimson**, **Dark**, **Blue** and **Green**, each shown with
-a swatch in the theme menu (the palette button), or cycled with **t**. Your choice is kept in this
-browser; until you choose, the console follows your system's light or dark setting. **d** switches
-between comfortable and compact rows.
+**Themes.** Seven, as drishti has them: **Terminal** (navy and amber), **Parchment**, **Blue**,
+**Wall Street** (black and amber, after the Bloomberg terminal), **Green**, **Crimson** and **Crimson
+dark**, each shown with a swatch in the theme menu (the palette button), or cycled with **t**. Your
+choice is kept in this browser and applied before the page is drawn, so nothing flashes; until you
+choose, the console is **Crimson**, Pravaha's own colour. A choice made before the seven arrived is
+carried over (the old dark theme becomes Crimson dark). **d** switches between comfortable and
+compact rows, in any theme.
 
 Under the bar, a line says where you are — the engine's address, the environment when one is
 configured (`app.environment`), the console's version — and a warning takes its place when the
