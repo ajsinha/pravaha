@@ -177,10 +177,13 @@ class _PersonRouter:
     their name in the usage ledger and checked against their daily budget -- and counted, by
     model and profile, for ``/metrics`` (never by person: the assist log is where that is kept)."""
 
-    def __init__(self, router: ModelRouter, user: str, metrics: AssistMetrics | None = None) -> None:
+    def __init__(self, router: ModelRouter, user: str, metrics: AssistMetrics | None = None,
+                 engine: Any = None) -> None:
         self._router = router
         self._user = user
         self._metrics = metrics
+        #: The person's engine session: a ``server`` provider calls the engine as them (ADR-063).
+        self._engine = engine
 
     @property
     def config(self) -> AssistConfig:
@@ -188,6 +191,8 @@ class _PersonRouter:
 
     def complete(self, request: Any, *, profile: str | None = None, model: str | None = None,
                  user: str | None = None) -> Any:
+        if self._engine is not None and getattr(request, "engine", None) is None:
+            request = dataclasses.replace(request, engine=self._engine)
         if self._metrics is None:
             return self._router.complete(request, profile=profile, model=model, user=self._user)
         label = "direct" if model else (profile or self._router.config.default_profile or "default")
@@ -514,7 +519,8 @@ class AssistService:
 
     def _assistant(self, user: str) -> Assistant:
         # Duck-typed stand-ins for ModelRouter and EngineApi: the slices the assistant calls.
-        router: Any = _PersonRouter(self.router, user, self.metrics)
+        from core.ai import EngineAiAdapter
+        router: Any = _PersonRouter(self.router, user, self.metrics, EngineAiAdapter(self._engine))
         api: Any = EngineApiAdapter(self._engine)
         return Assistant(router, api,
                          client=ClientAdapter(self._engine))

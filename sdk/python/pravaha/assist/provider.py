@@ -78,6 +78,10 @@ class ChatRequest:
     timeout_s: float = 60.0
     #: Request id, tenant, user: passed to a provider's own logs where it takes them.
     metadata: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    #: The signed-in person's engine session (an ``EngineApi`` or ``RestClient``), or ``None``. A
+    #: provider that calls the engine -- ``server`` -- calls it *as them*, so the engine applies
+    #: their AI policy and its audit names them, never a token of the provider's own.
+    engine: Any = dataclasses.field(default=None, compare=False, repr=False)
 
 
 @dataclasses.dataclass(frozen=True)

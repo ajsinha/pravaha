@@ -88,6 +88,36 @@ def test_the_server_type_asks_the_engine_and_a_limited_engine_falls_through(tmp_
         engine.close()
 
 
+def test_the_server_type_calls_the_engine_as_the_signed_in_person_not_with_its_own_token(tmp_path):
+    """The gap Wave 5 left: the provider's own token (``api_key_env``) made every person the same caller
+    to the engine's policy and audit. A host's session -- the CLI's, the console's -- now goes with each
+    call, and the file's token is only the fallback."""
+    from pravaha.rest import RestClient
+    engine = FakeEngine(token="ana-session")
+    try:
+        doc = {"default_profile": "explain",
+               "providers": [{"id": "engine", "type": "server", "endpoint": engine.url, "api_key_env": "PRAVAHA_TOKEN",
+                              "options": {"allow-insecure-token": True}},
+                             {"id": "sessionless", "type": "server"}],
+               "models": [{"id": "corp", "provider": "engine", "model": "default"},
+                          {"id": "lent", "provider": "sessionless", "model": "default"}],
+               "profiles": {"explain": ["corp"]}}
+        person = RestClient(engine.url, token="ana-session", allow_insecure_token=True)
+        router = ModelRouter(AssistConfig.from_dict(doc), ledger=UsageLedger(tmp_path / "usage.json"),
+                             environ={"PRAVAHA_TOKEN": "service-token"}, user="ana", engine=person)
+        router.complete(_ask("as whom?"), profile="explain")
+        assert engine.seen[-1][1]["Authorization"] == "Bearer ana-session"
+        router.complete(_ask("and with no endpoint at all?"), model="lent")
+        assert engine.seen[-1][1]["Authorization"] == "Bearer ana-session"
+        alone = ModelRouter(AssistConfig.from_dict(doc), ledger=UsageLedger(tmp_path / "u2.json"),
+                            environ={"PRAVAHA_TOKEN": "service-token"}, user="ana")
+        with pytest.raises(ModelUnavailable, match="credential was not accepted"):  # not one this engine takes
+            alone.complete(_ask("no session to lend"), profile="explain")
+        assert engine.seen[-1][1]["Authorization"] == "Bearer service-token"
+    finally:
+        engine.close()
+
+
 def test_the_ai_type_reaches_any_provider_of_the_layer_and_normalises_its_errors(tmp_path):
     s = FakeServer("gemini")
     try:
@@ -115,8 +145,9 @@ def test_configuration_mistakes_are_refused_before_anything_is_sent():
         AiLayerProvider(ProviderSettings(id="x"))
     with pytest.raises(AssistConfigError, match="has no type 'nonesuch'"):
         AiLayerProvider(ProviderSettings(id="x", options={"type": "nonesuch"}))
-    with pytest.raises(AssistConfigError, match="needs an endpoint"):
-        ServerProvider(ProviderSettings(id="engine"))
+    # No endpoint is fine (the host lends the person's session per call); with neither, the call says so.
+    with pytest.raises(ModelUnavailable, match="needs the engine"):
+        ServerProvider(ProviderSettings(id="engine"))._send(_ask(), native_schema=False)
     with pytest.raises(AssistConfigError, match="base-url is required"):
         AiLayerProvider(ProviderSettings(id="v", options={"type": "openai_compatible"}))._send(
             _ask(), native_schema=False)
