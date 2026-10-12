@@ -24,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,5 +61,16 @@ class AiFeaturesOffHttpTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("PRV-1080"));
         }
+    }
+
+    @Test
+    void theFeaturesStatusSaysOffAndOpensNothing() throws Exception {
+        mvc.perform(get("/api/v1/ai/features").header("Authorization", "Bearer reader-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.values").value("labels-only"))
+                .andExpect(jsonPath("$.features.ask").value(false))
+                .andExpect(jsonPath("$.features.page").value(false));
+        mvc.perform(get("/api/v1/ai/features")).andExpect(status().isUnauthorized());
     }
 }
