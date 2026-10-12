@@ -1,0 +1,311 @@
+{
+ "_comment": "One contract, run by pravaha-ai/.../HttpProvidersContractTest.java and sdk/python/tests/test_ai_providers.py (ported from Drishti) against the HTTP providers (Drishti's list, plus openai, anthropic and azure_openai, which Pravaha serves on the same HTTP stack), each talking to a fake server of its own API on loopback (same rules in both languages: the last user text is echoed, 'weather' asks for the tool get_weather, 'boom' is HTTP 500, 'limit' is HTTP 429). The two layers must agree.",
+ "name": "contract",
+ "providers": [
+  {
+   "label": "openai",
+   "type": "openai",
+   "fake": "openai",
+   "config": {
+    "api-key": "${THE_KEY}",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "gpt-model",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "embed-model",
+      "kind": "embedding"
+     }
+    ]
+   }
+  },
+  {
+   "label": "anthropic",
+   "type": "anthropic",
+   "fake": "anthropic",
+   "config": {
+    "api-key": "${THE_KEY}",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "claude-model",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "none",
+      "kind": "embedding"
+     }
+    ]
+   },
+   "embeddings": false
+  },
+  {
+   "label": "azure_openai",
+   "type": "azure_openai",
+   "fake": "azure",
+   "config": {
+    "api-key": "${THE_KEY}",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "gpt-model",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "embed-model",
+      "kind": "embedding"
+     }
+    ]
+   }
+  },
+  {
+   "label": "groq (openai-compatible preset)",
+   "type": "groq",
+   "fake": "openai",
+   "config": {
+    "api-key": "${THE_KEY}",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "chat-model",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "embed-model",
+      "kind": "embedding"
+     }
+    ]
+   }
+  },
+  {
+   "label": "ollama",
+   "type": "ollama",
+   "fake": "ollama",
+   "config": {
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "llama3.2",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "nomic-embed-text",
+      "kind": "embedding"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gemini",
+   "type": "gemini",
+   "fake": "gemini",
+   "config": {
+    "api-key": "${THE_KEY}",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "gemini-2.5-flash",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "gemini-embedding-2",
+      "kind": "embedding"
+     }
+    ]
+   }
+  },
+  {
+   "label": "cohere",
+   "type": "cohere",
+   "fake": "cohere",
+   "config": {
+    "api-key": "${THE_KEY}",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "command-a-03-2025",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "embed-v4.0",
+      "kind": "embedding"
+     }
+    ]
+   }
+  },
+  {
+   "label": "bedrock",
+   "type": "bedrock",
+   "fake": "bedrock",
+   "config": {
+    "aws-access-key-id": "${AKID}",
+    "aws-secret-access-key": "${ASECRET}",
+    "region": "us-east-1",
+    "catalogue": false,
+    "default-model": "chat",
+    "models": [
+     {
+      "name": "chat",
+      "id": "anthropic.claude-sonnet-5-5",
+      "cost-per-1k-input": 0.001,
+      "cost-per-1k-output": 0.002
+     },
+     {
+      "name": "vec",
+      "id": "amazon.titan-embed-text-v2:0",
+      "kind": "embedding"
+     }
+    ]
+   }
+  }
+ ],
+ "catalogue": [
+  {
+   "id": "chat",
+   "kind": "chat"
+  },
+  {
+   "id": "vec",
+   "kind": "embedding"
+  }
+ ],
+ "chat": [
+  {
+   "name": "echo",
+   "messages": [
+    [
+     "user",
+     "ping"
+    ]
+   ],
+   "expect": {
+    "text": "echo: ping",
+    "finish_reason": "stop"
+   }
+  },
+  {
+   "name": "system then user",
+   "messages": [
+    [
+     "system",
+     "be brief"
+    ],
+    [
+     "user",
+     "Hello world"
+    ]
+   ],
+   "expect": {
+    "text": "echo: Hello world",
+    "finish_reason": "stop"
+   }
+  },
+  {
+   "name": "tool call",
+   "messages": [
+    [
+     "user",
+     "weather in Oslo"
+    ]
+   ],
+   "expect": {
+    "finish_reason": "tool_calls",
+    "tool": "get_weather",
+    "tool_arguments": "{\"city\":\"Oslo\"}"
+   }
+  },
+  {
+   "name": "server error",
+   "messages": [
+    [
+     "user",
+     "boom"
+    ]
+   ],
+   "expect": {
+    "error": "FAILED"
+   }
+  },
+  {
+   "name": "rate limit",
+   "messages": [
+    [
+     "user",
+     "limit"
+    ]
+   ],
+   "expect": {
+    "error": "RATE_LIMITED"
+   }
+  }
+ ],
+ "stream": {
+  "messages": [
+   [
+    "user",
+    "hello"
+   ]
+  ],
+  "joined": "echo: hello",
+  "chunks": 3,
+  "last_finish_reason": "stop"
+ },
+ "embeddings": {
+  "input": [
+   "a",
+   "bb"
+  ],
+  "count": 2,
+  "dimensions": 4
+ },
+ "refusals": [
+  {
+   "name": "chat on an embedding model",
+   "model": "vec",
+   "call": "chat",
+   "error": "UNSUPPORTED"
+  },
+  {
+   "name": "embeddings on a chat model",
+   "model": "chat",
+   "call": "embeddings",
+   "error": "UNSUPPORTED"
+  },
+  {
+   "name": "unknown model",
+   "model": "nope",
+   "call": "chat",
+   "error": "NOT_FOUND"
+  }
+ ]
+}
