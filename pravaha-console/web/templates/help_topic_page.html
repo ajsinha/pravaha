@@ -6,7 +6,7 @@
     rest of the section) and the reading order. -#}
 {% block title %}{{ topic.title }} — {{ t('help.index.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
-{% block main_class %} help-page{% endblock %}
+{% block main_class %}{{ ' help-page' }}{% endblock %}
 {% block content %}
 {% set category = footer.category %}
 <div class="help-wrap help-guide">

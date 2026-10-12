@@ -6,7 +6,7 @@
     repository's documents, so fixing the file fixes the page. -#}
 {% block title %}{{ topic.title }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
-{% block main_class %} help-page{% endblock %}
+{% block main_class %}{{ ' help-page' }}{% endblock %}
 {% block content %}
 <div class="help-wrap help-guide">
   <nav class="crumbs help-crumbs" aria-label="{{ t('help.topic.breadcrumb') }}">

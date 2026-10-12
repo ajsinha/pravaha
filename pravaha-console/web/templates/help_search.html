@@ -6,7 +6,7 @@
     cards; this reads every page, and it is what Enter does and what works with no script. -#}
 {% block title %}{{ t('help.search.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
-{% block main_class %} help-page{% endblock %}
+{% block main_class %}{{ ' help-page' }}{% endblock %}
 {% block content %}
 <div class="help-wrap">
   <nav class="crumbs help-crumbs" aria-label="{{ t('help.topic.breadcrumb') }}"><a href="/help">{{ t('help.index.title') }}</a>

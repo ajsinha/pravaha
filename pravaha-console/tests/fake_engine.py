@@ -22,6 +22,7 @@ import re
 import sys
 import time
 
+from fake_ai import FakeAi
 from fake_alerts import FakeAlerts
 from fake_catalog import FakeCatalog
 from fake_identity import ADMIN, ADMIN_PASSWORD, FakeIdentity
@@ -99,6 +100,10 @@ class FakeEngine:
         self.governed = FakeCatalog(self)
         #: ADR-057's alerts; ``alerting.on = False`` is a node whose alert service is off.
         self.alerting = FakeAlerts(self)
+        #: The plain-English features (docs/guides/AI.md); ``ai.on = True`` is a node with its AI layer on.
+        self.ai = FakeAi(self)
+        #: Statements run through the read path that are not reads: CREATE ALERT, as the Workbench runs it.
+        self.statements: list[str] = []
         #: Calls that fail, and calls that take this many seconds, by method name (``_check``).
         self.failing: dict[str, Exception] = {}
         self.slow: dict[str, float] = {}
@@ -469,6 +474,9 @@ class FakeEngine:
     def query_typed(self, sql, parameters=None):
         self._check()
         self.queries_seen.append((sql, parameters))
+        if sql.lstrip().upper().startswith("CREATE ALERT"):
+            self.statements.append(sql)
+            return ["alert", "state"], [[sql.split()[2], "CREATED"]], ["string", "string"]
         return ["txn_id", "user_id", "amount"], [list(r) for r in self.rows], ["int64", "string", "int64"]
 
     def tail(self, view, filters=None):
@@ -1036,6 +1044,57 @@ class FakeEngine:
                           for q in self._queries],
                 "streams": [{"name": s["name"], "read": "full", "administer": {"allowed": True, "reason": None}}
                             for s in self.streams_list]}
+
+    # The plain-English features (docs/guides/AI.md), as core.engine.Engine calls them
+    def ai_features(self):
+        self._check()
+        return self.ai.features()
+
+    def ai_ask(self, question, conversation=None):
+        self._check()
+        return self.ai.ask(question, conversation)
+
+    def ai_draft(self, description, name=None):
+        self._check()
+        return self.ai.draft(description, name)
+
+    def ai_alert_draft(self, description, name=None):
+        self._check()
+        return self.ai.alert_draft(description, name)
+
+    def ai_explain(self, body):
+        self._check()
+        return self.ai.explain(body)
+
+    def ai_narrate(self, view, changes):
+        self._check()
+        return self.ai.narrate(view, changes)
+
+    def ai_page(self, screen, about, question, topics=None):
+        self._check()
+        return self.ai.page(screen, about, question, topics)
+
+    def ai_chat(self, body):
+        self._check()
+        if not self.ai.on:
+            raise EngineHttpError(409, "the AI layer is switched off (pravaha.ai.enabled)", "PRV-1080")
+        return {"text": "engine: " + body["messages"][-1]["content"], "toolCalls": [], "model": "mock/m",
+                "finishReason": "stop", "usage": {"promptTokens": 1, "completionTokens": 1, "cost": 0}}
+
+    def _require_admin(self, what):
+        user = self.identity.users.get(self.principal_name())
+        if credential.current() is not None and (user is None or "admin" not in user.roles):
+            raise EngineHttpError(403, f"{what} is for a node administrator", "PRV-7002")
+
+    def admin_ai(self):
+        self._check()
+        self._require_admin("the AI layer's status")
+        return self.ai.admin()
+
+    def admin_ai_test(self, model=None, prompt=None):
+        self._check()
+        self._require_admin("an AI test connection")
+        return self.ai.admin_test(model)
 
     def tenants(self):
         self._check()

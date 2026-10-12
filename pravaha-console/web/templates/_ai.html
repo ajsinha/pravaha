@@ -1,0 +1,90 @@
+{#- Pravaha console -- the plain-English controls, as macros (docs/guides/AI.md). Copyright (c) 2026 Ashutosh Sinha
+    <ajsinha@gmail.com>. All rights reserved. Drishti's designs: the BI question box under a toolbar
+    (bi-ai.js's reportAsk), "Describe a report" (its designer box), the light-bulb "Explain", and the About
+    drawer's "Ask about this page". Each control is drawn only when ai_can(request, feature) -- the engine's
+    AI layer on, and its policy open to this person -- and is a box: a form (data-ai-task: the console's
+    /api/v1/ai/<task>) and an output (data-ai-out, a live region) that ai.js fills with the fragment the
+    server drew (_ai_fragment.html). Controls that need scripting start hidden (data-ai-control) and ai.js
+    shows them; the question box also posts to /ask with scripting off. -#}
+
+{# The question box: the Ask page, Views (every view) and a view's page (scoped to it). #}
+{% macro ask_box(view='', append=False, conversation='[]', autofocus=False) %}
+<section class="ai-ask" data-ai-box data-ai-ask{% if append %} data-ai-append{% endif %} aria-label="{{ t('ai.ask.label') }}">
+  <form class="ai-form" data-ai-task="ask" method="post" action="/ask">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="conversation" value="{{ conversation }}" data-ai-conversation>
+    <label class="ai-tool">{{ t('ai.ask.heading') }}{% if view %} <span class="text-muted-d">· <span class="mono">{{ view }}</span></span>{% endif %}
+      <input type="text" class="form-control" name="question" maxlength="600" autocomplete="off" data-ai-q required
+             placeholder="{{ t('ai.ask.placeholder_view') if view else t('ai.ask.placeholder') }}"{% if autofocus %} autofocus{% endif %}></label>
+    <button type="submit" class="btn-pill btn-accent"><i class="bi bi-stars" aria-hidden="true"></i> {{ t('ai.ask.go') }}</button>
+    <button type="button" class="btn-pill btn-ghost" data-ai-new data-ai-control hidden>{{ t('ai.ask.new') }}</button>
+  </form>
+  <p class="ai-msg" role="status" aria-live="polite" data-ai-msg></p>
+  <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite">{{ caller() if caller else '' }}</div>
+</section>
+{% endmacro %}
+
+{# "Describe a continuous query" (the Workbench) and "Describe an alert" (Alerts): drishti's
+   "Describe a report". The draft comes back with its review and a confirm step; nothing is saved. #}
+{% macro describe_box(task, id, heading, note, placeholder) %}
+<section class="ai-describe" id="{{ id }}" data-ai-box>
+  <button type="button" class="btn-pill btn-ghost" data-ai-open="{{ id }}-form" data-ai-control hidden>
+    <i class="bi bi-stars" aria-hidden="true"></i> {{ heading }}</button>
+  <form class="ai-box pnl" id="{{ id }}-form" data-ai-task="{{ task }}" hidden aria-label="{{ heading }}">
+    <div class="pnl-h"><h3>{{ heading }}</h3></div>
+    <div class="pnl-b">
+      <p class="text-muted-d small">{{ note }}</p>
+      <label class="visually-hidden" for="{{ id }}-text">{{ heading }}</label>
+      <textarea class="form-control" id="{{ id }}-text" name="description" rows="3" maxlength="600" required
+                placeholder="{{ placeholder }}"></textarea>
+      <p class="mt-2 mb-0"><button type="submit" class="btn-pill btn-accent btn-sm-pill">{{ t('ai.describe.go') }}</button>
+        <button type="button" class="btn-pill btn-ghost btn-sm-pill" data-ai-close="{{ id }}-form">{{ t('ai.close') }}</button></p>
+    </div>
+  </form>
+  <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite"></div>
+</section>
+{% endmacro %}
+
+{# The light bulb: Explain in plain words -- a query (kind=sql), a refusal (kind=refusal), a view's
+   change (kind=change). `fields` are the hidden inputs the engine's explain takes. #}
+{% macro explain(kind, fields, label='', note='') %}
+<div class="ai-explain-box" data-ai-box>
+  <form class="ai-inline" data-ai-task="explain" data-ai-control hidden>
+    <input type="hidden" name="kind" value="{{ kind }}">
+    {% for k, v in fields.items() %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+    <button type="submit" class="btn-pill btn-ghost btn-sm-pill ai-bulb" data-ai-explain="{{ kind }}">
+      <i class="bi bi-lightbulb" aria-hidden="true"></i> {{ label or t('ai.explain.go') }}</button>
+    {% if note %}<span class="text-muted-d small">{{ note }}</span>{% endif %}
+  </form>
+  <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite"></div>
+</div>
+{% endmacro %}
+
+{# Summarise changes (the Live page): the batch the page has received, sent with the form by ai.js. #}
+{% macro narrate(view) %}
+<div class="ai-narrate-box" data-ai-box>
+  <form class="ai-inline" data-ai-task="narrate" data-ai-changes data-ai-control hidden>
+    <input type="hidden" name="view" value="{{ view }}">
+    <button type="submit" class="btn-pill btn-ghost btn-sm-pill"><i class="bi bi-stars" aria-hidden="true"></i> {{ t('ai.narrate.go') }}</button>
+  </form>
+  <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite"></div>
+</div>
+{% endmacro %}
+
+{# Ask about this page: the About panel's box (drishti's About drawer). The server sends the engine the
+   panel's own words and the screen's help topics; the browser sends only the screen and the question. #}
+{% macro page_ask(screen) %}
+<section class="about-ask" data-ai-box aria-labelledby="about-ask-h">
+  <h3 id="about-ask-h">{{ t('ai.page.heading') }}</h3>
+  <form class="about-ask-form" data-ai-task="page" data-ai-control hidden>
+    <input type="hidden" name="screen" value="{{ screen }}">
+    <label class="visually-hidden" for="about-ask-q">{{ t('ai.page.label') }}</label>
+    <input id="about-ask-q" class="form-control form-control-sm" type="text" name="question" maxlength="500" autocomplete="off"
+           placeholder="{{ t('ai.page.placeholder') }}" required>
+    <button type="submit" class="btn-pill btn-accent btn-sm-pill">{{ t('ai.page.go') }}</button>
+  </form>
+  <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite"></div>
+  <p class="about-note about-ask-note">{{ t('ai.page.note') }}</p>
+</section>
+{% endmacro %}

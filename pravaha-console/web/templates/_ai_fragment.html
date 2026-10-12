@@ -1,0 +1,128 @@
+{#- Pravaha console -- one plain-English answer, drawn once, here (routes/ai_routes.py). Copyright (c) 2026 Ashutosh
+    Sinha <ajsinha@gmail.com>. All rights reserved. Drishti's answer shapes (bi-ai.js): the table, the
+    picture the result suits, the summary and "The query the model chose" -- here "The SQL the model chose" --
+    and its draft review with nothing saved until the confirm. Every word the model wrote is text, never
+    markup. Expects `kind` and `answer` (or `failure`). -#}
+{% import "_ai.html" as ai with context %}
+{% macro values_badge(values) %}<span class="ai-values" data-ai-values="{{ values }}" title="{{ t('ai.values.' ~ values ~ '_title') }}">{{ t('ai.values.' ~ values) }}</span>{% endmacro %}
+{% macro to_workbench(sql) %}<a class="btn-pill btn-ghost btn-sm-pill" href="/workbench?sql={{ sql|urlencode }}" data-ai-workbench><i class="bi bi-code-square" aria-hidden="true"></i> {{ t('ai.open_workbench') }}</a>{% endmacro %}
+
+{% if kind == 'ask' %}{% set a = answer %}{% set chart = a.chart or {'kind': 'table'} %}
+<div class="ai-answer" data-ai-answer data-ai-conversation="{{ a.conversation|tojson|forceescape }}">
+  <p class="ai-asked"><i class="bi bi-chat-square-dots" aria-hidden="true"></i> <span data-ai-asked>{{ a.asked }}</span></p>
+  <p class="ai-shown">{{ values_badge(a['values']) }}
+    <span class="ai-kind">{{ t('ai.chart.' ~ chart.kind) }}</span>
+    <span class="text-muted-d">{{ t('ai.ask.rows', n=a.rowCount) }}</span></p>
+  {% if chart.kind == 'stat' and a.rows %}<p class="ai-card" data-ai-stat>{{ a.rows[0][0] }}</p>
+  {% elif chart.kind in ('bar', 'line') and a.rows %}
+  <div class="ai-chart" role="img" aria-label="{{ t('ai.chart.label', x=chart.x, y=chart.y) }}"
+       data-ai-chart="{{ {'kind': chart.kind, 'x': chart.x, 'y': chart.y, 'series': chart.series, 'columns': a.columns|map(attribute='name')|list, 'rows': a.rows}|tojson|forceescape }}"></div>{% endif %}
+  <div class="tbl-wrap"><table class="table table-sm ai-table" data-ai-rows>
+    <caption class="visually-hidden">{{ t('ai.ask.caption') }}</caption>
+    <thead><tr>{% for c in a.columns %}<th scope="col">{{ c.name }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in a.rows %}<tr>{% for v in r %}<td{% if v is number %} class="num"{% endif %}>{{ '—' if v is none else v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table></div>
+  {% if a.truncated %}<p class="ai-note" data-ai-truncated>{{ t('ai.ask.truncated', n=a.rows|length) }}</p>{% endif %}
+  {% if a.summary %}<p class="ai-summary" data-ai-summary>{{ a.summary }}</p>{% endif %}
+  <details class="ai-query"><summary>{{ t('ai.ask.sql_chosen') }}</summary>
+    <pre class="mono" tabindex="0" data-ai-sql>{{ a.sql }}</pre>
+    {% if a.explanation %}<p class="text-muted-d small" data-ai-explanation>{{ a.explanation }}</p>{% endif %}
+    <p class="ai-actions">{{ to_workbench(a.sql) }}</p>
+  </details>
+  {% if ai_can(request, 'explain') %}{{ ai.explain('sql', {'sql': a.sql}) }}{% endif %}
+</div>
+
+{% elif kind == 'draft' %}{% set d = answer %}{% set dry = d.dryRun or {} %}
+<div class="ai-draft pnl" data-ai-draft="{{ d.draft_id }}">
+  <div class="pnl-h"><h3>{{ t('ai.draft.heading', name=d.name) }}</h3><span class="ai-kind">{{ t('ai.draft.not_registered') }}</span></div>
+  <div class="pnl-b">
+    {% if d.explanation %}<p data-ai-explanation>{{ d.explanation }}</p>{% endif %}
+    <figure class="help-example"><figcaption><span>{{ t('ai.draft.statement') }}</span><span class="lang">{{ 'sql' }}</span></figcaption>
+      <pre tabindex="0"><code data-ai-statement>{{ d.statement }}</code></pre></figure>
+    <h4 class="ai-sub">{{ t('ai.draft.dry_run') }}</h4>
+    <dl class="ai-dry" data-ai-dry-run>
+      <dt>{{ t('ai.draft.reads') }}</dt><dd class="mono">{{ (dry.reads or [])|join(', ') or '—' }}</dd>
+      <dt>{{ t('ai.draft.lane') }}</dt><dd data-ai-lane>{{ dry.lane or '—' }}</dd>
+      <dt>{{ t('ai.draft.shares') }}</dt><dd class="mono" data-ai-shares>{{ (dry.sharesWith or [])|join(', ') or t('ai.draft.shares_none') }}</dd>
+      <dt>{{ t('ai.draft.fingerprint') }}</dt><dd class="mono">{{ (dry.fingerprint or '')[:16] or '—' }}</dd>
+    </dl>
+    {% if dry.plan %}<details class="ai-query"><summary>{{ t('ai.draft.plan') }}</summary><pre class="mono" tabindex="0" data-ai-plan>{{ dry.plan }}</pre></details>{% endif %}
+    <p class="ai-actions">{{ to_workbench(d.statement) }}
+      <button type="button" class="btn-pill btn-accent btn-sm-pill" data-ai-open="ai-confirm-{{ d.draft_id }}">{{ t('ai.draft.register') }}</button></p>
+    <div class="ai-confirm" data-ai-box>
+      <form id="ai-confirm-{{ d.draft_id }}" data-ai-task="register" hidden role="group" aria-label="{{ t('ai.draft.confirm_label') }}">
+        <input type="hidden" name="draft_id" value="{{ d.draft_id }}"><input type="hidden" name="confirmed" value="yes">
+        <p class="mb-2" data-ai-confirm-text>{{ t('ai.draft.confirm', name=d.name, reads=(dry.reads or [])|join(', ') or '—') }}</p>
+        <button type="submit" class="btn-pill btn-accent btn-sm-pill" data-ai-confirm>{{ t('ai.draft.register_it') }}</button>
+        <button type="button" class="btn-pill btn-ghost btn-sm-pill" data-ai-close="ai-confirm-{{ d.draft_id }}">{{ t('ai.cancel') }}</button>
+      </form>
+      <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
+
+{% elif kind == 'registered' %}
+<p class="ai-done" role="status" data-ai-registered="{{ answer.name }}"><i class="bi bi-check2-circle" aria-hidden="true"></i>
+  {{ t('ai.draft.registered_before') }} <a class="mono" href="{{ answer.href }}">{{ answer.name }}</a> {{ t('ai.draft.registered_after') }}</p>
+
+{% elif kind == 'alert-draft' %}{% set d = answer %}
+<div class="ai-draft pnl" data-ai-alert-draft="{{ d.draft_id }}">
+  <div class="pnl-h"><h3>{{ t('ai.alert.heading', name=d.name) }}</h3><span class="ai-kind">{{ t('ai.alert.not_created') }}</span></div>
+  <div class="pnl-b">
+    {% if d.explanation %}<p data-ai-explanation>{{ d.explanation }}</p>{% endif %}
+    <dl class="ai-dry">
+      <dt>{{ t('ai.alert.view') }}</dt><dd class="mono"><a href="/views/{{ d.view }}">{{ d.view }}</a></dd>
+      <dt>{{ t('ai.alert.condition') }}</dt><dd class="mono" data-ai-condition>{{ d.condition or '—' }}</dd>
+      <dt>{{ t('ai.alert.channels') }}</dt><dd class="mono">{{ (d.channels or [])|join(', ') }}</dd>
+    </dl>
+    <figure class="help-example"><figcaption><span>{{ t('ai.draft.statement') }}</span><span class="lang">{{ 'sql' }}</span></figcaption>
+      <pre tabindex="0"><code data-ai-statement>{{ d.statement }}</code></pre></figure>
+    <p class="ai-actions">{{ to_workbench(d.statement) }}
+      <button type="button" class="btn-pill btn-accent btn-sm-pill" data-ai-open="ai-confirm-{{ d.draft_id }}">{{ t('ai.alert.create') }}</button></p>
+    <div class="ai-confirm" data-ai-box>
+      <form id="ai-confirm-{{ d.draft_id }}" data-ai-task="create-alert" hidden role="group" aria-label="{{ t('ai.alert.confirm_label') }}">
+        <input type="hidden" name="draft_id" value="{{ d.draft_id }}"><input type="hidden" name="confirmed" value="yes">
+        <p class="mb-2">{{ t('ai.alert.confirm', name=d.name, view=d.view, channels=(d.channels or [])|join(', ')) }}</p>
+        <button type="submit" class="btn-pill btn-accent btn-sm-pill" data-ai-confirm>{{ t('ai.alert.create_it') }}</button>
+        <button type="button" class="btn-pill btn-ghost btn-sm-pill" data-ai-close="ai-confirm-{{ d.draft_id }}">{{ t('ai.cancel') }}</button>
+      </form>
+      <div class="ai-out" data-ai-out tabindex="-1" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
+
+{% elif kind == 'alert-created' %}
+<p class="ai-done" role="status" data-ai-created="{{ answer.name }}"><i class="bi bi-bell" aria-hidden="true"></i>
+  {{ t('ai.alert.created_before') }} <a class="mono" href="{{ answer.href }}">{{ answer.name }}</a> {{ t('ai.alert.created_after') }}</p>
+
+{% elif kind == 'explain' %}{% set e = answer %}
+<div class="ai-explained" data-ai-explained="{{ e.kind }}">
+  <p class="ai-summary">{{ e.explanation }}</p>
+  <p class="ai-shown">{{ values_badge(e['values']) }}
+    {% if e.valid is not none %}<span class="chip {{ 'ok' if e.valid else 'bad' }}" data-ai-valid="{{ 'yes' if e.valid else 'no' }}">{{ t('ai.explain.valid') if e.valid else t('ai.explain.invalid') }}</span>{% endif %}
+    {% for c in e.engineCodes or [] %}<a class="mono" href="/help/codes/{{ c }}">{{ c }}</a> {% endfor %}</p>
+  {% if e.change %}{% set ch = e.change %}
+  <p class="text-muted-d small" data-ai-change>{{ t('ai.explain.change_counts', commits=ch.commits, entered=ch.entered, left=ch.left) }}</p>
+  {% if not ch.commits %}<p class="ai-note" data-ai-keeping>{{ t('ai.explain.keeping') }}</p>{% endif %}
+  {% endif %}
+  {% if e.plan %}<details class="ai-query"><summary>{{ t('ai.explain.plan') }}</summary><pre class="mono" tabindex="0" data-ai-plan>{{ e.plan }}</pre></details>{% endif %}
+</div>
+
+{% elif kind == 'narrate' %}
+<div class="ai-explained" data-ai-narrative>
+  <p class="ai-summary">{{ answer.narrative }}</p>
+  <p class="ai-shown">{{ values_badge(answer['values']) }} <span class="text-muted-d small">{{ t('ai.narrate.counts', entered=answer.entered, left=answer.left) }}</span></p>
+</div>
+
+{% elif kind == 'page' %}
+<p class="about-ask-answer" data-ai-page-answer>{{ answer.answer or t('ai.page.does_not_say') }}</p>
+
+{% else %}{% set f = failure %}
+<div class="ai-failure" role="alert" data-ai-failure="{{ f.code or 'console' }}">
+  {% if f.off %}<p class="mb-1"><i class="bi bi-slash-circle" aria-hidden="true"></i> {{ t('ai.off') }}</p>
+  {% else %}<p class="mb-1">{% if f.code %}<a class="mono fw-semibold" href="/help/codes/{{ f.code }}">{{ f.code }}</a> {% endif %}<span data-ai-failure-message>{{ f.message }}</span></p>{% endif %}
+  {% if f.sql %}<details class="ai-query" open><summary>{{ t('ai.ask.sql_chosen') }}</summary><pre class="mono" tabindex="0" data-ai-sql>{{ f.sql }}</pre></details>{% endif %}
+  {% if f.help %}<p class="mb-1 small"><a href="{{ f.help }}">{{ t('ai.failure.help') }}</a></p>{% endif %}
+  {% if f.code and not f.off and task != 'explain' and ai_can(request, 'explain') %}{{ ai.explain('refusal', {'code': f.code, 'message': f.message, 'sql': f.sql}) }}{% endif %}
+</div>
+{% endif %}

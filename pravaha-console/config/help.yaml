@@ -157,8 +157,10 @@ contextual:
   admin-grants: [catalog-and-grants, row-filters-and-masks, authorization]
   admin-policies: [row-filters-and-masks, catalog-and-grants, audit]
   # Admin -> AI (the engine's AI layer and the console's), and the CLI assistant's models.
+  admin-ai: ["ai-features#turn-it-on", "ai-features#who-may", assistant]
   ai-models: ["assistant#admin-ai-models", assistant, observability]
-  assistant: [assistant, sql-refusals, create-continuous-query]
+  # Ask your data, its own page.
+  ask: [ask-your-data, ai-features, views-and-keys]
   alert: [alerts, views-and-keys, subscriptions]
   admin-access: [authorization, authentication, catalog-and-grants]
   admin-audit: [audit, authorization, authentication]

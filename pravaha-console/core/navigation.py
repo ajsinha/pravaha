@@ -24,6 +24,7 @@ EXCLUDED: dict[str, str] = {
     "/account": "the user menu",
     "/account/password": "the user menu",
     "/admin": "a redirect to Admin · Access",
+    "/admin/ai-models": "the CLI assistant's models (ADR-058), from Admin · AI",
     "/_components": "the component gallery, a developer's page",
     "/catalog/streams/{name}": "one stream, from Catalog · Streams",
     "/catalog/objects/{name:path}": "one catalog object, from the stream or view it names",

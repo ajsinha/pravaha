@@ -679,15 +679,6 @@
         "run_again": "Run again"
       }
     },
-    "assist": {
-      "working": "Asking the model…",
-      "answered": "The assistant answered.",
-      "failed": "The assistant could not answer.",
-      "unreachable": "The console did not answer ({status}).",
-      "copied": "Copied into the editor as a new draft.",
-      "explain": "Explain",
-      "explain_code": "Explain {code} for this statement"
-    },
     "lib": {
       "copied": "Copied",
       "copied_announce": "Copied to the clipboard"
@@ -741,6 +732,21 @@
         "copied": "Copied",
         "select": "Select and copy"
       }
+    },
+    "ai": {
+      "working": "Working…",
+      "answered": "Answered.",
+      "failed": "Not answered: the reason is shown.",
+      "unreachable": "The console could not be reached (status {status}).",
+      "new_conversation": "A new conversation.",
+      "copied": "Opened in the editor.",
+      "explain": "Explain in plain words",
+      "explain_code": "Explain {code} in plain words"
+    },
+    "admin_ai": {
+      "testing": "Testing…",
+      "test_ok": "OK: {model} answered in {ms} ms.",
+      "test_failed": "Not OK: {detail}"
     }
   },
   "admin": {
@@ -757,7 +763,8 @@
       "sessions": "Sessions",
       "lanes": "Lanes",
       "grants": "Grants",
-      "policies": "Policies"
+      "policies": "Policies",
+      "ai": "AI"
     },
     "ai": {
       "title": "AI models",
@@ -1181,6 +1188,34 @@
       "started": "Rebalance started.",
       "admins_only": "Only an administrator can rebalance lanes.",
       "last_run": "Last rebalance, started by {who}"
+    },
+    "ailayer": {
+      "page_title": "AI",
+      "page_heading": "AI",
+      "page_lede": "Read-only. The engine's AI layer -- its providers, one file each in conf/ai, off until pravaha.ai.enabled -- and the console's own, whose one provider is the engine: the console holds no key, and none is ever shown here. Test connection makes one real call, an administrator only.",
+      "engine_layer": "The engine's AI layer",
+      "console_layer": "The console's AI layer",
+      "on": "ON",
+      "off": "OFF",
+      "folder": "folder",
+      "types": "provider types:",
+      "default_model": "default model",
+      "provider": "Provider",
+      "type": "Type",
+      "status": "Status",
+      "models": "Models",
+      "detail": "Detail",
+      "retry": "tried again at {at} (failed {attempts} times)",
+      "key_set": "key set",
+      "test": "Test connection",
+      "test_title": "Make one real call to this model through the engine and show the outcome here",
+      "no_providers": "No providers.",
+      "layer_off": "The layer is off (enabled: false).",
+      "denied_title": "Only an administrator sees the engine's AI layer",
+      "engine_unread": "The engine's AI layer could not be read",
+      "assistant_before": "The command-line assistant's own models (ADR-058: pravaha ask, pravaha assist) are in",
+      "assistant_link": "Admin · AI models",
+      "assistant_after": "-- a file on this host, separate from the engine's layer."
     }
   },
   "operations": {
@@ -2407,102 +2442,6 @@
     "sign_in_first": "sign in to the console first",
     "filters_object": "filters must be an object of column: value"
   },
-  "assist": {
-    "working": "Asking the model…",
-    "answered_by": "Answered by {model} ({provider} {name})",
-    "tokens": "{n} tokens",
-    "latency": "{ms} ms",
-    "fell_back": "after {n} unavailable",
-    "engine_plan": "The engine's plan",
-    "empty": {
-      "title": "The assistant has no model to ask",
-      "body": "Drafting and explaining need a model, and none is configured and enabled for this.",
-      "admin_action": "Configure one in Admin · AI models",
-      "ask_admin": "Ask an administrator to configure one."
-    },
-    "describe": {
-      "title": "Describe it",
-      "gloss": "a query from plain English, judged by the engine",
-      "label": "What should the view answer?",
-      "note": "Say it as you would to a colleague: which stream, what to count or keep, per what, over what time. Nothing is registered until you confirm.",
-      "name": "Name",
-      "submit": "Draft it",
-      "result_label": "The draft",
-      "empty_description": "Describe the query you want first."
-    },
-    "draft": {
-      "status": {
-        "accepted": "accepted by the engine",
-        "refused": "refused",
-        "questions": "questions first"
-      },
-      "repairs": "after {n} repair turns",
-      "questions_intro": "The model needs to know more before it drafts anything; the engine was not asked. Answer what you can and draft again.",
-      "again": "Draft again with these answers",
-      "statement": "The statement",
-      "assumptions": "Assumptions",
-      "same_as": "A running query appears to compute the same thing",
-      "guarantee": "Writes to {sink}, which promises {guarantee}.",
-      "turns": "Every turn ({n})",
-      "turn": {
-        "draft": "draft",
-        "repair": "repair"
-      },
-      "copy": "Copy to editor"
-    },
-    "verdict": {
-      "accepted": "The engine accepts it: validated and planned.",
-      "refused_engine": "Refused by the engine:",
-      "refused_assistant": "Refused by the assistant's registration checks:",
-      "not_judged": "not judged"
-    },
-    "register": {
-      "confirm": "I have read the SQL and the engine's plan, and I want to register it as myself.",
-      "submit": "Register",
-      "disabled": "Register is available once the engine accepts the draft.",
-      "note": "Registered with your own engine session, exactly as if you had typed it.",
-      "done": "Registered:"
-    },
-    "explain_query": {
-      "title": "In plain English",
-      "submit": "Explain this query",
-      "note": "Grounded in the engine's own plan for it.",
-      "result_label": "The explanation",
-      "steps": "Step by step",
-      "notes": "Worth knowing"
-    },
-    "why": {
-      "button": "Explain",
-      "label": "Explain {code} for this statement",
-      "cause": "Why:",
-      "fix": "Fix:",
-      "rewrite": "A rewrite",
-      "rewrite_accepted": "the engine accepts it",
-      "rewrite_refused": "the engine refuses it",
-      "rewrite_unchecked": "not checked by the engine"
-    },
-    "fail": {
-      "budget": "Over budget: nothing was sent to the model",
-      "model": "The model did not answer",
-      "config": "The assistant's configuration could not be used",
-      "engine": "The engine refused",
-      "refused": "Not registered",
-      "input": "Nothing to ask",
-      "unconfigured": "No model to ask",
-      "which_model": "Model: {model}"
-    },
-    "page": {
-      "title": "Assistant",
-      "kicker": "Assistant",
-      "back": "Back",
-      "heading": {
-        "draft": "A drafted query",
-        "registered": "Registered",
-        "explained-query": "A query in plain English",
-        "explained-refusal": "A refusal explained"
-      }
-    }
-  },
   "dlq": {
     "title": "Dead letters — {name}",
     "kicker": "DEAD LETTERS",
@@ -3226,7 +3165,9 @@
       "search": "Search the help",
       "about": "About Pravaha",
       "competitive": "Competitive landscape",
-      "examples": "SQL examples"
+      "examples": "SQL examples",
+      "ask": "Ask your data",
+      "ai": "AI"
     },
     "desc": {
       "streams": "Every stream, its schema, and what reads from it",
@@ -3262,7 +3203,9 @@
       "search": "Find any topic, guide or code",
       "about": "What it is, the name, version and licence",
       "competitive": "How Pravaha compares, scored",
-      "examples": "Working queries with their data — open one as a copy in the Workbench"
+      "examples": "Working queries with their data — open one as a copy in the Workbench",
+      "ask": "A question in plain English, answered by the engine as you",
+      "ai": "The engine's AI layer: providers, health, test connection"
     }
   },
   "page": {
@@ -3569,19 +3512,6 @@
         "3": {
           "heading": "Never a binding's options",
           "text": "Options are where credentials live, so the engine never includes them in its answer."
-        }
-      }
-    },
-    "assistant": {
-      "what": "An assistant's answer, as a page: a drafted query, a query explained in plain English, or a refusal explained.",
-      "points": {
-        "1": {
-          "heading": "The engine still decides",
-          "text": "Whatever the assistant writes is planned, checked and refused by the engine like any other SQL."
-        },
-        "2": {
-          "heading": "Which model answers",
-          "text": "An administrator chooses the models and their order on Admin · AI models."
         }
       }
     },
@@ -3900,6 +3830,144 @@
           "text": "A refusal for going over a tenant's quota links to Admin · Tenants, where its use is shown."
         }
       }
+    },
+    "ask": {
+      "what": "Ask your data in plain English: the engine runs the SQL the model chose as you, and shows it.",
+      "points": {
+        "1": {
+          "heading": "One view, read as you",
+          "text": "Each question becomes one snapshot SELECT over one view you may read, run through your grants, row filter and masks."
+        },
+        "2": {
+          "heading": "The SQL is always shown",
+          "text": "Open The SQL the model chose to see exactly what ran, and open it in the Workbench to change it."
+        },
+        "3": {
+          "heading": "Never a value, by default",
+          "text": "Under labels-only the model sees names and types; the badge on each answer says which mode answered."
+        }
+      }
+    },
+    "admin-ai": {
+      "what": "The engine's AI layer and the console's, read-only: providers, their health and a test connection.",
+      "points": {
+        "1": {
+          "heading": "Off until turned on",
+          "text": "pravaha.ai.enabled and a provider file in conf/ai turn the engine's layer on; every plain-English control is hidden until then."
+        },
+        "2": {
+          "heading": "Health without a call",
+          "text": "OFF, ERROR, UNKNOWN, UP or DOWN come from the files and the calls already made; Test connection makes one real call."
+        },
+        "3": {
+          "heading": "No key here",
+          "text": "Keys are named by environment variable or file on the engine; the console holds none and never shows one."
+        }
+      }
+    }
+  },
+  "ai": {
+    "ask": {
+      "title": "Ask your data",
+      "kicker": "PLAIN ENGLISH",
+      "lede": "Ask a question about your views. The model is told the views you may read -- names, keys and columns, never a value -- and writes one SELECT over one view; the engine runs it as you, with your grants, row filter and masks. Follow up to change the last answer.",
+      "label": "Ask your data",
+      "heading": "Ask your data",
+      "placeholder": "For example: total spend per user",
+      "placeholder_view": "Ask about this view, for example: the top five by amount",
+      "go": "Ask",
+      "new": "New conversation",
+      "rows": "{n} row(s), answered by the engine for you",
+      "caption": "The rows the engine gave you",
+      "truncated": "The first {n} rows: there were more.",
+      "sql_chosen": "The SQL the model chose",
+      "off_title": "Ask your data is not on for you",
+      "off_body": "The engine's AI layer is off, or its policy does not open this feature to your roles.",
+      "off_link": "How to turn it on"
+    },
+    "values": {
+      "labels-only": "labels only",
+      "labels-only_title": "The model saw names and types, never a value",
+      "aggregates": "aggregates",
+      "aggregates_title": "The model may see your own figures, after your row filter and masks"
+    },
+    "chart": {
+      "stat": "a figure",
+      "bar": "a bar chart",
+      "line": "a line chart",
+      "table": "a table",
+      "label": "{y} by {x}"
+    },
+    "open_workbench": "Open in Workbench",
+    "close": "Close",
+    "cancel": "Cancel",
+    "off": "The AI layer is off on this engine (PRV-1080): nothing was asked.",
+    "failure": {
+      "help": "What this means"
+    },
+    "describe": {
+      "go": "Draft it",
+      "query": "Describe a continuous query",
+      "query_note": "The model sees the names, types and keys of what you may read, never a row. The engine judges its draft as registering it would and dry-runs it; nothing is registered until you register it and confirm.",
+      "query_placeholder": "Describe the view, for example: spend per user per minute",
+      "alert": "Describe an alert",
+      "alert_note": "The engine drafts a CREATE ALERT on a view you may read and judges it as creating it would; nothing is created until you create it and confirm.",
+      "alert_placeholder": "For example: tell me when a user spends over 500 in a minute"
+    },
+    "draft": {
+      "heading": "Draft: {name}",
+      "not_registered": "not registered",
+      "statement": "The statement",
+      "dry_run": "Dry run",
+      "reads": "Reads",
+      "lane": "Lane",
+      "shares": "Shares with",
+      "shares_none": "nothing running computes this",
+      "fingerprint": "Fingerprint",
+      "plan": "The engine's plan",
+      "register": "Register…",
+      "confirm_label": "Confirm the registration",
+      "confirm": "Register {name}? It starts running at once, reading {reads}, as you.",
+      "register_it": "Register it",
+      "registered_before": "Registered",
+      "registered_after": "-- it is running."
+    },
+    "alert": {
+      "heading": "Draft alert: {name}",
+      "not_created": "not created",
+      "view": "On the view",
+      "condition": "When",
+      "channels": "Notify",
+      "create": "Create…",
+      "confirm_label": "Confirm the alert",
+      "confirm": "Create {name} on {view}, notifying {channels}?",
+      "create_it": "Create it",
+      "created_before": "Created",
+      "created_after": "-- it follows its view from now on."
+    },
+    "explain": {
+      "go": "Explain in plain words",
+      "valid": "valid now",
+      "invalid": "still refused",
+      "plan": "The plan it is grounded in",
+      "change_counts": "{commits} commit(s) since keeping began: {entered} row(s) entered, {left} left.",
+      "keeping": "Pravaha keeps a view's changes from the first time anyone asks about it, and has just started keeping this one's: ask again after it changes.",
+      "keeping_note": "Changes are kept from the first time anyone asks.",
+      "why_changed": "Why did this change?",
+      "query_heading": "Explain in plain words",
+      "query_note": "Grounded in the engine's own plan for this query."
+    },
+    "narrate": {
+      "go": "Summarise changes",
+      "counts": "{entered} row(s) entered, {left} left in this batch."
+    },
+    "page": {
+      "heading": "Ask about this page",
+      "label": "Your question about this page",
+      "placeholder": "What does this page mean?",
+      "go": "Ask",
+      "note": "An AI assistant answers from this panel's words and its help topics only. It can be wrong; the panel above is the reference.",
+      "does_not_say": "The page does not say."
     }
   }
 }

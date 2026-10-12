@@ -7,7 +7,7 @@
     HelpExamplesSqlTest plans every example, so none can rot. -#}
 {% block title %}{{ t('help.examples.title') }} — {{ t('help.index.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
-{% block main_class %} help-page{% endblock %}
+{% block main_class %}{{ ' help-page' }}{% endblock %}
 {% block content %}
 <div class="help-wrap help-guide">
   <nav class="crumbs help-crumbs" aria-label="{{ t('help.topic.breadcrumb') }}">
@@ -35,10 +35,10 @@
         <div class="help-example-actions">
           <form method="get" action="/workbench" class="inline-form"><input type="hidden" name="example" value="{{ e.name }}">
             <button type="submit" class="btn-pill btn-accent btn-sm-pill" data-example-copy="{{ e.name }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ t('help.examples.open') }}</button></form>
-          <span class="mono text-muted-d">{{ e.name }}.sql · {{ e.name }}.{{ e.data_kind }}</span></div>
+          <span class="mono text-muted-d">{{ e.name ~ '.sql · ' ~ e.name ~ '.' ~ e.data_kind }}</span></div>
         <div class="doc">{{ e.note|safe }}</div>
-        <details><summary>{{ e.name }}.sql</summary>
-          <figure class="help-example"><figcaption><span><i class="bi bi-terminal" aria-hidden="true"></i> {{ e.name }}.sql</span><span class="lang">sql</span><button type="button" class="copy" data-copy aria-label="{{ t('help.examples.copy_label') }}"><i class="bi bi-clipboard" aria-hidden="true"></i> <span data-copy-label>{{ t('help.examples.copy') }}</span></button></figcaption><pre tabindex="0"><code>{{ e.sql }}</code></pre></figure></details>
+        <details><summary>{{ e.name ~ '.sql' }}</summary>
+          <figure class="help-example"><figcaption><span><i class="bi bi-terminal" aria-hidden="true"></i> {{ e.name ~ '.sql' }}</span><span class="lang">{{ 'sql' }}</span><button type="button" class="copy" data-copy aria-label="{{ t('help.examples.copy_label') }}"><i class="bi bi-clipboard" aria-hidden="true"></i> <span data-copy-label>{{ t('help.examples.copy') }}</span></button></figcaption><pre tabindex="0"><code>{{ e.sql }}</code></pre></figure></details>
         <details><summary>{{ e.name }}.{{ e.data_kind }}</summary>
           <figure class="help-example"><figcaption><span><i class="bi bi-terminal" aria-hidden="true"></i> {{ e.name }}.{{ e.data_kind }}</span><span class="lang">{{ e.data_kind }}</span><button type="button" class="copy" data-copy aria-label="{{ t('help.examples.copy_label') }}"><i class="bi bi-clipboard" aria-hidden="true"></i> <span data-copy-label>{{ t('help.examples.copy') }}</span></button></figcaption><pre tabindex="0"><code>{{ e.data }}</code></pre></figure></details>
       </section>

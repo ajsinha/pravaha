@@ -29,6 +29,7 @@
 .help-hero .hero-ico{font-size:2.2rem;color:var(--d-accent)}
 .help-hero h1{font-size:2rem;font-weight:800;margin:.5rem 0}
 .help-hero .lede{color:var(--d-muted)!important;max-width:70ch;margin:0 auto;line-height:1.6}
+.help-page .help-wrap{padding-left:0;padding-right:0}
 .help-cta{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-top:1.1rem}
 .help-wrap{max-width:1240px;margin:0 auto;padding:1.2rem 0 2.5rem}
 .help-toolbar{position:sticky;top:58px;z-index:5;background:var(--d-bg);padding:.8rem 0;border-bottom:1px solid var(--d-border);margin-bottom:1rem}

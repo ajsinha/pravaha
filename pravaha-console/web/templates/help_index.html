@@ -8,7 +8,7 @@
     without JavaScript: help.js only filters the cards in place as you type. -#}
 {% block title %}{{ t('help.index.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
-{% block main_class %} help-page{% endblock %}
+{% block main_class %}{{ ' help-page' }}{% endblock %}
 {% block content %}
 <section class="help-hero">
   <i class="bi bi-book hero-ico" aria-hidden="true"></i>
