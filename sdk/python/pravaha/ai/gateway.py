@@ -9,6 +9,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import dataclasses
 import time
 from typing import Callable, Optional
@@ -67,7 +68,7 @@ class LlmGateway:
     def _call(fn: Callable[[ChatRequest], ChatResponse], req: ChatRequest) -> ChatResponse:
         if not req.timeout:
             return fn(req)
-        future = _POOL.submit(fn, req)
+        future = _POOL.submit(contextvars.copy_context().run, fn, req)  # the caller's context goes along
         try:
             return future.result(timeout=req.timeout)
         except concurrent.futures.TimeoutError:

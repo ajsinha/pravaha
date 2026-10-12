@@ -48,9 +48,10 @@ def _get(settings: Mapping[str, Any], key: str, default: Any) -> Any:
 
 class AiLayer:
     """Everything a Python host's AI layer needs, built once from flat settings (``ai.enabled``, ``ai.dir``,
-    ``ai.default_model``, ``ai.poll_seconds``, ``ai.redact``, ``ai.policy.*``). ``runtime`` is handed to the
-    provider factories (the ``server`` provider's ``engine``). While ``ai.enabled`` is false no file is read
-    and every call is refused with ``PRV-1080``, as in the engine."""
+    ``ai.default_model``, ``ai.poll_seconds``, ``ai.redact``, ``ai.policy.*``, and ``ai.providers``: name to a
+    provider block, for a provider a host defines in code rather than in a file). ``runtime`` is handed to
+    the provider factories (the ``server`` provider's ``engine``). While ``ai.enabled`` is false no file is
+    read and every call is refused with ``PRV-1080``, as in the engine."""
 
     def __init__(self, settings: Optional[Mapping[str, Any]] = None, runtime: Any = None,
                  env: Optional[Callable[[str], Optional[str]]] = None) -> None:
@@ -72,6 +73,7 @@ class AiLayer:
         self.audit_log: List[Dict[str, Any]] = []
         self._lock = threading.Lock()
         self._env = env
+        self._defined: Dict[str, Any] = dict(_get(s, "ai.providers", {}) or {})
         self.registry = LlmRegistry(FACTORIES, self._source, runtime, str(_get(s, "ai.default_model", "") or ""),
                                     RetryBoard())
         self.gateway = LlmGateway(self.registry, DefaultPolicy(ps, PromptMasker(redact, patterns), self._audit),
@@ -84,7 +86,17 @@ class AiLayer:
     def _source(self) -> Any:
         if not self.enabled:
             return [], {}
-        return cfgmod.load_providers(self.dir, self._env)
+        configs, errors = cfgmod.load_providers(self.dir, self._env)
+        have = {c.name for c in configs}
+        for name, block in self._defined.items():
+            if name in have:
+                errors[name] = f"a file already defines provider '{name}'"
+                continue
+            try:
+                configs.append(cfgmod.provider_from_dict(dict(block), name, self._env or cfgmod.env_getter()))
+            except LlmError as e:
+                errors[name] = e.message
+        return configs, errors
 
     def _audit(self, record: Dict[str, Any]) -> None:
         with self._lock:

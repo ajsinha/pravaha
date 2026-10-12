@@ -115,6 +115,14 @@ assist:
   # How often the console looks for a change another process stored.
   watch_seconds: 1
 
+# The AI layer (ADR-063): the SDK's pravaha.ai, with the engine as its one provider -- every call goes
+# to the engine's /api/v1/ai/chat as the signed-in person, so the keys, the policy and the audit stay in
+# the engine and the console holds no model key. Off by default, like the engine's.
+ai:
+  enabled: false
+  # Provider files the console adds to its built-in "engine" provider; empty reads none.
+  dir: ""
+
 # Where the help, the tutorials and About read their text. Empty: the content/ directory shipped
 # with the console, and the repository (or installation) it sits in for README, docs/ and
 # examples/case-studies/. Nothing needs to set these; the visual tests do, to photograph pages over
