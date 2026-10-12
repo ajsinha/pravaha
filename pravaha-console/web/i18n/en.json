@@ -2072,9 +2072,9 @@
     },
     "stream": {
       "version": "v{version}",
-      "event_time_title": "Event time, and how late a row may be",
+      "event_time_title": "Event time, and how far out of order a row may arrive and still be on time",
       "event_time": "event time",
-      "late": "{lateness} late",
+      "late": "{lateness} out of order",
       "no_event_time_title": "No window over this stream can close",
       "no_event_time": "no event time",
       "source_title": "The plugin a source binding feeds it from",

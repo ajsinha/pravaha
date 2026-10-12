@@ -276,6 +276,7 @@ def test_the_stream_page_shows_event_time_lateness_source_and_engine_lineage(sig
     assert "From the engine: the streams each query" in page
     catalog = signed_in.get("/catalog").text
     assert "no event time" not in catalog and "event time" in catalog
+    assert "PT10S out of order" in catalog and "PT10S late" not in catalog  # STREAMLATE-1
 
 
 def test_the_catalog_lists_the_lookup_tables(engine):
