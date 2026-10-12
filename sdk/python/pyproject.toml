@@ -64,6 +64,10 @@ anthropic = "pravaha.assist.providers.anthropic:AnthropicProvider"
 openai = "pravaha.assist.providers.openai:OpenAIProvider"
 openai-compatible = "pravaha.assist.providers.openai:OpenAICompatibleProvider"
 ollama = "pravaha.assist.providers.ollama:OllamaProvider"
+# On the shared AI layer (pravaha.ai, ADR-063): the engine's own layer, the layer's mock, any other type.
+server = "pravaha.assist.providers.ai_layer:ServerProvider"
+mock = "pravaha.assist.providers.ai_layer:MockProvider"
+ai = "pravaha.assist.providers.ai_layer:AiLayerProvider"
 
 [project.urls]
 Homepage = "https://github.com/ajsinha/pravaha"
