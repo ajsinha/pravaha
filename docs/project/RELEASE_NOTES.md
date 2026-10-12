@@ -86,6 +86,27 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `pravaha-dev-admin` / `pravaha-dev-admin123`, so `dev,users` always has an admin with a known
   password ([SECURITY.md](../operations/SECURITY.md)).
 
+- **Six hands-on tutorials, in drishti's format, with real output and screenshots
+  ([docs/tutorials/](../tutorials/README.md)).** *Your first 15 minutes* (`pravaha init`, a node with
+  sign-in on, the console as `pravaha-dev-admin`, a query from the Workbench and one from the CLI, Live,
+  `pravaha doctor`, Python), *Windows, event time and late data* (tumbling, hopping, the session window
+  that has no SQL yet, a late reading correcting a published window as −1 and +1, one too late, what
+  lateness costs), *Joins and lookups* (a time-bounded join, a `LEFT` join held by its slower stream, a
+  JDBC lookup on an H2 file, choosing a key, a table changed under a running query), *Following a view*
+  (snapshots, weights, filters at the tap, Python and Java, `psql` over the PostgreSQL gateway with an
+  API key, a reconnect across a restart), *Changing a running query safely* (dry runs, backfill,
+  cutover under a subscriber, rollback, abandon, finish) and *Investigating an incident* (health, top,
+  metrics, lanes, dead letters, the time-travel debugger, a fixture, thread dumps). Each has the time it
+  takes, what to have first, what you will learn, numbered steps that each end in what you should see,
+  next steps and a table of what to do when something goes wrong, with the PRV codes. They replace the
+  four lessons in `docs/guides/tutorials/` (now pointers); the console serves them under Help ·
+  Tutorials with their pictures (`/tutorials/img/`), and `/tutorials/first-maintained-view` answers 301
+  (help.yaml's `tutorials-moved:`). The output is captured, not typed: `sdk/python/tools/tutorial_captures.py`
+  plays each tutorial's scenario against a scratch node and `--check` fails on drift; the pictures come
+  from the same scenario under a real browser (`docs_screenshots.py --tutorial tNN`). Held by the
+  console's `test_tutorials.py` (the format, every link, picture and excerpt), `test_doc_images.py` and
+  pravaha-it's `TutorialSqlTest` (every statement planned).
+
 ---
 
 Register: **583 findings — 564 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.

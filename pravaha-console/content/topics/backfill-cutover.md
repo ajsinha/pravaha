@@ -252,5 +252,5 @@ becomes the engine's own answer: two fingerprints, two computations, each droppe
 - [Continuous queries and their lifecycle](/help/topics/query-lifecycle)
 - [Lanes](/help/topics/lanes#sharing-lanes) — moving a query onto a lane of its own is a replacement
 - [Upgrades](/help/topics/upgrades)
-- [Tutorial 3 — changing a running query safely](/tutorials/changing-a-running-query)
+- [Tutorial 5 · Changing a running query safely](/tutorials/changing-a-running-query)
 - How it is built: [Architecture: replacement](/help/architecture-registry#replacement-bluegreen)

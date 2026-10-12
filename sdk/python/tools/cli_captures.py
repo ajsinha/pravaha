@@ -180,11 +180,16 @@ def free_port(taken: "set[int]") -> int:
 class ScratchNode:
     """A node of its own, in a temporary directory, on two free ports; stopped on exit.
 
-    ``args`` are more of the server's own (``--spring.config.additional-location=...``); files a
-    test wants under the node's working directory go into :attr:`home` before it is entered."""
+    ``args`` are more of the server's own (``--spring.config.additional-location=...``), ``jvm`` more
+    of the JVM's (``-Dloader.path=plugins``, as ``bin/pravaha-server`` passes); files a test wants
+    under the node's working directory go into :attr:`home` before it is entered. :meth:`stop` and
+    :meth:`start` restart it on the same ports and home, as a tutorial's "restart the node" does."""
 
-    def __init__(self, args: "tuple[str, ...]" = ()) -> None:
+    def __init__(self, args: "tuple[str, ...]" = (), jvm: "tuple[str, ...]" = (),
+                 env: "Optional[dict[str, str]]" = None) -> None:
         self.args = tuple(args)
+        self.jvm = tuple(jvm)
+        self.env = dict(env or {})
         self.jar = server_jar()
         java_home = os.environ.get("JAVA_HOME")
         self.java = str(pathlib.Path(java_home) / "bin" / "java") if java_home else shutil.which("java")
@@ -204,19 +209,28 @@ class ScratchNode:
         return f"grpc://127.0.0.1:{self.flight_port}"
 
     def __enter__(self) -> "ScratchNode":
+        try:
+            return self.start()
+        except NodeUnavailable:
+            self.__exit__(None, None, None)
+            raise
+
+    def start(self) -> "ScratchNode":
+        """Starts the node (again) and waits until it is running; :class:`NodeUnavailable` if not."""
         tmp = self.home / "tmp"
-        tmp.mkdir()
-        log = open(self.home / "node.log", "wb")
+        tmp.mkdir(exist_ok=True)
+        log = open(self.home / "node.log", "ab")
         self.process = subprocess.Popen(
             # The opens bin/pravaha-server gives: without them Arrow cannot allocate a Flight
             # answer's buffers and every query that returns rows is reset (RST_STREAM).
             [self.java, "--add-opens=java.base/java.nio=ALL-UNNAMED",
              "--add-opens=java.base/java.lang=ALL-UNNAMED", "--enable-native-access=ALL-UNNAMED",
-             f"-Djava.io.tmpdir={tmp}", f"-Duser.home={self.home}", "-jar", str(self.jar),
+             f"-Djava.io.tmpdir={tmp}", f"-Duser.home={self.home}", *self.jvm, "-jar", str(self.jar),
              "--spring.profiles.active=dev", "--server.address=127.0.0.1",
              f"--server.port={self.http_port}", "--pravaha.flight.host=127.0.0.1",
              f"--pravaha.flight.port={self.flight_port}", *self.args],
             cwd=self.home, stdout=log, stderr=subprocess.STDOUT,
+            env={**os.environ, **self.env} if self.env else None,
         )
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
@@ -234,7 +248,7 @@ class ScratchNode:
                 pass
             time.sleep(0.25)
         tail = (self.home / "node.log").read_text(errors="replace")[-3000:]
-        self.__exit__(None, None, None)
+        self.stop()
         raise NodeUnavailable(f"the scratch node did not start:\n{tail}")
 
     def _ready(self) -> bool:
@@ -244,7 +258,8 @@ class ScratchNode:
         except OSError:
             return False
 
-    def __exit__(self, *_: object) -> None:
+    def stop(self) -> None:
+        """Stops the node, keeping its home: :meth:`start` brings it back as it was left."""
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()
             try:
@@ -252,6 +267,9 @@ class ScratchNode:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=30)
+
+    def __exit__(self, *_: object) -> None:
+        self.stop()
         shutil.rmtree(self.home, ignore_errors=True)
 
 

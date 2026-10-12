@@ -7,9 +7,9 @@ Thirteen worked systems, each one a template you can copy into a real applicatio
 business problem, a data model, the data to load, the continuous queries, and the SQL an application
 uses to read the answers — in **both Java and Python**.
 
-New to Pravaha? The four lessons in [`docs/guides/tutorials/`](../../docs/guides/tutorials/) teach the product
-itself — registering, following, replacing and debugging a query — against a fresh install's
-demonstration stream. These studies assume you have seen that much.
+New to Pravaha? The six hands-on tutorials in [`docs/tutorials/`](../../docs/tutorials/README.md) teach the
+product itself — a first node, windows and late data, joins and lookups, following, replacing and
+debugging a query — each on a node of its own. These studies assume you have seen that much.
 
 | Study | Domain | Store | Shows |
 |---|---|---|---|

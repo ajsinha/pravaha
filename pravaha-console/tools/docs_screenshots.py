@@ -19,6 +19,12 @@ Every image under ``docs/assets/screenshots/`` is one :data:`SHOTS` entry, made 
   IDE-guide shots are these. The scratch ports on the page are shown as the standard ones (19090,
   18080), as the CLI captures normalise them, because the guide describes a node on the defaults.
 
+* ``--tutorial tNN`` -- a hands-on tutorial's pictures (``docs/tutorials/img/tNN/``). The tutorial's
+  scenario (``sdk/python/tools/tutorials/tNN.py``) is played by ``tutorial_captures.py`` exactly as for
+  its captured CLI output -- its node, its sample data, every command in order -- and this tool puts a
+  console over that node, signs in as the ``users`` profile's ``pravaha-dev-admin``, and takes each
+  ``Snap`` where the scenario has it. So a picture shows the state the text beside it describes.
+
 Every shot is 1400x900, the Crimson theme, comfortable density, the browser's clock pinned and
 animations off. ``tests/test_doc_images.py`` fails on an image a doc shows that is missing, an image
 no doc shows, and one this list cannot make::
@@ -27,6 +33,8 @@ no doc shows, and one this list cannot make::
     .venv/bin/python tools/docs_screenshots.py --list
     .venv/bin/python tools/docs_screenshots.py                     # every shot
     .venv/bin/python tools/docs_screenshots.py --only console-query --only ide-workbench-explain
+    .venv/bin/python tools/docs_screenshots.py --tutorial t01          # one tutorial's pictures
+    .venv/bin/python tools/docs_screenshots.py --tutorial all          # every tutorial's
 
 Needs Chrome or Chromium (``PRAVAHA_CHROME``), and for the ``node`` shots ``JAVA_HOME`` on a JDK 21
 or later and the server jar built (``./mvnw -pl pravaha-server -am install -DskipTests``).
@@ -47,6 +55,8 @@ from typing import Any, Callable, Optional
 CONSOLE = pathlib.Path(__file__).resolve().parents[1]
 REPO = CONSOLE.parent
 OUT = REPO / "docs" / "assets" / "screenshots"
+#: The tutorials' pictures, one folder per tutorial: docs/tutorials/img/tNN/<NN-name>.png.
+TUTORIAL_OUT = REPO / "docs" / "tutorials" / "img"
 WIDTH, HEIGHT = 1400, 900
 
 #: The node shots' stream, as the IDE guide's "your own configuration" declares it.
@@ -215,10 +225,10 @@ def _register_view(page: Any) -> None:
           'X-CSRF-Token': token}, body: JSON.stringify(view)}); return r.status; })(""" + json.dumps(AI_VIEW) + ")")
 
 
-def _standard_ports(page: Any, node: Any) -> None:
+def _standard_ports(page: Any, node: Any, more: Optional[dict[str, str]] = None) -> None:
     """The scratch node's addresses on the page as the defaults the guide describes."""
     swaps = {f"127.0.0.1:{node.flight_port}": "localhost:19090",
-             f"127.0.0.1:{node.http_port}": "localhost:18080"}
+             f"127.0.0.1:{node.http_port}": "localhost:18080", **(more or {})}
     page.eval("""((swaps) => {
       const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let n = walk.nextNode(); n; n = walk.nextNode())
@@ -330,12 +340,126 @@ def take(shots: list[Shot], out: pathlib.Path = OUT) -> list[pathlib.Path]:
     return written
 
 
+def _tutorial_tool() -> Any:
+    """``sdk/python/tools/tutorial_captures.py``: the scenarios, and the player both tools share."""
+    tools = REPO / "sdk" / "python" / "tools"
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    import tutorial_captures
+
+    return tutorial_captures
+
+
+def tutorial_shots(name: str) -> list[str]:
+    """The picture names tutorial ``name``'s scenario takes, in order (``01-sign-in``, ...)."""
+    tool = _tutorial_tool()
+    return [step.name for step in tool.load(name).STEPS if isinstance(step, tool.Snap)]
+
+
+def take_tutorial(name: str, only: Optional[list[str]] = None, out: pathlib.Path = TUTORIAL_OUT,
+                  blocks_to: Optional[pathlib.Path] = None) -> list[pathlib.Path]:
+    """Plays tutorial ``name`` and takes its pictures into ``out/<name>/``; returns the files written."""
+    _paths()
+    import browser_harness as harness
+    from cdp import Browser, find_chrome
+
+    tool = _tutorial_tool()
+    executable = find_chrome()
+    if executable is None:
+        raise SystemExit("docs_screenshots: no Chrome or Chromium (set PRAVAHA_CHROME to its path)")
+    folder = out / name
+    folder.mkdir(parents=True, exist_ok=True)
+    written: list[pathlib.Path] = []
+    browser = Browser(executable)
+    state: dict[str, Any] = {}
+
+    def on_start(run: Any) -> None:
+        from core.config.properties_configurator import PropertiesConfigurator
+
+        settings = PropertiesConfigurator(str(CONSOLE / "config" / "application.yaml"))
+        settings.set("engine.url", run.node.url)
+        settings.set("engine.http_url", run.node.http)
+        settings.set("ai.enabled", "false")
+        # The PostgreSQL gateway, when the tutorial's node has one: the view page's psql snippet names it.
+        settings.set("engine.pgwire", f"127.0.0.1:{run.pg_port}" if run.pg_port else "localhost:5432")
+        console = harness.Console(None)  # type: ignore[arg-type]  # the real engine adapter
+        console.engine = types.SimpleNamespace(closed=threading.Event())
+        tab = browser.new_page(width=WIDTH, height=HEIGHT)
+        tab.before_every_document(harness.DETERMINISM)
+        tab.before_every_document(harness.theme_script("crimson"))
+        tab.before_every_document("try{localStorage.removeItem('pravaha.workbench.tabs')}catch(e){}")
+        tab.emulate(reduced_motion=True, scheme="light")
+        state.update(run=run, console=console, tab=tab, signed_in=False)
+
+    def on_snap(step: Any) -> None:
+        tab, console, run = state["tab"], state["console"], state["run"]
+        if isinstance(step, tool.Open):
+            if step.path != "/login" and not state["signed_in"]:
+                harness.sign_in(tab, console, username=tool.USER, password=tool.PASSWORD, next_path="/home")
+                state["signed_in"] = True
+            harness.open_page(tab, console, step.path, step.ready, timeout=40)
+            return
+        if isinstance(step, tool.Ui):
+            # What the reader does in the console, done by the browser as they would.
+            tab.eval(step.js)
+            tab.wait_for(step.ready, timeout=step.timeout)
+            tab.settle(quiet_ms=300)
+            return
+        if only and not any(o in step.name for o in only):
+            return
+        if step.js:
+            tab.eval(step.js)
+        tab.wait_for(step.ready, timeout=step.timeout)
+        tab.settle(quiet_ms=400)
+        tab.eval("(() => { document.activeElement && document.activeElement.blur(); return true; })()")
+        _standard_ports(tab, run.node, {f"127.0.0.1:{run.pg_port}": "127.0.0.1:5433",
+                                        f"port={run.pg_port}": "port=5433"} if run.pg_port else None)
+        target = folder / f"{step.name}.png"
+        target.write_bytes(tab.screenshot())
+        written.append(target)
+        note = "" if compact(target) else " (not compacted: no Pillow here)"
+        print(f"wrote {target.relative_to(REPO) if target.is_relative_to(REPO) else target}{note}", flush=True)
+
+    try:
+        blocks = tool.play(name, on_snap=on_snap, on_start=on_start)
+        if blocks_to is not None:
+            # For whoever is writing the tutorial: what this run printed, in capture markers.
+            blocks_to.write_text("".join(f"<!-- capture: {k} -->\n{v}<!-- /capture -->\n\n"
+                                         for k, v in blocks.items()), encoding="utf-8")
+    finally:
+        if "tab" in state:
+            state["tab"].close()
+        if "console" in state:
+            state["console"].close()
+        browser.close()
+    return written
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--list", action="store_true", help="list the declared shots and exit")
     parser.add_argument("--only", action="append", metavar="NAME", help="only this shot (repeatable)")
     parser.add_argument("--out", metavar="DIR", help=f"write here instead of {OUT.relative_to(REPO)}")
+    parser.add_argument("--tutorial", metavar="tNN", help="a tutorial's pictures (docs/tutorials/img/tNN/), or 'all'")
+    parser.add_argument("--blocks", metavar="FILE", help="with --tutorial tNN: also write what the run printed, "
+                        "as capture blocks, to FILE (writing a tutorial; tutorial_captures.py is what checks them)")
     args = parser.parse_args(argv)
+    if args.tutorial:
+        tool = _tutorial_tool()
+        names = tool.scenarios() if args.tutorial == "all" else [args.tutorial]
+        unknown = sorted(set(names) - set(tool.scenarios()))
+        if unknown:
+            print(f"docs_screenshots: no tutorial {', '.join(unknown)}; known: {' '.join(tool.scenarios())}",
+                  file=sys.stderr)
+            return 2
+        if args.list:
+            for name in names:
+                print(name, " ".join(tutorial_shots(name)))
+            return 0
+        for name in names:
+            take_tutorial(name, args.only, pathlib.Path(args.out) if args.out else TUTORIAL_OUT,
+                          pathlib.Path(args.blocks) if args.blocks and len(names) == 1 else None)
+        return 0
     if args.list:
         for shot in SHOTS:
             where = f"page {shot.page}" if shot.page else shot.path

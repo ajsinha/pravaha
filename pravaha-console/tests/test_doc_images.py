@@ -6,7 +6,9 @@ Proprietary and confidential. See LICENSE at the repository root.
 Every image under ``docs/assets/screenshots/`` is made by ``tools/docs_screenshots.py`` from its
 declared list. A document that shows an image that is not there fails here, so does an image that no
 document shows, and so does an image the list cannot make -- the three ways a screenshot rots. No
-browser is needed: this checks the bookkeeping, and the tool makes the pictures.
+browser is needed: this checks the bookkeeping, and the tool makes the pictures. The hands-on
+tutorials' pictures (``docs/tutorials/img/tNN/``) are held the same way, against the ``Snap`` steps of
+each tutorial's scenario (``tools/docs_screenshots.py --tutorial tNN``).
 """
 from __future__ import annotations
 
@@ -89,6 +91,42 @@ def test_each_declared_shot_names_a_page_the_harness_has_or_a_path_and_a_known_a
         else:
             assert shot.path and shot.path.startswith("/"), shot
         assert shot.action is None or shot.action in tool.ACTIONS, shot
+
+
+#: The hands-on tutorials' pictures: docs/tutorials/img/tNN/NN-name.png, made by
+#: ``tools/docs_screenshots.py --tutorial tNN`` from the tutorial's own scenario.
+TUTORIAL_IMG = REPO / "docs" / "tutorials" / "img"
+TUTORIAL_IMAGE = re.compile(r"!\[[^\]]*\]\((img/t\d\d/[^)\s]+\.png)\)")
+
+
+def tutorial_pictures() -> dict[pathlib.Path, list[str]]:
+    """Each picture a tutorial shows, resolved, with the tutorials showing it."""
+    out: dict[pathlib.Path, list[str]] = {}
+    for doc in sorted((REPO / "docs" / "tutorials").glob("[0-9][0-9]-*.md")):
+        for reference in TUTORIAL_IMAGE.findall(doc.read_text(encoding="utf-8")):
+            out.setdefault((doc.parent / reference).resolve(), []).append(doc.name)
+    return out
+
+
+def test_every_tutorial_picture_is_there_none_is_left_over_and_the_tool_makes_each_one():
+    tool = _tool()
+    shown = tutorial_pictures()
+    assert len(shown) >= 18, f"the tutorials show {len(shown)} pictures"
+    for image, documents in shown.items():
+        assert image.is_file(), (f"{documents} show {image.relative_to(REPO)}, which is missing: pravaha-console/"
+                                 f".venv/bin/python tools/docs_screenshots.py --tutorial {image.parent.name}")
+        data = image.read_bytes()
+        assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 2000, image.name
+    present = {p.resolve() for p in TUTORIAL_IMG.rglob("*") if p.is_file()}
+    orphans = sorted(str(p.relative_to(REPO)) for p in present - set(shown))
+    assert not orphans, f"docs/tutorials/img/ holds pictures no tutorial shows: {orphans}"
+    names = sorted(p.name for p in TUTORIAL_IMG.iterdir() if p.is_dir())
+    declared = {(TUTORIAL_IMG / name / f"{shot}.png").resolve() for name in names for shot in tool.tutorial_shots(name)}
+    assert len(declared) == sum(len(tool.tutorial_shots(n)) for n in names), "a tutorial takes one picture twice"
+    unmade = sorted(str(p.relative_to(REPO)) for p in set(shown) - declared)
+    assert not unmade, f"tutorials show pictures their scenario does not take (no Snap): {unmade}"
+    unshown = sorted(str(p.relative_to(REPO)) for p in declared - set(shown))
+    assert not unshown, f"scenarios take pictures no tutorial shows: {unshown}"
 
 
 def test_a_missing_or_orphan_image_is_caught(tmp_path, monkeypatch):

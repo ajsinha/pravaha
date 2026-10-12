@@ -114,6 +114,7 @@
 .help-article .doc code{background:var(--d-surface-2);padding:.05rem .3rem;border-radius:3px;color:var(--d-accent)}
 .help-article .doc pre code{background:none;padding:0;color:var(--d-ink)}
 .help-article .doc img{max-width:100%;height:auto}
+.doc img.tutorial-shot{display:block;margin:1rem 0;border:1px solid var(--d-border);border-radius:8px}
 .doc a.prv{font-family:var(--mono,monospace);white-space:nowrap}
 .help-example{margin:1rem 0;border:1px solid var(--d-border);border-radius:8px;overflow:hidden;background:var(--d-surface)}
 .help-example figcaption{display:flex;gap:.8rem;align-items:center;padding:.4rem .8rem;border-bottom:1px solid var(--d-border);font-size:.8rem;color:var(--d-muted)}

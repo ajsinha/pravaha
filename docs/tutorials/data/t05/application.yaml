@@ -1,0 +1,18 @@
+# Tutorial 5 (docs/tutorials/05-changing-a-running-query.md): payments, and a query over them that
+# changes while people read it.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: data/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"

@@ -120,6 +120,16 @@ def load(path: Path = CATALOGUE) -> tuple[list[Category], dict[str, str], dict[s
 
 CATEGORIES, MOVED, SCREEN_HELP = load()
 
+
+def load_tutorials_moved(path: Path = CATALOGUE) -> dict[str, str]:
+    """help.yaml's ``tutorials-moved:``: a tutorial's old slug and the slug that took it over."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {str(k): str(v) for k, v in (data.get("tutorials-moved") or {}).items()}
+
+
+#: A retired tutorial address answers 301 at /tutorials/<old> to /tutorials/<new>.
+TUTORIALS_MOVED = load_tutorials_moved()
+
 CATEGORY_IDS = [c.id for c in CATEGORIES]
 #: Every topic section, and the category that holds it.
 SECTIONS: dict[str, tuple[Category, Section]] = {s.id: (c, s) for c in CATEGORIES for s in c.sections}
