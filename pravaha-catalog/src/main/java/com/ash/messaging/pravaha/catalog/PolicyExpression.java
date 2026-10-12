@@ -54,17 +54,19 @@ import com.ash.messaging.pravaha.security.Principal;
  */
 public final class PolicyExpression {
 
-    /** The pure scalar functions a policy may call. */
+    /**
+     * The pure scalar functions a policy may call: those the engine evaluates, and no others.
+     *
+     * <p>MASKRIGHT-1. This listed {@code RIGHT}, {@code LEFT}, {@code SUBSTR}, {@code CHAR_LENGTH} and
+     * others the engine does not run, so a mask using one was accepted here, and -- bound to a tag, where
+     * nothing plans it against columns -- refused every read it applied to. {@code NarrowingPlanTest}
+     * plans each name here as a mask, so the list cannot drift from the engine again.
+     */
     static final Set<String> FUNCTIONS = Set.of(
             "UPPER",
             "LOWER",
             "TRIM",
             "SUBSTRING",
-            "SUBSTR",
-            "CHAR_LENGTH",
-            "CHARACTER_LENGTH",
-            "LENGTH",
-            "CONCAT",
             "COALESCE",
             "NULLIF",
             "CAST",
@@ -74,13 +76,14 @@ public final class PolicyExpression {
             "CEIL",
             "CEILING",
             "MOD",
-            "LEFT",
-            "RIGHT",
-            "REPLACE",
-            "POSITION",
             "REGEXP_EXTRACT",
-            "SPLIT_INDEX",
-            "SIGN");
+            "SPLIT_INDEX");
+
+    /** What to write instead of a function the engine does not evaluate, for the ones people reach for. */
+    private static final java.util.Map<String, String> INSTEAD = java.util.Map.of(
+            "RIGHT", "for the last characters write REGEXP_EXTRACT(col, '.{4}$'), or SUBSTRING(col, start, 4)",
+            "LEFT", "for the first characters write SUBSTRING(col, 1, 4)",
+            "SUBSTR", "write SUBSTRING");
 
     /** Functions refused by name because they do not answer the same way twice. */
     static final Set<String> NON_DETERMINISTIC = Set.of(
@@ -229,6 +232,14 @@ public final class PolicyExpression {
         return new PolicyExpression(text.strip(), tokens);
     }
 
+    /**
+     * The functions a policy may call by name, besides {@code CASE}, {@code CAST} and the session ones.
+     * The SQL module's tests plan each of them as a mask, so nothing here is one the engine cannot run.
+     */
+    public static Set<String> functions() {
+        return FUNCTIONS;
+    }
+
     /** The expression as it was written. */
     public String text() {
         return text;
@@ -324,10 +335,13 @@ public final class PolicyExpression {
             }
             if (call) {
                 if (!FUNCTIONS.contains(word) && !BEFORE_PARENTHESIS.contains(word)) {
+                    String instead = INSTEAD.get(word);
                     throw invalid(token.text + "() is not a function a policy may call: a policy may use only "
-                            + "pure functions the engine can see into, since any other could carry the value "
-                            + "elsewhere. Allowed: " + new java.util.TreeSet<>(FUNCTIONS)
-                            + ", CASE, CAST, and session_attribute('claim'), current_user(), is_member('role')");
+                            + "pure functions the engine evaluates and can see into, since any other either "
+                            + "cannot run or could carry the value elsewhere"
+                            + (instead == null ? "" : "; " + instead) + ". Allowed: "
+                            + String.join(", ", new java.util.TreeSet<>(FUNCTIONS))
+                            + ", CASE, and session_attribute('claim'), current_user(), is_member('role')");
                 }
                 continue;
             }

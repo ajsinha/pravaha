@@ -932,7 +932,7 @@ pravaha policy drop   <policy> --yes
 ```
 
 A policy is defined, then bound: nothing is narrowed until `bind`. `--as` is the expression as SQL
-would write it — `"region = session_attribute('region')"`, `"'XXXX-' || RIGHT(card, 4)"` — and the
+would write it — `"region = session_attribute('region')"`, `"'XXXX-' || REGEXP_EXTRACT(card, '.{4}$')"` — and the
 engine refuses a subquery, a non-deterministic or unlisted function (`PRV-7038`). Binding to an
 object needs `MANAGE` on it; to a tag, `MANAGE` on the tenant. `ls --on payments` lists what reaches
 a view, directly or by one of its tags. `unbind` widens what an object shows and `drop` removes a

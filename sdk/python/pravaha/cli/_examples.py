@@ -260,7 +260,7 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "--except-role auditor",
     ),
     "policy create-mask": (
-        "pravaha policy create-mask card_last4 --column card --as \"'XXXX-' || RIGHT(card, 4)\"",
+        "pravaha policy create-mask card_last4 --column card --as \"'XXXX-' || REGEXP_EXTRACT(card, '.{4}$')\"",
     ),
     "policy bind": ("pravaha policy bind eu_only --on payments --dry-run",
                     "pravaha policy bind eu_only --on payments", "pravaha policy bind eu_only --tag pii"),

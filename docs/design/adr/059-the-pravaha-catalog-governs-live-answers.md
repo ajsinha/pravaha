@@ -113,7 +113,7 @@ CREATE ROW FILTER sales.region_scope
   AS region = session_attribute('region')          -- the principal's claim, from ADR-052
   EXCEPT ROLE finance_admin;
 CREATE MASK sales.card_last4 ON COLUMN card_number  -- a mask names the column it masks
-  AS 'XXXX-XXXX-XXXX-' || RIGHT(card_number, 4)
+  AS 'XXXX-XXXX-XXXX-' || REGEXP_EXTRACT(card_number, '.{4}$')
   EXCEPT ROLE payments_ops;
 ALTER STREAM sales.orders SET POLICY sales.region_scope;   -- one object (UNSET POLICY unbinds)
 ALTER TAG 'pii' SET POLICY sales.card_last4;               -- every object tagged pii: its card_number
@@ -124,9 +124,10 @@ SHOW POLICIES [ON VIEW sales.hourly_revenue];
 Semantics, as built (phase 2):
 
 - **What an expression may say.** The object's columns, literals, operators, `CASE`, `CAST`, a fixed
-  list of pure scalar functions (`UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `CHAR_LENGTH`, `CONCAT`/`||`,
-  `COALESCE`, `NULLIF`, `ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`, `LEFT`, `RIGHT`, `REPLACE`,
-  `POSITION`, `REGEXP_EXTRACT`, `SPLIT_INDEX`, `SIGN`), and three session functions:
+  list of pure scalar functions the engine evaluates (`UPPER`, `LOWER`, `TRIM`, `SUBSTRING`,
+  `||`, `COALESCE`, `NULLIF`, `ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`, `REGEXP_EXTRACT`,
+  `SPLIT_INDEX`; MASKRIGHT-1 took off `LEFT`, `RIGHT`, `CONCAT`, `CHAR_LENGTH` and others it accepted and the
+  engine could not run), and three session functions:
   `session_attribute('claim')`, `current_user()`, `is_member('role')`. Refused at `CREATE` with
   `PRV-7038`: a subquery (`SELECT`, `EXISTS`, `VALUES`, …), a non-deterministic function (`RAND`,
   `CURRENT_TIMESTAMP`, …), any function not on the list — ADR-031's "no function that could leak" as

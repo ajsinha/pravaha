@@ -62,6 +62,10 @@ class PolicyExpressionTest {
         refused("RAND() < 0.5", null, "does not answer the same way twice");
         refused("ts > CURRENT_TIMESTAMP", null, "does not answer the same way twice");
         refused("send_home(card) = 1", null, "not a function a policy may call");
+        // MASKRIGHT-1: a function the engine does not evaluate is refused here, not at every read.
+        refused("'XXXX-' || RIGHT(card, 4)", "card", "RIGHT() is not a function a policy may call");
+        refused("'XXXX-' || RIGHT(card, 4)", "card", "REGEXP_EXTRACT(col, '.{4}$')");
+        refused("CHAR_LENGTH(region) > 2", null, "CHAR_LENGTH() is not a function a policy may call");
         refused("region = 'EU'; DROP", null, "';' ends a statement");
         refused("region = ?", null, "no parameters");
         refused("(region = 'EU'", null, "not closed");
@@ -113,13 +117,14 @@ class PolicyExpressionTest {
                         "",
                         "region = session_attribute('region')",
                         List.of("finance_admin", "auditors")));
-        assertThat(CatalogStatements.parse(
-                        "create mask card_last4 on column card_number as 'XXXX-' || RIGHT(card_number, 4)"))
+        assertThat(
+                        CatalogStatements.parse(
+                                "create mask card_last4 on column card_number as 'XXXX-' || REGEXP_EXTRACT(card_number, '.{4}$')"))
                 .isEqualTo(new CatalogStatement.CreatePolicy(
                         PolicyDefinition.Type.MASK,
                         List.of("card_last4"),
                         "card_number",
-                        "'XXXX-' || RIGHT(card_number, 4)",
+                        "'XXXX-' || REGEXP_EXTRACT(card_number, '.{4}$')",
                         List.of()));
         assertThat(CatalogStatements.parse("ALTER STREAM orders SET POLICY sales.region_scope"))
                 .isEqualTo(new CatalogStatement.SetPolicy(

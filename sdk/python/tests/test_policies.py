@@ -47,12 +47,12 @@ def test_policies_are_listed_shown_and_created(engine):
     assert api.policy("sales.region_scope") == REGION
     answer("POST", "/api/v1/catalog/policies", REGION, 201)
     api.create_policy(
-        "sales.card_last4", "MASK", "'XXXX' || RIGHT(card, 4)", column="card", except_roles=["ops"]
+        "sales.card_last4", "MASK", "'XXXX' || REGEXP_EXTRACT(card, '.{4}$')", column="card", except_roles=["ops"]
     )
     assert last()["body"] == {
         "name": "sales.card_last4",
         "kind": "MASK",
-        "expression": "'XXXX' || RIGHT(card, 4)",
+        "expression": "'XXXX' || REGEXP_EXTRACT(card, '.{4}$')",
         "exceptRoles": ["ops"],
         "description": "",
         "column": "card",

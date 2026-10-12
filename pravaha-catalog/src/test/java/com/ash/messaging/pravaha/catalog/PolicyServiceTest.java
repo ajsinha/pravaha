@@ -115,9 +115,12 @@ class PolicyServiceTest {
 
     @Test
     void aMaskReplacesOneColumnAndTwoMasksOnOneColumnAreRefused() {
-        run(OPS, "CREATE MASK card_last4 ON COLUMN card AS 'XXXX-' || RIGHT(card, 4) EXCEPT ROLE payments_ops");
+        run(
+                OPS,
+                "CREATE MASK card_last4 ON COLUMN card AS 'XXXX-' || REGEXP_EXTRACT(card, '.{4}$') EXCEPT ROLE payments_ops");
         run(OPS, "ALTER VIEW revenue SET POLICY card_last4");
-        assertThat(narrowing(EU_ANA, "revenue").masks()).isEqualTo(Map.of("card", "'XXXX-' || RIGHT ( card , 4 )"));
+        assertThat(narrowing(EU_ANA, "revenue").masks())
+                .isEqualTo(Map.of("card", "'XXXX-' || REGEXP_EXTRACT ( card , '.{4}$' )"));
         assertThat(narrowing(EU_ANA, "revenue").rowFilter()).isEmpty();
 
         run(OPS, "CREATE MASK card_hidden ON COLUMN card AS CAST(NULL AS VARCHAR)");
