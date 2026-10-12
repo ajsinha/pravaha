@@ -111,7 +111,9 @@ final class PumpingFeed implements SourceFeed {
     /** The streams whose sources may gain partitions, watched from this feed's thread. */
     private volatile List<PartitionGrowth> growth = List.of();
 
-    private final String description;
+    /** Asked each time, because a replacement's feed stops backfilling and keeps running (FEEDLABEL-1). */
+    private final java.util.function.Supplier<String> description;
+
     private final Runnable afterDelivery;
     private final Thread thread;
     private final AtomicLong rowsFed = new AtomicLong();
@@ -143,6 +145,17 @@ final class PumpingFeed implements SourceFeed {
             List<FeedInput> inputs,
             List<AutoCloseable> resources,
             String description,
+            Runnable afterDelivery) {
+        this(queryName, pumps, inputs, resources, () -> description, afterDelivery);
+    }
+
+    /** @param description what the feed reads, as it is now; asked on every status and describe */
+    PumpingFeed(
+            String queryName,
+            List<IngestPump> pumps,
+            List<FeedInput> inputs,
+            List<AutoCloseable> resources,
+            java.util.function.Supplier<String> description,
             Runnable afterDelivery) {
         if (inputs.size() != pumps.size()) {
             throw new IllegalArgumentException(
@@ -356,7 +369,7 @@ final class PumpingFeed implements SourceFeed {
 
     @Override
     public FeedStatus status() {
-        return FeedStatus.of(description + grown(), sources(false));
+        return FeedStatus.of(description.get() + grown(), sources(false));
     }
 
     /**
@@ -392,7 +405,7 @@ final class PumpingFeed implements SourceFeed {
 
     @Override
     public String describe() {
-        String described = description + grown();
+        String described = description.get() + grown();
         if (failure != null) {
             return described + " -- stopped: " + failure.getMessage();
         }

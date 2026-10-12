@@ -31,6 +31,7 @@ import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
+import com.ash.messaging.pravaha.backfill.BackfillPhase;
 import com.ash.messaging.pravaha.backfill.OffsetSplicedReader;
 import com.ash.messaging.pravaha.connect.PluginDiscovery;
 import com.ash.messaging.pravaha.registry.ReplaySource;
@@ -587,7 +588,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         List<FeedInput> inputs = new ArrayList<>();
         List<AutoCloseable> resources = new ArrayList<>();
         Map<String, Integer> partitionCounts = new LinkedHashMap<>();
-        Map<String, String> pushed = new LinkedHashMap<>();
+        Map<String, String> summaries = new LinkedHashMap<>();
+        Map<String, String> says = new LinkedHashMap<>();
+        Map<String, List<OffsetSplicedReader>> spliced = new LinkedHashMap<>();
         Runnable publish = serialised(afterDelivery);
         ResumePositions positions = ResumePositions.of(resumeFrom);
         List<PartitionGrowth> growth = new ArrayList<>();
@@ -603,7 +606,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         .withoutAggregates();
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 partitionCounts.put(stream, partitions.size());
-                pushed.put(stream, summarise(request) + ", backfilling" + sourceSays(plugin, request));
+                // FEEDLABEL-1: "backfilling" while any of the stream's partitions is still reading
+                // history, and not once every one has passed its seam -- the feed keeps running
+                // after the replacement finishes, and its description used to say so forever.
+                summaries.put(stream, summarise(request));
+                says.put(stream, sourceSays(plugin, request));
                 for (int index = 0; index < partitions.size(); index++) {
                     SourcePartition partition = partitions.get(index);
                     inputs.add(new FeedInput(stream, index));
@@ -621,8 +628,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         // backfill = none: start where the running version is, with empty state.
                         from = splice;
                     }
-                    PartitionReader reader = new OffsetSplicedReader(
+                    OffsetSplicedReader reader = new OffsetSplicedReader(
                             at -> plugin.createReader(partition, at, request), from, splice, plan.job(), historyDone);
+                    spliced.computeIfAbsent(stream, any -> new ArrayList<>()).add(reader);
                     resources.add(reader);
                     IngestPump pump = execution.pumpInto(0, stream, partition.index(), reader, policy);
                     attachDeadLetters(pump, queryName, resources);
@@ -648,9 +656,19 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             closeQuietly(resources);
             throw e;
         }
-        PumpingFeed feed = new PumpingFeed(
-                        queryName, pumps, inputs, resources, describe(partitionCounts, pushed), publish)
-                .growing(growth);
+        java.util.function.Supplier<String> description = () -> {
+            Map<String, String> pushed = new LinkedHashMap<>();
+            summaries.forEach((stream, summary) -> pushed.put(
+                    stream,
+                    summary
+                            + (spliced.getOrDefault(stream, List.of()).stream()
+                                            .anyMatch(each -> each.phase() != BackfillPhase.LIVE)
+                                    ? ", backfilling"
+                                    : "")
+                            + says.get(stream)));
+            return describe(partitionCounts, pushed);
+        };
+        PumpingFeed feed = new PumpingFeed(queryName, pumps, inputs, resources, description, publish).growing(growth);
         feed.start();
         return feed;
     }

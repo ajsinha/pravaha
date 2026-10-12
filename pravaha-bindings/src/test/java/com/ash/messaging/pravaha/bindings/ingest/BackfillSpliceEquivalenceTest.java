@@ -146,6 +146,11 @@ class BackfillSpliceEquivalenceTest {
             List<Object[]> rows = registry.find("orders").orElseThrow().view().scan();
             return rows.size() == 1 && Long.valueOf(20L).equals(rows.get(0)[2]);
         });
+        // FEEDLABEL-1: the replacement's feed keeps running after its history is read, and its
+        // description said "backfilling" for as long as it did.
+        var feed = registry.find("orders").orElseThrow().feed();
+        assertThat(feed.describe()).contains("txn (1 partition").doesNotContain("backfilling");
+        assertThat(feed.status().description()).doesNotContain("backfilling");
     }
 
     @Test
