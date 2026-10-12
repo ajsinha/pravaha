@@ -1,0 +1,11 @@
+txn_id,user_id,merchant,amount,event_time
+1,alice,acme,500,2026-10-01T09:00:05Z
+2,bob,globex,50,2026-10-01T09:00:20Z
+3,carol,acme,900,2026-10-01T09:00:41Z
+4,alice,initech,120,2026-10-01T09:00:55Z
+5,dave,globex,150,2026-10-01T09:01:10Z
+6,bob,acme,75,2026-10-01T09:01:30Z
+7,carol,initech,300,2026-10-01T09:01:58Z
+8,frank,acme,1200,2026-10-01T09:02:15Z
+9,bob,globex,60,2026-10-01T09:02:40Z
+10,dave,acme,45,2026-10-01T09:03:20Z
