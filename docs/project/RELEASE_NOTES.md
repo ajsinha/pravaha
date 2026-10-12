@@ -85,6 +85,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   stops the node with `PRV-7022`. The `users` profile ships the development administrator
   `pravaha-dev-admin` / `pravaha-dev-admin123`, so `dev,users` always has an admin with a known
   password ([SECURITY.md](../operations/SECURITY.md)).
+- **Found writing the tutorials, fixed.** Rows too late to correct any window are published: the
+  `pravaha_query_late_records_total{query}` counter, `lateRecords` in `GET /api/v1/queries/{name}` and
+  the plan's telemetry, `late rows` in `pravaha describe` and on the console's query page (TOOLATE-1).
+  A view read `WHERE window_end = TIMESTAMP '…'` plans, as do `<>` and `IN`, where only the range forms
+  did (TSEQ-1). The console's Java and Python snippets for a `grpc://` engine read `PRAVAHA_TOKEN` and
+  send it, so a node with sign-in on no longer refuses them with `PRV-7001` (SNIPPETTOKEN-1). Smaller:
+  a replacement's feed stops saying "backfilling" once it is live (FEEDLABEL-1); the Catalog shows a
+  stream's allowed lateness and lists lookup tables (STREAMLATE-1, CATALOGLOOKUP-1); the debugger no
+  longer says a query with open sessions is not being debugged (DEBUGPAGE-1); a snippet's Copy button
+  no longer covers its first line (SNIPPETCOPY-1); `sources bound:` lists options sorted (LOGORDER-1);
+  the lookup-filter `PRV-2020` ends its sentence (LOOKUPMSG-1); `pravaha subscribe --filter` says
+  `where user_id = 'alice'` (CLIFILTER-1).
 
 ---
 
