@@ -369,6 +369,9 @@ def validate(ctx: Context) -> int:
 
 def explain(ctx: Context) -> int:
     _refuse_offline(ctx, "explain")
+    if ctx.arg("why_changed"):
+        from pravaha.cli import _ai
+        return _ai.why_changed(ctx)
     level = ctx.arg("level", "physical")
     if level not in ("physical", "logical", "codegen"):
         raise UsageError(f"--level must be logical, physical or codegen; got '{level}'")

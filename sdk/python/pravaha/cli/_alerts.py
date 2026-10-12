@@ -199,7 +199,12 @@ def _changed(ctx: Context, answer: "dict[str, Any]", text: str) -> None:
 
 
 def alert(ctx: Context) -> int:
+    if ctx.arg("ask") is not None:
+        from pravaha.cli import _ai
+        return _ai.alert_ask(ctx)
     verb = ctx.args.verb
+    if verb is None:
+        raise UsageError("usage: pravaha alert create|drop <alert> ..., or pravaha alert --ask \"...\"")
     name = str(ctx.require("name"))
     out = ctx.out
     if verb == "create":

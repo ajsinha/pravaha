@@ -17,7 +17,11 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "query": (
         'pravaha query --sql "SELECT user_id, spend FROM hourly_spend WHERE user_id = ?" --params u1',
         "pravaha query --sql-file report.sql --tsv > report.tsv",
-        "pravaha query --sql 'SHOW CONTINUOUS QUERIES' --json",
+        'pravaha query --ask "total spend by region" --chart   # the SQL the model chose, run as you',
+    ),
+    "chat": (
+        "pravaha chat                     # ask, then follow up: \"and only for EU?\"",
+        'pravaha chat --once "how many payments are there" --json',
     ),
     "register": (
         "pravaha register --name spend_by_hour --sql-file spend.sql --keys 0,2 --retain P7D",
@@ -49,7 +53,7 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "subscribe": (
         "pravaha subscribe --view big_txn --filter merchant=TRAVELCO --snapshot",
         "pravaha subscribe --view spend_by_hour --answer --limit 100 --json",
-        "pravaha subscribe --view spend_by_hour --reconnect --reconnect-timeout 600",
+        "pravaha subscribe --view spend_by_region --narrate   # a plain-English line per commit",
     ),
     "dlq": ("pravaha dlq list --name orders_by_hour", "pravaha dlq count --name orders_by_hour"),
     "dlq list": ("pravaha dlq list --name orders_by_hour --limit 20",),
@@ -143,6 +147,7 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "explain": (
         "pravaha explain --sql-file spend.sql",
         "pravaha explain --sql-file spend.sql --level logical --graph --json",
+        "pravaha explain --why-changed spend_by_region",
     ),
     "run": ("pravaha-engine run --help        # this command moved to the offline Java tool",),
     "lanes": ("pravaha lanes", "pravaha lanes rebalance status"),
@@ -197,14 +202,17 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "ask": (
         'pravaha ask "orders per customer per minute" --name orders_per_minute',
         'pravaha ask "orders per customer per minute" --register --yes --url grpc://localhost:19090',
+        'pravaha ask "spend per region" --engine --register   # the engine drafts; asks before registering',
     ),
     "explain-sql": (
         "pravaha explain-sql --sql-file spend.sql",
         "pravaha explain-sql --query spend_by_hour --show-plan",
+        "pravaha explain-sql --query spend_by_hour --engine",
     ),
     "why": (
         'pravaha why PRV-2050 --sql "SELECT customer, COUNT(*) FROM orders GROUP BY customer"',
         "pravaha why PRV-4023 --no-check",
+        'pravaha why PRV-2002 --sql "SELECT nope FROM payments" --engine',
     ),
     "assist": ("pravaha assist models", "pravaha assist check"),
     "assist models": ("pravaha assist models --json",),
@@ -274,6 +282,7 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "alert": (
         "pravaha alert create low_stock --on stock_levels --notify ops-slack --where 'qty < 10'",
         "pravaha alert drop low_stock --yes",
+        'pravaha alert --ask "tell me when a region spends over 500" --name big_spend',
     ),
     "alert create": (
         "pravaha alert create low_stock --on stock_levels --notify ops-slack,pager "
