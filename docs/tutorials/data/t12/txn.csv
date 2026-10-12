@@ -1,0 +1,6 @@
+txn_id,user_id,merchant,amount,event_time
+1,ann,acme,400,2026-10-01T09:00:05Z
+2,bob,acme,1250,2026-10-01T09:00:20Z
+3,ann,globex,4800,2026-10-01T09:00:40Z
+4,cat,acme,90,2026-10-01T09:00:55Z
+5,dan,globex,700,2026-10-01T09:01:15Z

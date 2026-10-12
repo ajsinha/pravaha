@@ -1,0 +1,26 @@
+# Tutorial 12 (docs/tutorials/12-embedding-pravaha.md): the revenue board's configuration. The pravaha.*
+# blocks are the ones a node reads; the starter builds and starts the engine from them before any bean
+# of the application is created.
+spring:
+  main:
+    web-application-type: none      # a worker, not a web server: it pushes, follows and prints
+    banner-mode: "off"
+logging:
+  level:
+    root: warn
+pravaha:
+  node:
+    id: revenue-board
+  streams:
+    orders:
+      schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+  queries:
+    region_revenue:
+      sql: >
+        SELECT region, window_start, window_end, SUM(amount) AS revenue, COUNT(*) AS orders
+        FROM TABLE(TUMBLE(TABLE orders, DESCRIPTOR(event_time), INTERVAL '1' MINUTE))
+        GROUP BY region, window_start, window_end
+      keys: [region, window_end]
+  listener:
+    max-pending: 10000              # commits a listener may have waiting before it is detached
