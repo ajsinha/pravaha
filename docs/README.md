@@ -46,7 +46,7 @@ The documents are in six folders, by who reads them and when:
 | [TLS](guides/CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts — connector, server and SDK — and the configuration that turns each one on. The single source of truth for TLS |
 | [Troubleshooting](guides/TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
 | [Known limits](guides/LIMITS.md) | Everything not built, sorted into deferred, buildable and boundary |
-| Tutorials | [1. Your first maintained view](guides/tutorials/01-your-first-maintained-view.md) · [2. Following a view](guides/tutorials/02-following-a-view.md) · [3. Changing a running query](guides/tutorials/03-changing-a-running-query.md) · [4. Investigating an incident](guides/tutorials/04-investigating-an-incident.md) · [Aerospike fulfilment](guides/tutorials/aerospike-fulfilment.md) |
+| Tutorials | [The hands-on tutorials](tutorials/README.md): [1. Your first 15 minutes](tutorials/01-first-15-minutes.md) · [2. Windows, event time and late data](tutorials/02-windows-and-late-data.md) · [3. Joins and lookups](tutorials/03-joins-and-lookups.md) · [4. Following a view](tutorials/04-following-a-view.md) · [5. Changing a running query safely](tutorials/05-changing-a-running-query.md) · [6. Investigating an incident](tutorials/06-investigating-an-incident.md) · the case study [Aerospike fulfilment](guides/tutorials/aerospike-fulfilment.md) |
 
 ## Operations — running it
 

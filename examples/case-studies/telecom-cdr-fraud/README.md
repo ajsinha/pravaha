@@ -117,7 +117,7 @@ WHERE callee_country IN ('SB', 'TV', 'NU')
 
 A filter, so no window and no state: each qualifying record is in the view as soon as it is read.
 The list of destinations is in the SQL because it changes rarely; when it changes, replace the query
-([Tutorial 3](../../../docs/guides/tutorials/03-changing-a-running-query.md)) and readers keep reading.
+([Tutorial 5](../../../docs/tutorials/05-changing-a-running-query.md)) and readers keep reading.
 
 ### The three busiest callers in each five minutes
 

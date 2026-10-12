@@ -474,7 +474,7 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("help-codes", "/help/codes", False, "true"),
     ("help-guides", "/help/guides", False, "true"),
     ("tutorials", "/tutorials", False, "true"),
-    ("tutorial", "/tutorials/first-maintained-view", False, "true"),
+    ("tutorial", "/tutorials/first-15-minutes", False, "true"),
     ("case-studies", "/help/case-studies", False, "true"),
     ("case-study", "/help/case-studies/trade-processing", False, "true"),
     ("help-code", "/help/codes/PRV-2050", False, "true"),

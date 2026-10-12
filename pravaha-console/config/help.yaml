@@ -31,7 +31,7 @@ categories:
       - { id: about, guide: whats-new }
     guides:
       - { guide: quickstart, title: "Quick start (long form)", icon: flag, kind: tutorial, summary: "From an empty engine to a maintained view, including the refusals — every command real." }
-      - { href: /tutorials, title: Tutorials, icon: mortarboard, kind: tutorial, keywords: "tutorial lesson learn walkthrough aerospike", summary: "Learn Pravaha step by step: a first maintained view, following a view, changing a running query safely, investigating an incident, and joining Aerospike with a CSV file." }
+      - { href: /tutorials, title: Tutorials, icon: mortarboard, kind: tutorial, keywords: "tutorial lesson learn walkthrough hands-on first 15 minutes init windows late data joins lookups subscribe psql replace cutover incident debugger aerospike", summary: "Learn Pravaha by doing, with real commands, real output and screenshots: your first 15 minutes, windows and late data, joins and lookups, following a view, changing a running query safely, investigating an incident." }
       - { href: /help/case-studies, title: Case studies, icon: journal-code, kind: tutorial, keywords: "case study worked example domain banking trading biology", summary: "Worked systems, one domain each, from their data to their continuous queries — each study's README, with the output of a real run." }
       - { guide: concepts, title: "Concepts (long form)", icon: lightbulb, summary: "The model underneath everything else, with the soundness rule it rests on." }
       - { href: /about, title: About Pravaha, icon: info-circle, kind: guide, keywords: "about overview author licence version", summary: "What it is, the problems it solves, what is built and measured, and who made it." }
@@ -124,6 +124,12 @@ moved:
   row-filters: row-filters-and-masks
   admin-ai-models: "assistant#admin-ai-models"
   cluster-mode: "standby#cluster-mode"
+
+# Retired tutorial addresses: /tutorials/<old> answers 301 to /tutorials/<new>. The tutorials live in
+# docs/tutorials/ (each included by a content/tutorials/ page); one rebuilt under a new name keeps its
+# old address working here. Checked by tests/test_tutorials.py: every target is a tutorial that exists.
+tutorials-moved:
+  first-maintained-view: first-15-minutes
 
 # What each screen offers as help, most relevant first (at most three): the "About this page"
 # panel's "More in Help", the "?" beside a heading, and -- the first -- where F1 goes

@@ -11,6 +11,7 @@ least useful.
 """
 from __future__ import annotations
 
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -22,8 +23,12 @@ from core.about import (CAPABILITIES, DIFFERENT, LIMITS, MEASURED, PRINCIPLES, P
                         TECHNOLOGY, AboutSource)
 from core.competitive import BEHIND, SHINE
 from core.content.examples import Examples
-from core.help_catalog import ERROR_FAMILIES, HelpCatalog
+from core.help_catalog import ERROR_FAMILIES, TUTORIALS_MOVED, HelpCatalog
 from routes.base import Routes, _signed_in
+
+#: The hands-on tutorials' pictures: docs/tutorials/img/t01/01-sign-in.png and its like, nothing else.
+TUTORIAL_FOLDER = re.compile(r"t\d\d")
+TUTORIAL_PICTURE = re.compile(r"\d\d-[a-z0-9-]+\.png")
 
 
 def _back_to(request: Request) -> str | None:
@@ -351,7 +356,22 @@ class PublicRoutes(Routes):
         def tutorial(request: Request, slug: str):
             if slug in MOVED_TO_CASE_STUDIES:
                 return RedirectResponse(f"/help/case-studies/{MOVED_TO_CASE_STUDIES[slug]}", status_code=301)
+            if slug in TUTORIALS_MOVED:
+                # A tutorial rebuilt under a new name (help.yaml's tutorials-moved:): the old address
+                # somebody bookmarked lands on the new one, and says so.
+                return RedirectResponse(f"/tutorials/{TUTORIALS_MOVED[slug]}", status_code=301)
             return topic(request, "tutorials", slug)
+
+        @self.app.get("/tutorials/img/{folder}/{name}", tags=["public"])
+        def tutorial_picture(folder: str, name: str):
+            """A tutorial's picture, docs/tutorials/img/tNN/NN-name.png: only a name of that shape, only
+            from that folder, and only when this installation carries it -- anything else is a 404."""
+            if not TUTORIAL_FOLDER.fullmatch(folder) or not TUTORIAL_PICTURE.fullmatch(name):
+                raise HTTPException(404, "no such picture")
+            path = content.include_root / "docs" / "tutorials" / "img" / folder / name
+            if not path.is_file():
+                raise HTTPException(404, "no such picture")
+            return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
 
         # ------------------------------------------------------------- probes
         @self.app.get("/health", tags=["health"])

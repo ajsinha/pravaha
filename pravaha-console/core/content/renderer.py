@@ -62,9 +62,15 @@ class MarkdownRenderer:
         "CONNECTOR_TLS.md": "/help/connector-tls",
         "system_design.md": "/help/system-design",
         "PYTHON_API_GUIDE.md": "/help/python-api-guide",
-        # The four lessons in docs/guides/tutorials/, which link to each other and are linked from the
-        # case studies by file name.
-        "01-your-first-maintained-view.md": "/tutorials/first-maintained-view",
+        # The hands-on tutorials in docs/tutorials/, which link to each other by file name.
+        "01-first-15-minutes.md": "/tutorials/first-15-minutes",
+        "02-windows-and-late-data.md": "/tutorials/windows-and-late-data",
+        "03-joins-and-lookups.md": "/tutorials/joins-and-lookups",
+        "04-following-a-view.md": "/tutorials/following-a-view",
+        "05-changing-a-running-query.md": "/tutorials/changing-a-running-query",
+        "06-investigating-an-incident.md": "/tutorials/investigating-an-incident",
+        # Their old homes in docs/guides/tutorials/, which still answer with a pointer to the new.
+        "01-your-first-maintained-view.md": "/tutorials/first-15-minutes",
         "02-following-a-view.md": "/tutorials/following-a-view",
         "03-changing-a-running-query.md": "/tutorials/changing-a-running-query",
         "04-investigating-an-incident.md": "/tutorials/investigating-an-incident",
@@ -102,10 +108,16 @@ class MarkdownRenderer:
     #: The console does not serve docs/assets/, so it shows the image's description in its place
     #: rather than a broken image.
     _RELATIVE_IMG = re.compile(r'<img alt="([^"]*)" src="(?!https?://|/|data:)[^"]*"\s*/?>')
+    #: A hands-on tutorial's own picture (``img/t01/01-sign-in.png``, beside the tutorial in
+    #: docs/tutorials/), which the console does serve, at /tutorials/img/.
+    _TUTORIAL_IMG = re.compile(r'<img alt="([^"]*)" src="img/(t\d\d/\d\d-[a-z0-9-]+\.png)"\s*/?>')
 
     def render(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         engine = markdown.Markdown(extensions=EXTENSIONS, extension_configs=CONFIG)
         html = self.link_codes(self._relink(engine.convert(self._brackets(text))))
+        html = self._TUTORIAL_IMG.sub(
+            lambda m: (f'<img class="tutorial-shot" alt="{m.group(1)}" src="/tutorials/img/{m.group(2)}" '
+                       f'loading="lazy" width="1400" height="900">'), html)
         html = self._RELATIVE_IMG.sub(lambda m: f'<em class="text-muted">Screenshot: {m.group(1)}</em>', html)
         # A code block wider than its card scrolls, and a region that scrolls must be reachable
         # by keyboard (WCAG 2.1.1; axe's scrollable-region-focusable), so every <pre> is a tab stop.
