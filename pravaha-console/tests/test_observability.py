@@ -34,7 +34,9 @@ REPO = CONSOLE_ROOT.parent
 OBSERVABILITY = REPO / "deploy" / "observability"
 sys.path.insert(0, str(CONSOLE_ROOT))
 
-from test_assist import Console, ask, document, refusal
+from test_assist import Console, document, refusal
+
+from core.assist import AssistFailure
 
 from core.observability import (
     AssistMetrics,
@@ -56,6 +58,13 @@ def _console(tmp_path, monkeypatch, *, enabled=True, token=TOKEN, chains=None, m
     monkeypatch.setenv("CONSOLE_METRICS_TOKEN", token or "")
     return Console(tmp_path, config=document(models or {"a": [UNAVAILABLE], "b": [refusal("b")]},
                                              chains or {"explain": ["a", "b"], "draft": ["b"]}))
+
+
+def explain(console) -> dict:
+    """One assistant request, as the service runs it. The console's own surfaces are the engine's AI
+    features now (test_ai_screens.py); the assistant's service and its metrics remain, and are
+    exercised here directly."""
+    return console.service.explain_refusal("admin", "PRV-2050")
 
 
 def scrape(client, token: str | None = TOKEN):
@@ -97,8 +106,7 @@ def test_a_scrape_without_the_token_is_refused(tmp_path, monkeypatch):
 def test_requests_tokens_fallbacks_failures_and_latency_are_counted_per_model_and_profile(tmp_path, monkeypatch):
     console = _console(tmp_path, monkeypatch)
     admin = console.client()
-    answer = ask(admin, "explain-refusal", code="PRV-2050")
-    assert answer.json()["result"]["answeredBy"]["modelId"] == "b"
+    assert explain(console)["answeredBy"]["modelId"] == "b"
     text = scrape(admin).text
     got = samples(text)
     assert got['pravaha_console_assist_requests_total{model="b",profile="explain",outcome="ok"}'] == 1
@@ -115,7 +123,8 @@ def test_requests_tokens_fallbacks_failures_and_latency_are_counted_per_model_an
 def test_every_model_failing_is_a_model_error_outcome(tmp_path, monkeypatch):
     console = _console(tmp_path, monkeypatch, models={"a": [UNAVAILABLE], "b": [UNAVAILABLE]})
     admin = console.client()
-    assert ask(admin, "explain-refusal", code="PRV-2050").status_code >= 400
+    with pytest.raises(AssistFailure):
+        explain(console)
     got = samples(scrape(admin).text)
     assert got['pravaha_console_assist_requests_total{model="b",profile="explain",outcome="model_error"}'] == 1
     assert got['pravaha_console_assist_fallbacks_total{model="a",profile="explain"}'] == 1
@@ -273,7 +282,7 @@ def test_every_console_metric_a_dashboard_or_rule_reads_is_published(tmp_path, m
 
     console = _console(tmp_path, monkeypatch, models={"a": [UNAVAILABLE], "b": [refusal("b")]})
     admin = console.client()
-    ask(admin, "explain-refusal", code="PRV-2050")
+    explain(console)
     console.service.router.ledger.record("admin", "b", 10)
     published = names(scrape(admin).text)
     assert used - published == set(), f"read by a dashboard or rule and not published: {used - published}"
