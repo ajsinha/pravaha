@@ -122,6 +122,12 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <!-- The AI layer (ADR-063). Only the server wires it; nothing in the engine depends on it. -->
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-ai</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-cluster</artifactId>
       <version>${project.version}</version>

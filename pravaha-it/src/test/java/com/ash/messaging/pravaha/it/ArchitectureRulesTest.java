@@ -100,7 +100,9 @@ class ArchitectureRulesTest {
         "com.ash.messaging.pravaha.registry..",
         "com.ash.messaging.pravaha.serving..",
         "com.ash.messaging.pravaha.security..",
-        "com.ash.messaging.pravaha.bindings.."
+        "com.ash.messaging.pravaha.bindings..",
+        // The AI layer (ADR-063): Spring is the server's, which wires the layer; the layer has none.
+        "com.ash.messaging.pravaha.ai.."
     };
 
     @Test
@@ -163,6 +165,45 @@ class ArchitectureRulesTest {
                 .because(
                         "pravaha-api is the plugin-facing contract and must stay dependency-free (design section 7.2)");
         rule.check(engine);
+    }
+
+    /**
+     * ADR-063, Drishti's {@code aiLayerDependsOneWay}. The AI layer leans on the contract and the
+     * common utilities and nothing else of the engine -- not the planner, the runtime, the registry or
+     * security -- and nothing but the server, which wires it, leans on the layer. So the engine stays
+     * model-free (ADR-058's promise) and the layer can be left out, replaced or switched off without a
+     * line of the engine changing.
+     */
+    @Test
+    void aiLayerDependsOneWay() {
+        ArchRule out = noClasses()
+                .that()
+                .resideInAPackage("com.ash.messaging.pravaha.ai..")
+                .should()
+                .dependOnClassesThat()
+                .resideOutsideOfPackages(
+                        "com.ash.messaging.pravaha.ai..",
+                        "com.ash.messaging.pravaha.api..",
+                        "com.ash.messaging.pravaha.common..",
+                        "java..",
+                        "javax..",
+                        "com.fasterxml.jackson..",
+                        "org.yaml.snakeyaml..",
+                        "org.slf4j..",
+                        "org.jspecify..")
+                .because("pravaha-ai depends on pravaha-api and pravaha-common only (ADR-063)");
+        out.check(engine);
+        ArchRule in = noClasses()
+                .that()
+                .resideOutsideOfPackages("com.ash.messaging.pravaha.ai..", "com.ash.messaging.pravaha.server..")
+                .should()
+                .dependOnClassesThat()
+                .resideInAPackage("com.ash.messaging.pravaha.ai..")
+                .because("nothing in the engine depends on the AI layer; only the server wires it (ADR-063)");
+        in.check(engine);
+        assertThat(engine.stream().map(c -> c.getPackageName()))
+                .as("the rule sees the AI layer, or it passes while enforcing nothing")
+                .anyMatch(p -> p.startsWith("com.ash.messaging.pravaha.ai"));
     }
 
     @Test
