@@ -950,6 +950,16 @@ def test_a_plaintext_engines_snippets_still_sign_in():
     ast.parse(tls["python"]["subscribe"])
 
 
+def test_a_snippets_first_line_starts_below_its_copy_button():
+    # SNIPPETCOPY-1: the button is pinned to the pre's top-right corner, and the psql snippet's long
+    # first line ran under it. Right padding cannot help a line that scrolls sideways; top padding does.
+    css = (CONSOLE_ROOT / "web" / "static" / "app" / "product.css").read_text(encoding="utf-8")
+    pre = re.search(r"\.copyable pre\{([^}]*)\}", css).group(1)
+    top = float(re.search(r"padding-top:([\d.]+)rem", pre).group(1))
+    button = re.search(r"\.copyable \.copy\{([^}]*)\}", css).group(1)
+    assert "top:.4rem" in button and top >= 2.4
+
+
 def test_snippets_refuse_names_that_are_not_identifiers():
     with pytest.raises(snippets.SnippetError):
         snippets.snippets("v; drop", engine_url="grpc://x:1")
