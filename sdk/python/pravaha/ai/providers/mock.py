@@ -1,5 +1,10 @@
 """``type: mock``: no network and deterministic answers, for tests, demos and features built before a
-model is chosen. Configured under ``mock.*`` exactly like the engine's mock::
+model is chosen.
+
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
+
+Configured under ``mock.*`` exactly like the engine's mock::
 
     type: mock
     mock:
@@ -15,8 +20,6 @@ model is chosen. Configured under ``mock.*`` exactly like the engine's mock::
 
 Usage is characters / 4, so cost limits and the audit can be exercised.
 
-Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 """
 
 from __future__ import annotations

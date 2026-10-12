@@ -92,6 +92,10 @@ class OrphanedClassTest {
             Map.entry("EngineTracing", "Spring @Component"),
             Map.entry("ObservabilityEnvironment", "Spring Boot spring.factories EnvironmentPostProcessor"),
             Map.entry("QueryController", "Spring @RestController"),
+            Map.entry("AiController", "Spring @RestController"),
+            Map.entry("AiConfiguration", "Spring @Configuration"),
+            // ADR-063: listed in pravaha-ai's META-INF/services/com.ash.messaging.pravaha.ai.ProviderFactory
+            Map.entry("OllamaProvider", "ServiceLoader / ProviderFactory"),
             Map.entry("StreamController", "Spring @RestController"),
             Map.entry("SinkController", "Spring @RestController"),
             Map.entry("ViewController", "Spring @RestController"),
