@@ -1,0 +1,29 @@
+# Tutorial 11 (docs/tutorials/11-governance.md): card payments from two regions, governed by the
+# catalogue -- grants, row filters and masks kept in the engine.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    payments:
+      schema: "payment_id:INT64,customer:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    payments:
+      plugin: filesystem
+      options:
+        path: data/incoming/payments.csv
+        schema: "payment_id:INT64,customer:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+  # Grants live in the engine, journalled beside the registry, and are enforced on every read,
+  # subscription and registration. authority: catalog -- grants alone decide; nothing is imported
+  # from pravaha.security.policy.
+  catalog:
+    enabled: true
+    authority: catalog
+  # Every decision the policy makes -- allows as well as denials -- appended to a file, and the
+  # recent ones readable with `pravaha audit` and on Admin · Audit.
+  security:
+    audit: file
+    audit-file: logs/audit.jsonl

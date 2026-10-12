@@ -76,11 +76,36 @@ _BLOCK = re.compile(r"(<!-- capture: (?P<id>t\d\d-[a-z0-9-]+) -->\n)(?P<body>.*?
 
 
 @dataclass(frozen=True)
+class Container:
+    """A server the tutorial runs beside its node -- a Kafka broker, a PostgreSQL -- in Docker.
+
+    The tutorial shows it as a reader starts it: ``docker run --name <name> -p <port>:<port> <image>``,
+    reached at ``localhost:<port>``. The run starts it under a name of its own (``<name>-<pid>``) on a
+    free port (never the reader's, which may be someone's own service), listening on that port inside
+    the container too, so the address it advertises works from both sides. ``localhost:<port>`` in
+    the node's configuration becomes the real one; a step's ``run`` may name ``{<name>}`` (the
+    container) and ``{<name>.port}``; and the real port is shown as ``<port>``. ``env`` and ``args``
+    may name ``{port}``; ``ready`` is a shell command, run until it succeeds (``{container}``, ``{port}``).
+    ``inside`` is the port the server listens on in the container when it cannot be told the free one
+    (PostgreSQL's 5432). The container is removed when the run ends, whatever happened."""
+
+    name: str
+    image: str
+    port: int
+    inside: int = 0
+    env: "tuple[tuple[str, str], ...]" = ()
+    args: "tuple[str, ...]" = ()
+    ready: str = "true"
+    timeout: float = 120
+
+
+@dataclass(frozen=True)
 class Node:
     """The node a tutorial runs against. ``config`` is the tutorial's ``application.yaml`` (under
     ``docs/tutorials/data/``); ``files`` copies sample data into the node's home (source -> place),
     where its relative paths resolve, as under ``PRAVAHA_HOME``. ``jars`` go to ``plugins/`` (``-Dloader.path``),
-    found under ``~/.m2/repository``; ``pgwire`` turns the PostgreSQL gateway on, on a free port."""
+    found under ``~/.m2/repository``; ``pgwire`` turns the PostgreSQL gateway on, on a free port;
+    ``containers`` are started first (:class:`Container`)."""
 
     config: str
     files: "tuple[tuple[str, str], ...]" = ()
@@ -89,6 +114,7 @@ class Node:
     jars: "tuple[str, ...]" = ()
     pgwire: bool = False
     data_date: str = "2026-10-01"
+    containers: "tuple[Container, ...]" = ()
 
 
 @dataclass(frozen=True)
@@ -156,9 +182,10 @@ class Join:
 
 @dataclass(frozen=True)
 class Until:
-    """Repeats ``pravaha <argv>`` until its output matches ``pattern`` (a regex), or fails the run."""
+    """Repeats ``pravaha <argv>`` until its output matches ``pattern`` (a regex), or fails the run.
+    ``argv`` may instead be a shell command (a string), run as a :class:`Sh` step's ``run`` is."""
 
-    argv: "tuple[str, ...]"
+    argv: "tuple[str, ...] | str"
     pattern: str
     timeout: float = 90
 
@@ -170,7 +197,12 @@ class Sleep:
 
 @dataclass(frozen=True)
 class Restart:
-    """Stops the node and starts it again: same home, same ports, same configuration."""
+    """Stops the node and starts it again: same home, same ports, same configuration. ``crash`` kills
+    it (``kill -9``: no shutdown, no last checkpoint) instead of stopping it; ``during`` is a step
+    taken while it is down (a change to a table it follows, a row appended to a file)."""
+
+    crash: bool = False
+    during: Any = None
 
 
 @dataclass(frozen=True)
@@ -217,6 +249,8 @@ class Run:
     blocks: "dict[str, str]" = field(default_factory=dict)
     background: "dict[str, tuple[Any, subprocess.Popen[bytes], pathlib.Path]]" = field(default_factory=dict)
     token: str = ""
+    #: Each container's real name and port, by the name the tutorial gives it.
+    services: "dict[str, tuple[str, int]]" = field(default_factory=dict)
 
 
 def load(name: str) -> Any:
@@ -243,6 +277,60 @@ def _jar(coordinate: str) -> pathlib.Path:
         if jar.is_file():
             return jar
     raise NodeUnavailable(f"{coordinate} is not in the local Maven repository; build the project once")
+
+
+def _docker() -> "list[str]":
+    """``docker``, or ``sg docker -c docker`` for a session started before its user joined the group."""
+    if subprocess.run(["docker", "ps", "-q"], capture_output=True).returncode == 0:
+        return ["docker"]
+    return ["sg", "docker", "-c", "docker"]
+
+
+def _docker_run(docker: "list[str]", args: "list[str]", **kw: Any) -> "subprocess.CompletedProcess[bytes]":
+    if docker[0] == "sg":
+        return subprocess.run(["sg", "docker", "-c", " ".join(["docker", *(_shell(a) for a in args)])], **kw)
+    return subprocess.run([*docker, *args], **kw)
+
+
+def _shell(word: str) -> str:
+    return word if re.fullmatch(r"[A-Za-z0-9_./:=,@+%-]+", word) else "'" + word.replace("'", "'\\''") + "'"
+
+
+def start_containers(run: Run) -> None:
+    """The scenario's containers, each on a free port, ready; recorded in :attr:`Run.services`."""
+    specs: "tuple[Container, ...]" = run.scenario.NODE.containers
+    if not specs:
+        return
+    docker = _docker()
+    if _docker_run(docker, ["ps", "-q"], capture_output=True).returncode != 0:
+        raise NodeUnavailable("this tutorial needs Docker, and `docker ps` does not answer here")
+    taken = {run.node.http_port, run.node.flight_port, run.pg_port}
+    for spec in specs:
+        port = free_port(taken)
+        taken.add(port)
+        name = f"{spec.name}-{os.getpid()}"
+        args = ["run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1:{port}:{spec.inside or port}"]
+        for key, value in spec.env:
+            args += ["-e", f"{key}={value.replace('{port}', str(port))}"]
+        args += [spec.image, *(a.replace("{port}", str(port)) for a in spec.args)]
+        started = _docker_run(docker, args, capture_output=True)
+        if started.returncode != 0:
+            raise RuntimeError(f"docker run {spec.image} failed:\n{started.stderr.decode(errors='replace')}")
+        run.services[spec.name] = (name, port)
+        ready = spec.ready.replace("{container}", name).replace("{port}", str(port))
+        deadline = time.monotonic() + spec.timeout
+        while subprocess.run(["bash", "-c", ready], env=run.env, capture_output=True).returncode != 0:
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"{spec.name} ({spec.image}) was not ready in {spec.timeout} s")
+            time.sleep(1)
+
+
+def stop_containers(run: Run) -> None:
+    if not run.services:
+        return
+    docker = _docker()
+    for name, _ in run.services.values():
+        _docker_run(docker, ["rm", "-f", name], capture_output=True)
 
 
 def make_node(scenario: Any) -> "tuple[ScratchNode, int]":
@@ -272,11 +360,17 @@ def _source(node: ScratchNode, name: str) -> pathlib.Path:
     return node.home / name[1:] if name.startswith("@") else DATA / name
 
 
-def lay_out(node: ScratchNode, spec: Node) -> None:
-    """The configuration and sample data in the node's home, where a reader's ``PRAVAHA_HOME`` has them."""
+def lay_out(node: ScratchNode, spec: Node, services: "Optional[dict[str, tuple[str, int]]]" = None) -> None:
+    """The configuration and sample data in the node's home, where a reader's ``PRAVAHA_HOME`` has them;
+    a container's ``localhost:<port>`` in the configuration is the port it really has."""
     conf = node.home / "conf"
     conf.mkdir(exist_ok=True)
-    shutil.copy(_source(node, spec.config), conf / "application.yaml")
+    config = _source(node, spec.config).read_text(encoding="utf-8")
+    for container in spec.containers:
+        if services and container.name in services:
+            real = services[container.name][1]
+            config = re.sub(rf"\b(localhost|127\.0\.0\.1):{container.port}\b", rf"\g<1>:{real}", config)
+    (conf / "application.yaml").write_text(config, encoding="utf-8")
     for source, place in spec.files:
         target = node.home / place
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -320,6 +414,8 @@ def _command(run: Run, step: Any) -> "tuple[list[str], str, Optional[str]]":
     if isinstance(step, Sh):
         command = (step.run.replace("{pg}", str(run.pg_port)).replace("{http}", run.node.http)
                    .replace("{url}", run.node.url))
+        for service, (container, port) in run.services.items():
+            command = command.replace("{" + service + ".port}", str(port)).replace("{" + service + "}", container)
         return ["bash", "-c", command], step.show or step.run, None
     if isinstance(step, Py):
         script = DATA / run.scenario.NAME / step.script
@@ -428,15 +524,21 @@ def perform(run: Run, step: Any, on_snap: Optional[Callable[[Any], None]] = None
         deadline = time.monotonic() + step.timeout
         output = ""
         while time.monotonic() < deadline:
-            _, output = execute(run, Cli(None, step.argv))
+            _, output = execute(run, Sh(None, step.argv) if isinstance(step.argv, str) else Cli(None, step.argv))
             if re.search(step.pattern, output, re.MULTILINE):
                 return
             time.sleep(0.5)
-        raise RuntimeError(f"`pravaha {' '.join(step.argv)}` never matched {step.pattern!r}:\n{output}")
+        shown = step.argv if isinstance(step.argv, str) else "pravaha " + " ".join(step.argv)
+        raise RuntimeError(f"`{shown}` never matched {step.pattern!r}:\n{output}")
     elif isinstance(step, Sleep):
         time.sleep(step.seconds)
     elif isinstance(step, Restart):
+        if step.crash and run.node.process is not None:
+            run.node.process.kill()
+            run.node.process.wait(timeout=30)
         run.node.stop()
+        if step.during is not None:
+            perform(run, step.during)
         run.node.start()
         sign_in(run)
     elif isinstance(step, (Open, Snap)):
@@ -462,10 +564,20 @@ def play(name: str, on_snap: Optional[Callable[[Any], None]] = None,
     run = Run(scenario, node, pg)
     run.env = environment(run)
     try:
+        return _play(run, scenario, name, on_snap, on_start, hold)
+    finally:
+        stop_containers(run)
+
+
+def _play(run: Run, scenario: Any, name: str, on_snap: Optional[Callable[[Any], None]],
+          on_start: Optional[Callable[[Run], None]], hold: Optional[pathlib.Path]) -> "dict[str, str]":
+    node = run.node
+    try:
+        start_containers(run)
         # Before the node: what a reader does with no node running (pravaha init), captured too.
         for step in getattr(scenario, "PRE", ()):
             perform(run, step)
-        lay_out(node, scenario.NODE)
+        lay_out(node, scenario.NODE, run.services)
         # Laid out, not started: what a reader prepares in the node's home first (a database file).
         for step in getattr(scenario, "BEFORE_START", ()):
             perform(run, step)
@@ -501,6 +613,7 @@ def play(name: str, on_snap: Optional[Callable[[Any], None]] = None,
             while hold.exists() and node.process is not None and node.process.poll() is None:
                 time.sleep(1)
         steps = [*getattr(scenario, "PRE", ()), *getattr(scenario, "BEFORE_START", ()), *scenario.STEPS]
+        steps = [getattr(s, "during", None) or s for s in steps]
         missing = [s.id for s in steps if getattr(s, "id", None) and s.id not in run.blocks]
         assert not missing, f"{name}: steps with ids that captured nothing: {missing}"
         return run.blocks
@@ -528,6 +641,11 @@ def normalise(text: str, run: Run) -> str:
                   (f"port {run.pg_port}", "port 5433")]
     if run.token:
         swaps.append((run.token, "<token>"))
+    for spec in run.scenario.NODE.containers:
+        if spec.name in run.services:
+            container, port = run.services[spec.name]
+            swaps.append((container, spec.name))
+            text = re.sub(rf"(?<![\d.]){port}(?!\d)", str(spec.port), text)
     for old, new in swaps:
         text = text.replace(old, new)
     date = run.scenario.NODE.data_date
@@ -596,6 +714,7 @@ def declared(name: str) -> "list[str]":
     """The ids a scenario captures, in order (a Join's id is its background step's capture)."""
     scenario = load(name)
     steps = [*getattr(scenario, "PRE", ()), *getattr(scenario, "BEFORE_START", ()), *scenario.STEPS]
+    steps = [getattr(s, "during", None) or s for s in steps]
     return [s.id for s in steps if getattr(s, "id", None)]
 
 

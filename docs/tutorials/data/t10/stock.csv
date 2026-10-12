@@ -1,0 +1,5 @@
+sku,warehouse,on_hand,reorder_point,event_time,op
+sku-100,LDN,40,10,2026-10-01T09:00:00Z,I
+sku-200,LDN,8,10,2026-10-01T09:00:05Z,I
+sku-300,NYC,3,5,2026-10-01T09:00:10Z,I
+sku-400,LDN,12,20,2026-10-01T09:00:15Z,I

@@ -1,0 +1,59 @@
+# Tutorial 7 (docs/tutorials/07-kafka-end-to-end.md): payments from a Kafka topic, the big ones and
+# each user's spend per minute written back to Kafka -- in JSON, and in Avro read back again.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    payments:
+      schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+    # The user-spend topic read back: what the user_spend query wrote, in Avro.
+    user_spend_avro:
+      schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
+      event-time: window_end
+  sources:
+    payments:
+      plugin: kafka
+      options:
+        bootstrap.servers: "localhost:9092"
+        topic: payments
+        schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+        format: json                  # each value a JSON object of the row, by column name
+        start.from: earliest
+        monitoring.group: pravaha-payments   # checkpointed offsets reported here; never read back
+    user_spend_avro:
+      plugin: kafka
+      options:
+        bootstrap.servers: "localhost:9092"
+        topic: user-spend
+        schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
+        format: avro
+        schema.file: conf/user_spend.avsc   # the writer schema; no registry needed
+  sinks:
+    # The big payments, back to Kafka as a table: keyed by payment_id, a JSON value, a tombstone
+    # for a row that leaves the view.
+    big_payments_out:
+      plugin: kafka-sink
+      options:
+        bootstrap.servers: "localhost:9092"
+        topic: big-payments
+        schema: "payment_id:INT64,user_id:STRING,amount:INT64"
+        key.columns: payment_id
+        transactional: "true"
+    # Each user's spend per closed minute, in Avro against the same .avsc the source reads with.
+    user_spend_out:
+      plugin: kafka-sink
+      options:
+        bootstrap.servers: "localhost:9092"
+        topic: user-spend
+        schema: "user_id:STRING,window_end:TIMESTAMP(3),spend:INT64"
+        key.columns: "user_id,window_end"
+        format: avro
+        schema.file: conf/user_spend.avsc
+  # A record the source cannot decode is set aside here, and the source reads on.
+  dlq:
+    directory: data/dlq
+  # The sinks are transactional: what a checkpoint covers is committed to the topic once it is durable.
+  checkpoint:
+    interval: 5s
+    keep: 5

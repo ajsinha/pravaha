@@ -1,0 +1,8 @@
+{"payment_id":1,"user_id":"ann","merchant":"acme","amount":1200,"event_time":"2026-10-01T09:00:05Z"}
+{"payment_id":2,"user_id":"bob","merchant":"initech","amount":300,"event_time":"2026-10-01T09:00:20Z"}
+{"payment_id":3,"user_id":"ann","merchant":"globex","amount":4500,"event_time":"2026-10-01T09:00:40Z"}
+{"payment_id":4,"user_id":"carl","merchant":"acme","amount":15000,"event_time":"2026-10-01T09:01:10Z"}
+{"payment_id":5,"user_id":"bob","merchant":"acme","amount":2200,"event_time":"2026-10-01T09:01:30Z"}
+{"payment_id":6,"user_id":"dana","merchant":"umbrella","amount":800,"event_time":"2026-10-01T09:02:00Z"}
+{"payment_id":7,"user_id":"ann","merchant":"acme","amount":6100,"event_time":"2026-10-01T09:02:30Z"}
+{"payment_id":8,"user_id":"carl","merchant":"initech","amount":90,"event_time":"2026-10-01T09:03:10Z"}
