@@ -238,7 +238,8 @@ def test_subscribe_prints_the_snapshot_then_each_commit_with_signed_weights(engi
         "+1\tu2",
         "-- commit, 2 rows",
     ]
-    assert "subscribing to spend" in err
+    # CLIFILTER-1: the filter as what it means, not a Python dict.
+    assert "subscribing to spend where user_id = 'u1';" in err and "{" not in err
     assert engine.actions[-1] == ("ticket", ["subscribe.snapshot", "spend", "user_id", "u1"])
 
 
