@@ -981,14 +981,14 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             throw new PravahaException(
                     IngestErrors.BINDING_FAILED,
                     "the '" + binding.plugin() + "' plugin could not be opened for stream '" + binding.streamName()
-                            + "': " + e + descriptorHint(),
+                            + "': " + causeOf(e) + descriptorHint(),
                     e);
         } catch (Exception e) {
             closeQuietly(List.of(plugin));
             throw new PravahaException(
                     IngestErrors.BINDING_FAILED,
                     "the '" + binding.plugin() + "' plugin refused its configuration for stream '"
-                            + binding.streamName() + "': " + e + descriptorHint(),
+                            + binding.streamName() + "': " + causeOf(e) + descriptorHint(),
                     e);
         }
     }
@@ -1002,14 +1002,14 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             throw new PravahaException(
                     IngestErrors.BINDING_FAILED,
                     "the '" + binding.plugin() + "' plugin could not be opened for stream '" + binding.streamName()
-                            + "': " + e + descriptorHint(),
+                            + "': " + causeOf(e) + descriptorHint(),
                     e);
         } catch (Exception e) {
             closeQuietly(List.of(plugin));
             throw new PravahaException(
                     IngestErrors.BINDING_FAILED,
                     "the '" + binding.plugin() + "' plugin refused its configuration for stream '"
-                            + binding.streamName() + "': " + e + descriptorHint(),
+                            + binding.streamName() + "': " + causeOf(e) + descriptorHint(),
                     e);
         }
     }
@@ -1028,6 +1028,18 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * because the client throws that away. Looking at the descriptor count is the only way to tell
      * the two apart (SRC-4).
      */
+    /**
+     * A plugin's failure as the operator should read it (CDCOPENMSG-1): a coded refusal by its own
+     * message, which carries its code -- not {@code toString()}, which put a Java class name in front.
+     * Anything else keeps its type, since a bare "Connection refused" says less than with it.
+     */
+    static String causeOf(Exception e) {
+        if (e instanceof PravahaException coded && coded.getMessage() != null) {
+            return coded.getMessage();
+        }
+        return e.toString();
+    }
+
     private static String descriptorHint() {
         return com.ash.messaging.pravaha.common.io.FileDescriptors.exhaustionHint()
                 .map(hint -> " " + hint)
