@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **582 findings carrying a
-status — 563 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+only part that is kept current. Counting the register as it stands: **583 findings carrying a
+status — 564 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7839,4 +7839,10 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 ### CLIVALIDATE-1 (LOW) — pravaha validate printed a refusal's PRV code twice
 
 > **Status:** FIXED — the engine's diagnostic message already starts with its code and the CLI prefixed it again (`PRV-2050  PRV-2050  GROUP BY …`). It now prints the code once, and the dry-run printer has the same guard. Pinned by the validate-refused capture (sdk/python/tools/cli_captures.py --check).
+
+## Found by the registry lock stress test in the gate (2026-10-12), 1 finding
+
+### CKPTRACE-1 (LOW) — listing a dropped query's checkpoints raced the drop and failed uncoded
+
+> **Status:** FIXED — FileCheckpointStore.availableIds listed the checkpoint directory with Files.list, and a drop deletes that directory; a debug fork or listing on its way when the drop landed got an UncheckedIOException wrapping NoSuchFileException, an uncoded failure that RegistryLockStressTest caught in the gate. A store whose directory is gone now holds no checkpoint (an empty list). FileCheckpointStoreTest#aDirectoryDeletedUnderTheStoreHoldsNoCheckpoints; RegistryLockStressTest green five runs in a row.
 

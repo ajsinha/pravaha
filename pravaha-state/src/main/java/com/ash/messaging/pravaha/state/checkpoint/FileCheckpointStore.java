@@ -20,6 +20,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -170,6 +171,11 @@ public final class FileCheckpointStore implements CheckpointStore {
                     .map(name -> Long.parseLong(name.substring(PREFIX.length(), name.length() - SUFFIX.length())))
                     .sorted(Comparator.reverseOrder())
                     .toList();
+        } catch (NoSuchFileException gone) {
+            // The directory went with its query (a drop deletes it) while this call was on its way:
+            // a store with no directory holds no checkpoint. Thrown, it was an uncoded failure in
+            // whatever asked -- a debug fork or a listing racing the drop (RegistryLockStressTest).
+            return List.of();
         } catch (IOException e) {
             throw new UncheckedIOException("cannot list checkpoints in " + directory, e);
         }

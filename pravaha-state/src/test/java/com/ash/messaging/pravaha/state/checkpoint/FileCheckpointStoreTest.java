@@ -74,6 +74,17 @@ class FileCheckpointStoreTest {
     }
 
     @Test
+    void aDirectoryDeletedUnderTheStoreHoldsNoCheckpoints(@TempDir Path parent) throws IOException {
+        // A drop deletes the query's checkpoint directory; a listing on its way when that happens
+        // finds nothing, rather than failing uncoded (RegistryLockStressTest found the race).
+        Path dir = parent.resolve("q5");
+        FileCheckpointStore store = new FileCheckpointStore(dir);
+        Files.deleteIfExists(dir);
+        assertThat(store.availableIds()).isEmpty();
+        assertThat(store.latest()).isEmpty();
+    }
+
+    @Test
     void theNewestCheckpointWins(@TempDir Path dir) {
         FileCheckpointStore store = new FileCheckpointStore(dir);
         store.store(checkpoint(1, "n=100", "old"));

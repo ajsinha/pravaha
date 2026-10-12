@@ -52,7 +52,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-Register: **582 findings — 563 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **583 findings — 564 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.4.2 — 2026-10-12
 
