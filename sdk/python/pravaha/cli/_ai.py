@@ -27,6 +27,13 @@ from pravaha.rest import ApiError
 _TURNS = 3
 
 
+def _note(ctx: Context, text: str) -> None:
+    """A remark on stderr, after what is already on stdout: the answer reads in order in a terminal
+    and in a log that captures both."""
+    ctx.out.out.flush()
+    ctx.out.note(text)
+
+
 def _said(exc: ApiError) -> str:
     """A refusal as one line: its code once, then its words."""
     code = exc.engine_code or str(exc.status)
@@ -51,7 +58,7 @@ def _print_answer(ctx: Context, answer: "dict[str, Any]", *, chart: bool) -> Non
     for line in str(answer.get("sql") or "").splitlines():
         out.line("  " + line)
     if answer.get("explanation"):
-        out.note(str(answer["explanation"]))
+        _note(ctx, str(answer["explanation"]))
     out.line()
     columns = [str(c.get("name")) for c in answer.get("columns") or []]
     rows = [{c: ("NULL" if v is None else v) for c, v in zip(columns, row)} for row in answer.get("rows") or []]
@@ -60,13 +67,14 @@ def _print_answer(ctx: Context, answer: "dict[str, Any]", *, chart: bool) -> Non
     if chart:
         c = answer.get("chart") or {}
         parts = [f"{k}={c[k]}" for k in ("x", "y", "series") if c.get(k)]
-        out.line()
+        if rows:
+            out.line()
         out.line(out.bold("chart") + "  " + str(c.get("kind")) + ("  " + " ".join(parts) if parts else ""))
     if answer.get("summary"):
         out.line()
         out.line(str(answer["summary"]))
     count = int(answer.get("rowCount") or 0)
-    out.note(f"{count} row{'' if count == 1 else 's'}"
+    _note(ctx, f"{count} row{'' if count == 1 else 's'}"
              + (f", {len(rows)} shown (pravaha.ai.features.ask-rows)" if answer.get("truncated") else "")
              + f"; run as you; values sent to the model: {answer.get('values')}; nothing saved")
 
@@ -103,7 +111,7 @@ def chat(ctx: Context) -> int:
         return EXIT_OK
     interactive = sys.stdin.isatty()
     if interactive and not ctx.out.json_mode:
-        ctx.out.note("ask your data; a follow-up sees the questions before it. Empty line, exit or Ctrl-D ends.")
+        _note(ctx, "ask your data; a follow-up sees the questions before it. Empty line, exit or Ctrl-D ends.")
     try:
         while True:
             if interactive:
@@ -177,9 +185,9 @@ def draft(ctx: Context) -> int:
             ctx.out.line(ctx.out.good("registered ") + str(row.get("name"))
                          + ctx.out.dim(f"  state={row.get('state')}  fingerprint={row.get('fingerprint')}"))
     if note:
-        ctx.out.note(note)
+        _note(ctx, note)
     elif not ctx.arg("register"):
-        ctx.out.note("nothing was registered; add --register to register it after you confirm")
+        _note(ctx, "nothing was registered; add --register to register it after you confirm")
     return EXIT_OK
 
 
@@ -225,7 +233,7 @@ def alert_ask(ctx: Context) -> int:
         for line in str(answer.get("statement") or "").splitlines():
             out.line("  " + line)
         if answer.get("explanation"):
-            out.note(str(answer["explanation"]))
+            _note(ctx, str(answer["explanation"]))
     if _confirm(ctx, f"Create the alert {answer.get('name')} under your own credentials?"):
         created = _run_statement(ctx, str(answer.get("statement")))
     if ctx.out.json_mode:
@@ -236,7 +244,7 @@ def alert_ask(ctx: Context) -> int:
             detail = row.get("detail")
             ctx.out.line(f"{row.get('name')}: {row.get('state')}" + (f" -- {detail}" if detail else ""))
     else:
-        ctx.out.note("nothing was created; run again with --yes, or run the statement with `pravaha query --sql`")
+        _note(ctx, "nothing was created; run again with --yes, or run the statement with `pravaha query --sql`")
     return EXIT_OK
 
 
@@ -264,7 +272,7 @@ def why_changed(ctx: Context) -> int:
         ("keys entered", "; ".join(", ".join(as_text(v) for v in k) for k in change.get("enteredKeys") or []) or "-"),
         ("keys left", "; ".join(", ".join(as_text(v) for v in k) for k in change.get("leftKeys") or []) or "-"),
     ])
-    ctx.out.note(f"values sent to the model: {answer.get('values')}; your row filter and masks applied")
+    _note(ctx, f"values sent to the model: {answer.get('values')}; your row filter and masks applied")
     return EXIT_OK
 
 
@@ -290,9 +298,9 @@ def why(ctx: Context, code: str, sql: Optional[str]) -> int:
         return EXIT_OK
     ctx.out.line(ctx.out.bold(code) + "  " + str(answer.get("explanation") or ""))
     if answer.get("valid") is True:
-        ctx.out.note("the engine accepts this statement now: it raised no refusal for it")
+        _note(ctx, "the engine accepts this statement now: it raised no refusal for it")
     elif answer.get("valid") is False:
-        ctx.out.note("the engine raised " + (", ".join(answer.get("engineCodes") or []) or "no code")
+        _note(ctx, "the engine raised " + (", ".join(answer.get("engineCodes") or []) or "no code")
                      + " for this statement")
     return EXIT_OK
 
@@ -327,7 +335,7 @@ class Narrator:
                 raise
             why = "no narrative: " + _said(exc)
             if why != self.said:
-                self.ctx.out.note(why)
+                _note(self.ctx, why)
                 self.said = why
             return
         text = str(answer.get("narrative") or "")

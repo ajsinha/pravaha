@@ -538,7 +538,15 @@ Off by default; keys only from the environment, in the provider files, never her
 | `pravaha.ai.policy.per-user-per-minute` | `0` | Calls per person per feature per minute; `0` is no limit. PRV-1085 past it |
 | `pravaha.ai.policy.per-user-per-day` | `0` | Calls per person per day (UTC) |
 | `pravaha.ai.policy.cost-per-user-per-day` | `0` | Money per person per day, in the unit of the files' `cost-per-1k-*` prices |
-| `pravaha.ai.policy.features.<feature>.roles` | *none* | Roles that may use a feature (`api:<name>` for the REST endpoint's callers); not listed, open to everyone signed in. PRV-1084 otherwise |
+| `pravaha.ai.policy.features.<feature>.roles` | *none* | Roles that may use a feature (`api:<name>` for the REST endpoint's callers; `ask`, `draft`, `alert`, `explain`, `narrative`, `page` for the plain-English features); not listed, open to everyone signed in. PRV-1084 otherwise |
+| `pravaha.ai.values` | `labels-only` | What the plain-English features may send a model: `labels-only` -- names, types, keys and counts, never a value -- or `aggregates`, also the reader's own results and changes (masked columns left out, bounded) |
+| `pravaha.ai.features.model` | *empty* | The model the plain-English features use (`provider/model`); empty is `pravaha.ai.default-model` |
+| `pravaha.ai.features.max-question-chars` | `600` | The longest question or description a feature accepts |
+| `pravaha.ai.features.max-tokens` | `2000` | The longest answer a feature asks of the model |
+| `pravaha.ai.features.timeout-seconds` | `30` | How long one feature's model call may take (at most 120) |
+| `pravaha.ai.features.ask-rows` | `200` | The most rows an ask-your-data answer holds, and the most a model sees of them under `aggregates` |
+| `pravaha.ai.features.change-commits` | `50` | The most recent commits of a view kept to explain why it changed |
+| `pravaha.ai.features.change-views` | `16` | The most views whose changes are kept at once |
 
 ### Read only by the embedded engine or the Spring Boot starter
 

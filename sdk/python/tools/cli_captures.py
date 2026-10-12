@@ -80,6 +80,45 @@ WINDOW_SQL = ("SELECT user_id, window_start, window_end, SUM(amount) AS spend "
               "FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) "
               "GROUP BY user_id, window_start, window_end")
 
+#: The scratch node's AI layer (docs/guides/AI.md): on, with the deterministic ``mock`` provider, whose
+#: regular expressions play the model -- no network, no key -- and a ``log`` notifier for alert drafts.
+AI_ARGS = ("--pravaha.ai.enabled=true", "--pravaha.ai.dir=ai", "--pravaha.ai.default-model=mock/m",
+           "--pravaha.ai.reload-interval=1h", "--pravaha.notifiers.ops_log.plugin=log")
+
+
+def _yaml(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _question(words: str) -> str:
+    """A rule matching ``words`` in the question the person typed, and nowhere else in the prompt."""
+    return r"[\s\S]*UNTRUSTED (question|description) id=[0-9a-f]+>>>\n[^\n]*" + words
+
+
+AI_RULES = (
+    ("TASK: ask" + _question("per user"),
+     '{"sql": "SELECT user_id, SUM(spend) AS total FROM spend_by_minute GROUP BY user_id", '
+     '"explanation": "Adds up each user\'s spend over every minute the view holds."}'),
+    ("TASK: draft",
+     '{"name": "spend_per_minute", "sql": "' + WINDOW_SQL + '", "keys": ["user_id", "window_start"], '
+     '"options": {"retention": null, "sink": null, "lane": null}, '
+     '"explanation": "Each user\'s spend in every one-minute window of event time."}'),
+    ("TASK: alert",
+     '{"statement": "CREATE ALERT big_spender ON spend_by_minute WHERE spend > 500 NOTIFY ops_log '
+     'WITH (severity = \'critical\')", "explanation": "Notifies when a user spends over 500 in a minute."}'),
+    ("TASK: explain-sql",
+     "It reads txn, puts each payment in the one-minute window of its event time and adds up the amount "
+     "per user per window. A window's total is published when the watermark passes its end, so it can "
+     "change for late rows within the allowed lateness."),
+    ("TASK: explain-refusal",
+     "It means the query keeps a running count for every user forever: the stream never ends, so "
+     "its state never stops growing. Count per window instead.\nTry: SELECT user_id, window_end, COUNT(*) "
+     "AS n FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '1' MINUTE)) GROUP BY user_id, "
+     "window_start, window_end"),
+)
+AI_MOCK = "type: mock\ndefault-model: m\nmodels:\n  - name: m\nmock:\n  rules:\n" + "".join(
+    f"    - match: {_yaml(match)}\n      reply: {_yaml(reply)}\n" for match, reply in AI_RULES)
+
 #: Run once, in order, before any capture; their output is not documented.
 SETUP: "tuple[tuple[str, ...], ...]" = (
     ("streams", "declare", "txn", "--schema", "user_id:STRING,amount:INT64,ts:TIMESTAMP",
@@ -101,6 +140,13 @@ CAPTURES: "tuple[Capture, ...]" = (
     Capture("drop-dry-run", ("drop", "--name", "spend_by_minute", "--dry-run")),
     Capture("describe-refused", ("describe", "no_such_query")),
     Capture("doctor", ("doctor",), omit=(r"^\S+\s+port \d+\s",)),
+    Capture("ai-query-ask", ("query", "--ask", "total spend per user", "--chart")),
+    Capture("ai-ask-engine", ("ask", "spend per user per minute", "--engine")),
+    Capture("ai-alert-ask", ("alert", "--ask", "tell me when a user spends over 500 in a minute")),
+    Capture("ai-why-changed", ("explain", "--why-changed", "spend_by_minute")),
+    Capture("ai-explain-sql", ("explain-sql", "--query", "spend_by_minute", "--engine")),
+    Capture("ai-why", ("why", "PRV-2050", "--sql", "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id",
+                       "--engine")),
 )
 
 _BLOCK = re.compile(r"(<!-- capture: (?P<id>[a-z0-9-]+) -->\n)(?P<body>.*?)(<!-- /capture -->)",
@@ -276,7 +322,10 @@ def _quoted(word: str) -> str:
 
 def capture_all() -> "dict[str, str]":
     """Every block, freshly captured. Raises :class:`NodeUnavailable` when no node can start."""
-    with ScratchNode() as node:
+    node = ScratchNode(AI_ARGS)
+    (node.home / "ai").mkdir()
+    (node.home / "ai" / "mock.yaml").write_text(AI_MOCK, encoding="utf-8")
+    with node:
         config = node.home / "config"
         env = _environment(config)
         for argv in SETUP:

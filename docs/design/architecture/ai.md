@@ -19,6 +19,7 @@ guide: a model's output is a proposal, the engine judges, nothing a model says i
 - [8. The second layer: OpenAI-shaped models](#8-the-second-layer-openai-shaped-models)
 - [9. Tests](#9-tests)
 - [10. Where Pravaha differs from Drishti](#10-where-pravaha-differs-from-drishti)
+- [11. The features on the layer](#11-the-features-on-the-layer)
 
 ---
 
@@ -255,3 +256,24 @@ No test calls a real model or holds a real key.
 | The registry rebuilt every provider on each reload | A provider whose file did not change is kept | Its connections survive a reload of a neighbour |
 | MCP client and gateway | Not ported | Out of scope (the owner's decision) |
 | Bedrock profiles, SSO, instance roles; Entra managed identity; Vertex | Not built | Keys (or a role's temporary keys) through the environment; client secret or workload identity; AI Studio |
+
+## 11. The features on the layer
+
+The plain-English features ([AI.md](../../guides/AI.md)) are the layer's first callers in the server, on
+Drishti's BI AI design (`BiAiService`, `BiAiPrompts`, `AskService`): package
+`com.ash.messaging.pravaha.server.ai.features`, behind `/api/v1/ai/{ask,draft,alert-draft,explain,narrate,page}`
+(`AiFeaturesController`). The layer is unchanged; the one-way rule holds -- the features live in the server.
+
+| Type | What it is |
+|---|---|
+| `AiFeatures` | The facade and the plumbing every feature shares: one `LlmGateway` call per turn under the feature's name (`ask`, `draft`, `alert`, `explain`, `narrative`, `page`), the feature's own `ai.<feature>` audit event, the two gates, and **repair once, then refuse** (`judged`: a refusal the model may mend gets one more turn with the engine's words; the second is `PRV-1088`; a grants refusal is the engine's at once). Ask your data: one `SELECT` run through `ViewQuery` as the person, the chart chosen from the result's shape |
+| `AiGrounding` | What a model is told: the schema of what this person may read (masked columns left out, refused relations not named), markers with a per-request id, `clean`, the values-mode tables |
+| `AiPrompts` | The fixed system texts; every user turn starts `TASK: <name>` so the `mock` provider's rules can script them |
+| `AiDrafts` | A draft judged by `ContinuousQueryStatements.validate` and dry-run (`DraftFingerprint`, `QueryRegistry.explainAs`, `QueryListing` for sharing, the lane by the node's placement); an alert judged by `AlertService.validate` -- the checks `CREATE ALERT` runs, now one method both call |
+| `AiExplains` | Explain (`sql` from the plan, `refusal` re-checked by the engine, `change`), the narrative, ask about this page |
+| `ChangeWindow` | A view's recent commits, followed as an alert follows (`AnswerListener`) from the first question about it; bounded in views and commits; each reader's `RowNarrowing` applied when they ask |
+| `AiFeatureErrors` | `PRV-1088` (`AI_ANSWER_UNUSABLE`, 422): Drishti's `DRS-4020` |
+
+Settings: `pravaha.ai.values` (`labels-only` | `aggregates`) and `pravaha.ai.features.*` (the model, the
+bounds). Tests: `AiFeaturesEndToEndTest` (pravaha-it), `AiFeaturesHttpTest`, `AiFeaturesOffHttpTest`,
+`AiFeaturesShapeTest`, and the SDK's `test_cli_ai.py`.
