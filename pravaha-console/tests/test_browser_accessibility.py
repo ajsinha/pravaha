@@ -1,4 +1,5 @@
-"""Zero axe violations, on every page, in light, dark, blue and green (design 23.14, 23.20).
+"""Zero axe violations, on every page, in drishti's seven themes (design 23.14, 23.20); in the compact density in
+Crimson and Terminal.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -21,8 +22,10 @@ from __future__ import annotations
 
 import pytest
 from browser_harness import (
+    DARK_THEMES,
     DETERMINISM,
     PAGES,
+    THEMES,
     Console,
     axe,
     density_script,
@@ -37,7 +40,9 @@ from cdp import Browser, Page
 
 pytestmark = pytest.mark.browser
 
-THEMES = ["light", "dark", "blue", "green"]
+#: Density moves no colour; it moves text onto tighter grounds, so it is audited in the default
+#: theme and a dark one rather than in all seven.
+COMPACT_THEMES = ["crimson", "terminal"]
 
 
 @pytest.fixture(scope="module")
@@ -98,7 +103,7 @@ def compact(chrome: Browser, console: Console):
         tab.close()
 
 
-@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("theme", COMPACT_THEMES)
 @pytest.mark.parametrize("name,path,ready", [(n, p, r) for n, p, _, r in PAGES], ids=[n for n, *_ in PAGES])
 def test_every_page_in_compact_density_has_no_axe_violations(compact, console, theme, name, path, ready):
     page = compact(theme)
@@ -117,7 +122,7 @@ def test_the_landing_page_signed_out_has_no_axe_violations(chrome, console, them
     try:
         page.before_every_document(DETERMINISM)
         page.before_every_document(theme_script(theme))
-        page.emulate(reduced_motion=motion == "reduced", scheme="dark" if theme == "dark" else "light")
+        page.emulate(reduced_motion=motion == "reduced", scheme="dark" if theme in DARK_THEMES else "light")
         open_page(page, console, "/", "window.PravahaLanding && (PravahaLanding.stills() > 0 "
                                       "|| PravahaLanding.frames() > 0)")
         assert "Sign in" in page.text("#rail-cta")

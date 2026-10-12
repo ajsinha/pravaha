@@ -112,13 +112,40 @@ function monarch() {
 }
 
 function defineThemes(monaco) {
-  const dark = document.documentElement.getAttribute("data-theme") === "dark"
-    || (!document.documentElement.getAttribute("data-theme")
-        && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  /* theme-init.js marks the three dark themes (terminal, wallstreet, crimson-dark) on data-bs-theme. */
+  const dark = document.documentElement.getAttribute("data-bs-theme") === "dark";
+  /* A token as six hex digits, whatever form it is written in: a hex value, an alias, or a
+     color-mix() (the soft grounds are mixes of a status colour and the surface). The browser
+     resolves it on a probe; the fallback is only for a token that does not exist. */
   const hex = (name, fallback) => {
-    const v = token(name, fallback);
-    return /^#[0-9a-f]{6}$/i.test(v) ? v.slice(1) : fallback.replace("#", "");
+    const v = token(name, "");
+    if (/^#[0-9a-f]{6}$/i.test(v)) return v.slice(1);
+    if (!v) return fallback.replace("#", "");
+    const probe = document.createElement("span");
+    probe.style.display = "none";
+    probe.style.color = `var(${name})`;
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    const srgb = resolved.match(/^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/);
+    const rgb = resolved.match(/^rgba?\((\d+), (\d+), (\d+)/);
+    const channels = srgb ? srgb.slice(1, 4).map((c) => Number(c) * 255) : rgb ? rgb.slice(1, 4).map(Number) : null;
+    if (!channels) return fallback.replace("#", "");
+    return channels.map((c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0")).join("");
   };
+  /* Keywords wear the accent where it reads on every ground the editor puts them on -- the
+     surface and the soft tints of the highlights and the diff -- and otherwise the first of the
+     accent's deeper step and the link colour that does (drishti's accents are tuned for the page,
+     not for a tinted line). */
+  const lum = (h) => {
+    const c = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const grounds = ["--surface", "--ok-soft", "--bad-soft", "--info-soft"].map((g) => hex(g, "#ffffff"));
+  const keyword = ["--flow", "--flow-d", "--info"].map((t) => hex(t, "#A51C30"))
+    .find((k) => grounds.every((g) => ratio(k, g) >= 4.5)) || hex("--ink", "#1A1A1A");
   monaco.editor.defineTheme("pravaha", {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
@@ -126,7 +153,7 @@ function defineThemes(monaco) {
        at 4.5:1 on --surface in every theme -- never from the data palette (--series-*), which is
        for marks on a chart and measured 2.7:1 as text. */
     rules: [
-      { token: "keyword", foreground: hex("--flow", "#A51C30"), fontStyle: "bold" },
+      { token: "keyword", foreground: keyword, fontStyle: "bold" },
       { token: "predefined", foreground: hex("--info", "#293352") },
       { token: "type", foreground: hex("--slate", "#4A5058") },
       { token: "type.identifier", foreground: hex("--ink", "#1A1A1A"), fontStyle: "bold underline" },

@@ -31,10 +31,13 @@
     "change_password": "Change password",
     "compact_rows": "Compact rows",
     "themes": {
-      "crimson": "Crimson",
-      "dark": "Dark",
+      "terminal": "Terminal",
+      "light": "Parchment",
       "blue": "Blue",
-      "green": "Green"
+      "wallstreet": "Wall Street",
+      "green": "Green",
+      "crimson": "Crimson",
+      "crimson-dark": "Crimson dark"
     },
     "banner": {
       "default_password_before": "The bootstrap",
@@ -64,7 +67,9 @@
     "help_gloss": "the documentation that ships with the engine",
     "admin": "Admin",
     "admin_gloss": "people, keys, sessions, what the policy allows, and the audit trail",
-    "about": "About"
+    "about": "About",
+    "competitive": "Competitive analysis",
+    "release_notes": "Release notes"
   },
   "plugins": {
     "title": "Plugins",
@@ -1678,9 +1683,22 @@
       "reopened": "reopened · corrected",
       "watermark": "watermark",
       "windows_caption": "FIG. 02 — A WINDOW SEALS WHEN EVENT TIME PASSES IT, AND A LATE EVENT REOPENS IT AS A CORRECTION",
-      "diyas_board": "orders · last minute",
-      "cities": "delhi,pune,kochi",
-      "diyas_caption": "FIG. 03 — EVERY EVENT CARRIED DOWNSTREAM, EVERY ANSWER KEPT CURRENT"
+      "lane_orders": "orders",
+      "lane_payments": "payments",
+      "join": "JOIN ON user_id",
+      "tumble": "TUMBLE 1 min",
+      "closed": "window closed",
+      "late": "late",
+      "view": "view · total by user",
+      "sdk": "subscriber",
+      "bi": "BI chart",
+      "sink": "Kafka sink",
+      "highway_caption": "FIG. 03 — TWO STREAMS JOINED ON A KEY, WINDOWED AND DELIVERED: ASK ONCE. ANSWER ALWAYS.",
+      "highway_said": "Two lanes of events, orders and payments, meet at a junction that joins them on user_id. Each joined pair waits at a one-minute tumbling window; when the window closes, its pairs add up into the view's totals, which go on to a subscriber, a BI chart and a Kafka sink. Once a loop a payment arrives after its window has closed, and the view corrects that user's total: a −1 of the old value, then a +1 of the new one.",
+      "pause": "Pause the animations",
+      "play": "Play the animations",
+      "pause_short": "Pause",
+      "play_short": "Play"
     }
   },
   "about": {

@@ -6,23 +6,29 @@
    and nothing here: no hex, no rgba of a brand colour. */
 
 /* ------------------------------------------------------------------ index */
-/* The index hero, as MAYA's: a centred panel on the bar's own gradient, white on every stop. */
-.help-hero,.about-hero{position:relative;overflow:hidden;text-align:center;color:var(--on-bar);border-radius:20px;
+/* The help hero, as drishti's: centred on a soft wash of the accent, its title in gradient text.
+   About keeps its band: the bar's own gradient, white on every stop. */
+.help-hero{position:relative;overflow:hidden;text-align:center;border-radius:16px;padding:2.6rem 1.25rem 2rem;margin-bottom:1.4rem;
+  border:1px solid var(--rule);background:radial-gradient(900px 320px at 50% -20%,var(--d-accent-tint),transparent 70%),var(--surface)}
+.help-hero h1{font-size:2rem;font-weight:800;margin:.5rem auto}
+.help-hero .lede{color:var(--muted)!important;margin-left:auto;margin-right:auto}
+.help-hero .d-flex{justify-content:center}
+.about-hero{position:relative;overflow:hidden;text-align:center;color:var(--on-bar);border-radius:20px;
   padding:2.4rem 1.5rem;margin-bottom:1.4rem;background:linear-gradient(120deg,var(--bar-from),var(--bar-via) 50%,var(--bar-to));
   box-shadow:0 24px 50px -24px color-mix(in srgb,var(--bar-to) 70%,transparent)}
-.help-hero h1,.about-hero h1{background:none;-webkit-text-fill-color:currentColor;color:var(--on-bar);margin:0 auto .3rem;font-size:2.2rem}
-.help-hero h1 span,.about-hero h1 span{-webkit-text-fill-color:currentColor;color:var(--on-bar)!important}
-.help-hero .kicker,.about-hero .kicker{color:var(--on-bar)}
-.help-hero .lede,.about-hero .lede{color:var(--on-bar)!important;margin-left:auto;margin-right:auto}
-.help-hero .d-flex,.about-hero .d-flex{justify-content:center}
-.help-hero .btn-outline-secondary,.about-hero .btn-outline-secondary{--bs-btn-color:var(--on-bar);--bs-btn-border-color:var(--on-bar-dim);
+.about-hero h1{background:none;-webkit-text-fill-color:currentColor;color:var(--on-bar);margin:0 auto .3rem;font-size:2.2rem}
+.about-hero h1 span{-webkit-text-fill-color:currentColor;color:var(--on-bar)!important}
+.about-hero .kicker{color:var(--on-bar)}
+.about-hero .lede{color:var(--on-bar)!important;margin-left:auto;margin-right:auto}
+.about-hero .d-flex{justify-content:center}
+.about-hero .btn-outline-secondary{--bs-btn-color:var(--on-bar);--bs-btn-border-color:var(--on-bar-dim);
   --bs-btn-hover-bg:rgba(255,255,255,.15);--bs-btn-hover-color:var(--on-bar);--bs-btn-hover-border-color:var(--on-bar);
   --bs-btn-active-bg:rgba(255,255,255,.2);--bs-btn-active-color:var(--on-bar)}
 .about-hero .btn-primary{--bs-btn-bg:var(--on-bar);--bs-btn-color:var(--bar-from);--bs-btn-border-color:var(--on-bar);
   --bs-btn-hover-bg:var(--on-bar);--bs-btn-hover-color:var(--bar-from);background-image:none}
 
 .help-hero .lede{max-width:48rem;line-height:1.6}
-.help-toolbar{position:sticky;top:64px;z-index:5;background:var(--canvas);padding:.8rem 0 .6rem;
+.help-toolbar{position:sticky;top:56px;z-index:5;background:var(--canvas);padding:.8rem 0 .6rem;
   border-bottom:1px solid var(--hairline);margin-bottom:1.1rem}
 .help-search{display:flex;gap:.5rem;max-width:44rem}
 .help-search input{flex:1;min-width:0;padding:.55rem .85rem;font-size:1rem;border:1px solid var(--edge);

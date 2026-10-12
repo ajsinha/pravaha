@@ -1,0 +1,78 @@
+/*
+ * Pravaha console — gradients on the chrome, and only the chrome.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+ * Proprietary and confidential. See LICENSE at the repository root.
+ *
+ * Ask once. Answer always.
+ *
+ * drishti's gradients.css, ported with credit onto Pravaha's classes: every theme gets depth from
+ * its own two gradient colours (--d-grad-from, --d-grad-to), mixed lightly into its chrome -- the
+ * page wash, the top bar, panel headers with a 3px gradient bar before their title, gradient text
+ * on the big titles (theme.css), the accent buttons. Panel bodies, tables and numbers stay on solid
+ * surfaces, so the contrast every theme is tested for (tests/test_contrast.py) is unchanged.
+ */
+
+/* the page: a soft diagonal wash from one theme colour to the other */
+body.pv-app {
+  background:
+    radial-gradient(1200px 600px at 0% 0%, color-mix(in srgb, var(--d-grad-from) var(--g-page, 18%), transparent), transparent 62%),
+    radial-gradient(1000px 700px at 100% 100%, color-mix(in srgb, var(--d-grad-to) var(--g-page, 18%), transparent), transparent 62%),
+    var(--d-bg);
+  background-attachment: fixed;
+}
+
+/* the top bar: glass over the wash, with a thin gradient rule underneath (nav.css draws the rule) */
+.pv-nav {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--d-grad-from) var(--g-bar, 22%), var(--d-bg)), var(--d-bg) 45%,
+    color-mix(in srgb, var(--d-grad-to) var(--g-bar, 22%), var(--d-bg)));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--d-border) 60%, transparent);
+}
+/* Crimson, Crimson dark, Blue and Green, as in MAYA and Sajha: a solid navigation gradient
+   (deep → accent → second colour) with white text and icons. */
+:root:is([data-theme^="crimson"], [data-theme="blue"], [data-theme="green"]) .pv-nav {
+  background: linear-gradient(90deg, var(--d-nav-from), var(--d-nav-via) 55%, var(--d-nav-to));
+  box-shadow: 0 6px 24px -8px color-mix(in srgb, var(--d-nav-to) 55%, transparent);
+}
+
+/* panel headers: a tint that fades out, over the solid surface, and a 3px gradient bar before the title */
+.card, .pnl { box-shadow: 0 1px 0 color-mix(in srgb, var(--d-grad-to) 12%, transparent), 0 8px 24px -18px color-mix(in srgb, var(--d-grad-from) 40%, transparent); }
+.card-header, .pnl-h {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--d-grad-from) var(--g-pnl, 14%), var(--d-surface)), color-mix(in srgb, var(--d-grad-to) 4%, var(--d-surface)) 75%);
+}
+.pnl-h h3::before {
+  content: ""; display: inline-block; width: 3px; height: .95em; margin-right: .5rem; vertical-align: -.1em; border-radius: 2px;
+  background: linear-gradient(180deg, var(--d-grad-from), var(--d-grad-to));
+}
+/* A card header may be a flex row (title left, actions right): its bar is placed, not a flex item. */
+.card-header { position: relative; padding-left: calc(var(--bs-card-cap-padding-x, 1rem) + .6rem); }
+.card-header::before {
+  content: ""; position: absolute; left: var(--bs-card-cap-padding-x, 1rem); top: 50%; width: 3px; height: .95em; translate: 0 -50%; border-radius: 2px;
+  background: linear-gradient(180deg, var(--d-grad-from), var(--d-grad-to));
+}
+
+/* accent controls: a gradient of the accent toward the second colour, keeping the accent's label */
+.btn-primary, .btn-accent, .lp2-btn-primary, .lp2-btn-light {
+  background-image: linear-gradient(135deg, var(--d-accent), color-mix(in srgb, var(--d-accent) 72%, var(--d-grad-to)));
+}
+.btn-primary:hover, .btn-accent:hover, .lp2-btn-primary:hover, .lp2-btn-light:hover {
+  background-image: linear-gradient(135deg, var(--d-accent-strong), color-mix(in srgb, var(--d-accent-strong) 65%, var(--d-grad-to)));
+}
+
+/* How strongly each theme mixes its gradient colours into the chrome (drishti's values). A light page
+   needs more of a colour to show it, and so do near-black themes whose colours are dark; the defaults
+   above suit the blue-black Terminal. */
+:root[data-theme="light"], :root[data-theme="crimson"], :root[data-theme="blue"], :root[data-theme="green"] { --g-page: 30%; --g-bar: 34%; --g-head: 26%; --g-pnl: 22%; }
+:root[data-theme="crimson-dark"] { --g-page: 36%; --g-bar: 42%; --g-head: 32%; --g-pnl: 26%; }
+:root[data-theme="wallstreet"] { --g-page: 22%; --g-bar: 28%; --g-head: 22%; --g-pnl: 18%; }
+
+/* people who prefer less: keep the solid look */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  body.pv-app { background: var(--d-bg); }
+  .card-header, .pnl-h { background: var(--d-bg-2); }
+  .pv-brand .name, h1, .h1, .lp2-title .lp2-gradient { background: none; color: var(--d-ink); -webkit-text-fill-color: currentColor; }
+}
+@media print {
+  body.pv-app, .card-header, .pnl-h { background: none !important; }
+  .card-header::before, .pnl-h h3::before, .pv-nav::after { display: none; }
+}

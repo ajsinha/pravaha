@@ -6,7 +6,7 @@
     footer are the console's own. What it adds is the rail under the bar: the version, the page's
     own sections, the documentation and About, and the one call to action, which reads "Open the
     console" to somebody signed in and "Sign in" to somebody who is not. Every colour is a token
-    (static/css/theme.css, "the landing page"), so it is the same page in all four themes. -#}
+    (static/css/theme.css, "the landing page"), so it is the same page in all seven themes. -#}
 {% block title %}{{ app_name }} — {{ t('shell.slogan') }}{% endblock %}
 {% block content %}
 
@@ -61,8 +61,12 @@
          "events": t('landing.flow.events'), "still": t('landing.flow.still'),
          "open": t('landing.flow.open'), "sealed": t('landing.flow.sealed'),
          "reopened": t('landing.flow.reopened'), "watermark": t('landing.flow.watermark'),
-         "window": t('landing.flow.window'), "diyas_board": t('landing.flow.diyas_board'),
-         "cities": t('landing.flow.cities'),
+         "window": t('landing.flow.window'), "lane_orders": t('landing.flow.lane_orders'),
+         "lane_payments": t('landing.flow.lane_payments'), "join": t('landing.flow.join'),
+         "tumble": t('landing.flow.tumble'), "closed": t('landing.flow.closed'), "late": t('landing.flow.late'),
+         "view": t('landing.flow.view'), "sdk": t('landing.flow.sdk'), "bi": t('landing.flow.bi'), "sink": t('landing.flow.sink'),
+         "pause": t('landing.flow.pause'), "play": t('landing.flow.play'),
+         "pause_short": t('landing.flow.pause_short'), "play_short": t('landing.flow.play_short'),
          "plus": t('landing.net.plus'), "minus": t('landing.net.minus')} %}
     <figure class="lp2-fig flow" id="figure">
       <svg id="hero-flow" viewBox="0 0 640 330" aria-hidden="true" focusable="false"
@@ -226,9 +230,15 @@
   </div>
 </section>
 
-<figure class="lp2-fig-wide flow flow-wide" id="diyas">
-  <svg id="diyas-flow" viewBox="0 0 640 220" aria-hidden="true" focusable="false"></svg>
-  <figcaption><span class="fig-caption">{{ t('landing.flow.diyas_caption') }}</span></figcaption>
+{# The highway: two streams joined on a key, windowed, and delivered (landing.js, highwayFigure). Decorative
+   and aria-hidden; the visually hidden sentence in its caption says what it draws. The button pauses
+   and plays every figure on the page, as drishti's landing has its Replay. #}
+<figure class="lp2-fig-wide flow flow-wide" id="highway">
+  <svg id="highway-flow" viewBox="0 0 640 300" aria-hidden="true" focusable="false"></svg>
+  <figcaption class="lp2-fig-foot"><span class="fig-caption">{{ t('landing.flow.highway_caption') }}</span>
+    <span class="visually-hidden">{{ t('landing.flow.highway_said') }}</span>
+    <button type="button" class="lp2-replay" id="figures-toggle" aria-pressed="false" aria-label="{{ t('landing.flow.pause') }}" hidden>
+      <i class="bi bi-pause-fill" aria-hidden="true"></i> <span>{{ t('landing.flow.pause_short') }}</span></button></figcaption>
 </figure>
 
 <section class="lp2-cta closing" aria-labelledby="closing-title">

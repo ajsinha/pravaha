@@ -3,12 +3,14 @@
     Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
     Proprietary and confidential. See LICENSE at the repository root.
 
-    The console follows the design language of MAYA, its sibling product: MAYA's tokens and four
-    themes (static/css/tokens.css), its Bootstrap theme (static/css/theme.css), its fixed top bar
-    with mega-menu panels (_nav.html; _nav_public.html when nobody is signed in), its banners
-    under the bar, and its one closing line. A page that sets `bare_page` -- the sign-in forms --
-    stands on the gradient with no bar, as MAYA's sign-in page does. -#}
-<html lang="en" data-bs-theme="light">
+    The console follows the design language of drishti, its sibling product: drishti's seven
+    themes and their tokens (static/css/tokens.css, the only place a colour is defined), its
+    gradients on the chrome only (gradients.css), its top bar with mega-menu panels and round
+    icon tools (_nav.html, nav.css; _nav_public.html when nobody is signed in), and its footer.
+    The theme is applied before the first paint by theme-init.js, a file rather than an inline
+    script, as drishti does it. A page that sets `bare_page` -- the sign-in forms -- stands on the
+    gradient with no bar. -#}
+<html lang="en" data-theme="crimson" data-bs-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,24 +22,16 @@
 <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 <link rel="manifest" href="/static/site.webmanifest">
 <meta name="theme-color" content="#8A1626">
+{# Before any stylesheet: the stored theme and density on <html>, so nothing flashes (drishti's theme-init.js). #}
+<script src="/static/js/theme-init.js?v={{ asset_version }}"></script>
 <!-- Vendored locally: no CDN, so the console renders in an air-gapped deployment. The same
      Bootstrap 5.3.8 and Bootstrap Icons build MAYA vendors. -->
 <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
 <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
-<script nonce="{{ csp_nonce }}">
-/* Inline and first: the theme has to be on <html> before the stylesheet paints, or somebody
-   who chose dark sees a white flash on every navigation. MAYA applies it from app.js, after the
-   paint, because its CSP forbids inline script; this is the part that cannot wait. The menu
-   itself is /static/js/theme.js. */
-(function(){try{var t=localStorage.getItem("pravaha.theme");
-if(["light","dark","blue","green"].indexOf(t)>=0){var r=document.documentElement;r.setAttribute("data-theme",t);r.setAttribute("data-bs-theme",t==="dark"?"dark":"light");}
-else if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches){document.documentElement.setAttribute("data-bs-theme","dark");}
-var d=localStorage.getItem("pravaha.density");
-if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d);}
-}catch(e){}}());
-</script>
 <link href="/static/css/tokens.css?v={{ asset_version }}" rel="stylesheet">
 <link href="/static/css/theme.css?v={{ asset_version }}" rel="stylesheet">
+<link href="/static/css/nav.css?v={{ asset_version }}" rel="stylesheet">
+<link href="/static/css/gradients.css?v={{ asset_version }}" rel="stylesheet">
 <link href="/static/app/product.css?v={{ asset_version }}" rel="stylesheet">
 {% block head %}{% endblock %}
 {# Last, so its narrow-screen rules settle what a page's own stylesheet left (static/app/mobile.css). #}
@@ -76,12 +70,16 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   {# "About this page" (core/page_help.py): what this page is for, its tiles and its help topics,
      drawn once here for every page but Help's own, which end with their own footer. #}
   {% if page_screen %}{% include "_page_help.html" %}{% endif %}</main>
-  {# The slogan closes every page, as MAYA's closes every one of its own: it is what the product
-     claims about itself, and a claim belongs where the work is, not only on the way in. #}
+  {# The footer, as drishti's (_footer.html): one centred closing block under a thin rule -- the
+     creed in the tagline face, the product and version beside the main links, then the fine print. #}
   <footer class="pv-foot">
-    <p class="mb-0"><span class="pv-foot-slogan slogan">{{ t('shell.slogan') }}</span>
-      {{ app_name }} {{ version }} · <a href="/help">{{ t('nav.help') }}</a> · <a href="/about">{{ t('nav.about') }}</a>{% if copyright %}
-      · {{ copyright }}{% endif %}</p>
+    <p class="sf-tag"><span class="pv-foot-slogan slogan">{{ t('shell.slogan') }}</span></p>
+    <p class="sf-links"><span class="sf-name">{{ app_name }}</span> <span class="mono sf-ver">{{ version }}</span>
+      <a href="/help"><i class="bi bi-question-circle" aria-hidden="true"></i> {{ t('nav.help') }}</a>
+      <a href="/about"><i class="bi bi-info-circle" aria-hidden="true"></i> {{ t('nav.about') }}</a>
+      <a href="/about/competitive"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i> {{ t('nav.competitive') }}</a>
+      <a href="/about#release"><i class="bi bi-tag" aria-hidden="true"></i> {{ t('nav.release_notes') }}</a></p>
+    {% if copyright %}<p class="sf-fine">{{ copyright }}</p>{% endif %}
   </footer>
 </div>
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>

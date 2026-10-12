@@ -36,7 +36,7 @@ NOT_A_PAGE = ("/api/", "/health", "/metrics", "/static", "/docs", "/openapi", "/
               "/help", "/tutorials", "/favicon.ico")
 #: GET routes that answer with a redirect or a file rather than a page.
 NOT_HTML = {"/home": "a redirect to the person's landing", "/admin": "a redirect to Admin · Access",
-            "/about/papers/{name}": "the paper and the deck, as files"}
+            "/about/papers/{name}": "the paper and the deck, as files", "/favicon.ico": "the tab icon, an image"}
 #: A real object for each route with a parameter, from the fake engine. A new route with a
 #: parameter fails the walk until it has one here.
 SAMPLES = {

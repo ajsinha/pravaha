@@ -128,6 +128,10 @@ The Pravaha name, flow mark and slogan are proprietary to Ashutosh Sinha and are
 licensed for third-party use. The console's typefaces — Source Sans 3, Source Serif 4
 and Source Code Pro, vendored under `pravaha-console/web/static/vendor/fonts/` — and IBM Plex,
 referenced by the design system, are licensed under the SIL Open Font License 1.1.
+The console's wordmark and tagline faces, Cinzel (bold, Latin) and Playfair Display (medium,
+Latin), vendored as `cinzel-700-latin.woff2` and `playfair-display-500-latin.woff2` in the same
+folder beside their licences (`OFL-Cinzel.txt`, `OFL-PlayfairDisplay.txt`), are the ones the
+sibling product drishti uses, and are likewise licensed under the SIL Open Font License 1.1.
 
 ## Reporting
 

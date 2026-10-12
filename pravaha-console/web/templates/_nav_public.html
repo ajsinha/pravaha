@@ -1,8 +1,9 @@
 {# The top bar for the public pages -- the landing page, the help, About -- when nobody is signed
-   in, in MAYA's form: the brand, Help and About, the theme menu and Sign in. #}
+   in, in MAYA's form and drishti's look (nav.css): the brand, Help and About, the theme menu and
+   Sign in, a ghost pill. #}
 <nav class="navbar navbar-expand pv-nav fixed-top" aria-label="{{ t('shell.primary_nav') }}">
   <div class="container-fluid">
-    <a class="navbar-brand pv-brand" href="/"><img src="/static/img/pravaha-mark-white.svg" alt="" width="34" height="34">
+    <a class="navbar-brand pv-brand" href="/"><svg class="brand-mark" viewBox="0 0 64 64" width="34" height="34" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M4,18 Q16,6 28,18 T52,18" opacity="0.55"/><path d="M4,32 Q16,20 28,32 T52,32"/><path d="M4,46 Q16,34 28,46 T52,46" opacity="0.55"/></g></svg>
       <span><span class="name">{{ app_name }}</span><small>{{ t('shell.tagline') }}</small>
         <small class="creed">{{ t('shell.slogan') }}</small></span></a>
     {% set path = request.url.path %}
@@ -15,6 +16,6 @@
     <div class="d-flex align-items-center gap-2">
       {% if page_screen %}<a class="tool" href="#page-help" data-page-help aria-label="{{ t('shell.page_help') }}" title="{{ t('shell.page_help') }}"><i class="bi bi-question-circle" aria-hidden="true"></i></a>{% endif %}
       {% include "_theme_menu.html" %}
-      <a class="btn btn-light btn-sm fw-bold pv-signin" href="/login" title="{{ t('shell.sign_in_title') }}"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ t('shell.sign_in') }}</span><span class="visually-hidden d-sm-none">{{ t('shell.sign_in') }}</span></a></div>
+      <a class="btn-pill btn-ghost btn-sm-pill pv-signin" href="/login" title="{{ t('shell.sign_in_title') }}"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ t('shell.sign_in') }}</span><span class="visually-hidden d-sm-none">{{ t('shell.sign_in') }}</span></a></div>
   </div>
 </nav>

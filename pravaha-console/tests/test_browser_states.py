@@ -40,7 +40,7 @@ pytestmark = pytest.mark.browser
 
 #: Dark as well would double a six-minute suite for colours the gallery already audits in both;
 #: these states are audited here for structure, and in both themes where they are photographed.
-THEME = "light"
+THEME = "crimson"
 
 
 @pytest.fixture(scope="module")
