@@ -25,6 +25,7 @@ import time
 from fake_ai import FakeAi
 from fake_alerts import FakeAlerts
 from fake_catalog import FakeCatalog
+from fake_declarations import FakeDeclarations
 from fake_identity import ADMIN, ADMIN_PASSWORD, FakeIdentity
 
 from core import credential
@@ -98,6 +99,8 @@ class FakeEngine:
         #: ADR-059's catalogue: objects, owners, tags and grants; ``governed.on = False`` is a node
         #: whose catalogue is off.
         self.governed = FakeCatalog(self)
+        #: ADR-064's declaration files: streams, connections, lookups and sinks the console writes.
+        self.declared = FakeDeclarations(self)
         #: ADR-057's alerts; ``alerting.on = False`` is a node whose alert service is off.
         self.alerting = FakeAlerts(self)
         #: The plain-English features (docs/guides/AI.md); ``ai.on = True`` is a node with its AI layer on.
@@ -363,6 +366,29 @@ class FakeEngine:
         return self.rebalance(True)
 
     # ADR-059: the catalogue, as core.engine.Engine calls it (fake_catalog keeps the contract)
+    # ADR-064: the declaration files, as core.engine.Engine calls them
+    def declarations(self):
+        self._check()
+        return {"folders": {}, "watchInterval": "10m", "declarations": []}
+
+    def connectors(self):
+        return self.declared.connectors()
+
+    def declaration_file(self, kind, name):
+        return self.declared.declaration_file(kind, name)
+
+    def write_declaration(self, kind, name, body, *, update, dry_run):
+        return self.declared.write_declaration(kind, name, body, update=update, dry_run=dry_run)
+
+    def delete_declaration(self, kind, name, *, dry_run):
+        return self.declared.delete_declaration(kind, name, dry_run=dry_run)
+
+    def switch_declaration(self, kind, name, enabled, *, dry_run):
+        return self.declared.switch_declaration(kind, name, enabled, dry_run=dry_run)
+
+    def test_connector(self, name, options=None, timeout_seconds=10):
+        return self.declared.test_connector(name, options, timeout_seconds)
+
     def catalog_objects(self, namespace=None, kind=None, search=None):
         return self.governed.catalog_objects(namespace, kind, search)
 

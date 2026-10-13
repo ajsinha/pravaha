@@ -516,6 +516,10 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("debug", "/queries/big_txn/debug", True, "document.querySelector('#dbg-fork-form')"),
     ("overview", "/overview", True, "true"),
     ("plugins", "/plugins", True, "true"),
+    # ADR-064: a stream's file built as a form, a stream in use being edited, and the connections.
+    ("stream-new", "/catalog/streams/new", True, "true"),
+    ("stream-edit", "/catalog/streams/txn/edit", True, "true"),
+    ("connectors", "/catalog/connectors", True, "true"),
     ("admin-access", "/admin/access", True, "true"),
     ("admin-audit", "/admin/audit", True, "true"),
     ("admin-audit-filtered", "/admin/audit?principal=carol&decision=deny", True, "true"),
