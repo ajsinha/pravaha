@@ -157,17 +157,15 @@ def test_the_sample_data_is_there_and_each_script_carries_the_licence(doc):
 
 
 def test_the_configuration_tutorial_one_shows_is_what_pravaha_init_writes():
-    """Tutorial 1's node is the project `pravaha init` scaffolds; the YAML the tutorial shows (comments
-    shortened) must be that project's streams and sources, so the two cannot drift apart."""
+    """Tutorial 1's node is the project `pravaha init` scaffolds; the stream file the tutorial shows
+    (comments shortened) must be that project's conf/streams/txn.yaml, so the two cannot drift apart."""
     yaml = pytest.importorskip("yaml")
     from pravaha.cli import _init
 
     shown = next(yaml.safe_load(block) for block in re.findall(r"```yaml\n(.*?)\n```", (TUTORIALS / WRITTEN[0].name)
                                                                 .read_text(encoding="utf-8"), re.S)
-                 if "streams:" in block)
-    scaffold = yaml.safe_load(_init.application_yaml())
-    assert shown["pravaha"]["streams"] == scaffold["pravaha"]["streams"]
-    assert shown["pravaha"]["sources"] == scaffold["pravaha"]["sources"]
+                 if "shop/conf/streams/txn.yaml" in block)
+    assert shown == yaml.safe_load(_init.stream_yaml())
 
 
 @pytest.mark.parametrize("doc", sorted(TUTORIALS.rglob("*.*")), ids=lambda p: str(p.relative_to(TUTORIALS)))
