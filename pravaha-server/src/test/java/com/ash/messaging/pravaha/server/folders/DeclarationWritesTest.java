@@ -139,7 +139,10 @@ class DeclarationWritesTest {
         assertThat(catalog.contains("s"))
                 .as("in force without waiting for a look")
                 .isTrue();
-        assertThat(node.sources().orElseThrow().bindings().get("s").plugin()).isEqualTo("filesystem");
+        assertThat(java.util.Objects.requireNonNull(
+                                node.sources().orElseThrow().bindings().get("s"))
+                        .plugin())
+                .isEqualTo("filesystem");
 
         write(
                 "hand/s.yaml",
@@ -156,10 +159,11 @@ class DeclarationWritesTest {
             assertThat(event.principal().id()).isEqualTo("ada");
             assertThat(event.allowed()).isTrue();
         });
-        assertThat(Files.list(config.resolve("streams"))
-                        .map(p -> p.getFileName().toString()))
-                .as("no temporary or staging file left behind")
-                .containsExactlyInAnyOrder("a.yaml", "s.yaml");
+        try (java.util.stream.Stream<java.nio.file.Path> left = Files.list(config.resolve("streams"))) {
+            assertThat(left.map(p -> p.getFileName().toString()))
+                    .as("no temporary or staging file left behind")
+                    .containsExactlyInAnyOrder("a.yaml", "s.yaml");
+        }
     }
 
     @Test
