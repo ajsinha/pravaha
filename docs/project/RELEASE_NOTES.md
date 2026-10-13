@@ -14,6 +14,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 **Read before upgrading.**
 
+- **A lookup a query joins is now authorized (LOOKUPAUTH-1).** Registration asked the security policy about every stream and view a plan scans and never about a lookup it joins, so a person refused a dimension table could read it through a join. It is now asked about each one, directly and through the views a query builds on, and the AI layer's explain does the same. A policy that refuses a lookup to someone now refuses their queries that join it.
 - **AI provider files: a `${NAME:-fallback}` fallback in a secret is refused** (AIQA-7). `api-key`, every
   credential setting, `proxy.password`, the TLS store passwords and a credential header must be
   `${NAME}` (or `${NAME:-}`); a fallback value was a literal key written into the file and passed the
@@ -324,7 +325,7 @@ What changed, in detail:
 
 ---
 
-Register: **614 findings — 595 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **624 findings — 603 fixed, 2 open (both POST-GA), 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.4.2 — 2026-10-12
 

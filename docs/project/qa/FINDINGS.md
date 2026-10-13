@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **614 findings carrying a
-status — 595 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **624 findings carrying a
+status — 603 FIXED, 2 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 2 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 2 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7977,4 +7977,48 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 ### ENVCONFIGDIR-1 (MEDIUM) — the CLI's PRAVAHA_CONFIG_DIR was read by the server as its config folder
 
 > **Status:** FIXED — Spring's relaxed binding mapped the CLI's documented PRAVAHA_CONFIG_DIR to pravaha.config.dir, so a shell that exported it for the CLI started a server that declared nothing from the CLI's folder. The CLI now reads PRAVAHA_CLI_DIR (the old name still read after it, with one warning), and the server refuses PRAVAHA_CONFIG_DIR as the only source of pravaha.config.dir with PRV-1069. CliDirectoryVariableTest, test_cli.
+
+## Found in the AI adversarial QA pass (2026-10-13), 10 findings, 8 fixed
+
+### AIQA-1 (MEDIUM) — a chat feature name the policy did not list had its own budget and could not be closed
+
+> **Status:** FIXED — POST /api/v1/ai/chat turned the caller's free-form `feature` into `api:<name>`, so each new name was a fresh per-minute budget and, being unlisted, open to every role; an unlisted name is now `api:other`: one budget, closable by listing it. AiChatBoundsTest#aFeatureNameThePolicyDoesNotListSharesOneBudgetAndCanBeClosed.
+
+### AIQA-2 (MEDIUM) — chat's maxTokens and prompt size were unbounded
+
+> **Status:** FIXED — the caller's maxTokens overrode the provider file's max-tokens and a prompt had no size limit, while cost per day is only charged after the call; maxTokens is now capped at the model's max-tokens (at least 1) and a call is at most 100,000 characters (PRV-1051). AiChatBoundsTest#anAnswerIsNeverAskedLongerThanTheModelAllowsAndAPromptIsBounded.
+
+### AIQA-3 (MEDIUM) — under `aggregates`, a masked column under another name reached the model
+
+> **Status:** FIXED — the ask summary hid masked columns by output name only (`SELECT card AS c` sent card's values) and a qualified `FROM pravaha.payments` emptied the hidden set; every column masked for the reader is now hidden and a query naming one is not summarised. AiFeaturesEndToEndTest#underAggregatesAMaskedColumnUnderAnotherNameNeverReachesTheModel.
+
+### AIQA-4 (MEDIUM) — model text could carry terminal control and bidi characters
+
+> **Status:** FIXED — explanations, summaries, explain answers and narratives were returned as the model wrote them, and the CLI prints them raw; control and format characters are now replaced and the text capped at 4000 characters, and SQL, drafts and alert statements carrying them are refused as repairable. AiFeaturesEndToEndTest#modelTextCannotCarryControlCharactersToTheCaller.
+
+### AIQA-5 (HIGH) — explain returned the plan of a view the reader may not read, named by its qualified name
+
+> **Status:** FIXED — AiExplains matched view names in the SQL text with a lookbehind excluding `.`, so `pravaha.secret_view` passed the check and its plan went to the reader and the model; every stream, view and lookup the plan reads is now asked of the policy (PlanReads). AiFeaturesEndToEndTest#explainingSqlThatNamesARefusedViewByItsQualifiedNameIsRefused.
+
+### AIQA-6 (LOW) — GET /api/v1/ai/features offered features the engine would refuse
+
+> **Status:** FIXED — only the AI policy's roles were consulted, so draft was offered to someone who may not register (PRV-7002) and alert on a node without alerts; both are now ANDed with what the engine allows. AiFeaturesEndToEndTest#theFeaturesListOffersADraftOnlyToWhoMayRegister.
+
+### AIQA-7 (MEDIUM) — a fallback value in a secret placeholder let a literal key into a provider file
+
+> **Status:** FIXED — `${NAME:-sk-…}` passed the literal-secret check for api-key, credential settings, proxy.password and credential headers, in the engine and the SDK; a non-empty fallback in a secret is now refused, naming the setting and never the value (`${NAME:-}` still allowed). LlmLayerTest#aFallbackValueInASecretIsALiteralAndIsRefused; SDK test_ai_layer.
+
+### LOOKUPAUTH-1 (HIGH) — the security policy was never asked about a lookup a query joins
+
+> **Status:** FIXED — registration asked the policy about every stream and view the plan scans (PlanSources) and never about a lookup joined through LookupJoinOperator, so a person refused a dimension table read it through any join; registration now asks about every lookup the plan joins, and every lookup a view it builds on joins, and explain does the same. LookupJoinTest#aRegistrationJoiningALookupTheyMayNotReadIsRefused, shown to fail without the fix.
+
+### AIQA-8 (LOW) — explain of `SELECT *` names a column masked for the reader
+
+> **Status:** OPEN — the plan's output schema lists every column of the relation, so explain shows the name (never a value) of a column masked for the reader; the AI layer sends only names to the model.
+> **Disposition:** POST-GA — names only, no values; masking the plan's column names belongs with ADR-059's narrowing of plans
+
+### AIQA-9 (LOW) — concurrent AI calls can overshoot cost per day
+
+> **Status:** OPEN — the daily cost budget is checked before a call and charged after it, so calls in flight together can each pass the check and together spend past the limit by up to one call each.
+> **Disposition:** POST-GA — bounded by the per-minute limit and AIQA-2's per-call cap; a reservation before the call closes it
 

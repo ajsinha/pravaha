@@ -33,7 +33,7 @@ pointing at an old path.
 promise and **2.0.0** (2026-10-01) moved the baseline to JDK 25 (ADR-061); ADR-062 (2026-10-04) made it Java 21 or later. The adversarial QA of
 2.0.0 (2026-10-01, 322 cases) opened 46 findings, four design notes among them, and three more were
 found while fixing; Waves 1 to 3 (2026-10-01/02) fixed every one, and the documentation sweep and the static-analysis work that followed found eight more, all fixed,
-so the register holds **614 findings, 595 fixed, 0 open** (the last fourteen found writing tutorials and updating them, all fixed on 2026-10-12) — the second adversarial pass (ADV-GAPS, 2026-10-04) opened twelve and all are fixed ([the QA summary](../project/qa/SUMMARY.md)). Those fixes are 2.0.1's
+so the register holds **624 findings, 603 fixed, 2 open (both POST-GA)** (the AI adversarial QA pass of 2026-10-13 found ten: eight fixed, two low post-GA) — the second adversarial pass (ADV-GAPS, 2026-10-04) opened twelve and all are fixed ([the QA summary](../project/qa/SUMMARY.md)). Those fixes are 2.0.1's
 content and several change answers or refuse what 2.0.0 accepted — NULL aggregates of all-NULL
 groups, overflow instead of wrap on narrow integers and casts, `NaN`/`-0.0` grouping, `HOP` windows
 aligned to the slide, `MIN`/`MAX` over retracting inputs refused (`PRV-2076`), rows that fail
