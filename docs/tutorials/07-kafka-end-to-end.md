@@ -112,7 +112,6 @@ source:
   connector: kafka-local              # the plugin and bootstrap.servers come from the connection
   options:
     topic: payments
-    schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
     format: json                      # each value a JSON object of the row, by column name
     start.from: earliest
     monitoring.group: pravaha-payments   # checkpointed offsets reported here; never read back
@@ -419,7 +418,6 @@ source:
   connector: kafka-local
   options:
     topic: user-spend
-    schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
     format: avro
     schema.file: conf/user_spend.avsc   # the writer schema; no registry needed
 ```

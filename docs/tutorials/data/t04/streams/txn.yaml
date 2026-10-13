@@ -7,7 +7,6 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/txn.csv
-    schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP,op:STRING"
     skip.header: "true"
     follow: "true"
     # A line whose op is D withdraws the row it repeats: a correction is a D and an I.

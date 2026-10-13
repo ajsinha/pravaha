@@ -34,7 +34,6 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/refunds.csv
-    schema: "refund_id:INT64,txn_id:INT64,amount:INT64,event_time:TIMESTAMP"
     follow: true
 """
 

@@ -7,6 +7,5 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/orders.csv
-    schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
     skip.header: "true"
     follow: "true"

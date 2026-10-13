@@ -97,7 +97,6 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/txn.csv
-    schema: "{SCHEMA}"
     # tail -f: rows appended to data/txn.csv while the node runs arrive without a restart.
     follow: true
 """

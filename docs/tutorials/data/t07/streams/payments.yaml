@@ -6,7 +6,6 @@ source:
   connector: kafka-local
   options:
     topic: payments
-    schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
     format: json                  # each value a JSON object of the row, by column name
     start.from: earliest
     monitoring.group: pravaha-payments   # checkpointed offsets reported here; never read back

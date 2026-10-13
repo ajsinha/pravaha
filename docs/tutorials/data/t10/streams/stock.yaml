@@ -7,7 +7,6 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/stock.csv
-    schema: "sku:STRING,warehouse:STRING,on_hand:INT64,reorder_point:INT64,event_time:TIMESTAMP,op:STRING"
     skip.header: "true"
     follow: "true"
     # A line whose op is D withdraws the row it repeats: a stock count changes as a D and an I.

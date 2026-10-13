@@ -85,7 +85,6 @@ source:                     # what feeds the stream: a plugin and its options
   plugin: filesystem
   options:
     path: data/incoming/txn.csv
-    schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
     follow: true            # tail -f: appended lines arrive without a restart
 ```
 
@@ -277,7 +276,6 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/refunds.csv
-    schema: "refund_id:INT64,txn_id:INT64,amount:INT64,event_time:TIMESTAMP"
     follow: true
 YAML
 ```
