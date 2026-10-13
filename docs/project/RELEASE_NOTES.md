@@ -190,6 +190,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   asked for `pravaha-api 2.4.3` while the reactor had installed `2.4.3-SNAPSHOT`. Run from a checkout,
   the default is now the root pom's version; from a wheel it is the CLI's own, and `--pravaha-version`
   still overrides both.
+- **TCKPARTS-1: the source TCK's replay case is right for a multi-partition source.**
+  `replayableOffsetsActuallyReplay` resumed partition 0 and expected the rest of the whole fixture, so
+  a correct source with records in two partitions failed it. It now resumes each partition that holds
+  records and expects that partition's remainder (exactly, for `EXACTLY_ONCE`); a two-partition fixture
+  in `pravaha-testkit` runs the whole TCK.
 
 ---
 
