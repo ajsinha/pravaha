@@ -1,0 +1,35 @@
+# Tutorial 15 (docs/tutorials/15-operating-at-scale.md): payments, five queries on shared and dedicated
+# lanes, read admission limits, and a Prometheus scrape.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: data/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+  lane:
+    # A smaller inbox than the default 2048 x 512 B: 64 KiB a lane rather than 1 MiB.
+    inbox:
+      cells: 256
+      cell-bytes: 256
+    multiplex:
+      enabled: auto                  # the default: lanes of their own first, then shared lanes
+      auto-from: 3                   # small here to see sharing with five queries; 64 by default
+      lanes: 2                       # shared lanes; 0 = one per processor
+      max-queries-per-lane: 300
+  serving:
+    read:
+      max-concurrent: 8              # reads at once across Flight and the PostgreSQL gateway (PRV-4026 past it)
+      max-queued: 16                 # reads that may wait for a permit
+      queue-timeout: 2s              # how long one waits before PRV-4027
+      tenant-share: 1.0              # one tenant's share of max-concurrent (PRV-4028)
+      deadline: 30s                  # how long one read may run (PRV-4029)
