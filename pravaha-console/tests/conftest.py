@@ -31,7 +31,7 @@ if (_SDK / "pravaha" / "__init__.py").exists() and str(_SDK) not in sys.path:
 import os
 import tempfile
 
-os.environ["PRAVAHA_CONFIG_DIR"] = tempfile.mkdtemp(prefix="pravaha-console-tests-")
+os.environ["PRAVAHA_CLI_DIR"] = tempfile.mkdtemp(prefix="pravaha-console-tests-")
 os.environ.pop("PRAVAHA_ASSIST_CONFIG", None)
 
 # The browser tests' fixtures -- a Chrome (skipping when there is none), a console on a real

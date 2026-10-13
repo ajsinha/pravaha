@@ -435,7 +435,7 @@ def _shim(home: pathlib.Path) -> pathlib.Path:
 
 def environment(run: Run) -> "dict[str, str]":
     env = {k: v for k, v in os.environ.items() if not k.startswith(("PRAVAHA_", "PG")) and k != "NO_COLOR"}
-    env.update(PRAVAHA_URL=run.node.url, PRAVAHA_HTTP=run.node.http, PRAVAHA_CONFIG_DIR=str(run.node.home / "config"),
+    env.update(PRAVAHA_URL=run.node.url, PRAVAHA_HTTP=run.node.http, PRAVAHA_CLI_DIR=str(run.node.home / "config"),
                PRAVAHA_INSECURE_TOKEN="true", NO_COLOR="1", PYTHONPATH=str(SDK), COLUMNS="110",
                PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", TZ="UTC",
                PATH=os.pathsep.join(filter(None, (str(_shim(run.node.home)), str(pathlib.Path(run.node.java).parent),

@@ -23,7 +23,7 @@ They are grouped here by who raises them:
 | Codes | Raised by | When |
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
-| PRV-1060 – PRV-1068 | The server's configuration folders and data root (ADR-064) | At start, a refusal; while the node runs, a file reported as not applied |
+| PRV-1060 – PRV-1069 | The server's configuration folders and data root (ADR-064) | At start, a refusal; while the node runs, a file reported as not applied |
 | PRV-1030 – PRV-1046 | The Java and Python SDKs | Constructing a client, or talking to the node |
 | PRV-1080 – PRV-1088 | The AI layer (ADR-063) and its plain-English features | An AI call while the layer is off, a provider, a model, the policy or the model endpoint refusing it, or a model's answer the engine could not use |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
@@ -200,6 +200,13 @@ A binding names a connection (`connector:`) no file declares; `404` on
 ### PRV-1068 — CONFIG_CONNECTOR_PLUGIN_CLASH
 
 A binding names a plugin and a connection whose plugin differs. **Do:** leave `plugin:` out.
+
+### PRV-1069 — CONFIG_DIR_FROM_CLI_VARIABLE
+
+`PRAVAHA_CONFIG_DIR` is set in the server's environment -- the command line's old name for its own
+folder -- and Spring would read it as `pravaha.config.dir`, the folder the node declares its streams,
+lookups, sinks and connections from. **Do:** unset it (the command line now reads `PRAVAHA_CLI_DIR`),
+or set `pravaha.config.dir` explicitly if that folder is meant.
 
 ## Values that are not what the key needs
 

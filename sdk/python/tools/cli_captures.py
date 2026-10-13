@@ -232,8 +232,8 @@ class ScratchNode:
              f"--server.port={self.http_port}", "--pravaha.flight.host=127.0.0.1",
              f"--pravaha.flight.port={self.flight_port}", *self.args],
             cwd=self.home, stdout=log, stderr=subprocess.STDOUT,
-            # Not the CLI's PRAVAHA_CONFIG_DIR (its token and contexts): the server would bind it as
-            # pravaha.config.dir and look for its streams folder there.
+            # Not the CLI's old PRAVAHA_CONFIG_DIR (now PRAVAHA_CLI_DIR): the server would bind it as
+            # pravaha.config.dir, and refuses to start when nothing else sets that (PRV-1069).
             env={**{k: v for k, v in os.environ.items() if k != "PRAVAHA_CONFIG_DIR"}, **self.env},
         )
         deadline = time.monotonic() + 120
@@ -282,7 +282,7 @@ class ScratchNode:
 
 def _environment(config: pathlib.Path) -> "dict[str, str]":
     env = {k: v for k, v in os.environ.items() if not k.startswith("PRAVAHA_") and k != "NO_COLOR"}
-    env.update(PRAVAHA_CONFIG_DIR=str(config), NO_COLOR="1", PYTHONPATH=str(SDK),
+    env.update(PRAVAHA_CLI_DIR=str(config), NO_COLOR="1", PYTHONPATH=str(SDK),
                COLUMNS="100", PYTHONIOENCODING="utf-8")
     return env
 

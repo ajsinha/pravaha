@@ -22,6 +22,7 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
+from pravaha._cli_dir import cli_dir
 from pravaha.api import EngineApi
 from pravaha.tls import TlsOptions
 
@@ -36,12 +37,9 @@ _TRUE = ("1", "true", "yes", "on")
 
 
 def config_dir(environ: Optional[Mapping[str, str]] = None) -> pathlib.Path:
-    """``$PRAVAHA_CONFIG_DIR``, else ``$XDG_CONFIG_HOME/pravaha``, else ``~/.config/pravaha``."""
-    env = os.environ if environ is None else environ
-    if env.get("PRAVAHA_CONFIG_DIR"):
-        return pathlib.Path(env["PRAVAHA_CONFIG_DIR"])
-    base = env.get("XDG_CONFIG_HOME") or str(pathlib.Path.home() / ".config")
-    return pathlib.Path(base) / "pravaha"
+    """``$PRAVAHA_CLI_DIR``, else ``$XDG_CONFIG_HOME/pravaha``, else ``~/.config/pravaha``
+    (``$PRAVAHA_CONFIG_DIR`` is still read, with a warning: :mod:`pravaha._cli_dir`)."""
+    return cli_dir(environ)
 
 
 def token_file(environ: Optional[Mapping[str, str]] = None) -> pathlib.Path:

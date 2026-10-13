@@ -194,3 +194,20 @@ start. Code in either folder runs with that process's privileges.
 - New codes: `PRV-1060` (folder missing), `PRV-1061` (file name), `PRV-1062` (declared twice),
   `PRV-1063` (literal secret), `PRV-1064` (invalid file), `PRV-1065` (in use, not applied), `PRV-1066`
   (data root unusable), `PRV-1067` (unknown connection), `PRV-1068` (plugin clash).
+
+## Addendum (2026-10-12): the source is given the stream's schema; `PRAVAHA_CONFIG_DIR` is the CLI's no longer
+
+- **STREAMFILESCHEMA-1.** Section 1 says to write the schema once, at the top of a stream file, and
+  leave the source's option out -- and a plugin that requires `schema` in its options (filesystem,
+  Kafka) then refused the first registration with `PRV-5091 … PRV-5001 … requires 'schema'`. A
+  stream's source that sets no `schema` option is now given the stream's, the way it is already given
+  its `event-time`; this holds for a stream file and for `pravaha.streams` with `pravaha.sources`
+  inline alike. A source that sets its own still must agree with the stream's (`PRV-1015`).
+- **ENVCONFIGDIR-1.** The command line kept its token, contexts and assistant configuration in
+  `$PRAVAHA_CONFIG_DIR`, and Spring's relaxed binding reads that variable as `pravaha.config.dir`: a
+  shell that exported it for the command line and then started a server read every folder above from
+  the command line's directory and declared nothing. The command line's variable is now
+  `PRAVAHA_CLI_DIR` (the old name is still read, after the new one, with one warning on stderr), and a
+  server whose `pravaha.config.dir` comes from `PRAVAHA_CONFIG_DIR` alone -- no command-line argument or
+  system property sets it, and the YAML does not set it to the same path -- refuses to start with
+  `PRV-1069`, naming the variable and the fix.

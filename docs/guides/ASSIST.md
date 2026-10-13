@@ -96,7 +96,7 @@ token.
 ## Configuration
 
 **Where.** `$PRAVAHA_ASSIST_CONFIG`, else `assist.json` in the command line's configuration
-directory (`$PRAVAHA_CONFIG_DIR`, else `$XDG_CONFIG_HOME/pravaha`, else `~/.config/pravaha`). No file
+directory (`$PRAVAHA_CLI_DIR`, else `$XDG_CONFIG_HOME/pravaha`, else `~/.config/pravaha`). No file
 means no models: every task exits `2` saying so.
 
 **Why JSON.** The file is written by programs — `pravaha assist use|enable|disable` and, in phase 3,

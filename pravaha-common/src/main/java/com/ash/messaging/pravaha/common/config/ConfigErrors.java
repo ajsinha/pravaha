@@ -125,6 +125,12 @@ public final class ConfigErrors {
     /** A binding names both a plugin and a connection whose plugin is a different one. */
     public static final ErrorCode CONNECTOR_PLUGIN_CLASH = new ErrorCode(1068, "CONFIG_CONNECTOR_PLUGIN_CLASH");
 
+    /**
+     * ENVCONFIGDIR-1. {@code pravaha.config.dir} taken from the environment variable {@code PRAVAHA_CONFIG_DIR},
+     * which the command line documented as its own directory before 2.4.3, with nothing else setting it.
+     */
+    public static final ErrorCode CONFIG_DIR_FROM_CLI_VARIABLE = new ErrorCode(1069, "CONFIG_DIR_FROM_CLI_VARIABLE");
+
     // PRV-1029 CONFIG_DOCS_BASE_URL_INVALID is allocated here and declared in
     // com.ash.messaging.pravaha.api.HelpUrls, for the same reason as PRV-1028 below: the base URL
     // for a failure's help page is read by pravaha-api itself, which cannot see this class
