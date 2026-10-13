@@ -216,6 +216,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **AINAME-1: a taken alert-draft name is suffixed as asked.** The retry cut trailing digits before
   adding its own, so a taken `region_over_5000` became `region_over_2`; it is now
   `region_over_5000_2`, then `_3`, as a query draft's name already was.
+- **ROLESORDER-1: a user's roles are listed in order.** `user list`, `whoami` and the identity API
+  showed them in whatever order a hash set held them, which could differ between runs; the engine now
+  keeps a principal's, a user's and a key's roles sorted where the set is formed.
 
 ---
 

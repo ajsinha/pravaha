@@ -49,7 +49,8 @@ public record Principal(String id, String tenant, Set<String> roles, Map<String,
                     + "without one, and a row filter has nothing to key on");
         }
         tenant = tenant == null || tenant.isBlank() ? "public" : tenant;
-        roles = Set.copyOf(roles == null ? Set.of() : roles);
+        // ROLESORDER-1: sorted, so every list of a principal's roles -- whoami, user list -- is stable.
+        roles = java.util.Collections.unmodifiableSortedSet(new java.util.TreeSet<>(roles == null ? Set.of() : roles));
         claims = Map.copyOf(claims == null ? Map.of() : claims);
     }
 
