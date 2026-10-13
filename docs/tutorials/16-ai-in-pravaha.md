@@ -513,7 +513,7 @@ would have received:
 ```text
 $ pravaha explain --why-changed big_payments
 echo: TASK: explain-change
-<<<BEGIN UNTRUSTED changes id=<id>>>>
+‹‹‹BEGIN UNTRUSTED changes id=<id>›››
 VIEW big_payments
 KEY COLUMNS: payment_id
 COMMITS: 1 since <time>
@@ -522,7 +522,7 @@ ROWS LEFT: 0
 KEYS ENTERED (up to 20): [9]
 KEYS LEFT (up to 20): (none)
 A key that both entered and left was updated.
-<<<END UNTRUSTED changes id=<id>>>>
+‹‹‹END UNTRUSTED changes id=<id>›››
 
 view          big_payments
 kept since    <time>
@@ -556,15 +556,15 @@ number — becomes `•••` before a prompt leaves the node, whoever typed it
 ```text
 $ pravaha why PRV-7006 --sql "SELECT payment_id FROM big_payments WHERE card_number = '4111-1111-1111-1234'" --engine
 PRV-7006  echo: TASK: explain-refusal
-<<<BEGIN UNTRUSTED code id=<id>>>>
+‹‹‹BEGIN UNTRUSTED code id=<id>›››
 PRV-7006
-<<<END UNTRUSTED code id=<id>>>>
-<<<BEGIN UNTRUSTED sql id=<id>>>>
+‹‹‹END UNTRUSTED code id=<id>›››
+‹‹‹BEGIN UNTRUSTED sql id=<id>›››
 SELECT payment_id FROM big_payments WHERE card_number = '•••'
-<<<END UNTRUSTED sql id=<id>>>>
-<<<BEGIN UNTRUSTED engine-verdict id=<id>>>>
+‹‹‹END UNTRUSTED sql id=<id>›››
+‹‹‹BEGIN UNTRUSTED engine-verdict id=<id>›››
 the engine accepts this statement now
-<<<END UNTRUSTED engine-verdict id=<id>>>>
+‹‹‹END UNTRUSTED engine-verdict id=<id>›››
 the engine accepts this statement now: it raised no refusal for it
 ```
 <!-- /capture -->
