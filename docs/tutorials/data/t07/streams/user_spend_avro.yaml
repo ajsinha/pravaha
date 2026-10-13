@@ -1,0 +1,11 @@
+# Tutorial 7: the node's conf/streams/user_spend_avro.yaml -- the user-spend topic read back: what
+# the user_spend query wrote, in Avro.
+schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
+event-time: window_end
+source:
+  connector: kafka-local
+  options:
+    topic: user-spend
+    schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
+    format: avro
+    schema.file: conf/user_spend.avsc   # the writer schema; no registry needed

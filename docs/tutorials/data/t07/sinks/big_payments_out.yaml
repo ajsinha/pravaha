@@ -1,0 +1,8 @@
+# Tutorial 7: the node's conf/sinks/big_payments_out.yaml -- the big payments, back to Kafka as a
+# table: keyed by payment_id, a JSON value, a tombstone for a row that leaves the view.
+connector: kafka-local-out
+options:
+  topic: big-payments
+  schema: "payment_id:INT64,user_id:STRING,amount:INT64"
+  key.columns: payment_id
+  transactional: "true"

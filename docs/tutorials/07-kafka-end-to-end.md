@@ -19,17 +19,18 @@ file. Every output below was printed by a real node and a real broker running th
   windows in step 5, and [tutorial 6](06-investigating-an-incident.md) for the dead-letter queue.
 - Docker, to run a Kafka broker. The tutorial uses `apache/kafka:3.9.1` on `localhost:9092`; if
   something of yours already listens there, publish the broker on another port (`-p 29092:9092`) and
-  change `bootstrap.servers` to match.
-- The tutorial's files, in [data/t07/](data/t07/): `application.yaml` (two Kafka sources, two Kafka
-  sinks, a dead-letter queue, checkpoints every 5 seconds), `payments.jsonl` (eight payments, one JSON
-  object a line), `user_spend.sql` and `user_spend.avsc` (the Avro schema both sides use).
+  change `bootstrap.servers` to match — in the two files of `connectors/`, the only place it is written.
+- The tutorial's files, in [data/t07/](data/t07/): `application.yaml` (a dead-letter queue, checkpoints
+  every 5 seconds), two streams fed by Kafka (`streams/`), two Kafka sinks (`sinks/`), the broker as a
+  named connection for each plugin (`connectors/`), `payments.jsonl` (eight payments, one JSON object a
+  line), `user_spend.sql` and `user_spend.avsc` (the Avro schema both sides use).
 - A broker, and a node home with the configuration and the schema in place:
 
 ```bash
 docker run -d --name pravaha-kafka -p 9092:9092 apache/kafka:3.9.1
 export PRAVAHA_HOME=$HOME/pravaha-t07
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data
-cp docs/tutorials/data/t07/application.yaml docs/tutorials/data/t07/user_spend.avsc $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t07/{application.yaml,user_spend.avsc,streams,sinks,connectors} $PRAVAHA_HOME/conf/
 cd docs/tutorials/data/t07
 ```
 
@@ -90,32 +91,45 @@ You should see three `Created topic` lines, and the payments as JSON objects.
 
 ## Step 2 · Bind the topic to a stream
 
-The binding is configuration. The stream says what a payment is; the source says where payments come
-from and how a record's value becomes a row:
+The binding is configuration, a file per stream. The stream says what a payment is; its `source:`
+says where payments come from and how a record's value becomes a row. Where the broker is — and, in
+production, its TLS and SASL settings — is said once, in a **named connection** every Kafka binding
+names:
 
 ```yaml
-# data/t07/application.yaml (the payments)
+# conf/connectors/kafka-local.yaml (the broker, for the kafka source plugin)
+plugin: kafka
+options:
+  bootstrap.servers: "localhost:9092"
+```
+
+```yaml
+# conf/streams/payments.yaml
+schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 5s
+source:
+  connector: kafka-local              # the plugin and bootstrap.servers come from the connection
+  options:
+    topic: payments
+    schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+    format: json                      # each value a JSON object of the row, by column name
+    start.from: earliest
+    monitoring.group: pravaha-payments   # checkpointed offsets reported here; never read back
+```
+
+```yaml
+# conf/application.yaml
 pravaha:
-  streams:
-    payments:
-      schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 5s
-  sources:
-    payments:
-      plugin: kafka
-      options:
-        bootstrap.servers: "localhost:9092"
-        topic: payments
-        schema: "payment_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
-        format: json                  # each value a JSON object of the row, by column name
-        start.from: earliest
-        monitoring.group: pravaha-payments   # checkpointed offsets reported here; never read back
   dlq:
     directory: data/dlq               # a record no source can decode is set aside; the source reads on
   checkpoint:
     interval: 5s                      # the sinks commit what each checkpoint covers
 ```
+
+A binding's options are the connection's with its own laid over them; on a clash the binding wins. A
+connection is for one plugin: the sinks reach the same broker through `kafka-local-out`, whose plugin
+is `kafka-sink`, and naming a connection of the other plugin is refused (`PRV-1068`).
 
 `format: json` matches a value's members to the columns **by name**: a member the schema does not name
 is ignored, a missing one is null (and refused if the column is not nullable). `start.from: earliest`
@@ -139,9 +153,9 @@ kafka-sink        <version>    sink         yes         yes     UNKNOWN  sink:bi
 <!-- capture: t07-streams -->
 ```text
 $ pravaha streams list
-NAME             VERSION  EVENT TIME  LATENESS  SOURCE  FIELDS
-payments         1        event_time  PT5S      kafka   payment_id INT64 NOT NULL, user_id VARCHAR NOT NULL, merchant VARCHAR NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
-user_spend_avro  1        window_end  PT10S     kafka   user_id VARCHAR NOT NULL, window_end TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL, spend INT64 NOT NULL
+NAME             VERSION  EVENT TIME  LATENESS  SOURCE  ORIGIN                                  FIELDS
+payments         1        event_time  PT5S      kafka   file:conf/streams/payments.yaml         payment_id INT64 NOT NULL, user_id VARCHAR NOT NULL, merchant VARCHAR NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+user_spend_avro  1        window_end  PT10S     kafka   file:conf/streams/user_spend_avro.yaml  user_id VARCHAR NOT NULL, window_end TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL, spend INT64 NOT NULL
 ```
 <!-- /capture -->
 
@@ -156,27 +170,37 @@ user_spend_out    kafka-sink  RETRACT,UPSERT  yes          EXACTLY_ONCE  -      
 
 `HEALTH UNKNOWN` is honest: nothing has opened a reader yet. A source is opened when the first query
 over it is registered, not when the node starts. The second stream, `user_spend_avro`, is step 6's.
+Each connection lists what names it:
 
-![The Catalog page of the stream payments: its five columns payment_id, user_id, merchant, amount and event_time with their types, event time event_time, out-of-orderness PT5S and source kafka; no registered query reads it yet, and templates for a first query](img/t07/01-stream.png)
+<!-- capture: t07-connectors -->
+```text
+$ pravaha connectors list
+NAME             PLUGIN      ORIGIN                                     USED BY
+kafka-local      kafka       file:conf/connectors/kafka-local.yaml      source:payments, source:user_spend_avro
+kafka-local-out  kafka-sink  file:conf/connectors/kafka-local-out.yaml  sink:big_payments_out, sink:user_spend_out
+```
+<!-- /capture -->
 
-You should see `kafka` and `kafka-sink` loaded, two streams whose source is `kafka`, and two sinks
-that promise `EXACTLY_ONCE`.
+A connection something names is not changed or removed under it: its file's change waits, reported
+as not applied (`PRV-1065`), until nothing names it.
+
+![The Catalog page of the stream payments: its five columns payment_id, user_id, merchant, amount and event_time with their types, event time event_time, out-of-orderness PT5S, source kafka and Declared by file:conf/streams/payments.yaml; no registered query reads it yet, and templates for a first query](img/t07/01-stream.png)
+
+You should see `kafka` and `kafka-sink` loaded, two streams whose source is `kafka`, two sinks
+that promise `EXACTLY_ONCE`, and each connection used by two bindings.
 
 ## Step 3 · A continuous query over the topic, written back to Kafka
 
 Register the payments of 2000 or more, keyed by `payment_id`, writing to the sink `big_payments_out`:
 
 ```yaml
-# data/t07/application.yaml (the sink)
-  sinks:
-    big_payments_out:
-      plugin: kafka-sink
-      options:
-        bootstrap.servers: "localhost:9092"
-        topic: big-payments
-        schema: "payment_id:INT64,user_id:STRING,amount:INT64"
-        key.columns: payment_id
-        transactional: "true"
+# conf/sinks/big_payments_out.yaml (the broker comes from conf/connectors/kafka-local-out.yaml)
+connector: kafka-local-out
+options:
+  topic: big-payments
+  schema: "payment_id:INT64,user_id:STRING,amount:INT64"
+  key.columns: payment_id
+  transactional: "true"
 ```
 
 <!-- capture: t07-register-big -->
@@ -377,26 +401,27 @@ Each user's spend per closed minute, written in Avro. The schema is a file both 
 ```
 
 ```yaml
-# data/t07/application.yaml (Avro out, and back in)
-  sinks:
-    user_spend_out:
-      plugin: kafka-sink
-      options:
-        bootstrap.servers: "localhost:9092"
-        topic: user-spend
-        schema: "user_id:STRING,window_end:TIMESTAMP(3),spend:INT64"
-        key.columns: "user_id,window_end"
-        format: avro
-        schema.file: conf/user_spend.avsc
-  sources:
-    user_spend_avro:
-      plugin: kafka
-      options:
-        bootstrap.servers: "localhost:9092"
-        topic: user-spend
-        schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
-        format: avro
-        schema.file: conf/user_spend.avsc   # the writer schema; no registry needed
+# conf/sinks/user_spend_out.yaml (Avro out)
+connector: kafka-local-out
+options:
+  topic: user-spend
+  schema: "user_id:STRING,window_end:TIMESTAMP(3),spend:INT64"
+  key.columns: "user_id,window_end"
+  format: avro
+  schema.file: conf/user_spend.avsc
+```
+
+```yaml
+# conf/streams/user_spend_avro.yaml (and back in)
+schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
+event-time: window_end
+source:
+  connector: kafka-local
+  options:
+    topic: user-spend
+    schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
+    format: avro
+    schema.file: conf/user_spend.avsc   # the writer schema; no registry needed
 ```
 
 `TIMESTAMP(3)` on the sink is deliberate: an Avro `timestamp-millis` holds milliseconds, and a column
@@ -521,6 +546,7 @@ You should see `UP`.
 
 | Symptom | What it means | What to do |
 |---|---|---|
+| `PRV-1068` at start | a binding names a connection of the other plugin (a sink naming `kafka-local`) | sinks name `kafka-local-out`, sources `kafka-local` |
 | `PRV-5101` when a query writing to the sink registers | the sink's target topic does not exist; the sink never creates it | create it (`kafka-topics.sh --create`) and register again |
 | `PRV-8010` at `register --sink` | the sink's `schema` is not the query's `SELECT` list, or `key.columns` is not the view's key | make them agree, column for column |
 | `PRV-5105`, the feed stops, health `DEGRADED` | a record did not decode and there is no dead-letter queue | set `pravaha.dlq.directory`; fix the producer |

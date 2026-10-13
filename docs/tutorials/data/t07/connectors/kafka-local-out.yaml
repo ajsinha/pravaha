@@ -1,0 +1,5 @@
+# Tutorial 7: the node's conf/connectors/kafka-local-out.yaml -- the same broker, for the sinks that
+# write to it (the kafka-sink plugin).
+plugin: kafka-sink
+options:
+  bootstrap.servers: "localhost:9092"

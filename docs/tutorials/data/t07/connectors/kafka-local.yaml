@@ -1,0 +1,6 @@
+# Tutorial 7: the node's conf/connectors/kafka-local.yaml -- the broker, once, for every stream that
+# reads it. A connection is for one plugin: the sinks reach the same broker through kafka-local-out.
+# TLS and SASL settings go here too, a password as ${ENV_NAME} (PRV-1063).
+plugin: kafka
+options:
+  bootstrap.servers: "localhost:9092"
