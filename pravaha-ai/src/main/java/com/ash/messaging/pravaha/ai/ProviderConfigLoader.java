@@ -176,7 +176,7 @@ public final class ProviderConfigLoader {
         for (String k : secrets) {
             String raw = settings.getOrDefault(k, "");
             if (!raw.isBlank()) {
-                if (!ENV.matcher(raw.strip()).matches()) {
+                if (!placeholder(raw)) {
                     throw new LlmException(
                             LlmException.Kind.CONFIG,
                             k + " must be an ${ENV_NAME} placeholder; secrets are never written into a file");
@@ -205,17 +205,26 @@ public final class ProviderConfigLoader {
                 a.models());
     }
 
-    /** {@code ${NAME}} or {@code ${NAME:-fallback}} read from the environment; anything else is a literal and refused. */
+    /**
+     * {@code ${NAME}} (or {@code ${NAME:-}}) read from the environment; anything else is a literal and refused --
+     * a fallback value too (AIQA-7): {@code ${NAME:-sk-...}} is a key written into the file.
+     */
     public static String resolveKey(String raw, Function<String, @Nullable String> env) {
         if (raw.isEmpty()) {
             return "";
         }
-        if (!ENV.matcher(raw.strip()).matches()) {
+        if (!placeholder(raw)) {
             throw new LlmException(
                     LlmException.Kind.CONFIG,
-                    "api-key must be an ${ENV_NAME} placeholder; keys are never written into a file");
+                    "api-key must be an ${ENV_NAME} placeholder with no fallback value; keys are never written into a file");
         }
         return resolve(raw, env);
+    }
+
+    /** One {@code ${NAME}} placeholder with no fallback value (an empty one, {@code ${NAME:-}}, is none). */
+    private static boolean placeholder(String raw) {
+        Matcher m = ENV.matcher(raw.strip());
+        return m.matches() && (m.group(2) == null || m.group(2).isBlank());
     }
 
     private static String resolve(String raw, Function<String, @Nullable String> env) {
@@ -238,6 +247,18 @@ public final class ProviderConfigLoader {
                                 + " must use an ${ENV_NAME} placeholder; credentials are never written into a file");
             }
             return raw;
+        }
+        if (CREDENTIAL_HEADER.matcher(name).matches()) {
+            Matcher f = EMBEDDED.matcher(raw);
+            while (f.find()) {
+                String fallback = f.group(2);
+                if (fallback != null && !fallback.isBlank()) { // AIQA-7: a fallback is a literal credential
+                    throw new LlmException(
+                            LlmException.Kind.CONFIG,
+                            "header " + name + " must use ${ENV_NAME} placeholders with no fallback value; "
+                                    + "credentials are never written into a file");
+                }
+            }
         }
         return EMBEDDED.matcher(raw).replaceAll(m -> {
             String v = env.apply(String.valueOf(m.group(1)));

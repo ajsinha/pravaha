@@ -102,10 +102,17 @@ def test_a_yaml_file_is_read_when_pyyaml_is_there(tmp_path):
 
 def test_keys_come_from_the_environment_and_never_appear_in_the_config_repr(tmp_path):
     write(tmp_path, "oai.json", {"type": "openai", "api-key": "${OAI_KEY}", "models": [{"name": "m"}]})
-    write(tmp_path, "dflt.json", {"type": "openai", "api-key": "${MISSING:-fallback}", "models": [{"name": "n"}]})
+    write(tmp_path, "empty.json", {"type": "openai", "api-key": "${MISSING:-}", "models": [{"name": "n"}]})
+    write(tmp_path, "dflt.json", {"type": "openai", "api-key": "${MISSING:-sk-fallback}", "models": [{"name": "n"}]})
+    write(tmp_path, "hdr.json", {"type": "openai", "api-key": "${OAI_KEY}", "header": {"X-Api-Key": "${H:-sk-h}"},
+                                 "models": [{"name": "n"}]})
     reg = registry(tmp_path, {"OAI_KEY": "sekret"})
     assert reg.provider("oai").config.api_key == "sekret" and "sekret" not in repr(reg.provider("oai").config)
-    assert reg.provider("dflt").config.api_key == "fallback"
+    assert reg.provider("empty").config.api_key == ""
+    # AIQA-7: a fallback value is a secret written into the file, refused like any literal
+    assert reg.provider("dflt") is None and reg.provider("hdr") is None
+    assert "no fallback value" in reg.file_errors["dflt.json"] and "sk-fallback" not in reg.file_errors["dflt.json"]
+    assert "sk-h" not in reg.file_errors["hdr.json"]
 
 
 def test_reload_picks_up_added_changed_and_removed_files_and_ambiguity_is_refused(tmp_path):

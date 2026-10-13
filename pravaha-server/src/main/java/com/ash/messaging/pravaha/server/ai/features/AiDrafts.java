@@ -207,6 +207,11 @@ final class AiDrafts {
                 registry,
                 slug(wanted == null || wanted.isBlank() ? n.path("name").asText("") : wanted));
         String statement = statement(name, keys, options, select);
+        if (AiGrounding.hasControls(statement)) { // AIQA-4: nothing a terminal would act on
+            throw new AiFeatures.Repairable(
+                    AiFeatureErrors.ANSWER_UNUSABLE,
+                    "the draft carries control or format characters; write it without them");
+        }
         Optional<ContinuousStatement> recognized = ContinuousStatements.recognize(statement);
         if (!(recognized.orElse(null) instanceof ContinuousStatement.Create create)) {
             throw new AiFeatures.Repairable(
@@ -312,6 +317,11 @@ final class AiDrafts {
                     if (statement.isEmpty()) {
                         throw AiFeatures.unusable("the model could not write this as an alert on a view you may read"
                                 + AiFeatures.because(n));
+                    }
+                    if (AiGrounding.hasControls(statement)) { // AIQA-4
+                        throw new AiFeatures.Repairable(
+                                AiFeatureErrors.ANSWER_UNUSABLE,
+                                "the alert carries control or format characters; write it without them");
                     }
                     String named = wanted == null || wanted.isBlank() ? statement : renamed(statement, slug(wanted));
                     return new Checked(

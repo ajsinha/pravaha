@@ -265,6 +265,24 @@ final class AiGrounding {
         return String.valueOf(v);
     }
 
+    private static final Pattern CONTROLS = Pattern.compile("[\\p{Cc}\\p{Cf}&&[^\\n\\r\\t]]");
+
+    /** Whether {@code s} holds a control or format character other than a line break or a tab. */
+    static boolean hasControls(String s) {
+        return CONTROLS.matcher(s).find();
+    }
+
+    /**
+     * Whether {@code sql} names {@code name} as a word, whatever is before it -- {@code pravaha.payments}
+     * names {@code payments} too (AIQA-5) -- and in any case.
+     */
+    static boolean mentionsWord(String sql, String name) {
+        return Pattern.compile(
+                        "(?<![\\p{L}\\p{N}_])" + Pattern.quote(name) + "(?![\\p{L}\\p{N}_])", Pattern.CASE_INSENSITIVE)
+                .matcher(sql)
+                .find();
+    }
+
     /** A row of cells, JSON-ready. */
     static List<@Nullable Object> row(Object[] values) {
         List<@Nullable Object> out = new ArrayList<>(values.length);
@@ -308,9 +326,7 @@ final class AiGrounding {
     static List<String> mentioned(String sql, List<Relation> relations) {
         List<String> out = new ArrayList<>();
         for (Relation r : relations) {
-            if (Pattern.compile("(?i)(?<![A-Za-z0-9_.])" + Pattern.quote(r.name()) + "(?![A-Za-z0-9_])")
-                    .matcher(sql)
-                    .find()) {
+            if (mentionsWord(sql, r.name())) {
                 out.add(r.name());
             }
         }

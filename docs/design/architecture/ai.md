@@ -77,7 +77,7 @@ models:
 
 - **Keys only from the environment.** `api-key` — and every other secret: `aws-secret-access-key`,
   `aws-session-token`, `client-secret`, `proxy.password`, the TLS store passwords, a credential header
-  (`header.Authorization`) — must be `${NAME}` or `${NAME:-fallback}`. **A literal is refused when the
+  (`header.Authorization`) — must be `${NAME}` (or `${NAME:-}`): a fallback value is a literal too. **A literal is refused when the
   file is read**, and the refusal names the setting, never the value. The key is resolved at load and
   never appears in `ProviderConfig.toString()`, an admin answer or an audit row.
 - **A bad file is reported and skipped**; the others load. `GET /api/v1/admin/ai` lists it under
@@ -169,7 +169,7 @@ then `pravaha.ai.providers.register("acme", factory)`.
 
 | Setting | What it does |
 |---|---|
-| `features.<feature>.roles` | Roles that may use a feature; a feature not listed is open to every signed-in caller. The REST endpoint's callers are `api:<feature>` and the console's `api:console:<feature>`, so neither can pose as a built-in feature. A refusal is `PRV-1084` |
+| `features.<feature>.roles` | Roles that may use a feature; a feature not listed is open to every signed-in caller. The REST endpoint's callers are `api:<feature>` and the console's `api:console:<feature>`, so neither can pose as a built-in feature; a name the policy does not list is `api:other`, so a caller can neither mint a fresh per-minute budget nor reach a feature that cannot be closed (list `api:other` to close the rest). A refusal is `PRV-1084` |
 | `per-user-per-minute`, `features.<feature>.per-user-per-minute` | Calls per user per feature per minute (`PRV-1085`, "try again in N seconds") |
 | `per-user-per-day` | Calls per user per day, UTC |
 | `cost-per-user-per-day` | Money per user per day, in the unit the files' `cost-per-1k-*` are written in |
@@ -186,7 +186,7 @@ refusal), the outcome (`ok`, `failed`, `timeout`, `rate_limited`, `policy`, ...)
 
 | Call | Who | What |
 |---|---|---|
-| `POST /api/v1/ai/chat` | any signed-in caller | `prompt` or `messages`, optionally `model`, `system`, `temperature`, `maxTokens`, `jsonMode`, `timeoutSeconds` (1–120, 30), `feature`. Answers `text`, `toolCalls`, `model`, `finishReason`, `usage` |
+| `POST /api/v1/ai/chat` | any signed-in caller | `prompt` or `messages`, optionally `model`, `system`, `temperature`, `maxTokens`, `jsonMode`, `timeoutSeconds` (1–120, 30), `feature`; at most 100,000 characters in all, and `maxTokens` never above the model's `max-tokens` (else `pravaha.ai.features.max-tokens`). Answers `text`, `toolCalls`, `model`, `finishReason`, `usage` |
 | `GET /api/v1/ai/models` | any signed-in caller | the models a caller may name (`ref` is `provider/model`) |
 | `GET /api/v1/admin/ai` | `admin` | the layer on or off, the folder, the types installed, every provider with `keySet` (never the key), its models and **health** — `OFF`, `ERROR`, `UNKNOWN`, `UP`, `DOWN`, from the file and the calls seen, **never a network call** — and the retry state; `fileErrors` |
 | `POST /api/v1/admin/ai/test` | `admin` | one real call (`model`, `prompt`), capped at 15 seconds and `pravaha.ai.test-per-minute` (6) per administrator |

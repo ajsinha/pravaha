@@ -42,11 +42,19 @@ def _resolve(raw: str, env: Env) -> str:
     return v.strip() if v and v.strip() else (m.group(2) or "")
 
 
+def _placeholder(raw: str) -> bool:
+    """One ``${NAME}`` placeholder with no fallback value (an empty one, ``${NAME:-}``, is none): a
+    fallback is a secret written into the file (AIQA-7)."""
+    m = _ENV.match(raw.strip())
+    return bool(m) and not (m.group(2) or "").strip()
+
+
 def resolve_key(raw: str, env: Env) -> str:
     if not raw:
         return ""
-    if not _ENV.match(raw.strip()):
-        raise LlmError("config", "api-key must be an ${ENV_NAME} placeholder; keys are never written into a file")
+    if not _placeholder(raw):
+        raise LlmError("config", "api-key must be an ${ENV_NAME} placeholder with no fallback value; "
+                       "keys are never written into a file")
     return _resolve(raw, env)
 
 
@@ -56,6 +64,9 @@ def resolve_header(name: str, raw: str, env: Env) -> str:
             raise LlmError("config", f"header {name} must use an ${{ENV_NAME}} placeholder; "
                            f"credentials are never written into a file")
         return raw
+    if _CREDENTIAL.match(name) and any((m.group(2) or "").strip() for m in _EMBEDDED.finditer(raw)):
+        raise LlmError("config", f"header {name} must use ${{ENV_NAME}} placeholders with no fallback value; "
+                       f"credentials are never written into a file")
     return _EMBEDDED.sub(lambda m: (env(m.group(1)) or "").strip() or (m.group(2) or ""), raw)
 
 
@@ -160,7 +171,7 @@ def provider_from_dict(data: Dict[str, Any], default_name: str, env: Env) -> Pro
     for k in (*catalog.CREDENTIAL_SETTINGS, *_SECRETS):
         raw = settings.get(k, "")
         if raw:
-            if not _ENV.match(raw.strip()):
+            if not _placeholder(raw):
                 raise LlmError("config", f"{k} must be an ${{ENV_NAME}} placeholder; secrets are never written into a file")
             settings[k] = _resolve(raw, env)
     pre = catalog.preset(typ)

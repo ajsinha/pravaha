@@ -149,7 +149,8 @@ public final class AiFeatures implements AutoCloseable {
                         "the model could not turn the question into a query over the views you may read" + because(n));
             }
             String select = requireSelect(sql);
-            return new Ran(select, n.path("explanation").asText("").strip(), reader.execute(select, p));
+            return new Ran(
+                    select, AiGrounding.clean(n.path("explanation").asText(""), 1200), reader.execute(select, p));
         });
         Ran ran = judged.value();
         List<String> names = new ArrayList<>();
@@ -170,11 +171,15 @@ public final class AiFeatures implements AutoCloseable {
         AiAnswers.ChartChoice chart = chart(ran.result().schema().fields(), count);
         List<String> reads = AiGrounding.mentioned(ran.sql(), readable);
         String summary = null;
-        if (props.aggregates() && !rows.isEmpty()) {
-            Set<String> hidden = new LinkedHashSet<>();
-            readable.stream().filter(r -> reads.contains(r.name())).forEach(r -> hidden.addAll(r.masked()));
+        // AIQA-3: every column masked for this reader in any relation they may read is hidden, and a query
+        // that names one anywhere -- an alias, an expression, a sub-query -- is not summarised at all, since
+        // its output columns may carry the masked values under other names.
+        Set<String> hidden = new LinkedHashSet<>();
+        readable.forEach(r -> hidden.addAll(r.masked()));
+        boolean derivesFromMasked = hidden.stream().anyMatch(c -> AiGrounding.mentionsWord(ran.sql(), c));
+        if (props.aggregates() && !rows.isEmpty() && !derivesFromMasked) {
             String sid = AiGrounding.id();
-            summary = call(
+            summary = words(
                             p,
                             ASK,
                             AiPrompts.summarise(sid),
@@ -241,6 +246,22 @@ public final class AiFeatures implements AutoCloseable {
             @Nullable List<AiAnswers.HelpTopic> topics,
             @Nullable String question) {
         return explains.page(p, screen, about, topics, question);
+    }
+
+    /**
+     * Whether the engine's own gate of {@code feature} opens to {@code p} (AIQA-6), so {@code /ai/features}
+     * never offers what the engine refuses before the model is asked: a draft to a person who may not
+     * register, an alert on a node that runs no alert service. Reads only; no model is called.
+     */
+    public boolean capable(Principal p, String feature) {
+        return switch (feature) {
+            case DRAFT ->
+                node.registry()
+                        .map(r -> r.policy().mayRegisterQuery(p).allowed())
+                        .orElse(false);
+            case ALERT -> node.alerts().isPresent();
+            default -> true;
+        };
     }
 
     @Override
@@ -413,6 +434,18 @@ public final class AiFeatures implements AutoCloseable {
         }
     }
 
+    /** The most characters of a model's words an answer carries. */
+    static final int WORDS = 4000;
+
+    /**
+     * One model call whose answer is words for a person (AIQA-4): control and format characters -- a
+     * terminal escape sequence, a bidirectional override -- become spaces and the text is bounded, so model
+     * text printed by the CLI or shown anywhere else cannot drive the terminal or disguise itself.
+     */
+    String words(Principal p, String feature, String system, List<ChatMessage> turns) {
+        return AiGrounding.clean(call(p, feature, system, turns), WORDS);
+    }
+
     /** The feature's own audit event: who, the target, the outcome and sizes; never a prompt or an answer. */
     void record(Principal p, String feature, String target, boolean allowed, String outcome, String detail) {
         audit.record(new AuditEvent(
@@ -499,6 +532,11 @@ public final class AiFeatures implements AutoCloseable {
         String s = sql.strip();
         while (s.endsWith(";")) {
             s = s.substring(0, s.length() - 1).strip();
+        }
+        if (AiGrounding.hasControls(s)) {
+            throw new Repairable(
+                    AiFeatureErrors.ANSWER_UNUSABLE,
+                    "the SQL carries control or format characters, which a query never needs; write it without them");
         }
         String head = LEADING_COMMENTS.matcher(s).replaceFirst("").toUpperCase(Locale.ROOT);
         if (!(head.startsWith("SELECT") || head.startsWith("WITH")) || s.contains(";")) {
