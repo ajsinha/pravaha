@@ -1477,8 +1477,8 @@ public final class QueryRegistry implements AutoCloseable {
         closeQueries(true);
     }
 
-    /** A process that dies takes no last checkpoint (EMBEDCKPT-1): tests that simulate one close so. */
-    void closeAsIfCrashed() {
+    /** As a dying process does: no last checkpoint (EMBEDCKPT-1). For tests and harnesses simulating a crash. */
+    public void closeAsIfCrashed() {
         closeQueries(false);
     }
 

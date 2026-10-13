@@ -159,7 +159,7 @@ class KafkaSinkRegistrationTest {
         // Work after the checkpoint, into a process that is already dead.
         feed(query, "u1", 375L);
         query.commit();
-        first.close();
+        first.closeAsIfCrashed(); // a crash: no last checkpoint
         registries.remove(first);
 
         QueryRegistry second = checkpointed(new KafkaSinks().bind("latest_topic", binding));
