@@ -131,7 +131,7 @@ class PostgresCdcRegistrationTest {
         // After the checkpoint: delivered to the view, and not in the checkpoint.
         PgServer.sql("UPDATE " + table + " SET tier = 'gold' WHERE id = 43");
         awaitTiers(query, 898, 101);
-        first.close();
+        first.closeAsIfCrashed(); // a crash: no last checkpoint
         registries.remove(first);
         assertThat(PgServer.confirmedFlush(table))
                 .as("nothing after the checkpoint was confirmed, so the slot still has it")
