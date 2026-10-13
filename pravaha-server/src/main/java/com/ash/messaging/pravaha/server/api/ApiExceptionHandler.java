@@ -157,10 +157,10 @@ public class ApiExceptionHandler {
         // a file already declares the name, configuration declares it, the node has no folders -- so 409;
         // a name no file declares is 404.
         switch (code.code()) {
-            case "PRV-1062", "PRV-1065", "PRV-1069", "PRV-1071", "PRV-1072" -> {
+            case "PRV-1062", "PRV-1065", "PRV-1070", "PRV-1072", "PRV-1073" -> {
                 return HttpStatus.CONFLICT;
             }
-            case "PRV-1070" -> {
+            case "PRV-1071" -> {
                 return HttpStatus.NOT_FOUND;
             }
             default -> {

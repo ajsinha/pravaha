@@ -26,8 +26,8 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   declares the stream and reads nothing from its source -- its queries keep running and receive nothing
   -- and in a connection file stops the stream sources that name it; switching off is never refused for
   being in use. Writes need the `admin` role or a grant to administer the object, and are audited
-  (`config.<kind>.<action>`, `config.connector.test`). New codes `PRV-1069` … `PRV-1073`. The node needs
-  write access to its declaration folders for these (a read-only mount answers `PRV-1072`).
+  (`config.<kind>.<action>`, `config.connector.test`). New codes `PRV-1070` … `PRV-1074`. The node needs
+  write access to its declaration folders for these (a read-only mount answers `PRV-1073`).
   `GET /api/v1/streams` gains `enabled`, `connector` and `dependents`; `GET /api/v1/connectors` gains
   `enabled`. `POST /api/v1/streams` (a stream on the running node only) is unchanged.
 - **A node with nothing set now keeps its queries** ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)).

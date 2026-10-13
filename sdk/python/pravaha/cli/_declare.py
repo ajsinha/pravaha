@@ -8,7 +8,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 The node writes ``config/streams/<name>.yaml`` or ``config/connectors/<name>.yaml`` atomically
 and applies it at once. ``--dry-run`` writes nothing and prints the file that would be written,
 whether the node accepts it, and what uses the object. A refusal -- in use (PRV-1065), a literal
-secret (PRV-1063), a name already declared (PRV-1069) -- writes nothing and exits 1.
+secret (PRV-1063), a name already declared (PRV-1070) -- writes nothing and exits 1.
 """
 
 from __future__ import annotations

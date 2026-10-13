@@ -91,7 +91,7 @@ class ConnectionTesterTest {
                 5);
         assertThat(outcome.ok()).isFalse();
         assertThat(outcome.state()).isEqualTo("FAILED");
-        assertThat(outcome.code()).isEqualTo("PRV-1073");
+        assertThat(outcome.code()).isEqualTo("PRV-1074");
         assertThat(outcome.detail()).contains("login refused").doesNotContain("hunter22");
     }
 

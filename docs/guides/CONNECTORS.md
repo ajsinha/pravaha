@@ -129,7 +129,7 @@ shows the file, whether it is accepted and the bindings naming the connection.
   topic or a table -- opens it, asks its health and closes it, in bounded time (10 seconds unless asked,
   at most 60). It answers the outcome (`HEALTHY`, `DEGRADED`, `UNHEALTHY`, `FAILED`, `TIMED_OUT`), the
   time it took and the plugin's words with every secret option's value struck out -- never an option's
-  value. A failed test is `PRV-1073` in the answer. Testing needs what changing the connection needs
+  value. A failed test is `PRV-1074` in the answer. Testing needs what changing the connection needs
   (the `admin` role, or a grant to administer it) and is audited (`config.connector.test`).
 - **Disabling a connection** (`enabled: false` in its file) **stops the stream sources that name it**,
   as disabling each of those streams would: they stay declared, their queries keep running and receive

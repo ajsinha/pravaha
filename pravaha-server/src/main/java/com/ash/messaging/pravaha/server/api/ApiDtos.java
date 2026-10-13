@@ -200,7 +200,7 @@ public final class ApiDtos {
      * @param role the plugin role tested: {@code source}, {@code lookup} or {@code sink}
      * @param state the plugin's health: {@code HEALTHY}, {@code DEGRADED}, {@code UNHEALTHY}; {@code FAILED}
      *     when it would not configure or open, {@code TIMED_OUT} when it took too long
-     * @param code {@code PRV-1073} when the test failed, else null
+     * @param code {@code PRV-1074} when the test failed, else null
      */
     public record ConnectionTest(
             String name,

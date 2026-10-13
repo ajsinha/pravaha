@@ -1725,7 +1725,7 @@ because what is running is what was running).
 write the same files, atomically (a hidden temporary file in the folder, forced to disk, renamed), and
 apply them at once through the path a look takes; a refused write writes nothing. The node's user
 therefore needs **write access to the declaration folders** for these to work; a read-only mount answers
-`PRV-1072` and the files can still be changed by hand. A stream or connection file may say
+`PRV-1073` and the files can still be changed by hand. A stream or connection file may say
 `enabled: false`: the stream stays declared and bound and its source is read from nothing (its queries
 keep running and receive nothing); a disabled connection stops the stream sources that name it. The
 audit events:

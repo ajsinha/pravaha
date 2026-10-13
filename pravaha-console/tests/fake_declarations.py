@@ -99,7 +99,7 @@ class FakeDeclarations:
     def _held(self, kind: str, name: str) -> dict:
         held = self.files.get((kind, name))
         if held is None:
-            raise EngineHttpError(404, f"PRV-1070 no file in the {kind} folder declares '{name}'", "PRV-1070")
+            raise EngineHttpError(404, f"PRV-1071 no file in the {kind} folder declares '{name}'", "PRV-1071")
         return held
 
     def _answer(self, kind, name, action, dry_run, yaml, previous, dependents) -> dict:
@@ -125,9 +125,9 @@ class FakeDeclarations:
         self.calls.append(("PUT" if update else "POST", kind, name, dry_run))
         previous = self.files.get((kind, name))
         if not update and previous is not None:
-            raise EngineHttpError(409, f"PRV-1069 {kind[:-1]} '{name}' is already declared", "PRV-1069")
+            raise EngineHttpError(409, f"PRV-1070 {kind[:-1]} '{name}' is already declared", "PRV-1070")
         if update and previous is None:
-            raise EngineHttpError(404, f"PRV-1070 no file in the {kind} folder declares '{name}'", "PRV-1070")
+            raise EngineHttpError(404, f"PRV-1071 no file in the {kind} folder declares '{name}'", "PRV-1071")
         for key, value in _options(body).items():
             if _secret(key) and not _SAFE.fullmatch(str(value).strip()):
                 raise EngineHttpError(400, f"PRV-1063 {kind}/{name}.yaml: {key} holds a literal value. Write it as "

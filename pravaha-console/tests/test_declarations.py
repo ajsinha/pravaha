@@ -121,9 +121,9 @@ def test_the_connectors_page_lists_plugins_and_connections_and_tests_one(admin, 
     tested = admin.post("/catalog/connectors/files/test").text
     assert 'id="connection-test"' in tested and "HEALTHY" in tested and "42 ms" in tested
     engine.declared.test_outcome = {"ok": False, "role": "source", "latencyMillis": 10000, "state": "TIMED_OUT",
-                                    "detail": "no answer within 10s", "code": "PRV-1073"}
+                                    "detail": "no answer within 10s", "code": "PRV-1074"}
     failed = admin.post("/catalog/connectors/files/test").text
-    assert 'data-ok="no"' in failed and "TIMED_OUT" in failed and "PRV-1073" in failed
+    assert 'data-ok="no"' in failed and "TIMED_OUT" in failed and "PRV-1074" in failed
 
 
 def test_a_lookup_or_sink_is_edited_as_yaml(admin, engine):

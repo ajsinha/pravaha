@@ -5,7 +5,7 @@ category: sources
 order: 12
 icon: plug
 summary: "A connection's plugin and options written once, in config/connectors/<name>.yaml, and named by every stream source, lookup and sink that uses it. Managed from Catalog → Connectors: create, edit, test, disable, delete."
-keywords: [connection, named connection, connector, config/connectors, "connector:", test connection, secret, "${ENV}", PRV-1063, PRV-1065, PRV-1067, PRV-1068, PRV-1073, enable, disable, plugins, catalog connectors]
+keywords: [connection, named connection, connector, config/connectors, "connector:", test connection, secret, "${ENV}", PRV-1063, PRV-1065, PRV-1067, PRV-1068, PRV-1074, enable, disable, plugins, catalog connectors]
 audience: Operators
 guide: connectors
 related: [sources-overview, connector-security, streams, lookups, sinks-overview]
@@ -71,5 +71,5 @@ as `config.connector.<action>` with who made it.
 | `PRV-1065` | a binding names the connection, so it cannot be changed or removed now |
 | `PRV-1067` | a binding names a connection no file declares |
 | `PRV-1068` | a binding names a plugin and a connection whose plugin differs |
-| `PRV-1069` | New, for a name a file already declares |
-| `PRV-1073` | the connection test failed or ran out of time |
+| `PRV-1070` | New, for a name a file already declares |
+| `PRV-1074` | the connection test failed or ran out of time |

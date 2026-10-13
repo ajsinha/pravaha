@@ -669,10 +669,10 @@ def test_connectors_create_and_test(engine, home):
     assert last()["body"] == {"plugin": "kafka", "options": {"sasl.password": "${KAFKA_PASSWORD}"}}
     answer("POST", "/api/v1/connectors/kafka/test",
            {"name": "kafka", "plugin": "kafka", "ok": False, "role": "source", "latencyMillis": 1002,
-            "state": "TIMED_OUT", "detail": "no answer within 1s", "code": "PRV-1073"})
+            "state": "TIMED_OUT", "detail": "no answer within 1s", "code": "PRV-1074"})
     code, out, _ = run("connectors", "test", "kafka", "--option", "topic=txn", "--within", "1",
                        "--http", engine)
-    assert code == EXIT_REFUSED and "TIMED_OUT" in out and "PRV-1073" in out
+    assert code == EXIT_REFUSED and "TIMED_OUT" in out and "PRV-1074" in out
     assert last()["body"] == {"options": {"topic": "txn"}, "timeoutSeconds": 1}
 
 
