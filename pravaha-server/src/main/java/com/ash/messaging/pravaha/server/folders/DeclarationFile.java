@@ -230,11 +230,10 @@ public record DeclarationFile(
     }
 
     /**
-     * Refuses a password, secret, token or key written into the file, naming the setting and never the
-     * value -- the AI layer's rule for its provider files (ADR-063), on the key names the repository's
-     * own NoSecretsInConfigurationTest treats as secrets.
+     * Whether a setting holds a secret, by its last segment; one naming where a secret is does not. A file
+     * holding a literal one is refused, naming the setting and never the value -- the AI layer's rule for
+     * its provider files (ADR-063), on the key names NoSecretsInConfigurationTest treats as secrets.
      */
-    /** Whether a setting holds a secret, by its last segment; one naming where a secret is does not. */
     public static boolean isSecretKey(String key) {
         String last = key.substring(key.lastIndexOf('.') + 1).replaceAll("\\[\\d+]$", "");
         String lower = last.toLowerCase(Locale.ROOT);
@@ -285,7 +284,7 @@ public record DeclarationFile(
     private static PravahaException refusedBinding(
             DeclarationKind kind, Path file, BindException e, java.util.Set<String> written) {
         Throwable cause = e;
-        while (cause.getCause() != null && cause.getCause() != cause) {
+        while (cause.getCause() != null && !java.util.Objects.equals(cause.getCause(), cause)) {
             cause = cause.getCause();
             if (cause instanceof UnboundConfigurationPropertiesException unbound) {
                 List<String> keys = unbound.getUnboundProperties().stream()

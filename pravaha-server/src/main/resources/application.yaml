@@ -255,6 +255,13 @@ pravaha:
   # A data root that cannot be created or written stops the node (PRV-1066).
   data:
     dir: data
+  # The third root: code a deployment adds. java/*.jar goes on the classpath at start -- bin/pravaha-server
+  # reads this from its command line (--pravaha.external-lib.dir=...) or PRAVAHA_EXTERNAL_LIB, because the
+  # classpath is fixed before the JVM starts, so a value only here moves the start-up line and not the
+  # jars. A new jar needs a restart. python/ is the console's and the CLI's. Code there runs with the
+  # node's privileges.
+  external-lib:
+    dir: external_lib
   config:
     dir: config
     # PER-OBJECT DECLARATION FILES. One YAML file per stream, lookup and sink, NAMED AFTER IT: the file
@@ -276,9 +283,17 @@ pravaha:
     # the queries, GET /api/v1/declarations and the console's Catalog show "not applied", and the change
     # is applied at the first look after those queries are dropped. A file that becomes invalid while
     # running is reported and ignored; it never takes the node down.
-  #   streams-dir: config/streams   # unset: ${pravaha.config.dir}/streams
-  #   lookups-dir: config/lookups
-  #   sinks-dir: config/sinks
+    # Each folder; empty is the convention, ${pravaha.config.dir}/<folder>, and may be missing. A
+    # folder named here must exist (PRV-1060).
+    streams-dir: ""
+    lookups-dir: ""
+    sinks-dir: ""
+    connectors-dir: ""
+    # NAMED CONNECTIONS: config/connectors/<name>.yaml holds a plugin and its options once; a source:,
+    # lookup or sink -- in a file or inline -- writes `connector: <name>` instead of repeating them,
+    # and its own options are laid over the connection's. A different plugin beside it is refused
+    # (PRV-1068), an unknown name too (PRV-1067); a connection a binding names is not changed or
+    # removed while it does. GET /api/v1/connectors lists them, secrets masked.
     # How often the folders are looked at. A unit is required (10 alone is refused); 0 or off reads
     # them at start only. At least 1s.
     watch-interval: 10m

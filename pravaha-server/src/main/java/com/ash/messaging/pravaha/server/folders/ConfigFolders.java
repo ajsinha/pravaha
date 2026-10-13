@@ -161,8 +161,17 @@ public class ConfigFolders implements AutoCloseable {
     }
 
     private String where(DeclarationKind kind, String name, String inlineKey) {
-        DeclarationFile file = loaded.get(kind).get(name);
+        DeclarationFile file = map(loaded, kind).get(name);
         return file == null ? inlineKey : file.path().toString();
+    }
+
+    private Set<String> names(DeclarationKind kind) {
+        return inline.getOrDefault(kind, Set.of());
+    }
+
+    private static Map<String, DeclarationFile> map(
+            Map<DeclarationKind, Map<String, DeclarationFile>> byKind, DeclarationKind kind) {
+        return byKind.getOrDefault(kind, Map.of());
     }
 
     /** The named connections, as read at start and kept current by the watcher. */
@@ -191,7 +200,7 @@ public class ConfigFolders implements AutoCloseable {
                         folder.kind().label() + " '" + file.name() + "' is declared by both " + twin.path() + " and "
                                 + path + ". One file per " + folder.kind().label() + ": remove one.");
             }
-            if (inline.get(folder.kind()).contains(file.name())) {
+            if (names(folder.kind()).contains(file.name())) {
                 throw new PravahaException(
                         ConfigErrors.DECLARED_TWICE,
                         folder.kind().label() + " '" + file.name() + "' is declared both by " + path + " and inline "
@@ -209,7 +218,7 @@ public class ConfigFolders implements AutoCloseable {
 
     /** Where a stream was declared, for a refusal of it: its file, or the inline block. */
     public String whereDeclared(String stream) {
-        DeclarationFile file = loaded.get(DeclarationKind.STREAM).get(stream);
+        DeclarationFile file = map(loaded, DeclarationKind.STREAM).get(stream);
         DeclarationWatcher live = watcher;
         Optional<Path> now = live == null ? Optional.empty() : live.fileOf(DeclarationKind.STREAM, stream);
         return now.map(path -> "file " + path).orElse(file == null ? "pravaha.streams" : "file " + file.path());
@@ -228,7 +237,7 @@ public class ConfigFolders implements AutoCloseable {
         for (DeclarationKind kind : DeclarationKind.values()) {
             folders.put(kind, settings.folder(kind));
         }
-        DeclarationWatcher built = new DeclarationWatcher(folders, inline::get, placeholders, loaded, target, audit);
+        DeclarationWatcher built = new DeclarationWatcher(folders, this::names, placeholders, loaded, target, audit);
         watcher = built;
         Optional<Duration> every = settings.interval();
         if (every.isEmpty()) {
@@ -245,7 +254,7 @@ public class ConfigFolders implements AutoCloseable {
             return thread;
         });
         long millis = every.get().toMillis();
-        scheduler.scheduleWithFixedDelay(built::poll, millis, millis, TimeUnit.MILLISECONDS);
+        var unused = scheduler.scheduleWithFixedDelay(built::poll, millis, millis, TimeUnit.MILLISECONDS);
         executor = scheduler;
         LOG.info(
                 "declaration folders looked at every {}: a new file declares, a removed file removes, a changed "
@@ -269,12 +278,12 @@ public class ConfigFolders implements AutoCloseable {
         DeclarationWatcher live = watcher;
         Optional<Path> file = live != null
                 ? live.fileOf(kind, name)
-                : Optional.ofNullable(loaded.get(kind).get(name)).map(DeclarationFile::path);
+                : Optional.ofNullable(map(loaded, kind).get(name)).map(DeclarationFile::path);
         if (file.isPresent()) {
             return "file:" + file.get();
         }
         // A lookup or sink can only be declared by configuration; a stream also by the API.
-        return kind == DeclarationKind.STREAM && !inline.get(kind).contains(name) ? "api" : "config";
+        return kind == DeclarationKind.STREAM && !names(kind).contains(name) ? "api" : "config";
     }
 
     /** Every file not applied as written; empty before the node starts watching. */

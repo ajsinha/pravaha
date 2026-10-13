@@ -138,7 +138,7 @@ public final class DeclarationWatcher {
 
     /** The file an object came from, if a file declared it. */
     public synchronized Optional<Path> fileOf(DeclarationKind kind, String name) {
-        return Optional.ofNullable(applied.get(kind).get(name)).map(DeclarationFile::path);
+        return Optional.ofNullable(current(kind).get(name)).map(DeclarationFile::path);
     }
 
     /** Every file not applied as written, in file order. */
@@ -148,12 +148,16 @@ public final class DeclarationWatcher {
 
     /** The names declared by files, of one kind. */
     public synchronized Set<String> declared(DeclarationKind kind) {
-        return Set.copyOf(applied.get(kind).keySet());
+        return Set.copyOf(current(kind).keySet());
+    }
+
+    private Map<String, DeclarationFile> current(DeclarationKind kind) {
+        return applied.computeIfAbsent(kind, k -> new LinkedHashMap<>());
     }
 
     private void look(DeclarationKind kind) {
-        ConfigFolderProperties.Folder folder = folders.get(kind);
-        Map<String, DeclarationFile> current = applied.get(kind);
+        ConfigFolderProperties.Folder folder = java.util.Objects.requireNonNull(folders.get(kind), "a folder per kind");
+        Map<String, DeclarationFile> current = current(kind);
         if (!Files.isDirectory(folder.path())) {
             if (folder.configured() || !current.isEmpty()) {
                 // A folder that vanishes -- an unmounted volume -- is not every file in it deleted.
@@ -264,7 +268,7 @@ public final class DeclarationWatcher {
     }
 
     private void removed(DeclarationKind kind, String name, Map<String, DeclarationFile> current) {
-        Path path = current.get(name).path();
+        Path path = java.util.Objects.requireNonNull(current.get(name)).path();
         List<String> users;
         try {
             users = target.remove(kind, name);

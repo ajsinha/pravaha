@@ -129,9 +129,10 @@ public class ConfigFolderProperties {
                     case SINK -> sinksDir;
                     case CONNECTOR -> connectorsDir;
                 };
-        boolean configured = written != null && !written.isBlank();
-        return new Folder(
-                kind, configured ? Path.of(written.strip()) : Path.of(dir).resolve(kind.plural()), configured);
+        if (written != null && !written.isBlank()) {
+            return new Folder(kind, Path.of(written.strip()), true);
+        }
+        return new Folder(kind, Path.of(dir).resolve(kind.plural()), false);
     }
 
     /**
