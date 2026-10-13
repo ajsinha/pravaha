@@ -82,6 +82,16 @@ def test_dry_run_writes_nothing_and_a_bad_name_kind_or_package_is_usage(home, tm
     assert not target.exists()
 
 
+def test_from_a_source_checkout_the_default_is_the_reactors_version(home, tmp_path):
+    # PLUGINVER-1: the SDK's pyproject says 2.4.3 while the reactor builds 2.4.3-SNAPSHOT; the
+    # project must ask for what this tree installs.
+    target = tmp_path / "v"
+    code, out, err = run("plugin", "new", "v", "--kind", "source", "--dir", str(target), "--json")
+    assert code == EXIT_OK, err
+    assert json.loads(out)["plugin"]["pravahaVersion"] == _reactor_version()
+    assert f"<pravaha.version>{_reactor_version()}</pravaha.version>" in (target / "pom.xml").read_text()
+
+
 # ---------------------------------------------------------------------------------- the build
 
 

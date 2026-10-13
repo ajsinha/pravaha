@@ -571,7 +571,7 @@ restart `pravaha plugins` lists it. The whole contract is docs/development/guide
 
 
 def build(name: str, kind: str, package: str, version: str, target: pathlib.Path,
-          version_given: bool = False) -> Scaffold:
+          version_given: bool = False, version_from: str = "this CLI's own version") -> Scaffold:
     cls = _camel(name)
     values = {"PKG": package, "CLS": cls, "NAME": name, "KIND": kind, "VERSION": version,
               "ARTIFACT": f"pravaha-plugin-{name}",
@@ -604,7 +604,7 @@ def build(name: str, kind: str, package: str, version: str, target: pathlib.Path
     scaffold.choices = [
         f"pravaha-api and pravaha-testkit {version}: "
         + ("as --pravaha-version said" if version_given
-           else "this CLI's own version (--pravaha-version for another)"),
+           else f"{version_from} (--pravaha-version for another)"),
         "pravaha-api at provided scope: the node carries it, and a second copy in plugins/ would clash",
         "maven.compiler.release 21: production runs Java 21, which cannot load newer class files",
         f"the TCK wired in ({'SourcePluginTck' if kind == 'source' else 'SinkPluginTck'}), so a "
@@ -618,15 +618,37 @@ def build(name: str, kind: str, package: str, version: str, target: pathlib.Path
     return scaffold
 
 
-def _version(ctx: Context) -> str:
+def _checkout_version() -> "str | None":
+    """The reactor's version when this CLI runs from a source checkout, -SNAPSHOT and all (PLUGINVER-1).
+
+    The SDK's own version comes from sdk/python/pyproject.toml, which says 2.4.3 while the Maven
+    reactor beside it builds 2.4.3-SNAPSHOT -- and a project asking for pravaha-api 2.4.3 cannot find
+    the snapshot that tree installed. A wheel has no pom.xml three levels up, so this is None there.
+    """
+    package = pathlib.Path(pravaha.__file__).resolve().parent
+    if not (package.parent / "pyproject.toml").is_file():
+        return None
+    try:
+        pom = (package.parents[2] / "pom.xml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    found = re.search(r"<artifactId>pravaha</artifactId>\s*<version>([^<\s]+)</version>", pom)
+    return found.group(1) if found else None
+
+
+def _version(ctx: Context) -> "tuple[str, str]":
+    """The engine version to build against, and where it came from."""
     given = ctx.arg("pravaha_version")
     if given:
-        return str(given)
+        return str(given), "--pravaha-version"
+    checkout = _checkout_version()
+    if checkout is not None:
+        return checkout, "this source checkout's version"
     version = pravaha.__version__
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?", version):
         raise UsageError(f"this CLI's own version is {version!r}, which is not an engine release; "
                          "pass --pravaha-version (the engine's, e.g. 2.3.1)")
-    return version
+    return version, "this CLI's own version"
 
 
 def plugin(ctx: Context) -> int:
@@ -639,5 +661,6 @@ def plugin(ctx: Context) -> int:
     if not re.fullmatch(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*", package):
         raise UsageError(f"--package {package!r} is not a Java package name (com.example.mystore)")
     target = pathlib.Path(ctx.arg("dir") or f"pravaha-plugin-{name}")
-    return emit(ctx, target, build(name, kind, package, _version(ctx), target,
-                                   bool(ctx.arg("pravaha_version"))))
+    version, version_from = _version(ctx)
+    return emit(ctx, target, build(name, kind, package, version, target,
+                                   bool(ctx.arg("pravaha_version")), version_from))

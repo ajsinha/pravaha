@@ -31,7 +31,8 @@ cd pravaha-plugin-my-store && mvn verify
 
 The source passes all ten `SourcePluginTck` tests; the sink passes the four every sink runs and
 skips the six for capabilities it does not claim. `pravaha-api` and `pravaha-testkit` are the
-CLI's own version unless `--pravaha-version` says otherwise. `sdk/python/tests/test_cli_plugin_new.py`
+CLI's own version unless `--pravaha-version` says otherwise — run from a source checkout, the
+checkout's Maven version, `-SNAPSHOT` included, so the project finds what that tree installed. `sdk/python/tests/test_cli_plugin_new.py`
 builds both kinds offline against the reactor's installed snapshot. Then replace the example with your
 store and keep the TCK green.
 

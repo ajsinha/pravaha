@@ -185,6 +185,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **STARTERDOC-1: the spring-boot-starter help topic no longer calls `@PravahaTest` unbuilt.** Its
   "Not built yet" note named `@PravahaTest`, the actuator endpoint, the listener error handler and the
   Boot 3.4 leg, all of which ship; it is now a short section on each, pointing at the user guide.
+- **PLUGINVER-1: `pravaha plugin new` in a source checkout builds against the checkout.** The CLI's
+  version comes from `sdk/python/pyproject.toml` (`2.4.3`), so a project scaffolded in a checkout
+  asked for `pravaha-api 2.4.3` while the reactor had installed `2.4.3-SNAPSHOT`. Run from a checkout,
+  the default is now the root pom's version; from a wheel it is the CLI's own, and `--pravaha-version`
+  still overrides both.
 
 ---
 
