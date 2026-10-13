@@ -266,6 +266,20 @@ What changed, in detail:
 - **ROLESORDER-1: a user's roles are listed in order.** `user list`, `whoami` and the identity API
   showed them in whatever order a hash set held them, which could differ between runs; the engine now
   keeps a principal's, a user's and a key's roles sorted where the set is formed.
+- **STREAMFILESCHEMA-1: a stream's source is given the stream's schema.** A stream file written as
+  ADR-064 says -- the schema once, at the top, and none under `source.options` -- was refused at its
+  first registration by a plugin that requires one (`PRV-5091 … PRV-5001 plugin '…' requires
+  'schema'`), filesystem and Kafka among them. A source that sets no `schema` is now given the
+  stream's, as it is given `event-time`, in a stream file and inline alike; one that sets its own must
+  still agree (`PRV-1015`). The tutorials and `pravaha init` no longer repeat it.
+- **ENVCONFIGDIR-1: the command line's folder is `PRAVAHA_CLI_DIR`; a server refuses
+  `PRAVAHA_CONFIG_DIR` alone (`PRV-1069`).** Spring read the command line's `PRAVAHA_CONFIG_DIR` as
+  the server's `pravaha.config.dir`, so a server started from a shell that exported it looked for its
+  streams, lookups, sinks, connections and AI settings in the command line's folder and declared
+  nothing. **Read before upgrading:** the command line (its token, contexts and `assist.json`) now reads
+  `PRAVAHA_CLI_DIR`, and `PRAVAHA_CONFIG_DIR` still, after it, with one warning on stderr; the console
+  image sets `PRAVAHA_CLI_DIR`. A server whose `pravaha.config.dir` would come from that variable and
+  nothing else stops at start with `PRV-1069`: unset it, or set `pravaha.config.dir` explicitly.
 
 ---
 

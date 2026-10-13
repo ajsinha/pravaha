@@ -120,7 +120,7 @@ def test_precedence_flag_then_env_then_context_then_default(home, flag, env, cho
                       "cur": {"http": "http://current:1"}}
     store.current = "cur" if chosen == "current" else None
     store.save()
-    environ = {"PRAVAHA_CONFIG_DIR": str(home)}
+    environ = {"PRAVAHA_CLI_DIR": str(home)}
     if env:
         environ["PRAVAHA_HTTP"] = env
     args = argparse.Namespace()
@@ -145,7 +145,7 @@ def test_the_token_flag_env_context_and_file_in_that_order(home):
     store = ContextStore()
     store.contexts = {"p": {"token": "from-context"}, "bare": {"http": "http://x:1"}}
     store.save()
-    env = {"PRAVAHA_CONFIG_DIR": str(home)}
+    env = {"PRAVAHA_CLI_DIR": str(home)}
     # No context: the legacy file, exactly as before contexts.
     assert Settings.resolve(argparse.Namespace(), env).token_source == "file"
     with_context = argparse.Namespace(context="p")
@@ -162,14 +162,14 @@ def test_a_context_supplies_tls_and_switches(home):
     store.contexts = {"p": {"url": "grpc+tls://n:1", "tls-override-hostname": "n1", "tls-no-verify": True,
                             "insecure-token": True, "timeout": 7}}
     store.save()
-    resolved = Settings.resolve(argparse.Namespace(context="p"), {"PRAVAHA_CONFIG_DIR": str(home)})
+    resolved = Settings.resolve(argparse.Namespace(context="p"), {"PRAVAHA_CLI_DIR": str(home)})
     assert resolved.url == "grpc+tls://n:1" and resolved.timeout == 7.0
     assert resolved.insecure_token and resolved.tls.disable_hostname_verification
     assert resolved.tls.override_hostname == "n1"
 
 
 def test_no_contexts_file_behaves_exactly_as_before(home):
-    env = {"PRAVAHA_CONFIG_DIR": str(home), "PRAVAHA_URL": "grpc://e:1"}
+    env = {"PRAVAHA_CLI_DIR": str(home), "PRAVAHA_URL": "grpc://e:1"}
     resolved = Settings.resolve(argparse.Namespace(), env)
     assert (resolved.url, resolved.http, resolved.context) == ("grpc://e:1", "http://localhost:18080", None)
     assert not _file(home).exists()

@@ -322,7 +322,7 @@ to the configuration, the log, or this page.
 
 | Setting | Environment variable | Default |
 |---|---|---|
-| `assist.config` | `PRAVAHA_ASSIST_CONFIG` | `assist.json` in `$PRAVAHA_CONFIG_DIR`, else `~/.config/pravaha` — the file `pravaha assist` uses |
+| `assist.config` | `PRAVAHA_ASSIST_CONFIG` | `assist.json` in `$PRAVAHA_CLI_DIR`, else `~/.config/pravaha` — the file `pravaha assist` uses |
 | `assist.usage` | `PRAVAHA_ASSIST_USAGE` | `assist-usage.json` beside it: tokens per person per day, which the daily budget counts |
 | `assist.log` | `PRAVAHA_ASSIST_LOG` | `console-assist-log.jsonl` beside it: every change, and every request with who, which model, tokens, a hash of what was asked, the engine's verdict and whether it was registered |
 | `assist.watch_seconds` | — | `1` |

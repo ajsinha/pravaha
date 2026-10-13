@@ -114,7 +114,7 @@ api:
 # with `pravaha assist`; the console follows it, so a change made there or here is used by the
 # next request without a restart. No key is ever in it -- only the name of the variable or file.
 assist:
-  # Empty: $PRAVAHA_ASSIST_CONFIG, else assist.json in $PRAVAHA_CONFIG_DIR or ~/.config/pravaha.
+  # Empty: $PRAVAHA_ASSIST_CONFIG, else assist.json in $PRAVAHA_CLI_DIR or ~/.config/pravaha.
   config: "${PRAVAHA_ASSIST_CONFIG:}"
   # The usage ledger the per-person daily budget counts against. Empty: assist-usage.json
   # beside the configuration -- the same file `pravaha assist` uses there.

@@ -78,6 +78,7 @@ public class ConfigFolders implements AutoCloseable {
     @Autowired
     public ConfigFolders(ConfigFolderProperties properties, Environment environment) {
         this(properties, new PropertySourcesPlaceholdersResolver(environment));
+        CliDirectoryVariable.refuseIfAlone(environment); // ENVCONFIGDIR-1
     }
 
     /** Folders read with {@code placeholders} resolving {@code ${ENV}}: a test's, or a builder-made node's. */

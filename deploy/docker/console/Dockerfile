@@ -13,7 +13,7 @@
 #
 #   pravaha-console/ docs/ examples/     the console's code and the documentation it serves (the image's)
 #   conf/console.yaml            the deployment's configuration: any key, and it wins (mounted)
-#   data/console/                the assistant's configuration, usage ledger and log (PRAVAHA_CONFIG_DIR)
+#   data/console/                the assistant's configuration, usage ledger and log (PRAVAHA_CLI_DIR)
 #   logs/pravaha-console.log     the console's log, rotated; standard error as well
 #   tmp/                         TMPDIR and HOME
 #
@@ -95,7 +95,7 @@ CHECK
 ENV PRAVAHA_HOME=/opt/pravaha \
     CONSOLE_HOST=0.0.0.0 \
     CONSOLE_LOG_FILE=/opt/pravaha/logs/pravaha-console.log \
-    PRAVAHA_CONFIG_DIR=/opt/pravaha/data/console \
+    PRAVAHA_CLI_DIR=/opt/pravaha/data/console \
     HOME=/opt/pravaha/tmp \
     TMPDIR=/opt/pravaha/tmp \
     PYTHONDONTWRITEBYTECODE=1 \

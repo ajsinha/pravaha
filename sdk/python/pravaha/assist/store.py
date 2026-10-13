@@ -24,6 +24,7 @@ import tempfile
 import threading
 from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
 
+from pravaha._cli_dir import cli_dir
 from pravaha.assist.config import AssistConfig, refuse_secrets
 from pravaha.assist.errors import AssistConfigError
 
@@ -38,13 +39,9 @@ class ConfigConflict(AssistConfigError):
 
 
 def config_dir(environ: Optional[Mapping[str, str]] = None) -> pathlib.Path:
-    """``$PRAVAHA_CONFIG_DIR``, else ``$XDG_CONFIG_HOME/pravaha``, else ``~/.config/pravaha`` --
-    the directory the command line keeps its token in."""
-    env = os.environ if environ is None else environ
-    if env.get("PRAVAHA_CONFIG_DIR"):
-        return pathlib.Path(env["PRAVAHA_CONFIG_DIR"])
-    base = env.get("XDG_CONFIG_HOME")
-    return (pathlib.Path(base) if base else pathlib.Path.home() / ".config") / "pravaha"
+    """``$PRAVAHA_CLI_DIR``, else ``$XDG_CONFIG_HOME/pravaha``, else ``~/.config/pravaha`` --
+    the directory the command line keeps its token in (:mod:`pravaha._cli_dir`)."""
+    return cli_dir(environ)
 
 
 def default_config_path(environ: Optional[Mapping[str, str]] = None) -> pathlib.Path:

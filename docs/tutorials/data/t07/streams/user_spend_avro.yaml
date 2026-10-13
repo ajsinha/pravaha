@@ -6,6 +6,5 @@ source:
   connector: kafka-local
   options:
     topic: user-spend
-    schema: "user_id:STRING,window_end:TIMESTAMP,spend:INT64"
     format: avro
     schema.file: conf/user_spend.avsc   # the writer schema; no registry needed

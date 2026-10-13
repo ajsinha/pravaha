@@ -151,7 +151,7 @@ def test_yaml_and_toml_are_refused_with_directions(tmp_path):
 
 def test_the_default_path(monkeypatch, tmp_path):
     monkeypatch.delenv("PRAVAHA_ASSIST_CONFIG", raising=False)
-    monkeypatch.setenv("PRAVAHA_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("PRAVAHA_CLI_DIR", str(tmp_path))
     assert default_config_path() == tmp_path / "assist.json"
     monkeypatch.setenv("PRAVAHA_ASSIST_CONFIG", str(tmp_path / "elsewhere.json"))
     assert default_config_path() == tmp_path / "elsewhere.json"

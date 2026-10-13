@@ -6,7 +6,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 The node is ``test_cli``'s recording HTTP server; Flight, where a test needs it answered, is a
 ``pyarrow.flight`` server of a few lines here; TLS is a real handshake against a certificate made
 for the test. Nothing reads or writes the person's own configuration: ``home`` points
-``PRAVAHA_CONFIG_DIR`` at the test's temporary directory.
+``PRAVAHA_CLI_DIR`` at the test's temporary directory.
 """
 
 from __future__ import annotations

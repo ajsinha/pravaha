@@ -960,7 +960,7 @@ is waiting out `clear_after`; `owed` shows what the channels have not been told 
 `dedupe`, or not delivered (`delivery`). **An alert that said something twice** is at-least-once
 delivery doing its job after a retry or a restart: both carry the same `Idempotency-Key`.
 
-## A configuration file, or a data folder, refused (`PRV-1060` … `PRV-1068`)
+## A configuration file, or a data folder, refused (`PRV-1060` … `PRV-1069`)
 
 A stream, lookup, sink or named connection can be declared by a file of its own in the configuration
 folders -- `config/streams/<name>.yaml` and its siblings, `$PRAVAHA_HOME/conf/...` under a home
@@ -982,6 +982,8 @@ health detail `firstConfigFileNotApplied`). Nothing in a file can take a running
 | `PRV-1066` | `pravaha.data.dir` -- `./data` by default, `$PRAVAHA_HOME/data` under a home -- cannot be created or written. The registry journal, checkpoints and identity store are kept beneath it | Give the directory to the user the node runs as, set `pravaha.data.dir` elsewhere, or set it to `none` to keep nothing across a restart |
 | `PRV-1067` | A binding names a connection (`connector: kafka-prod`) that no file in the connectors folder declares. While running, it is tried again at every look, so a connection file and the binding that names it may arrive in either order. `GET /api/v1/connectors/<name>` answers **404** with it | Add `config/connectors/<name>.yaml`, or fix the name |
 | `PRV-1068` | A binding names both a plugin and a connection whose plugin is a different one | Leave `plugin:` out -- the plugin comes from the connection -- or name a connection for that plugin |
+| `PRV-1069` | **The node would read its configuration from the command line's folder.** The environment variable `PRAVAHA_CONFIG_DIR` is set -- the name the command line used for its token and contexts in 2.4.2 and earlier -- and Spring reads it as `pravaha.config.dir`, with nothing else setting that. Left alone, the node would look for `streams/`, `lookups/`, `sinks/`, `connectors/` and `ai/` there and declare nothing | Unset it in the shell that starts the server; the command line now reads `PRAVAHA_CLI_DIR`. If that folder really is the node's configuration, set `pravaha.config.dir` explicitly (`--pravaha.config.dir=...` or in the YAML) |
+| `PRV-5091` … `PRV-5001 plugin '…' requires 'schema'` at the first registration, on a stream file whose `source:` has no `schema` option | Fixed (STREAMFILESCHEMA-1): a stream's source is given the stream's `schema` when it sets none, as it is given `event-time`. A node from before the fix needs the schema repeated under `source.options` | Upgrade; then write the schema once, at the top of the file |
 
 ## `PRV-1052` — an HTTP request that reached no endpoint
 
@@ -1050,6 +1052,7 @@ client models the error rather than an empty object.
 | `PRV-1066` | CONFIG_DATA_DIR_UNUSABLE | config |
 | `PRV-1067` | CONFIG_CONNECTOR_UNKNOWN | config |
 | `PRV-1068` | CONFIG_CONNECTOR_PLUGIN_CLASH | config |
+| `PRV-1069` | CONFIG_DIR_FROM_CLI_VARIABLE | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
 | `PRV-1032` | CLIENT_INVALID_TLS_OPTIONS | client (SDK) |

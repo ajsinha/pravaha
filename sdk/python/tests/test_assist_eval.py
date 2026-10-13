@@ -215,7 +215,7 @@ def home(tmp_path, monkeypatch):
     for name in list(os.environ):
         if name.startswith("PRAVAHA_") or name == "NO_COLOR":
             monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("PRAVAHA_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("PRAVAHA_CLI_DIR", str(tmp_path / "config"))
     (tmp_path / "config").mkdir()
     return tmp_path / "config"
 

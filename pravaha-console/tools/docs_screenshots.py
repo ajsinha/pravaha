@@ -158,7 +158,7 @@ def _paths() -> None:
     for path in (CONSOLE, CONSOLE / "tests", REPO / "sdk" / "python"):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    os.environ["PRAVAHA_CONFIG_DIR"] = tempfile.mkdtemp(prefix="pravaha-doc-shots-")
+    os.environ["PRAVAHA_CLI_DIR"] = tempfile.mkdtemp(prefix="pravaha-doc-shots-")
     os.environ.pop("PRAVAHA_ASSIST_CONFIG", None)
 
 

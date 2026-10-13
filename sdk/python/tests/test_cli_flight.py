@@ -133,7 +133,7 @@ class _Engine(flight.FlightServerBase):
 def engine(monkeypatch, tmp_path):
     for name in ("PRAVAHA_URL", "PRAVAHA_TOKEN", "PRAVAHA_HTTP", "PRAVAHA_ENGINE_HTTP"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("PRAVAHA_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("PRAVAHA_CLI_DIR", str(tmp_path))
     server = _Engine()
     thread = threading.Thread(target=server.serve, daemon=True)
     thread.start()

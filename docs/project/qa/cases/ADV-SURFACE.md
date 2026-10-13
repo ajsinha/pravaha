@@ -20,7 +20,7 @@ Environment assumed by every case unless it says otherwise:
 
     export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
     export TMPDIR=$HOME/.cache/pravaha-tmp MAVEN_OPTS=-Djava.io.tmpdir=$HOME/.cache/pravaha-tmp
-    export PRAVAHA_CONFIG_DIR=$HOME/.cache/pravaha-qi/cli-config   # never the owner's ~/.config/pravaha
+    export PRAVAHA_CLI_DIR=$HOME/.cache/pravaha-qi/cli-config   # never the owner's ~/.config/pravaha
     QI=$HOME/.cache/pravaha-qi                                     # scratch, outside the repository
     # artefacts: a fresh clone built per GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER step 3, at $QI/pravaha
 
@@ -341,10 +341,10 @@ other clients unaffected.
 **Expected:** prints what would happen, exit 0, state unchanged. *Promise:* CLI.md.
 
 ### QI-084 — `login --save` file and dir modes, `logout` deletes it
-**Expected:** token `0600` in a `0700` directory under `$PRAVAHA_CONFIG_DIR`; logout removes it and
+**Expected:** token `0600` in a `0700` directory under `$PRAVAHA_CLI_DIR`; logout removes it and
 ends the session on the engine (the token then gets 401).
 
-### QI-085 — `PRAVAHA_CONFIG_DIR` precedence over `XDG_CONFIG_HOME`
+### QI-085 — `PRAVAHA_CLI_DIR` precedence over `XDG_CONFIG_HOME`
 **Expected:** as CLI.md.
 
 ### QI-086 — `validate`/`explain`/`run` with `--schema` asked of `pravaha`

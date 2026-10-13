@@ -91,11 +91,15 @@ TLS is chosen by the scheme (`grpc+tls://`, `https://`); the TLS flags say whom 
 present, and are the SDK's `TlsOptions`, refused together when they do not compose (PRV-1032).
 
 **The token** is `--token`, else `PRAVAHA_TOKEN`, else the saved file:
-`$PRAVAHA_CONFIG_DIR/token`, else `$XDG_CONFIG_HOME/pravaha/token`, else `~/.config/pravaha/token`.
+`$PRAVAHA_CLI_DIR/token`, else `$XDG_CONFIG_HOME/pravaha/token`, else `~/.config/pravaha/token`.
 `login --save` creates it with mode `0600` in a `0700` directory, and `logout` deletes it after ending
 the session on the engine. A token is **never sent over plaintext** `grpc://` or `http://` unless
 `--insecure-token` says so — the SDK refuses before anything is sent (PRV-1031, exit `2`). That switch
 is for loopback and a TLS-terminating sidecar; the fix is otherwise `grpc+tls://` and `https://`.
+
+`PRAVAHA_CLI_DIR` was `PRAVAHA_CONFIG_DIR` in 2.4.2 and earlier; the old name is still read, after the new one, with one
+warning on stderr. Move to the new one: a server started from a shell that exports `PRAVAHA_CONFIG_DIR` would take
+it as its own `pravaha.config.dir`, and refuses to start (PRV-1069).
 
 ```bash
 export PRAVAHA_URL=grpc+tls://engine.internal:19090

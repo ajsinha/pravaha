@@ -11,6 +11,5 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/readings.csv
-    schema: "meter_id:STRING,watts:INT64,event_time:TIMESTAMP"
     skip.header: "true"
     follow: "true"

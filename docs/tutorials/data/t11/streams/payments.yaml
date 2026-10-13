@@ -7,6 +7,5 @@ source:
   plugin: filesystem
   options:
     path: data/incoming/payments.csv
-    schema: "payment_id:INT64,customer:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
     skip.header: "true"
     follow: "true"

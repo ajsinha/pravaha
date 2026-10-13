@@ -110,23 +110,32 @@ public final class StreamDeclarations {
     }
 
     /**
-     * Passes the stream's declared event-time column down to its source.
+     * Passes the stream's declared schema and event-time column down to its source.
      *
-     * <p>So it is declared once. The engine's schema and the plugin's are built from different
+     * <p>So each is declared once. The engine's schema and the plugin's are built from different
      * places -- the declaration's {@code schema} and the binding's own {@code schema} option -- and only
      * the first carried the event-time marker. The plugin then decoded rows with a schema that had none
      * and stamped them all with event time zero, which no watermark can advance past.
+     *
+     * <p>STREAMFILESCHEMA-1. The schema likewise: ADR-064 and the PRV-1015 refusal both say to write it
+     * once, at the top, and leave the source's option out -- and a plugin that requires {@code schema}
+     * in its options then refused the first registration with PRV-5001. A source that sets its own
+     * keeps it; that it agrees with the declaration is PRV-1015's business, checked before this.
      */
     public static SourceBinding withDeclaredEventTime(
             SourceBinding binding, StreamDeclarationProperties.@Nullable Declaration declaration) {
-        if (declaration == null
-                || declaration.getEventTime() == null
-                || declaration.getEventTime().isBlank()
-                || binding.options().containsKey("event.time")) {
+        if (declaration == null) {
             return binding;
         }
         Map<String, String> options = new LinkedHashMap<>(binding.options());
-        options.put("event.time", declaration.getEventTime().strip());
-        return new SourceBinding(binding.streamName(), binding.plugin(), options);
+        if (declaration.getSchema() != null && !declaration.getSchema().isBlank()) {
+            options.putIfAbsent("schema", declaration.getSchema().strip());
+        }
+        if (declaration.getEventTime() != null && !declaration.getEventTime().isBlank()) {
+            options.putIfAbsent("event.time", declaration.getEventTime().strip());
+        }
+        return options.equals(binding.options())
+                ? binding
+                : new SourceBinding(binding.streamName(), binding.plugin(), options);
     }
 }

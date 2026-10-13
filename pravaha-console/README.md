@@ -52,7 +52,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `ui.page_size` | — | `25` | Rows per page in the query list. |
 | `ui.component_gallery` | `CONSOLE_COMPONENT_GALLERY` | `false` | Serves `/_components`, the component gallery (below). A development aid: off, the route is a 404. |
 | `ui.language` | `CONSOLE_LANGUAGE` | `en` | The UI string catalog, `web/i18n/<language>.json`. Only `en` exists; an unknown language falls back to it. |
-| `assist.config` | `PRAVAHA_ASSIST_CONFIG` | *empty* | The assistant's configuration (ADR-058): empty is the SDK's own `assist.json` in `$PRAVAHA_CONFIG_DIR` or `~/.config/pravaha`, shared with `pravaha assist`. Followed while the console runs. |
+| `assist.config` | `PRAVAHA_ASSIST_CONFIG` | *empty* | The assistant's configuration (ADR-058): empty is the SDK's own `assist.json` in `$PRAVAHA_CLI_DIR` or `~/.config/pravaha`, shared with `pravaha assist`. Followed while the console runs. |
 | `assist.usage` | `PRAVAHA_ASSIST_USAGE` | *empty* | The usage ledger the daily budget counts: empty is `assist-usage.json` beside the configuration. |
 | `assist.log` | `PRAVAHA_ASSIST_LOG` | *empty* | The console's assist log (JSON Lines): every configuration change and every request. Empty is `console-assist-log.jsonl` beside the configuration. |
 | `assist.watch_seconds` | — | `1` | How often the console looks for a change another process stored. |

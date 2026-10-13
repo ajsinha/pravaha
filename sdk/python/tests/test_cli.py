@@ -101,7 +101,7 @@ def home(tmp_path, monkeypatch):
     for name in list(os.environ):
         if name.startswith("PRAVAHA_") or name == "NO_COLOR":
             monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("PRAVAHA_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("PRAVAHA_CLI_DIR", str(tmp_path / "config"))
     return tmp_path / "config"
 
 
@@ -173,7 +173,7 @@ def test_a_flag_beats_the_environment_and_the_environment_beats_the_saved_token(
     import argparse
 
     save_token("from-file")
-    env = {"PRAVAHA_CONFIG_DIR": str(home)}
+    env = {"PRAVAHA_CLI_DIR": str(home)}
     assert Settings.resolve(argparse.Namespace(), env).token == "from-file"
     env["PRAVAHA_TOKEN"] = "from-env"
     env["PRAVAHA_HTTP"] = "http://h:1/"
@@ -186,8 +186,22 @@ def test_a_flag_beats_the_environment_and_the_environment_beats_the_saved_token(
 def test_the_java_clis_http_variable_is_still_read(home):
     import argparse
 
-    env = {"PRAVAHA_CONFIG_DIR": str(home), "PRAVAHA_ENGINE_HTTP": "http://old:18080"}
+    env = {"PRAVAHA_CLI_DIR": str(home), "PRAVAHA_ENGINE_HTTP": "http://old:18080"}
     assert Settings.resolve(argparse.Namespace(), env).http == "http://old:18080"
+
+
+def test_the_old_config_dir_variable_is_read_after_the_new_one_with_one_warning(tmp_path, monkeypatch, capsys):
+    # ENVCONFIGDIR-1: PRAVAHA_CONFIG_DIR is also the server's pravaha.config.dir, so the CLI moved off it.
+    from pravaha import _cli_dir
+
+    monkeypatch.setattr(_cli_dir, "_warned", False)
+    old, new = tmp_path / "old", tmp_path / "new"
+    assert _cli_dir.cli_dir({"PRAVAHA_CLI_DIR": str(new), "PRAVAHA_CONFIG_DIR": str(old)}) == new
+    assert capsys.readouterr().err == ""
+    assert _cli_dir.cli_dir({"PRAVAHA_CONFIG_DIR": str(old)}) == old
+    assert _cli_dir.cli_dir({"PRAVAHA_CONFIG_DIR": str(old)}) == old
+    warned = capsys.readouterr().err
+    assert warned.count("deprecated") == 1 and "PRAVAHA_CLI_DIR" in warned
 
 
 def test_a_saved_token_is_readable_by_its_owner_only(home):

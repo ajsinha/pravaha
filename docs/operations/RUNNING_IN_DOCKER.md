@@ -81,7 +81,7 @@ home the working directory, and starts the JVM with:
 | `data/dlq/` | dead letters, one file per query | the engine | `pravaha.dlq.directory` — **yours to set**: it switches the queue on |
 | `data/spill/` | spilled state | the engine | `pravaha.state.spill.directory` — **yours to set**: it switches spilling on |
 | `data/.pravaha-owner` | the node's claim on its state | the engine | — |
-| `data/console/` | the assistant's `assist.json`, usage ledger and log | the console | `PRAVAHA_CONFIG_DIR` (console image) |
+| `data/console/` | the assistant's `assist.json`, usage ledger and log | the console | `PRAVAHA_CLI_DIR` (console image) |
 | `logs/pravaha-server.log` | the engine's log, rolled at 50 MB, 10 kept, 1 GB cap | the engine | `logging.file.name` (layout) |
 | `logs/audit.jsonl` | the audit trail, when `pravaha.security.audit: file` | the engine | `pravaha.security.audit-file` (layout) |
 | `logs/pravaha-console.log` | the console's log, rolled at 50 MB, 10 kept | the console | `logging.file` / `CONSOLE_LOG_FILE` |
@@ -200,7 +200,7 @@ Every engine setting has an environment spelling by Spring's relaxed binding
 | `CONSOLE_SESSION_SECRET` | console | generated at start | signs the session cookie (an opaque id; the engine token stays in the console's memory, so a console restart signs everybody out of the console) |
 | `CONSOLE_LOG_FILE` | console | `/opt/pravaha/logs/pravaha-console.log` | the rotated log file; empty for stderr only |
 | `CONSOLE_LOG_FORMAT`, `LOG_LEVEL` | console | `text`, `INFO` | `json` for Loki or Elasticsearch |
-| `PRAVAHA_CONFIG_DIR` | console | `/opt/pravaha/data/console` | the assistant's configuration, ledger and log (and the CLI's saved token) |
+| `PRAVAHA_CLI_DIR` | console | `/opt/pravaha/data/console` | the assistant's configuration, ledger and log (and the CLI's saved token) |
 | `HOME`, `TMPDIR` | console | `/opt/pravaha/tmp` | so Python writes nothing elsewhere |
 | `PRAVAHA_URL`, `PRAVAHA_TOKEN`, `PRAVAHA_INSECURE_TOKEN` | console (as CLI) | — | the `pravaha` command line's engine, credential, and the acknowledgement that Flight is plaintext |
 

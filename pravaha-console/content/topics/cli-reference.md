@@ -107,8 +107,12 @@ the [context](#contexts) in use, which beats the default.
 
 The token is looked for in order: `--token`, `PRAVAHA_TOKEN`, the context's saved token, then —
 with no context in use — the file `pravaha login --save` wrote: `~/.config/pravaha/token` (or
-`$XDG_CONFIG_HOME/pravaha/token`, or `$PRAVAHA_CONFIG_DIR/token`), mode `0600`. `pravaha whoami`
+`$XDG_CONFIG_HOME/pravaha/token`, or `$PRAVAHA_CLI_DIR/token`), mode `0600`. `pravaha whoami`
 says which one it used.
+
+`PRAVAHA_CLI_DIR` was `PRAVAHA_CONFIG_DIR` in 2.4.2 and earlier; the old name is still read, after the new one, with one
+warning on stderr. Move to the new one: a server started from a shell that exports `PRAVAHA_CONFIG_DIR` would take
+it as its own `pravaha.config.dir`, and refuses to start (PRV-1069).
 
 **A token is never sent over plaintext unless you say so.** Without `--insecure-token` a command
 with a token and a `grpc://` or `http://` address is refused before anything is sent (PRV-1031,
@@ -142,7 +146,7 @@ pravaha queries
 A **context** is a named connection — `--url`, `--http`, the token, `--insecure-token`, `--timeout`
 and every `--tls-*` option — saved once and chosen by name, as `kubectl` does it. They live in
 `contexts.json` beside the token file (`~/.config/pravaha/contexts.json`, or under
-`$XDG_CONFIG_HOME` or `$PRAVAHA_CONFIG_DIR`), written mode `0600` and replaced atomically, so a
+`$XDG_CONFIG_HOME` or `$PRAVAHA_CLI_DIR`), written mode `0600` and replaced atomically, so a
 reader never sees half of it.
 
 ```text
@@ -630,7 +634,7 @@ mode is read, never set, and no line ever holds the token.
 | `cli` | the CLI's own version and where it is installed |
 | `pyarrow` | installed, with Flight; YELLOW if missing (the HTTP commands still work) |
 | `java` | `JAVA_HOME` (its `release` file), else `java` on `PATH`: Java 21 or later. YELLOW if there is none, since only `pravaha-engine` and a local node need one; RED if older than 21 |
-| `token file` | `~/.config/pravaha/token` (or `$PRAVAHA_CONFIG_DIR/token`), and where the token in use came from; RED if others may read it, fixed by `chmod 600` |
+| `token file` | `~/.config/pravaha/token` (or `$PRAVAHA_CLI_DIR/token`), and where the token in use came from; RED if others may read it, fixed by `chmod 600` |
 | `context` | the [context](#contexts) in use and what chose it, or none; RED if `contexts.json` may be read by others |
 | `tls http`, `tls flight` | with `https://` or `grpc+tls://`: the node's certificate is trusted (as `--tls-ca` and the other TLS options say), names the host, and when it expires: YELLOW within 30 days, RED once expired |
 | `http` | `GET /actuator/health` and how long it took: `UP` GREEN, `DEGRADED` YELLOW, anything else or no answer RED |
