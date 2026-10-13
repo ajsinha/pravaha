@@ -30,9 +30,14 @@ under **Help → Tutorials** (`/tutorials`).
 | 9 | [Exactly-once sinks](09-exactly-once-sinks.md) | keep a view in a table with `jdbc-sink` (H2), log rows to one transactional table and one not, kill the node between two checkpoints, and count the copies: the transactional log exactly right, the other with a duplicate; upsert against append, and the sink TCK | 25 min | written |
 | 10 | [Alerts](10-alerts.md) | bind a signed webhook and the log as channels, `CREATE ALERT` on a view, see keys fire and clear, snooze, acknowledge and pause and see what each holds back, `SHOW ALERTS`, the refusals and the console's Alerts pages | 25 min | written |
 | 11 | [Governance](11-governance.md) | put a view in a namespace with an owner and tags, create a second user, grant and revoke with `--dry-run` and ask `access why`, bind a row filter and a mask so two people get different answers, and read the audit trail | 30 min | written |
+| 12 | [Embedding Pravaha](12-embedding-pravaha.md) | build a plain Java program with the embedded engine (declare, push, close a minute, follow, read, the node's refusals), keep its state across restarts with a journal and checkpoints, run a Spring Boot service with `@PravahaListener`, test it with `@PravahaTest` and `PravahaTester`, and run the same SQL on a node | 30 min | written |
+| 13 | [Writing a connector](13-writing-a-connector.md) | scaffold a source with `pravaha plugin new`, write one with partitions and replayable offsets, watch the source TCK catch a broken contract and pass, drop the jar into `plugins/` and query it, then scaffold, test and bind a sink | 30 min | written |
+| 14 | [Running in production](14-running-in-production.md) | lay out a `PRAVAHA_HOME`, make a CA and put Flight and the PostgreSQL gateway on TLS, add people and API keys beside a captive account, take a backup and restart from checkpoints, run `pravaha doctor`, run the Docker image outside the dev profile, and render the Helm chart | 35 min | written |
+| 15 | [Operating at scale](15-operating-at-scale.md) | see queries placed on lanes of their own, shared and dedicated, rebalance them, read the lane and read-admission metrics and `pravaha top`, scrape the node with Prometheus and an API key, meet the Grafana dashboards, and take a thread dump | 30 min | written |
+| 16 | [AI in Pravaha](16-ai-in-pravaha.md) | turn the AI layer on with the mock provider, test the connection, ask your data and follow up, draft a continuous query and an alert from words, have a query, a refusal and a change explained, see what a model is sent and what is masked, meet the policy and the audit trail, and configure a real provider | 35 min | written |
 
 The [case studies](../../examples/case-studies/README.md) come after: complete systems, one domain each,
-built from the moves of these eleven. [Joining two Aerospike sets and a CSV file](../guides/tutorials/aerospike-fulfilment.md)
+built from the moves of these sixteen. [Joining two Aerospike sets and a CSV file](../guides/tutorials/aerospike-fulfilment.md)
 is a worked case study against a real Aerospike.
 
 ## What you need once
@@ -42,10 +47,13 @@ from a checkout); the server jar from a build (`./mvnw -q -DskipTests install`) 
 Tutorial 1 starts a node with the `dev` and `users` profiles and signs in as the development account
 `pravaha-dev-admin` (password `pravaha-dev-admin123`, for your own machine only); every later tutorial
 starts a node of its own the same way, with its own `PRAVAHA_HOME`, so they can be done in any order.
-Tutorials 3 and 9 need the H2 jar, tutorial 4 the `psql` client, tutorials 7 and 8 Docker (a Kafka
-broker, a PostgreSQL). The default ports are 18080 (HTTP), 19090 (Flight SQL), 17070 (the console) and,
+Tutorials 3 and 9 need the H2 jar, tutorials 4 and 14 the `psql` client, tutorials 7, 8, 14 and 15
+Docker (a Kafka broker, a PostgreSQL, the engine's image, Prometheus), tutorials 12 and 13 Maven and
+the engine's artefacts in your local Maven repository, and tutorial 14 `openssl` and, for its last
+step, `helm`. The default ports are 18080 (HTTP), 19090 (Flight SQL), 17070 (the console) and,
 in tutorial 4, 5433 (the PostgreSQL gateway); tutorial 7's broker is on 9092, tutorial 8's database on
-15432, and tutorial 10's webhook catcher on 18099.
+15432, and tutorial 10's webhook catcher on 18099, tutorial 14's container on 28080 and tutorial 15's
+Prometheus on 9090.
 
 ## The sample data
 
@@ -63,6 +71,11 @@ in tutorial 4, 5433 (the PostgreSQL gateway); tutorial 7's broker is on 9092, tu
 | [`data/t09/`](data/t09/) | payments, the three sink tables as an H2 script, the node with three `jdbc-sink` bindings, and a windowed query | tutorial 9 |
 | [`data/t10/`](data/t10/) | stock counts with an operation column, the node with a webhook and a log channel, the low-stock query, and `catcher.py`, a webhook receiver that checks signatures | tutorial 10 |
 | [`data/t11/`](data/t11/) | card payments from two regions, the node with the catalogue on and an audit file, and the view | tutorial 11 |
+| [`data/t12/`](data/t12/) | two Maven projects -- `payments-embedded` (a plain Java program and a durable one) and `payments-spring` (a Spring Boot service and its `@PravahaTest`) -- and the node with the same payments | tutorial 12 |
+| [`data/t13/`](data/t13/) | the `acme` source (`AcmeSourcePlugin.java`, `AcmeReader.java`) and its TCK test, the node binding it, the same with the `acme-ledger` sink, and a windowed query | tutorial 13 |
+| [`data/t14/`](data/t14/) | orders, the node with TLS, the gateway, checkpoints and an audit file, `make-certs.sh`, the container's configuration outside the dev profile, and production values for the Helm chart | tutorial 14 |
+| [`data/t15/`](data/t15/) | payments, the node with shared lanes and read admission, and the Prometheus configuration | tutorial 15 |
+| [`data/t16/`](data/t16/) | card payments from three regions, the node with the AI layer on, the mock provider's rules, and two views | tutorial 16 |
 
 ## How the tutorials are kept true
 

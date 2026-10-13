@@ -178,7 +178,8 @@ def test_nothing_of_the_machine_that_wrote_it_leaks(doc):
     assert "/tmp/" not in text and "/home/" not in text and "pravaha-captures-" not in text, doc.name
     assert "claude" not in text.lower(), doc.name
     assert not re.search(r"prv_[a-z]+_[A-Za-z0-9_-]{10,}", text), f"{doc.name} holds a token or a key"
-    assert not re.search(r"(?<![\w.])127\.0\.0\.1:(?!(18080|19090|5433|17070)\b)\d{4,5}", text), \
+    # The reader's ports: the node's, the gateway's, the console's, tutorial 14's container, tutorial 15's Prometheus.
+    assert not re.search(r"(?<![\w.])127\.0\.0\.1:(?!(18080|19090|5433|17070|28080|9090)\b)\d{4,5}", text), \
         f"{doc.name} names a scratch node's port"
 
 
