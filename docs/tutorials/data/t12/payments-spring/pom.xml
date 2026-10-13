@@ -46,14 +46,6 @@
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-spring-boot-starter</artifactId>
       <version>${pravaha.version}</version>
-      <exclusions>
-        <!-- Calcite's aggdesigner brings commons-logging; Spring has its own (spring-jcl), and warns
-             at every start while both are on the classpath. -->
-        <exclusion>
-          <groupId>commons-logging</groupId>
-          <artifactId>commons-logging</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
