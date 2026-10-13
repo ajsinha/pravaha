@@ -1,23 +1,6 @@
-# Tutorial 4 (docs/tutorials/04-following-a-view.md): payments, a view that follows them, and the
-# PostgreSQL gateway a BI tool reads it through.
-# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+# Tutorial 4 (docs/tutorials/04-following-a-view.md): the PostgreSQL gateway a BI tool reads the view
+# through. The node's conf/application.yaml; the stream is conf/streams/txn.yaml.
 pravaha:
-  streams:
-    txn:
-      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP,op:STRING"
-      event-time: event_time
-      out-of-orderness: 5s
-  sources:
-    txn:
-      plugin: filesystem
-      options:
-        path: data/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP,op:STRING"
-        event.time: event_time
-        skip.header: "true"
-        follow: "true"
-        # A line whose op is D withdraws the row it repeats: a correction is a D and an I.
-        op.column: op
   pgwire:
     # Read-only, off by default. Loopback until TLS is configured: the password is a credential.
     enabled: true

@@ -18,14 +18,15 @@ reader is told at each step. Every output below was printed by a real node runni
 
 - [Tutorial 1](01-first-15-minutes.md) done, and [tutorial 4](04-following-a-view.md) for
   subscriptions: a subscriber is told when the view it follows changes version.
-- The tutorial's files, in [data/t05/](data/t05/): `application.yaml`, `txn.csv` (eight payments) and
+- The tutorial's files, in [data/t05/](data/t05/): `streams/txn.yaml` (the stream, a file the node reads
+  from its `conf/streams/`), `txn.csv` (eight payments) and
   `big_payments_v2.sql` (the new version).
 - A node home with the configuration and the data in place:
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t05
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t05/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t05/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t05/txn.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
 cd docs/tutorials/data/t05

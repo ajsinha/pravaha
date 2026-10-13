@@ -1,0 +1,14 @@
+# Tutorial 4 (docs/tutorials/04-following-a-view.md): the node's conf/streams/txn.yaml -- payments,
+# with an operation column. A relative path is relative to the node's home (PRAVAHA_HOME).
+schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP,op:STRING"
+event-time: event_time
+out-of-orderness: 5s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP,op:STRING"
+    skip.header: "true"
+    follow: "true"
+    # A line whose op is D withdraws the row it repeats: a correction is a D and an I.
+    op.column: op

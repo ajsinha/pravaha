@@ -1,27 +1,13 @@
-# Tutorial 6 (docs/tutorials/06-investigating-an-incident.md): payments, a dead-letter queue, and
-# checkpoints often enough to fork the debugger from one a minute ago.
-# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+# Tutorial 6 (docs/tutorials/06-investigating-an-incident.md): a dead-letter queue, and checkpoints
+# often enough to fork the debugger from one a minute ago. The node's conf/application.yaml; the
+# stream is conf/streams/txn.yaml. A relative path is relative to the node's home (PRAVAHA_HOME).
 pravaha:
-  streams:
-    txn:
-      schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 5s
-  sources:
-    txn:
-      plugin: filesystem
-      options:
-        path: data/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
-        event.time: event_time
-        skip.header: "true"
-        follow: "true"
   # A record no source can decode is set aside here, one file per query, and the source reads on.
   # Without it the source stops at the first bad line.
   dlq:
     directory: data/dlq
   # Every query keeps a checkpoint every 20 seconds, the newest 30: the debugger forks from them.
-  # (PRAVAHA_HOME's layout already puts the directory at data/checkpoints.)
+  # (Where they go is the data root's convention: data/checkpoints.)
   checkpoint:
     interval: 20s
     keep: 30

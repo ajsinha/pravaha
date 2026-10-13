@@ -20,14 +20,15 @@ thread dump when a node stalls. Every output below was printed by a real node ru
 - [Tutorial 1](01-first-15-minutes.md) done; [tutorial 2](02-windows-and-late-data.md) for windows and
   the watermark, which the debugger lets you move by hand.
 - The tutorial's files, in [data/t06/](data/t06/): `application.yaml` (a dead-letter directory, a
-  checkpoint every 20 seconds, per-operator metrics on), `txn.csv` (ten payments) and
+  checkpoint every 20 seconds, per-operator metrics on), `streams/txn.yaml` (the stream, a file the
+  node reads from its `conf/streams/`), `txn.csv` (ten payments) and
   `spend_per_minute.sql`.
 - A node home with the configuration and the data in place:
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t06
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t06/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t06/application.yaml docs/tutorials/data/t06/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t06/txn.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
 cd docs/tutorials/data/t06
@@ -35,7 +36,7 @@ export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin) PRAVAHA_INSECURE_
 ```
 
 ```yaml
-# data/t06/application.yaml (what this tutorial needs beyond a stream and a source)
+# conf/application.yaml (what this tutorial needs beyond a stream and its source)
 pravaha:
   dlq:
     directory: data/dlq          # undecodable records set aside, one file per query; the source reads on
