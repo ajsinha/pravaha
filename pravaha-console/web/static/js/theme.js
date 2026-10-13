@@ -210,7 +210,8 @@
     function check() {
       if (document.hidden) return;
       var at = new Date().toLocaleTimeString();
-      fetch("/health/ready", {cache: "no-store", credentials: "same-origin"}).then(function (r) {
+      if (!window.PravahaApi) return; /* api.js loads after this script */
+      window.PravahaApi.probe("/health/ready").then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (body) {
           var engine = body.engine || {};
           var where = engine.url ? (live.getAttribute("data-msg-at") || "") + engine.url : "";
@@ -224,7 +225,8 @@
         });
       }).catch(function () { show("down", say("unreachable", "", at)); });
     }
-    check();
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", check);
+    else check();
     setInterval(check, 10000);
     document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
   }());

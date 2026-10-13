@@ -99,5 +99,12 @@
     }
   };
 
-  window.PravahaApi = {call: call, escapeHtml: escapeHtml, Url: Url, base: API, t: t, csrfToken: csrfToken};
+  /* A console path outside the API (the bar's health probe): the same headers as call, and the
+     raw response, since a 503 there is an answer, not a failure. */
+  function probe(path) {
+    return fetch(path, {cache: "no-store", credentials: "same-origin",
+                        headers: {"X-Correlation-Id": correlationId(), "X-CSRF-Token": csrfToken()}});
+  }
+
+  window.PravahaApi = {call: call, probe: probe, escapeHtml: escapeHtml, Url: Url, base: API, t: t, csrfToken: csrfToken};
 }());
