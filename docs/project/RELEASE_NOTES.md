@@ -222,7 +222,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-Register: **612 findings — 581 fixed, 12 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
+Register: **612 findings — 593 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 2.4.2 — 2026-10-12
 

@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **612 findings carrying a
-status — 581 FIXED, 12 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 12 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 11 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 593 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7918,65 +7918,53 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 
 > **Status:** FIXED — "1 row written" (rows_written_one/_other); test_product.
 
-## Found writing tutorials group C (2026-10-12), 12 findings
+## Found writing tutorials group C (2026-10-12), 12 findings, all fixed
 
 ### EMBEDCKPT-1 (MEDIUM) — the embedded engine takes no checkpoint at close()
 
-> **Status:** OPEN — rows pushed after the last periodic checkpoint are lost on a clean close (tutorial 12, step 3); the server takes none at a clean stop either, but its sources replay.
-> **Disposition:** GA-REQUIRED — data pushed into the embedded engine is lost on a clean close.
+> **Status:** FIXED — a clean close (embedded and server) takes a final checkpoint of each running query, bounded by pravaha.checkpoint.timeout; a failure is logged and recorded and the close continues; CheckpointAtCloseTest.
 
 ### EMBEDTS-1 (LOW) — RowChange.values() gives a TIMESTAMP as epoch nanoseconds
 
-> **Status:** OPEN — the embedded-engine help topic shows Instants; as(Record) converts.
-> **Disposition:** POST-GA — representation.
+> **Status:** FIXED — values() keeps engine numbers (2.x compatibility); the new RowChange.javaValues() gives Instant/LocalDate/LocalTime, and the embedded topic uses it; RowConversionTest.
 
 ### SBCOMMONSLOG-1 (LOW) — the Spring Boot starter brings commons-logging
 
-> **Status:** OPEN — through Calcite's aggdesigner; Spring warns at every start.
-> **Disposition:** POST-GA — a warning.
+> **Status:** FIXED — the starter excludes commons-logging; spring-jcl provides the API; CommonsLoggingTest.
 
 ### STARTERDOC-1 (LOW) — the spring-boot-starter help topic says @PravahaTest is not built yet
 
-> **Status:** OPEN — it exists and works.
-> **Disposition:** POST-GA — documentation.
+> **Status:** FIXED — the spring-boot-starter topic describes @PravahaTest/PravahaTester, the error handler and Actuator as shipped.
 
 ### PLUGINVER-1 (LOW) — pravaha plugin new in a checkout writes pravaha-api 2.4.3 for a 2.4.3-SNAPSHOT reactor
 
-> **Status:** OPEN — the generated build cannot find the engine without --pravaha-version.
-> **Disposition:** POST-GA — developer experience.
+> **Status:** FIXED — in a source checkout pravaha plugin new defaults to the reactor's version, -SNAPSHOT included; a wheel uses its own; --pravaha-version overrides.
 
 ### TCKPARTS-1 (LOW) — the source TCK's replay test assumes one partition
 
-> **Status:** OPEN — replayableOffsetsActuallyReplay resumes partition 0 and expects the rest of the whole fixture, failing a correct multi-partition source.
-> **Disposition:** POST-GA — test kit.
+> **Status:** FIXED — the replay case resumes each partition against its own remainder; TwoPartitionSourceTckTest.
 
 ### TLSRECIPE-1 (LOW) — pravaha doctor rejects the TLS guide's CA recipe
 
-> **Status:** OPEN — the CA from CONNECTOR_TLS.md §6 has no keyUsage; doctor's strict check refuses it.
-> **Disposition:** POST-GA — documentation.
+> **Status:** FIXED — the CONNECTOR_TLS.md and tls-topic recipes give the CA basicConstraints and keyUsage keyCertSign,cRLSign, as make-certs.sh does (openssl verify -x509_strict).
 
 ### CONSOLETLS-1 (LOW) — the console has no setting for a private CA to reach a grpc+tls engine
 
-> **Status:** OPEN — works only through GRPC_DEFAULT_SSL_ROOTS_FILE_PATH.
-> **Disposition:** POST-GA — configuration.
+> **Status:** FIXED — engine.tls.ca / PRAVAHA_ENGINE_CA reaches the console's engine client (Flight, and https HTTP through the SDK); test_engine_tls.
 
 ### OPSCKPT-1 (LOW) — Operations says "not checkpointing" before a query's first checkpoint
 
-> **Status:** OPEN — the label reads the absence of a first checkpoint as checkpointing being off.
-> **Disposition:** POST-GA — a label.
+> **Status:** FIXED — a pravaha_query_checkpoint_enabled gauge; Operations shows "first checkpoint pending" before a query's first checkpoint.
 
 ### AIASKTS-1 (LOW) — query --ask prints TIMESTAMP columns as epoch nanoseconds
 
-> **Status:** OPEN — query prints the same columns as instants.
-> **Disposition:** POST-GA — output.
+> **Status:** FIXED — query --ask and chat print TIMESTAMP columns as query does.
 
 ### AINAME-1 (LOW) — a taken alert draft name gets the wrong suffix
 
-> **Status:** OPEN — region_over_5000 becomes region_over_2, not region_over_5000_2.
-> **Disposition:** POST-GA — naming.
+> **Status:** FIXED — a taken draft name is suffixed as asked: region_over_5000 becomes region_over_5000_2.
 
 ### ROLESORDER-1 (LOW) — a user's roles are listed in no fixed order
 
-> **Status:** OPEN — seen in user list and whoami.
-> **Disposition:** POST-GA — output order.
+> **Status:** FIXED — roles are kept sorted where the set is formed (Principal, users, API keys, captive accounts).
 
