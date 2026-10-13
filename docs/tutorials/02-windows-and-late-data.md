@@ -19,15 +19,16 @@ real node running these steps.
 
 - [Tutorial 1](01-first-15-minutes.md) done: you can start a node with `--spring.profiles.active=dev,users`,
   sign in, and export `PRAVAHA_TOKEN` and `PRAVAHA_INSECURE_TOKEN=true`.
-- The tutorial's files, in [data/t02/](data/t02/): `application.yaml` (the node's configuration),
-  `readings.csv` (twelve readings over two and a half minutes) and two queries, `meter_minute.sql`
-  and `meter_rolling.sql`.
+- The tutorial's files, in [data/t02/](data/t02/): the stream, `streams/readings.yaml`, and the sink,
+  `sinks/meter_log.yaml` — a file each, named after it, which the node reads from its `conf/streams/`
+  and `conf/sinks/` folders — `readings.csv` (twelve readings over two and a half minutes) and two
+  queries, `meter_minute.sql` and `meter_rolling.sql`.
 - A node home of its own for this tutorial, with the configuration and the data in place:
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t02
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t02/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t02/streams docs/tutorials/data/t02/sinks $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t02/readings.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
 cd docs/tutorials/data/t02            # the commands below read the .sql files from here
@@ -48,14 +49,11 @@ export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin) PRAVAHA_INSECURE_
 The stream is declared with both settings:
 
 ```yaml
-# data/t02/application.yaml (the stream)
-pravaha:
-  streams:
-    readings:
-      schema: "meter_id:STRING,watts:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 10s     # how long a window waits for stragglers before it is published
-      allowed-lateness: 2m      # how long after that a straggler may still correct what was published
+# conf/streams/readings.yaml (the stream; its source: block follows)
+schema: "meter_id:STRING,watts:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 10s     # how long a window waits for stragglers before it is published
+allowed-lateness: 2m      # how long after that a straggler may still correct what was published
 ```
 
 <!-- capture: t02-describe -->
@@ -67,6 +65,8 @@ event time    event_time
 out of order  PT10S
 lateness      PT2M
 source        filesystem
+origin        file:conf/streams/readings.yaml
+not applied   -
 
 ORDINAL  NAME        TYPE                                        NULLABLE
 0        meter_id    VARCHAR NOT NULL                            no
@@ -85,7 +85,7 @@ stream readings: event-time=event_time, out-of-orderness=PT10S, allowed-lateness
 ```
 <!-- /capture -->
 
-![The stream page for readings: three columns (meter_id, watts, event_time), and under Time and source the event time event_time, out-of-orderness PT10S and the filesystem source](img/t02/01-stream.png)
+![The stream page for readings: three columns (meter_id, watts, event_time), and under Time and source the event time event_time, out-of-orderness PT10S, the filesystem source, and Declared by file:conf/streams/readings.yaml](img/t02/01-stream.png)
 
 The two settings divide every reading's fate in three:
 
@@ -382,7 +382,7 @@ The rule of thumb: the rows a window publishes × (allowed lateness ÷ slide) wi
 With no allowed lateness — the default — nothing is kept, because a fired window can never change.
 
 The second cost is downstream. A query that can correct its answer emits withdrawals, and an
-append-only sink cannot express one. The node binds `meter_log`, a CSV file, and refuses to point
+append-only sink cannot express one. The node binds `meter_log`, a CSV file (`conf/sinks/meter_log.yaml`), and refuses to point
 the corrected view at it, before anything is opened:
 
 <!-- capture: t02-sink-refused -->

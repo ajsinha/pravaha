@@ -12,7 +12,9 @@ from tutorial_captures import Background, Cli, Http, Join, Node, Open, Sh, Snap,
 
 DOC = "02-windows-and-late-data.md"
 
-NODE = Node(config="t02/application.yaml", files=(
+NODE = Node(files=(
+    ("t02/streams", "conf/streams"),
+    ("t02/sinks", "conf/sinks"),
     ("t02/readings.csv", "data/incoming/readings.csv"),
     ("t02/meter_minute.sql", "meter_minute.sql"),
     ("t02/meter_rolling.sql", "meter_rolling.sql"),
