@@ -334,16 +334,19 @@ all. What exactly once costs: every change is written twice (staging, then targe
 
 ![The query page of big_payments: RUNNING, 10 rows in, keyed by payment_id; its sink big_payments_out writing, 5 rows written; its source receiving rows, reading payments on 1 partition, shared; and the Live tail, quiet since the page opened](img/t07/03-query-sink.png)
 
-`monitoring.group: pravaha-payments` is meant to receive the offsets each durable checkpoint recorded,
-so `kafka-consumer-groups` and lag dashboards see where a restore would resume. On this build it is
-not committed (KAFKAMON-1: a reader shared between queries does not pass the checkpoint on to the
-plugin), so the group is not there yet:
+`monitoring.group: pravaha-payments` receives the offsets each durable checkpoint recorded, so
+`kafka-consumer-groups` and lag dashboards see where a restore would resume. When queries share one
+reader, the group is given the earliest offset every one of them has made durable, so it never claims
+progress a query has not checkpointed. After the checkpoint above, it has caught up with the topic:
 
 <!-- capture: t07-groups -->
 ```text
 $ docker exec pravaha-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group pravaha-payments
 
-Error: Consumer group 'pravaha-payments' does not exist.
+Consumer group 'pravaha-payments' has no active members.
+
+GROUP            TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID     HOST            CLIENT-ID
+pravaha-payments payments        0          11              11              0               -               -               -
 ```
 <!-- /capture -->
 

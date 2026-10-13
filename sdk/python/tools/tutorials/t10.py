@@ -54,7 +54,8 @@ STEPS = (
     Cli("t10-create", ("alert", "create", A, "--on", "low_stock", "--where", "warehouse = 'LDN'",
                        "--notify", "buyers,ops-log", "--severity", "warning", "--include", "on_hand,reorder_point")),
     hooks(2),
-    Sh("t10-fired", "cat hooks.log"),
+    # Two keys fire in one commit and their notifications arrive in either order: sorted, so the capture is stable.
+    Sh("t10-fired", "sort hooks.log"),
     Cli("t10-ls", ("alerts", "ls")),
     # Two notifications decided in one commit are listed in the order they were delivered, which is not
     # fixed: sorted by key here, so the block does not move between runs.

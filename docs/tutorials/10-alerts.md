@@ -141,7 +141,7 @@ The two London lines were already in the view, so both keys fire at once. The ca
 
 <!-- capture: t10-fired -->
 ```text
-$ cat hooks.log
+$ sort hooks.log
 FIRED     low_stock_ldn FIRED (warning) for sku=sku-200, warehouse=LDN  [on_hand=8, reorder_point=10]  episode 1  signature ok
 FIRED     low_stock_ldn FIRED (warning) for sku=sku-400, warehouse=LDN  [on_hand=12, reorder_point=20]  episode 1  signature ok
 ```
