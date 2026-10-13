@@ -197,6 +197,36 @@ class DeclarationWatcherTest {
         assertThat(problems()).isEmpty();
     }
 
+    /**
+     * STREAMFILESCHEMA-1. The schema is written once, at the top; the source's {@code schema} option is
+     * left out, as ADR-064 and PRV-1015 say -- and the filesystem plugin, which requires one, is given
+     * the stream's. It once refused the first registration with PRV-5091/PRV-5001.
+     */
+    @Test
+    void aStreamFilesSourceIsGivenTheStreamsSchema() throws Exception {
+        Path in = out.resolve("f.csv");
+        Files.writeString(in, "1\n2\n3\n");
+        write(
+                "streams/f.yaml",
+                "schema: \"k:INT64\"\nsource:\n  plugin: filesystem\n  options:\n    path: " + in + "\n");
+        look();
+        assertThat(problems()).isEmpty();
+        assertThat(node.sources().orElseThrow().bindings().get("f").options()).containsEntry("schema", "k:INT64");
+
+        registry().registerWritingTo("q_f", "SELECT k FROM f", List.of(0), DANA, "out");
+        Path written = out.resolve("out.csv");
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(20).toNanos();
+        while ((!Files.exists(written) || Files.readAllLines(written).size() < 3) && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+        assertThat(registry()
+                        .find(QueryRegistry.engineName(DANA, "q_f"))
+                        .orElseThrow()
+                        .failure())
+                .isEmpty();
+        assertThat(Files.readAllLines(written)).contains("1", "2", "3");
+    }
+
     @Test
     void aConnectionInUseCannotBeRemovedAndOneUnusedCan() throws IOException {
         write(
