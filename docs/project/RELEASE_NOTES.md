@@ -169,6 +169,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   out), and per-scenario console settings and environment for the pictures. Writing them found
   EMBEDCKPT-1, EMBEDTS-1, SBCOMMONSLOG-1, STARTERDOC-1, PLUGINVER-1, TCKPARTS-1, TLSRECIPE-1,
   CONSOLETLS-1, OPSCKPT-1, AIASKTS-1 and AINAME-1.
+- **EMBEDCKPT-1: a clean close takes a last checkpoint.** The registry cuts each running query once more
+  as it shuts down -- the schedule stopped first, bounded by `pravaha.checkpoint.timeout`, a failure
+  logged and recorded on the query and the close carrying on -- so rows pushed into an embedded engine
+  after the last periodic checkpoint are there on reopen. The server's clean stop takes the same path
+  (one registry close), so its sources resume from a fresher checkpoint and replay less.
 
 ---
 

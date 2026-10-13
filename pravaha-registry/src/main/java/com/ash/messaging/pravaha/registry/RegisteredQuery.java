@@ -573,6 +573,33 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /**
+     * Takes one last checkpoint before a clean shutdown (EMBEDCKPT-1).
+     *
+     * <p>Without it, whatever arrived after the last periodic checkpoint was gone on a clean close:
+     * a server's sources replay it, but rows pushed into an embedded engine have nowhere to be
+     * replayed from. Only a running query is cut -- a paused or failed one has nothing newer to
+     * record. The schedule is stopped first, so this never overlaps a periodic firing; the cut is
+     * bounded by the checkpoint timeout ({@code pravaha.checkpoint.timeout}); and a failure is
+     * logged and recorded, never thrown, because a shutdown must finish whatever a checkpoint does.
+     * Called while the sinks are still open, so a transactional sink can commit what it prepared.
+     */
+    void checkpointBeforeShutdown() {
+        if (state != QueryState.RUNNING
+                || !(checkpointer instanceof com.ash.messaging.pravaha.runtime.exec.PeriodicCheckpointer periodic)) {
+            return;
+        }
+        periodic.close();
+        try {
+            periodic.checkpointNow();
+        } catch (RuntimeException failure) {
+            String what = "the final checkpoint at shutdown failed, so a restart resumes from the one before: "
+                    + failure.getMessage();
+            LOG.log(System.Logger.Level.WARNING, "query '" + anyName() + "': " + what);
+            recordCheckpointFailure(what);
+        }
+    }
+
+    /**
      * Ends the subscriptions opened under one of this computation's names, with the reason.
      *
      * <p>STRM-14. For a drop that does not release the computation: the name is gone and its view

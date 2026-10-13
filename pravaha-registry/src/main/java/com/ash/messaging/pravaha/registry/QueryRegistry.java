@@ -1437,6 +1437,11 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     private void closeQueries() {
+        // EMBEDCKPT-1: a last checkpoint of each running query before anything is closed, so a clean
+        // stop loses nothing that arrived after the last periodic one. Outside the registry's lock:
+        // a cut waits on the lanes, and nothing the lanes do should have to wait on that lock.
+        List<RegisteredQuery> cut = lock.call(() -> new ArrayList<>(byFingerprint.values()));
+        cut.forEach(RegisteredQuery::checkpointBeforeShutdown);
         lock.run(() -> {
             List<RegisteredQuery> all = new ArrayList<>(byFingerprint.values());
             deliveries.values().forEach(SinkDelivery::close);

@@ -149,8 +149,11 @@ class ViewCheckpointTypesTest {
         try (var dirs = Files.list(root)) {
             directory = dirs.filter(Files::isDirectory).findFirst().orElseThrow();
         }
-        new FileCheckpointStore(directory)
-                .store(new Checkpoint(taken.id(), taken.timestampNanos(), taken.offsets(), state));
+        // Over the newest checkpoint, which is the one close() took (EMBEDCKPT-1) and the one a
+        // restart restores: it holds what the one taken above holds, as nothing came in between.
+        FileCheckpointStore store = new FileCheckpointStore(directory);
+        long newest = store.availableIds().stream().max(Long::compare).orElseThrow();
+        store.store(new Checkpoint(newest, taken.timestampNanos(), taken.offsets(), state));
 
         // The checkpoint cannot be used, so the query starts from its sources -- which deliver the
         // 100 again. Had the lane's state been restored before the view was refused, this is 200.
