@@ -179,6 +179,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   break if it changed. The new `javaValues()` (and `RowMapping.toJavaMap`) gives TIMESTAMP, DATE and
   TIME columns as `Instant`, `LocalDate` and `LocalTime`, as `as(Record)` does; the embedded-engine
   help topic's example uses it and says which is which.
+- **SBCOMMONSLOG-1: the Spring Boot starter brings no commons-logging.** Calcite's aggdesigner brought
+  the jar and Spring warned at every start; the starter excludes it, and spring-jcl provides the same
+  API, as in every Boot application.
 
 ---
 

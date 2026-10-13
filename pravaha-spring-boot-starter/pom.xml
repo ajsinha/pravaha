@@ -83,6 +83,17 @@
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-embedded</artifactId>
       <version>${project.version}</version>
+      <!--
+        SBCOMMONSLOG-1: Calcite's aggdesigner-algorithm brings commons-logging, and Spring warns at
+        every start that it is on the classpath beside spring-jcl, which provides the same
+        org.apache.commons.logging API in every Boot application.
+      -->
+      <exclusions>
+        <exclusion>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
