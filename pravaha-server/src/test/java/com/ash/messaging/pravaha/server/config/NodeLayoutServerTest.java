@@ -72,9 +72,12 @@ class NodeLayoutServerTest {
                 "config/streams/txn.yaml",
                 "schema: \"id:INT64,amount:INT64\"\nsource:\n  connector: files\n" + "  options:\n    path: "
                         + work.resolve("in/txn.csv") + "\n    schema: \"id:INT64,amount:INT64\"\n");
-        write(
-                "config/connectors/files.yaml",
-                "plugin: filesystem\noptions:\n  follow: true\n" + "  sas-token: ${LAYOUT_TEST_TOKEN:dev-only}\n");
+        write("config/connectors/files.yaml", """
+                plugin: filesystem
+                options:
+                  follow: true
+                  sas-token: ${LAYOUT_TEST_TOKEN:dev-only}
+                """);
         write("in/txn.csv", "");
         try (ConfigurableApplicationContext node = start()) {
             node.getBean(PravahaNode.class)

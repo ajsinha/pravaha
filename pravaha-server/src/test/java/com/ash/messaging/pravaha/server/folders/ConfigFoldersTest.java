@@ -155,7 +155,9 @@ class ConfigFoldersTest {
         write(
                 "sinks/out.yaml",
                 "plugin: jdbc\noptions:\n  url: jdbc:postgresql://db/x\n  password: ${KAFKA_PASSWORD}\n");
-        assertThat(load(settings(), Map.of()).sinks().getSinks().get("out").getOptions())
+        assertThat(java.util.Objects.requireNonNull(
+                                load(settings(), Map.of()).sinks().getSinks().get("out"))
+                        .getOptions())
                 .containsEntry("password", "s3cret");
     }
 

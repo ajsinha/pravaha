@@ -143,7 +143,7 @@ public final class NodeLayout {
         String loaded = property.apply(EXTERNAL_LIB_LOADED);
         java.util.Set<String> onClasspath = new java.util.TreeSet<>();
         if (loaded != null && !loaded.isBlank()) {
-            for (String jar : loaded.split(",")) {
+            for (String jar : loaded.split(",", -1)) {
                 if (!jar.isBlank()) {
                     onClasspath.add(Path.of(jar.strip()).getFileName().toString());
                 }

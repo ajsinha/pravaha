@@ -61,7 +61,7 @@ public final class CliDirectoryVariable {
         }
         boolean higher = true;
         for (PropertySource<?> source : configurable.getPropertySources()) {
-            if (source == system) {
+            if (source.getName().equals(system.getName())) { // names are unique in MutablePropertySources
                 higher = false;
                 continue;
             }

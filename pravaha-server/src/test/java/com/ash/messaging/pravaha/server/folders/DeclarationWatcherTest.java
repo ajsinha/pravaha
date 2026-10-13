@@ -211,7 +211,10 @@ class DeclarationWatcherTest {
                 "schema: \"k:INT64\"\nsource:\n  plugin: filesystem\n  options:\n    path: " + in + "\n");
         look();
         assertThat(problems()).isEmpty();
-        assertThat(node.sources().orElseThrow().bindings().get("f").options()).containsEntry("schema", "k:INT64");
+        assertThat(java.util.Objects.requireNonNull(
+                                node.sources().orElseThrow().bindings().get("f"))
+                        .options())
+                .containsEntry("schema", "k:INT64");
 
         registry().registerWritingTo("q_f", "SELECT k FROM f", List.of(0), DANA, "out");
         Path written = out.resolve("out.csv");
@@ -233,7 +236,10 @@ class DeclarationWatcherTest {
                 "streams/e.yaml",
                 "schema: \"k:INT64\"\nsource:\n  connector: fs\n  options:\n    path: " + out.resolve("e.csv") + "\n");
         look();
-        assertThat(node.sources().orElseThrow().bindings().get("e").plugin()).isEqualTo("filesystem");
+        assertThat(java.util.Objects.requireNonNull(
+                                node.sources().orElseThrow().bindings().get("e"))
+                        .plugin())
+                .isEqualTo("filesystem");
 
         delete("connectors/fs.yaml");
         look();

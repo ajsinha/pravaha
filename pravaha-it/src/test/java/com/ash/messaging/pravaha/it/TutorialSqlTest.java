@@ -139,8 +139,9 @@ class TutorialSqlTest {
                     failures.add(s[0] + " is shown as refused and the engine accepts it");
                 } else if (s[1].equals("refused")
                         && s[2] != null
-                        && !codeOf(thrown).equals(s[2])) {
-                    failures.add(s[0] + " is shown as refused with " + s[2] + " and is refused with " + codeOf(thrown));
+                        && !codeOf(java.util.Objects.requireNonNull(thrown)).equals(s[2])) {
+                    failures.add(s[0] + " is shown as refused with " + s[2] + " and is refused with "
+                            + codeOf(java.util.Objects.requireNonNull(thrown)));
                 } else if (!s[1].equals("continuous") && !s[1].equals("refused")) {
                     failures.add(s[0] + " has an unknown marker 'sql: " + s[1] + "'");
                 }
@@ -212,7 +213,8 @@ class TutorialSqlTest {
         for (Map.Entry<String, Object> lookup : lookups.entrySet()) {
             Map<String, Object> options =
                     (Map<String, Object>) ((Map<String, Object>) lookup.getValue()).get("options");
-            String table = String.valueOf(options.get("table"));
+            String table = String.valueOf(java.util.Objects.requireNonNull(options, "a lookup file has options")
+                    .get("table"));
             schema.registerLookup(tableOf(data, table));
         }
         return schema;
@@ -246,8 +248,8 @@ class TutorialSqlTest {
                         continue;
                     }
                     StreamSchema.Builder builder = StreamSchema.builder(table);
-                    for (String column : create.group(2).split(",\\s*\\n")) {
-                        String[] parts = column.strip().split("\\s+");
+                    for (String column : create.group(2).split(",\\s*\\n", -1)) {
+                        String[] parts = column.strip().split("\\s+", -1);
                         String type = parts[1].toUpperCase(java.util.Locale.ROOT);
                         builder.field(
                                 parts[0],
@@ -283,7 +285,7 @@ class TutorialSqlTest {
     /** The statement without its comment lines and trailing semicolon. */
     private static String strip(String sql) {
         StringBuilder out = new StringBuilder();
-        for (String line : sql.split("\n")) {
+        for (String line : sql.split("\n", -1)) {
             if (!line.strip().startsWith("--")) {
                 out.append(line).append('\n');
             }

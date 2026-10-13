@@ -91,11 +91,13 @@ class ViewQueryAuthorizationTest {
         assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", INTERN))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-7002  sam may not read 'user_volume': sam holds no SELECT on it")
-                .satisfies(e ->
-                        assertThat(e.getMessage().split("may not read", -1)).hasSize(2));
+                .satisfies(e -> assertThat(
+                                java.util.Objects.requireNonNull(e.getMessage()).split("may not read", -1))
+                        .hasSize(2));
         assertThatThrownBy(() -> queries.schemaOf("SELECT user_id FROM user_volume", INTERN))
-                .satisfies(e ->
-                        assertThat(e.getMessage().split("may not read", -1)).hasSize(2));
+                .satisfies(e -> assertThat(
+                                java.util.Objects.requireNonNull(e.getMessage()).split("may not read", -1))
+                        .hasSize(2));
     }
 
     @Test
