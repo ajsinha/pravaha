@@ -159,6 +159,19 @@ def test_query_ask_prints_the_sql_the_model_chose_then_the_rows_and_the_chart(en
     assert code == EXIT_OK and json.loads(out)["sql"] == ASK["sql"]
 
 
+def test_query_ask_prints_a_timestamp_as_query_does(engine, home):
+    # AIASKTS-1: the answer's JSON carries epoch nanoseconds; query prints the instant.
+    answer("POST", "/api/v1/ai/ask", dict(
+        ASK, columns=[{"name": "window_end", "type": "TIMESTAMP(3) WITH LOCAL TIME ZONE"},
+                      {"name": "total", "type": "BIGINT"}],
+        rows=[[1790845260000000000, 6800], [None, 1]], rowCount=2))
+    code, out, err = cli(engine, "query", "--ask", "total spend per minute")
+    assert code == EXIT_OK, err
+    assert "2026-10-01 09:01:00+00:00  6800" in out and "1790845260000000000" not in out
+    code, out, _ = cli(engine, "query", "--ask", "total spend per minute", "--json")
+    assert json.loads(out)["rows"][0][0] == 1790845260000000000, "--json is the engine's answer, unchanged"
+
+
 def test_query_ask_refusals_keep_the_exit_code_contract(engine, home):
     assert cli(engine, "query", "--ask", "x", "--sql", "SELECT 1")[0] == EXIT_USAGE
     assert cli(engine, "query", "--sql", "SELECT 1", "--chart")[0] == EXIT_USAGE

@@ -15,9 +15,9 @@
  */
 package com.ash.messaging.pravaha.testkit.tck;
 
-import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.api.data.RowView;
@@ -205,27 +205,33 @@ public abstract class SourcePluginTck {
                 return;
             }
 
-            SourcePartition partition = plugin.partitions(streamName()).get(0);
-            List<String> firstPass = new ArrayList<>();
-            SourceOffset midpoint;
-
-            try (RowCollector collector = newCollector(plugin);
-                    PartitionReader reader = plugin.createReader(partition, null)) {
-                int taken = reader.poll(collector, 2);
-                if (taken < 1) {
-                    fail("the fixture must yield at least one record before the offset can be tested");
+            // TCKPARTS-1: every partition, each against its own remainder. This resumed partition 0
+            // and expected the rest of the whole fixture, so a correct multi-partition source failed
+            // -- its partition 0 holds only its share.
+            int resumedPartitions = 0;
+            for (SourcePartition partition : plugin.partitions(streamName())) {
+                int total = drain(plugin, partition, null);
+                if (total == 0) {
+                    continue;
                 }
-                midpoint = reader.position();
-                collector.rows().forEach(r -> firstPass.add(r.toString()));
-            }
-
-            assertThat(midpoint).as("position() must not be null after reading").isNotNull();
-
-            try (RowCollector collector = newCollector(plugin);
-                    PartitionReader resumed = plugin.createReader(partition, midpoint)) {
-                while (resumed.poll(collector, 64) > 0) {
-                    // drain the remainder
+                resumedPartitions++;
+                int firstPass;
+                SourceOffset midpoint;
+                try (RowCollector collector = newCollector(plugin);
+                        PartitionReader reader = plugin.createReader(partition, null)) {
+                    firstPass = reader.poll(collector, 2);
+                    if (firstPass < 1) {
+                        fail("partition " + partition + " holds " + total + " records and yielded none on a "
+                                + "first poll, so its offset cannot be tested");
+                    }
+                    midpoint = reader.position();
                 }
+
+                assertThat(midpoint)
+                        .as("position() must not be null after reading %s", partition)
+                        .isNotNull();
+
+                int resumed = drain(plugin, partition, midpoint);
                 // What "replayable" has to mean, and what it must not be confused with.
                 //
                 // The load-bearing property is that resuming LOSES NOTHING: every record the first
@@ -242,18 +248,36 @@ public abstract class SourcePluginTck {
                 // mean "a late-joining query can be given the records it missed", which is exactly
                 // the no-loss reading, so saying false there to satisfy this line would have cost
                 // reader sharing (SRC-3) to answer a question this case was asking wrongly.
-                int unread = expectedRecordCount() - firstPass.size();
-                assertThat(collector.rows())
-                        .as("resuming from a recorded offset must yield at least the unread remainder; "
-                                + "a source may re-deliver what was already read, but may never skip it")
-                        .hasSizeGreaterThanOrEqualTo(unread);
+                int unread = total - firstPass;
+                assertThat(resumed)
+                        .as(
+                                "resuming %s from a recorded offset must yield at least its unread remainder; "
+                                        + "a source may re-deliver what was already read, but may never skip it",
+                                partition)
+                        .isGreaterThanOrEqualTo(unread);
                 if (caps.guarantee() == DeliveryGuarantee.EXACTLY_ONCE) {
-                    assertThat(collector.rows())
-                            .as("an exactly-once source must resume with no duplicates either")
-                            .hasSize(unread);
+                    assertThat(resumed)
+                            .as("an exactly-once source must resume %s with no duplicates either", partition)
+                            .isEqualTo(unread);
                 }
             }
+            if (resumedPartitions == 0) {
+                fail("the fixture must yield at least one record before the offset can be tested");
+            }
         }
+    }
+
+    /** How many records {@code partition} yields from {@code from}, read to exhaustion. */
+    private int drain(StreamSourcePlugin plugin, SourcePartition partition, @Nullable SourceOffset from) {
+        int count = 0;
+        try (RowCollector collector = newCollector(plugin);
+                PartitionReader reader = plugin.createReader(partition, from)) {
+            int polled;
+            while ((polled = reader.poll(collector, 64)) > 0) {
+                count += polled;
+            }
+        }
+        return count;
     }
 
     @Test

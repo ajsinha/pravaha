@@ -252,9 +252,20 @@ Declare your own `PravahaEngine` bean and the starter steps aside entirely.
     The starter has no authentication, policy or audit trail. Everything inside your application may
     read and register anything. If other services need the answer, run `pravaha-server`.
 
-!!! note "Not built yet"
-    `@PravahaTest`, an actuator endpoint, a listener error handler, and testing against Spring Boot
-    versions other than 3.5.
+## Testing, Actuator and Boot versions
+
+- **`@PravahaTest`** — a test slice: the engine and the starter's auto-configuration, the components
+  with a `@PravahaListener` method, and a `PravahaTester` to push and wait without sleeping
+  (`awaitListeners`, `awaitView`). It clears the checkpoint, journal and dead-letter directories so a
+  test never writes where `application.yaml` points; `@PravahaTest(checkpoints = true)` checkpoints
+  into a temporary directory. It needs `spring-boot-starter-test`, which the starter does not bring.
+- **A listener error handler** — a `PravahaListenerErrorHandler` bean decides whether a listener that
+  threw carries on or stops; the default logs and carries on.
+- **Actuator** — with `spring-boot-starter-actuator` present, a `pravaha` health contributor and a
+  read-only `pravaha` endpoint (`/actuator/pravaha` once exposed) listing every query and listener.
+- **Boot versions** — tested on Boot 3.4 and 3.5 (profiles `boot-3.4` and `boot-3.5`).
+
+The [user guide](/help/user-guide) has each in full, with examples.
 
 ## Where next
 

@@ -80,7 +80,8 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
         # No token: the console holds no engine credential of its own (ADR-052). Each call
         # carries the signed-in person's session token, bound to the request that makes it.
         engine = Engine(config.get("engine.url", "grpc://localhost:19090"),
-                        http_url=config.get("engine.http_url") or None)
+                        http_url=config.get("engine.http_url") or None,
+                        tls_ca=config.get("engine.tls.ca") or None)
     services = Services(engine,
                         row_limit=config.get_int("ui.query_row_limit", 500),
                         lag_warn_seconds=config.get_float("ui.lag_warn_seconds", 300.0))

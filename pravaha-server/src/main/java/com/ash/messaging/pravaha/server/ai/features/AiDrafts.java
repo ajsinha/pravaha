@@ -315,7 +315,7 @@ final class AiDrafts {
                     }
                     String named = wanted == null || wanted.isBlank() ? statement : renamed(statement, slug(wanted));
                     return new Checked(
-                            checked(p, alerts, named, 0),
+                            checked(p, alerts, named, null, 0),
                             AiGrounding.clean(n.path("explanation").asText(""), 1200));
                 });
         AlertDefinition d = judged.value().definition();
@@ -344,21 +344,36 @@ final class AiDrafts {
     /** What {@code CREATE ALERT} would make of the model's statement, and what the model said it does. */
     private record Checked(AlertDefinition definition, String explanation) {}
 
-    /** The definition {@code CREATE ALERT} would make, under a free name: a taken one gets {@code _2}, {@code _3}. */
-    private static AlertDefinition checked(Principal p, AlertService alerts, String statement, int renames) {
+    /**
+     * The definition {@code CREATE ALERT} would make, under a free name: a taken one gets {@code _2},
+     * {@code _3}. {@code original} is the name first asked for, null on the first call.
+     */
+    private static AlertDefinition checked(
+            Principal p, AlertService alerts, String statement, @Nullable String original, int renames) {
         Optional<AlertStatement> parsed = AlertStatements.recognize(statement);
         if (!(parsed.orElse(null) instanceof AlertStatement.Create create)) {
             throw new AiFeatures.Repairable(
                     AiFeatureErrors.ANSWER_UNUSABLE, "the answer is not one CREATE ALERT statement");
         }
+        String asked = original == null ? create.name() : original;
         try {
             return alerts.validate(p, create);
         } catch (PravahaException e) {
             if (e.errorCode().equals(AlertErrors.ALERT_EXISTS) && renames < 8) {
-                return checked(p, alerts, renamed(statement, base(create.name()) + "_" + (renames + 2)), renames + 1);
+                return checked(p, alerts, retried(statement, asked, renames), asked, renames + 1);
             }
             throw e;
         }
+    }
+
+    /**
+     * The statement under the next name to try once {@code asked} and {@code renames} suffixed forms
+     * of it are taken: {@code asked_2}, then {@code asked_3}. Suffixed to the name as asked, never to
+     * a name with its trailing digits cut off (AINAME-1: {@code region_over_5000} was retried as
+     * {@code region_over_2}) -- the same rule {@link #free} keeps for a query draft.
+     */
+    static String retried(String statement, String asked, int renames) {
+        return renamed(statement, asked + "_" + (renames + 2));
     }
 
     /** The statement as it was judged: the model's, with the name it was judged under. */
@@ -428,10 +443,6 @@ final class AiDrafts {
             t = "draft" + (t.isEmpty() ? "" : "_" + t);
         }
         return t.length() > 60 ? t.substring(0, 60) : t;
-    }
-
-    private static String base(String name) {
-        return name.replaceAll("_\\d+$", "");
     }
 
     /** {@code name}, or the first of {@code name_2}, {@code name_3}... no query of this tenant holds. */

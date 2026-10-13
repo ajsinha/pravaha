@@ -115,6 +115,17 @@ class AiFeaturesShapeTest {
     }
 
     @Test
+    void aTakenAlertNameIsSuffixedAsAskedNotWithItsDigitsCut() {
+        // AINAME-1: region_over_5000 was retried as region_over_2.
+        String statement = "CREATE ALERT region_over_5000 ON region_minutes WHERE spend > 5000 NOTIFY ops";
+        assertThat(AiDrafts.retried(statement, "region_over_5000", 0))
+                .startsWith("CREATE ALERT region_over_5000_2 ON region_minutes");
+        String second = AiDrafts.retried(statement, "region_over_5000", 0);
+        assertThat(AiDrafts.retried(second, "region_over_5000", 1))
+                .startsWith("CREATE ALERT region_over_5000_3 ON region_minutes");
+    }
+
+    @Test
     void valuesIsLabelsOnlyUnlessAggregatesIsWritten() {
         AiProperties p = new AiProperties();
         assertThat(p.getValues()).isEqualTo("labels-only");

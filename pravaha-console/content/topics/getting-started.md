@@ -843,6 +843,7 @@ registry without metrics, a view's page says which call failed.
 |---|---|---|
 | `engine.url` | `grpc://localhost:19090` | the engine's Flight endpoint |
 | `engine.http_url` | `http://localhost:18080` | the engine's HTTP surface; without it validation and plans are unavailable |
+| `engine.tls.ca` | *empty* | the CA (PEM) a `grpc+tls://` engine's certificate is checked against, for a private CA (`PRAVAHA_ENGINE_CA`) |
 | `engine.pgwire` | `localhost:5432` | shown in the `psql` snippets only |
 | `ui.default_role` | `operator` | where a signed-in person lands until they choose |
 | `ui.tail_buffer` | 256 | changes held per browser on a live view |

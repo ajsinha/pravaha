@@ -43,6 +43,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `server.port` | `CONSOLE_PORT` | `17070` | |
 | `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:19090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
 | `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
+| `engine.tls.ca` | `PRAVAHA_ENGINE_CA` | *empty* (the system trust store) | A PEM CA file the engine's certificate is checked against when `engine.url` is `grpc+tls://` — for an engine whose certificate a private CA signed. The SDK uses it for an `https://` `engine.http_url` too. Set on a plaintext `grpc://` URL, the console refuses to start. |
 | `engine.pgwire` | `PRAVAHA_PGWIRE` | `localhost:5432` | Shown in the view browser's `psql` snippet. The console never connects to it. |
 | `ui.default_role` | `CONSOLE_DEFAULT_ROLE` | `operator` | Where a signed-in person lands until they choose: `analyst`, `operator`, `developer` or `admin`. |
 | `ui.tail_buffer` | — | `256` | Changes held per browser on a live view before the oldest are dropped (and said to be). |

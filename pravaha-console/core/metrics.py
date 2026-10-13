@@ -123,6 +123,9 @@ QUERY_METERS = {
     "pravaha_query_subscribers": "subscribers",
     "pravaha_query_checkpoint_last_success_timestamp_seconds": "checkpoint_last_success",
     "pravaha_query_checkpoint_duration_seconds": "checkpoint_duration_seconds",
+    # 1 when the query checkpoints, before its first as after; what tells "first checkpoint
+    # pending" from "not checkpointing" while the last-success time is NaN (OPSCKPT-1).
+    "pravaha_query_checkpoint_enabled": "checkpoint_enabled",
     "pravaha_query_checkpoint_failures_total": "checkpoint_failures",
     "pravaha_query_commit_latency_seconds_count": "commit_count",
     "pravaha_query_commit_latency_seconds_sum": "commit_seconds_sum",

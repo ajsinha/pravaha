@@ -295,6 +295,12 @@ class PravahaMetricsTest {
                         .gauge()
                         .value())
                 .isNaN();
+        assertThat(meters.find("pravaha.query.checkpoint.enabled")
+                        .tag("query", "acme.default.watched")
+                        .gauge()
+                        .value())
+                .as("OPSCKPT-1: not checkpointing, which a NaN last-success alone cannot say")
+                .isZero();
         assertThat(meters.find("pravaha.query.checkpoint.failures")
                         .tag("query", "acme.default.watched")
                         .functionCounter()
@@ -331,6 +337,12 @@ class PravahaMetricsTest {
         metrics = new PravahaMetrics(meters, node);
         node.registry().orElseThrow().register("saved", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         metrics.sync();
+        assertThat(meters.find("pravaha.query.checkpoint.enabled")
+                        .tag("query", "acme.default.saved")
+                        .gauge()
+                        .value())
+                .as("OPSCKPT-1: checkpointing, before its first checkpoint as after")
+                .isEqualTo(1d);
 
         long deadline = System.nanoTime() + java.time.Duration.ofSeconds(20).toNanos();
         double stored = Double.NaN;

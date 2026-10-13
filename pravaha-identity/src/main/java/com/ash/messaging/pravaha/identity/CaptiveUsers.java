@@ -80,7 +80,7 @@ public final class CaptiveUsers {
             String password) {
 
         public Account {
-            roles = Set.copyOf(roles);
+            roles = java.util.Collections.unmodifiableSortedSet(new java.util.TreeSet<>(roles)); // ROLESORDER-1
         }
 
         @Override

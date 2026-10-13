@@ -154,6 +154,22 @@ class IdentityServiceTest {
     }
 
     @Test
+    void aUsersRolesAreListedInOrder() {
+        // ROLESORDER-1: user list and whoami printed them in whatever order a hash set held them.
+        IdentityService identity = service();
+        identity.createUser(
+                admin(), "ana", null, null, null, Set.of("zeta", "operator", "analyst", "admin"), GOOD, false);
+        assertThat(identity.users(admin()).stream()
+                        .filter(u -> u.username().equals("ana"))
+                        .findFirst()
+                        .orElseThrow()
+                        .roles())
+                .containsExactly("admin", "analyst", "operator", "zeta");
+        assertThat(identity.principalOfUser("ana").orElseThrow().roles())
+                .containsExactly("admin", "analyst", "operator", "zeta");
+    }
+
+    @Test
     void fiveFailuresBarTheirSourceAndTheBarReadsExactlyAsAWrongPassword() {
         // LOCKENUM-1: a barred sign-in, an unknown name and a wrong password are one answer.
         IdentityService identity = service();

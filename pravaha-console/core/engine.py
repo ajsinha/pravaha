@@ -258,8 +258,17 @@ class Engine:
     """
 
     def __init__(self, url: str, http_url: str | None = None,
-                 http_timeout: float = 5.0) -> None:
+                 http_timeout: float = 5.0, tls_ca: str | None = None) -> None:
         self._url = url
+        # CONSOLETLS-1: the CA a grpc+tls engine's certificate is checked against (engine.tls.ca),
+        # for a private CA the system trust store does not hold. Used for Flight, and by the SDK
+        # for the engine's HTTP surface when that is https.
+        self._tls_ca = tls_ca or None
+        if self._tls_ca and not url.startswith(("grpc+tls://", "grpcs://")):
+            # The SDK refuses TLS material on a plaintext endpoint, rightly; said once at start
+            # rather than as every page's engine error.
+            raise ValueError(f"engine.tls.ca is set but engine.url {url!r} is plaintext; "
+                             "use grpc+tls:// or remove engine.tls.ca")
         self._lock = threading.Lock()
         # The engine's HTTP surface is a separate port from Flight -- 18080 against 19090 -- and
         # conflating the two is the commonest way a first run fails, so it is its own setting.
@@ -296,6 +305,10 @@ class Engine:
         if self._http:
             kwargs["http_url"] = self._http
             kwargs["request_timeout_seconds"] = self._http_timeout
+        if self._tls_ca:
+            from pravaha.tls import TlsOptions
+
+            kwargs["tls"] = TlsOptions.create(ca_certificate=self._tls_ca)
         try:
             client = (connect(self._url) if not kwargs
                       else connect(options=ClientOptions.create(self._url, **kwargs)))

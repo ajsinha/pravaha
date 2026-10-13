@@ -169,6 +169,56 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   out), and per-scenario console settings and environment for the pictures. Writing them found
   EMBEDCKPT-1, EMBEDTS-1, SBCOMMONSLOG-1, STARTERDOC-1, PLUGINVER-1, TCKPARTS-1, TLSRECIPE-1,
   CONSOLETLS-1, OPSCKPT-1, AIASKTS-1 and AINAME-1.
+- **EMBEDCKPT-1: a clean close takes a last checkpoint.** The registry cuts each running query once more
+  as it shuts down -- the schedule stopped first, bounded by `pravaha.checkpoint.timeout`, a failure
+  logged and recorded on the query and the close carrying on -- so rows pushed into an embedded engine
+  after the last periodic checkpoint are there on reopen. The server's clean stop takes the same path
+  (one registry close), so its sources resume from a fresher checkpoint and replay less.
+- **EMBEDTS-1: `RowChange.javaValues()`.** `values()` gives each column as the engine holds it -- a
+  TIMESTAMP as a `Long` of epoch nanoseconds -- and stays so, because code reading those numbers would
+  break if it changed. The new `javaValues()` (and `RowMapping.toJavaMap`) gives TIMESTAMP, DATE and
+  TIME columns as `Instant`, `LocalDate` and `LocalTime`, as `as(Record)` does; the embedded-engine
+  help topic's example uses it and says which is which.
+- **SBCOMMONSLOG-1: the Spring Boot starter brings no commons-logging.** Calcite's aggdesigner brought
+  the jar and Spring warned at every start; the starter excludes it, and spring-jcl provides the same
+  API, as in every Boot application.
+- **STARTERDOC-1: the spring-boot-starter help topic no longer calls `@PravahaTest` unbuilt.** Its
+  "Not built yet" note named `@PravahaTest`, the actuator endpoint, the listener error handler and the
+  Boot 3.4 leg, all of which ship; it is now a short section on each, pointing at the user guide.
+- **PLUGINVER-1: `pravaha plugin new` in a source checkout builds against the checkout.** The CLI's
+  version comes from `sdk/python/pyproject.toml` (`2.4.3`), so a project scaffolded in a checkout
+  asked for `pravaha-api 2.4.3` while the reactor had installed `2.4.3-SNAPSHOT`. Run from a checkout,
+  the default is now the root pom's version; from a wheel it is the CLI's own, and `--pravaha-version`
+  still overrides both.
+- **TCKPARTS-1: the source TCK's replay case is right for a multi-partition source.**
+  `replayableOffsetsActuallyReplay` resumed partition 0 and expected the rest of the whole fixture, so
+  a correct source with records in two partitions failed it. It now resumes each partition that holds
+  records and expects that partition's remainder (exactly, for `EXACTLY_ONCE`); a two-partition fixture
+  in `pravaha-testkit` runs the whole TCK.
+- **TLSRECIPE-1: the test-certificate recipes make a CA that strict checks accept.** CONNECTOR_TLS.md
+  §6 and the TLS help topic made a CA with no keyUsage, which `pravaha doctor` (and any X.509-strict
+  stack) refuses. Both now give the CA `basicConstraints=CA:TRUE` and `keyUsage=keyCertSign,cRLSign`,
+  and the server certificate its keyUsage, `serverAuth` and authority key identifier, as the
+  tutorials' `make-certs.sh` does; the recipe passes `openssl verify -x509_strict`.
+- **CONSOLETLS-1: the console takes a private CA for a TLS engine.** `engine.tls.ca`
+  (`PRAVAHA_ENGINE_CA`): a PEM CA file the console's engine client checks a `grpc+tls://` engine's
+  certificate against, and that the SDK uses for an `https://` `engine.http_url` too. It used to work
+  only through `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`. Set beside a plaintext `grpc://` URL the console
+  refuses to start, naming both settings. In the console README, the getting-started settings table and
+  RUNNING_IN_DOCKER.md.
+- **OPSCKPT-1: Operations says "first checkpoint pending" for a query that checkpoints but has not yet.**
+  It said "not checkpointing" whenever there was no last success to age. The engine publishes a new
+  gauge, `pravaha_query_checkpoint_enabled{query}` (1 or 0), and the console's Operations page reads
+  it; against an engine without it the page says what it said before.
+- **AIASKTS-1: `query --ask` and `chat` print a TIMESTAMP as `query` does.** The answer's JSON
+  carries a TIMESTAMP as epoch nanoseconds and the table printed them raw; it now prints the UTC
+  instant (`2026-10-01 09:01:00+00:00`), as `query` reads it from Flight. `--json` is unchanged.
+- **AINAME-1: a taken alert-draft name is suffixed as asked.** The retry cut trailing digits before
+  adding its own, so a taken `region_over_5000` became `region_over_2`; it is now
+  `region_over_5000_2`, then `_3`, as a query draft's name already was.
+- **ROLESORDER-1: a user's roles are listed in order.** `user list`, `whoami` and the identity API
+  showed them in whatever order a hash set held them, which could differ between runs; the engine now
+  keeps a principal's, a user's and a key's roles sorted where the set is formed.
 
 ---
 

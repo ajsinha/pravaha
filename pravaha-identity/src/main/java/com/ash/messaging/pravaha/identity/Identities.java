@@ -57,7 +57,7 @@ public final class Identities {
             Map<String, String> attributes) {
 
         public User {
-            roles = Set.copyOf(roles);
+            roles = java.util.Collections.unmodifiableSortedSet(new java.util.TreeSet<>(roles)); // ROLESORDER-1
             previousHashes = List.copyOf(previousHashes);
             attributes = attributes == null
                     ? Map.of()
@@ -218,7 +218,7 @@ public final class Identities {
             @Nullable Instant lastUsedAt) {
 
         public ApiKey {
-            roles = Set.copyOf(roles);
+            roles = java.util.Collections.unmodifiableSortedSet(new java.util.TreeSet<>(roles)); // ROLESORDER-1
         }
 
         public boolean usableAt(Instant now) {

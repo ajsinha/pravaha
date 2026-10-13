@@ -66,6 +66,10 @@ engine:
   # catalog, validation and plans, and the operations dashboard, read it. A separate port
   # from Flight -- 18080, not 19090.
   http_url: "${PRAVAHA_ENGINE_HTTP:http://localhost:18080}"
+  # The CA (a PEM file) a grpc+tls:// engine's certificate is checked against, for a private CA
+  # the system trust store does not hold; also used for an https:// http_url. Empty: the system's.
+  tls:
+    ca: "${PRAVAHA_ENGINE_CA:}"
   # Where psql reaches the engine's PostgreSQL gateway, for the view browser's snippets.
   # Only ever shown as text; the console does not connect to it.
   pgwire: "${PRAVAHA_PGWIRE:localhost:5432}"

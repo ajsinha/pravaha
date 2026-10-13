@@ -502,6 +502,7 @@ Zero until the query spills (see [State and spill](/help/topics/state-spill)).
 | Metric | Type | What it answers | Alert when |
 |---|---|---|---|
 | `pravaha_query_checkpoint_last_success_timestamp_seconds{query}` | gauge | When the query last **stored** a checkpoint, as Unix seconds. `NaN` while not checkpointing or before the first — never 0, which would read as 1970 | `time() - ... > 5 * interval`: that age is how much a recovery would replay |
+| `pravaha_query_checkpoint_enabled{query}` | gauge | `1` when the query checkpoints, before its first checkpoint as after; `0` when it does not | — |
 | `pravaha_query_checkpoint_duration_seconds{query}` | gauge | How long that last stored checkpoint took, snapshot to stored | approaching `pravaha.checkpoint.timeout` |
 | `pravaha_query_checkpoint_failures_total{query}` | counter | Checkpoints that did not happen | rising while the last-success age rises |
 | `pravaha_query_commit_latency_seconds_count{query}` | counter | Commits that changed the view | — |

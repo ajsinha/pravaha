@@ -397,6 +397,9 @@ public final class PravahaMetrics implements AutoCloseable {
                 tags,
                 query,
                 q -> q.lastCheckpoint().map(at -> at.toEpochMilli() / 1000d).orElse(Double.NaN)));
+        // OPSCKPT-1: whether the query checkpoints at all, so a NaN last-success can be read as "the
+        // first is still to come" (1) rather than "never" (0).
+        ids.add(gauge("pravaha.query.checkpoint.enabled", tags, query, q -> q.isCheckpointing() ? 1d : 0d));
         ids.add(gauge(
                 "pravaha.query.checkpoint.duration.seconds",
                 tags,

@@ -896,6 +896,15 @@ def test_the_operations_page_shows_subscribers_and_checkpoint_state(signed_in):
     assert "Subscribers" in page and "not checkpointing" in page
 
 
+def test_a_checkpointing_query_before_its_first_is_pending_not_off(engine):
+    # OPSCKPT-1: a NaN last-success means "not yet" when the engine says the query checkpoints.
+    engine.metrics_text = engine.metrics_text + 'pravaha_query_checkpoint_enabled{query="big_txn"} 1.0\n'
+    page = _signed_in_on(engine).get("/operations").text
+    assert '<span class="text-muted">first checkpoint pending</span>' in page
+    parsed = metrics.summarize(metrics.parse(engine.metrics_text))["queries"]["big_txn"]
+    assert parsed["checkpoint_enabled"] == 1.0
+
+
 def test_a_stopped_query_is_critical():
     found = metrics.findings({"q": {"running": 0}})
     assert found[0].severity == "critical" and found[0].title == "Not running"

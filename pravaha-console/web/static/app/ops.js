@@ -53,10 +53,11 @@ function start() {
   }
 
   /* Checkpoint health as the engine publishes it: the age of the last stored one, how long
-     it took, and failures. "not checkpointing" when there is no last success to age. */
+     it took, and failures. With no last success to age: "first checkpoint pending" when the
+     engine says the query checkpoints, "not checkpointing" otherwise (OPSCKPT-1). */
   function checkpoint(q) {
     let out = q.checkpoint_age_seconds === null || q.checkpoint_age_seconds === undefined
-      ? `<span class="text-muted">${t("ops.not_checkpointing")}</span>`
+      ? `<span class="text-muted">${t(q.checkpoint_enabled ? "ops.first_checkpoint_pending" : "ops.not_checkpointing")}</span>`
       : `${lag(q.checkpoint_age_seconds)} ${t("ops.ago")}${q.checkpoint_duration_seconds != null ? ` · ${t("ops.took", { n: q.checkpoint_duration_seconds.toFixed(2) })}` : ""}`;
     if (q.checkpoint_failures) out += ` · <span class="chip warn">${t("ops.failed", { n: fmt(q.checkpoint_failures) })}</span>`;
     return out;
