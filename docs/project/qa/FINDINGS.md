@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **612 findings carrying a
-status — 593 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+only part that is kept current. Counting the register as it stands: **614 findings carrying a
+status — 595 FIXED, 0 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7967,4 +7967,14 @@ conversion held under review and load (`RegistryLockStressTest`, no deadlock, no
 ### ROLESORDER-1 (LOW) — a user's roles are listed in no fixed order
 
 > **Status:** FIXED — roles are kept sorted where the set is formed (Principal, users, API keys, captive accounts).
+
+## Found updating the tutorials to the config folders (2026-10-12), 2 findings, both fixed
+
+### STREAMFILESCHEMA-1 (MEDIUM) — a stream file's source was not given the stream's schema
+
+> **Status:** FIXED — StreamDeclarations passed only event.time to a stream's source, so a source with no schema option (as the docs and the PRV-1015 message say to write it) reached the filesystem and Kafka plugins without one and failed PRV-5001 at the first registration; the stream's schema is now given to a source that sets none, file and inline alike, and PRV-1015 still refuses a divergent one. DeclarationWatcherTest#aStreamFilesSourceIsGivenTheStreamsSchema; the tutorials and pravaha init no longer repeat it.
+
+### ENVCONFIGDIR-1 (MEDIUM) — the CLI's PRAVAHA_CONFIG_DIR was read by the server as its config folder
+
+> **Status:** FIXED — Spring's relaxed binding mapped the CLI's documented PRAVAHA_CONFIG_DIR to pravaha.config.dir, so a shell that exported it for the CLI started a server that declared nothing from the CLI's folder. The CLI now reads PRAVAHA_CLI_DIR (the old name still read after it, with one warning), and the server refuses PRAVAHA_CONFIG_DIR as the only source of pravaha.config.dir with PRV-1069. CliDirectoryVariableTest, test_cli.
 
