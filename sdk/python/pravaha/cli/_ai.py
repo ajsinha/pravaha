@@ -16,6 +16,7 @@ when the model's answer could not be used), ``2`` usage, ``3`` unreachable.
 
 from __future__ import annotations
 
+import datetime
 import sys
 from typing import Any, Optional
 
@@ -52,6 +53,16 @@ def _words(ctx: Context, flag: str, what: str) -> str:
 # ---------------------------------------------------------------------------------- ask your data
 
 
+def _shown(value: Any, sql_type: str) -> Any:
+    """A value as ``query`` prints it (AIASKTS-1): the answer's JSON carries a TIMESTAMP as epoch
+    nanoseconds, and ``query`` reads the same column from Flight as a UTC instant."""
+    if sql_type.upper().startswith("TIMESTAMP") and isinstance(value, int) and not isinstance(value, bool):
+        seconds, nanos = divmod(value, 1_000_000_000)
+        return (datetime.datetime.fromtimestamp(seconds, tz=datetime.timezone.utc)
+                + datetime.timedelta(microseconds=nanos // 1000))
+    return value
+
+
 def _print_answer(ctx: Context, answer: "dict[str, Any]", *, chart: bool) -> None:
     out = ctx.out
     out.line(out.bold("the SQL the model chose"))
@@ -61,7 +72,9 @@ def _print_answer(ctx: Context, answer: "dict[str, Any]", *, chart: bool) -> Non
         _note(ctx, str(answer["explanation"]))
     out.line()
     columns = [str(c.get("name")) for c in answer.get("columns") or []]
-    rows = [{c: ("NULL" if v is None else v) for c, v in zip(columns, row)} for row in answer.get("rows") or []]
+    types = [str(c.get("type") or "") for c in answer.get("columns") or []]
+    rows = [{c: ("NULL" if v is None else _shown(v, t)) for c, t, v in zip(columns, types, row)}
+            for row in answer.get("rows") or []]
     if rows:
         out.table(rows, [(c, c) for c in columns])
     if chart:

@@ -210,6 +210,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   It said "not checkpointing" whenever there was no last success to age. The engine publishes a new
   gauge, `pravaha_query_checkpoint_enabled{query}` (1 or 0), and the console's Operations page reads
   it; against an engine without it the page says what it said before.
+- **AIASKTS-1: `query --ask` and `chat` print a TIMESTAMP as `query` does.** The answer's JSON
+  carries a TIMESTAMP as epoch nanoseconds and the table printed them raw; it now prints the UTC
+  instant (`2026-10-01 09:01:00+00:00`), as `query` reads it from Flight. `--json` is unchanged.
 
 ---
 
