@@ -107,6 +107,9 @@ public class ConfigurationCheck {
         applyDocsBaseUrl();
         // ADR-064: one line naming where every store and folder is, after the conventions applied.
         log.info("{}", com.ash.messaging.pravaha.common.config.NodeLayout.describe(environment::getProperty));
+        log.info(
+                "{}",
+                com.ash.messaging.pravaha.common.config.NodeLayout.describeExternalJars(environment::getProperty));
         refuseKeysThatReachedNothing();
         reportCredentialCount();
         refuseBareNumberDurations();

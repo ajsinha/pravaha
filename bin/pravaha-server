@@ -15,11 +15,13 @@
 # that one root and writes nothing outside it (docs/operations/RUNNING_IN_DOCKER.md, "The layout"):
 #
 #     conf/      application.yaml, read after the layout, so it wins      (created if missing)
+#                streams/ lookups/ sinks/ connectors/: one YAML file per object (ADR-064)
 #     data/      journal, checkpoints, identity store, catalogue, alerts  (created if missing)
 #     logs/      pravaha-server.log, audit.jsonl, heap dumps, hs_err files (created if missing)
 #     plugins/   jars added to the classpath (-Dloader.path)               (created if missing)
 #     secrets/   key material, 0700                                         (created if missing)
 #     tmp/       java.io.tmpdir and user.home; native codecs unpack here    (created if missing)
+#     external_lib/java/    *.jar on the classpath at start; python/ for the console and CLI
 #
 # and the working directory is PRAVAHA_HOME, so a relative path in conf/application.yaml is relative
 # to it. Without PRAVAHA_HOME, from a source checkout, none of this happens and the node behaves
@@ -66,7 +68,8 @@ if [[ -n "$home" ]]; then
 
   # Created by the process that will write them, so they belong to whoever runs the node -- in a
   # container, the --user it was started with. A directory that already exists is left as it is.
-  for dir in conf data logs plugins tmp; do
+  for dir in conf conf/streams conf/lookups conf/sinks conf/connectors data logs plugins tmp \
+             external_lib external_lib/java external_lib/python; do
     mkdir -p "$home/$dir" 2>/dev/null || true
   done
   if [[ ! -d "$home/secrets" ]]; then
@@ -92,13 +95,44 @@ if [[ -n "$home" ]]; then
     "-XX:+PerfDisableSharedMem"
     "-XX:HeapDumpPath=$home/logs"
     "-XX:ErrorFile=$home/logs/hs_err_pid%p.log"
-    "-Dloader.path=$home/plugins"
   )
   # The layout, then the deployment's conf/, which wins. An explicit SPRING_CONFIG_ADDITIONAL_LOCATION
   # in the environment replaces both, as it always did.
   if [[ -z "${SPRING_CONFIG_ADDITIONAL_LOCATION:-}" ]]; then
     home_opts+=("-Dspring.config.additional-location=optional:classpath:/pravaha-home.yaml,optional:file:$home/conf/")
   fi
+fi
+
+# EXTERNAL_LIB (ADR-064): every *.jar in <external-lib>/java, top level only, sorted, goes on the
+# classpath -- the Spring Boot PropertiesLauncher's -Dloader.path, as $PRAVAHA_HOME/plugins always did --
+# so a connector jar dropped there is found by ServiceLoader like a shipped one. The root is
+# --pravaha.external-lib.dir=... on this command line, else PRAVAHA_EXTERNAL_LIB, else
+# $PRAVAHA_HOME/external_lib, else ./external_lib. The classpath is fixed before the JVM starts, so it is
+# read here, at start only: a jar added later needs a restart, and the node's start-up log says which
+# jars it has. Code there runs with the server's privileges: put nothing there you would not run.
+ext="${PRAVAHA_EXTERNAL_LIB:-}"
+for arg in "$@"; do
+  case "$arg" in
+    --pravaha.external-lib.dir=*) ext="${arg#*=}" ;;
+  esac
+done
+if [[ -z "$ext" ]]; then
+  ext="${home:+$home/}external_lib"
+fi
+if [[ -d "$ext" ]]; then
+  ext="$(cd "$ext" && pwd)"
+fi
+loader_path="${home:+$home/plugins}"
+ext_jars=""
+if [[ -d "$ext/java" ]]; then
+  while IFS= read -r -d '' ext_jar; do
+    ext_jars="${ext_jars:+$ext_jars,}$ext_jar"
+  done < <(find "$ext/java" -maxdepth 1 -type f -name '*.jar' -print0 | LC_ALL=C sort -z)
+fi
+loader_path="${loader_path:+$loader_path${ext_jars:+,}}$ext_jars"
+layout_opts=("-Dpravaha.external-lib.dir=$ext" "-Dpravaha.external-lib.loaded=$ext_jars")
+if [[ -n "$loader_path" ]]; then
+  layout_opts+=("-Dloader.path=$loader_path")
 fi
 
 # Java 21 or later (ADR-062): a JVM older than 21 is refused here, by name, rather than
@@ -128,10 +162,18 @@ if [[ "$java_feature" =~ ^[0-9]+$ ]] && (( java_feature >= 23 )); then
   jdk_opts+=(--sun-misc-unsafe-memory-access=allow)
 fi
 
+# PRAVAHA_LAUNCHER_DRY_RUN=1 prints the command, one argument a line, and starts nothing: how the
+# launcher's own test reads the classpath it would build.
+if [[ "${PRAVAHA_LAUNCHER_DRY_RUN:-}" == 1 ]]; then
+  printf '%s\n' "$java_bin" ${home_opts[@]+"${home_opts[@]}"} "${layout_opts[@]}" -jar "$jar" "$@"
+  exit 0
+fi
+
 exec "$java_bin" \
   --add-opens=java.base/java.nio=ALL-UNNAMED \
   --add-opens=java.base/java.lang=ALL-UNNAMED \
   ${jdk_opts[@]+"${jdk_opts[@]}"} \
   ${home_opts[@]+"${home_opts[@]}"} \
+  "${layout_opts[@]}" \
   ${PRAVAHA_JAVA_OPTS:-} \
   -jar "$jar" "$@"

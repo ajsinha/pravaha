@@ -42,6 +42,10 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * pravaha.config.dir  (default config; $PRAVAHA_HOME/conf under a home)
  *   streams/ lookups/ sinks/    pravaha.config.streams-dir, -lookups-dir, -sinks-dir
  *   ai/                     pravaha.ai.dir
+ *   connectors/             pravaha.config.connectors-dir
+ * pravaha.external-lib.dir (default external_lib; $PRAVAHA_HOME/external_lib under a home)
+ *   java/*.jar              on the server's classpath at start (bin/pravaha-server, -Dloader.path)
+ *   python/                 on the console's and the CLI's sys.path
  * </pre>
  *
  * <p>Each derived setting stays a setting: a value written for it -- in YAML, as {@code --pravaha.<key>=},
@@ -63,6 +67,15 @@ public final class NodeLayout {
 
     /** A server node's configuration root when none is written. */
     public static final String DEFAULT_CONFIG_DIR = "config";
+
+    /** The third root: code a deployment adds. {@code java/} jars and {@code python/} modules. */
+    public static final String EXTERNAL_LIB_DIR = "pravaha.external-lib.dir";
+
+    /** Its default, relative to the working directory; {@code $PRAVAHA_HOME/external_lib} under a home. */
+    public static final String DEFAULT_EXTERNAL_LIB_DIR = "external_lib";
+
+    /** Set by bin/pravaha-server: the jars it put on the classpath, comma-separated. */
+    public static final String EXTERNAL_LIB_LOADED = "pravaha.external-lib.loaded";
 
     /** One setting found under a root by convention. */
     private record Convention(String key, String label, boolean data, String relative) {
@@ -93,6 +106,60 @@ public final class NodeLayout {
     /** The configuration root in force: {@code pravaha.config.dir}, else {@code config}. */
     public static Path configDir(Function<String, @Nullable String> property) {
         return root(property.apply(CONFIG_DIR), DEFAULT_CONFIG_DIR).orElse(Path.of(DEFAULT_CONFIG_DIR));
+    }
+
+    /** The external code root in force: {@code pravaha.external-lib.dir}, else {@code external_lib}. */
+    public static Path externalLibDir(Function<String, @Nullable String> property) {
+        return root(property.apply(EXTERNAL_LIB_DIR), DEFAULT_EXTERNAL_LIB_DIR)
+                .orElse(Path.of(DEFAULT_EXTERNAL_LIB_DIR));
+    }
+
+    /**
+     * The jars in {@code <external-lib>/java/}: top level only, {@code *.jar}, sorted -- the order
+     * bin/pravaha-server puts them on the classpath in. Empty when the folder is missing.
+     */
+    public static List<Path> externalJars(Path externalLib) {
+        Path java = externalLib.resolve("java");
+        if (!Files.isDirectory(java)) {
+            return List.of();
+        }
+        try (java.util.stream.Stream<Path> entries = Files.list(java)) {
+            return entries.filter(path -> path.getFileName().toString().endsWith(".jar") && Files.isRegularFile(path))
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * The start-up line about {@code <external-lib>/java/}: which jars are on the classpath, and any in the
+     * folder that are not -- because the node was started without bin/pravaha-server, or the jar arrived
+     * after start. A JVM cannot safely swap jars, so a new one needs a restart.
+     */
+    public static String describeExternalJars(Function<String, @Nullable String> property) {
+        Path root = externalLibDir(property);
+        List<Path> present = externalJars(root);
+        String loaded = property.apply(EXTERNAL_LIB_LOADED);
+        java.util.Set<String> onClasspath = new java.util.TreeSet<>();
+        if (loaded != null && !loaded.isBlank()) {
+            for (String jar : loaded.split(",")) {
+                if (!jar.isBlank()) {
+                    onClasspath.add(Path.of(jar.strip()).getFileName().toString());
+                }
+            }
+        }
+        List<String> missing = present.stream()
+                .map(path -> path.getFileName().toString())
+                .filter(name -> !onClasspath.contains(name))
+                .toList();
+        String line = "external_lib/java (" + shown(root.resolve("java")) + "): "
+                + (onClasspath.isEmpty() ? "no jars on the classpath" : onClasspath + " on the classpath")
+                + "; read at start only -- a new jar needs a restart";
+        return missing.isEmpty()
+                ? line
+                : line + ". NOT on the classpath: " + missing + " -- start the node with bin/pravaha-server, which "
+                        + "puts every jar there on -Dloader.path, or restart it to pick up a jar added since";
     }
 
     private static Optional<Path> root(@Nullable String written, @Nullable String fallback) {
@@ -224,6 +291,13 @@ public final class NodeLayout {
         }
         String ai = property.apply("pravaha.ai.dir");
         line.append(", ai=").append(shown(ai == null || ai.isBlank() ? config.resolve("ai") : Path.of(ai.strip())));
+        String connectors = property.apply("pravaha.config.connectors-dir");
+        line.append(", connectors=")
+                .append(shown(
+                        connectors == null || connectors.isBlank()
+                                ? config.resolve("connectors")
+                                : Path.of(connectors.strip())));
+        line.append("; external_lib=").append(shown(externalLibDir(property)));
         return line.toString();
     }
 

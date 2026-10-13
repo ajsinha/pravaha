@@ -58,6 +58,10 @@ pravaha:
     dir: ${PRAVAHA_HOME}/data
   config:
     dir: ${PRAVAHA_HOME}/conf
+  # Code the deployment adds: java/*.jar on the classpath at start (bin/pravaha-server), python/ for
+  # the console and the CLI. Runs with the node's privileges.
+  external-lib:
+    dir: ${PRAVAHA_HOME}/external_lib
 
   # Where `audit: file` writes. Only a location: whether there is an audit trail is
   # pravaha.security.audit, which stays the deployment's decision.
