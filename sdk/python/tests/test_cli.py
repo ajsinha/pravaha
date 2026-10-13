@@ -605,3 +605,77 @@ def test_dlq_count_is_answered_over_http(engine, home):
     answer("GET", "/api/v1/queries/q/dead-letters/count", {"total": 4, "evicted": 0})
     code, out, _ = run("dlq", "count", "--name", "q", "--http", engine)
     assert code == EXIT_OK and "total" in out and "4" in out
+
+
+# ---------------------------------------------------------------------------------- declaration files
+
+
+def _change(**over: Any) -> dict:
+    change = {"kind": "stream", "name": "txn", "action": "create", "dryRun": False, "applied": True,
+              "valid": True, "path": "/opt/pravaha/conf/streams/txn.yaml", "yaml": "schema: x\n",
+              "previous": None, "dependents": [], "code": None, "message": None}
+    change.update(over)
+    return change
+
+
+def test_streams_create_sends_the_fields_and_a_dry_run_prints_the_file(engine, home):
+    answer("POST", "/api/v1/streams/txn", _change(dryRun=True, applied=False,
+                                                    yaml="schema: \"id:INT64\"\nsource:\n  plugin: filesystem\n"))
+    code, out, _ = run("streams", "create", "txn", "--schema", "id:INT64", "--event-time", "ts",
+                       "--plugin", "filesystem", "--option", "path=data/txn.csv", "--disabled",
+                       "--dry-run", "--http", engine)
+    assert code == EXIT_OK
+    assert "would create stream txn" in out and "plugin: filesystem" in out
+    assert last()["path"] == "/api/v1/streams/txn?dryRun=true"
+    assert last()["body"] == {"schema": "id:INT64", "eventTime": "ts", "enabled": False,
+                              "source": {"plugin": "filesystem", "options": {"path": "data/txn.csv"}}}
+
+
+def test_streams_edit_sends_a_file_as_yaml_with_put(engine, home, tmp_path):
+    spec = tmp_path / "txn.yaml"
+    spec.write_text("schema: \"id:INT64\"\n")
+    answer("PUT", "/api/v1/streams/txn", _change(action="update", dependents=["q1"]))
+    code, out, _ = run("streams", "edit", "txn", "--file", str(spec), "--http", engine)
+    assert code == EXIT_OK and "updated stream txn" in out and "used by: q1" in out
+    assert last()["method"] == "PUT" and last()["body"] == {"yaml": "schema: \"id:INT64\"\n"}
+
+
+def test_a_refused_write_prints_its_code_and_a_refused_dry_run_exits_one(engine, home):
+    answer("DELETE", "/api/v1/streams/txn",
+           {"code": "PRV-1065", "message": "stream 'txn' is in use by q1"}, 409)
+    code, _, err = run("streams", "delete", "txn", "--http", engine)
+    assert code == EXIT_REFUSED and "PRV-1065" in err
+    answer("DELETE", "/api/v1/streams/txn",
+           _change(action="delete", dryRun=True, applied=False, valid=False, code="PRV-1065",
+                   message="in use", dependents=["q1"]))
+    code, _, err = run("streams", "delete", "txn", "--dry-run", "--http", engine)
+    assert code == EXIT_REFUSED and "PRV-1065" in err and "q1" in err
+
+
+def test_streams_and_connectors_enable_and_disable(engine, home):
+    answer("POST", "/api/v1/streams/txn/disable", _change(action="disable"))
+    assert run("streams", "disable", "txn", "--http", engine)[0] == EXIT_OK
+    assert last()["path"] == "/api/v1/streams/txn/disable"
+    answer("POST", "/api/v1/connectors/kafka/enable", _change(kind="connector", name="kafka", action="enable"))
+    code, out, _ = run("connectors", "enable", "kafka", "--http", engine)
+    assert code == EXIT_OK and "enabled connector kafka" in out
+
+
+def test_connectors_create_and_test(engine, home):
+    answer("POST", "/api/v1/connectors/kafka", _change(kind="connector", name="kafka"))
+    code, _, _ = run("connectors", "create", "kafka", "--plugin", "kafka",
+                     "--option", "sasl.password=${KAFKA_PASSWORD}", "--http", engine)
+    assert code == EXIT_OK
+    assert last()["body"] == {"plugin": "kafka", "options": {"sasl.password": "${KAFKA_PASSWORD}"}}
+    answer("POST", "/api/v1/connectors/kafka/test",
+           {"name": "kafka", "plugin": "kafka", "ok": False, "role": "source", "latencyMillis": 1002,
+            "state": "TIMED_OUT", "detail": "no answer within 1s", "code": "PRV-1073"})
+    code, out, _ = run("connectors", "test", "kafka", "--option", "topic=txn", "--within", "1",
+                       "--http", engine)
+    assert code == EXIT_REFUSED and "TIMED_OUT" in out and "PRV-1073" in out
+    assert last()["body"] == {"options": {"topic": "txn"}, "timeoutSeconds": 1}
+
+
+def test_an_option_without_an_equals_sign_is_a_usage_error(home):
+    code, _, err = run("connectors", "create", "k", "--plugin", "kafka", "--option", "nope")
+    assert code == EXIT_USAGE and "key=value" in err

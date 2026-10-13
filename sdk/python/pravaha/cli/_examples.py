@@ -89,6 +89,19 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "connectors": ("pravaha connectors", "pravaha connectors show kafka-prod"),
     "connectors list": ("pravaha connectors list --json",),
     "connectors show": ("pravaha connectors show kafka-prod",),
+    "connectors create": (
+        "pravaha connectors create kafka-prod --plugin kafka --option bootstrap.servers=broker1:9092 "
+        "--option 'sasl.password=${KAFKA_PASSWORD}' --dry-run",
+        "pravaha connectors create kafka-prod --file kafka-prod.yaml",
+    ),
+    "connectors edit": ("pravaha connectors edit kafka-prod --file kafka-prod.yaml --dry-run",),
+    "connectors delete": ("pravaha connectors delete kafka-prod --dry-run   # lists what names it",),
+    "connectors enable": ("pravaha connectors enable kafka-prod",),
+    "connectors disable": ("pravaha connectors disable kafka-prod   # the streams reading through it stop",),
+    "connectors test": (
+        "pravaha connectors test kafka-prod",
+        "pravaha connectors test kafka-prod --option topic=txn --within 20 --json",
+    ),
     "doctor": (
         "pravaha doctor",
         "pravaha doctor --local --timeout 5",
@@ -142,6 +155,15 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
         "pravaha streams declare trades --schema 'id:BIGINT,merchant:VARCHAR,amount:DECIMAL(18,2),"
         "ts:TIMESTAMP' --event-time ts --out-of-orderness PT10S",
     ),
+    "streams create": (
+        "pravaha streams create txn --schema 'id:INT64,amount:INT64,ts:TIMESTAMP' --event-time ts "
+        "--out-of-orderness 10s --plugin filesystem --option path=data/txn.csv --dry-run",
+        "pravaha streams create txn --file txn.yaml",
+    ),
+    "streams edit": ("pravaha streams edit txn --file txn.yaml --dry-run   # refused while a query reads it",),
+    "streams delete": ("pravaha streams delete txn --dry-run   # lists the queries that read it",),
+    "streams enable": ("pravaha streams enable txn",),
+    "streams disable": ("pravaha streams disable txn   # its queries keep running and receive nothing",),
     "views": ("pravaha views", "pravaha views describe spend_by_hour"),
     "views list": ("pravaha views list --json",),
     "views describe": ("pravaha views describe spend_by_hour",),

@@ -137,6 +137,64 @@ class EngineApi:
         """One named connection, secrets masked. ``GET /api/v1/connectors/{name}``."""
         return dict(self._rest.get("/api/v1/connectors/" + _segment(name)) or {})
 
+    # ------------------------------------------------------------------ declaration files (ADR-064)
+
+    def write_declaration(
+        self,
+        collection: str,
+        name: str,
+        body: dict[str, Any],
+        *,
+        update: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Writes ``config/<collection>/<name>.yaml`` -- ``collection`` is ``streams`` or
+        ``connectors`` -- and applies it at once: ``POST`` creates (refused when a file declares
+        the name), ``update=True`` replaces (``PUT``; refused while something uses it). ``body``
+        is the fields, or ``{"yaml": text}``. With ``dry_run`` nothing is written and the answer
+        says what would be: ``action``, ``valid``, ``yaml``, ``dependents``, ``code``,
+        ``message``."""
+        path = f"/api/v1/{_segment(collection)}/{_segment(name)}"
+        query = {"dryRun": "true"} if dry_run else None
+        if update:
+            return dict(self._rest.put(path, body, query) or {})
+        return dict(self._rest.post(path, body, query) or {})
+
+    def delete_declaration(self, collection: str, name: str, *, dry_run: bool = False) -> dict[str, Any]:
+        """Removes ``name``'s file, and so the object; refused while anything uses it.
+        ``DELETE /api/v1/<collection>/{name}``."""
+        query = {"dryRun": "true"} if dry_run else None
+        return dict(
+            self._rest.delete(f"/api/v1/{_segment(collection)}/{_segment(name)}", query) or {}
+        )
+
+    def switch_declaration(
+        self, collection: str, name: str, enabled: bool, *, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """Enables or disables a stream or a connection (``enabled:`` in its file). Never refused
+        for being in use: a query over a disabled stream keeps running and receives nothing.
+        ``POST /api/v1/<collection>/{name}/enable|disable``."""
+        query = {"dryRun": "true"} if dry_run else None
+        verb = "enable" if enabled else "disable"
+        return dict(
+            self._rest.post(f"/api/v1/{_segment(collection)}/{_segment(name)}/{verb}", {}, query) or {}
+        )
+
+    def test_connector(
+        self,
+        name: str,
+        options: Optional[dict[str, str]] = None,
+        timeout_seconds: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Tests a named connection through its plugin, in bounded time: ``ok``, ``state``,
+        ``latencyMillis``, ``detail`` -- never a secret. ``POST /api/v1/connectors/{name}/test``."""
+        body: dict[str, Any] = {}
+        if options:
+            body["options"] = dict(options)
+        if timeout_seconds is not None:
+            body["timeoutSeconds"] = int(timeout_seconds)
+        return dict(self._rest.post(f"/api/v1/connectors/{_segment(name)}/test", body) or {})
+
     # ------------------------------------------------------------------ the catalogue
 
     def streams(self) -> "list[dict[str, Any]]":
