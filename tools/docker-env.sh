@@ -70,6 +70,10 @@ home="$(cd "$home" && pwd)"
 
 umask 077
 mkdir -p "$home/conf" "$home/data/console" "$home/logs" "$home/plugins" "$home/tmp" "$home/secrets"
+# ADR-064: one YAML file per stream, lookup, sink and named connection, read from conf/ and watched;
+# and external_lib/: java/*.jar on the engine's classpath at start, python/ for the console.
+mkdir -p "$home/conf/streams" "$home/conf/lookups" "$home/conf/sinks" "$home/conf/connectors" \
+         "$home/external_lib/java" "$home/external_lib/python"
 chmod 0700 "$home/secrets" "$home/data"
 chmod 0755 "$home/plugins"
 

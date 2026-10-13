@@ -38,6 +38,10 @@ run
   || fail "the first run did not write the defaults: $(cat "$env_file")"
 [[ "$(stat -c %a "$env_file")" == 600 ]] || fail ".env is not 0600"
 ok "the first run writes the defaults, 0600"
+for dir in conf/streams conf/lookups conf/sinks conf/connectors external_lib/java external_lib/python; do
+  [[ -d "$home/$dir" ]] || fail "no $dir in the home"
+done
+ok "the home has the declaration folders and external_lib (ADR-064)"
 seed_token="$(value PRAVAHA_SEED_TOKEN)"
 postgres_password="$(value POSTGRES_PASSWORD)"
 

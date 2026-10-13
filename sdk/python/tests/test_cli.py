@@ -237,7 +237,8 @@ def test_global_options_are_taken_before_the_command_or_after_it(engine, home):
     answer("GET", "/api/v1/status", {"version": "9.9"})
     assert run("--http", engine, "status")[0] == EXIT_OK
     assert run("status", "--http", engine)[0] == EXIT_OK
-    assert len(_Engine.calls) == 2
+    # Each status also asks which configuration files are not applied (ADR-064).
+    assert [c["path"] for c in _Engine.calls].count("/api/v1/status") == 2
 
 
 def test_a_token_is_not_sent_over_plaintext_unless_asked_for(engine, home):

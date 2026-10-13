@@ -121,6 +121,22 @@ class EngineApi:
         ``writers``. Never a binding's options. ``GET /api/v1/sinks``."""
         return list(self._rest.get("/api/v1/sinks") or [])
 
+    def declarations(self) -> dict[str, Any]:
+        """Where every stream, lookup and sink this principal may see was declared -- ``origin``
+        is ``file:<path>``, ``config`` or ``api`` -- and every declaration file the node has not
+        applied as written (``state`` ``not-applied``, with ``code``, ``detail`` and ``usedBy``),
+        with the ``folders`` and the ``watchInterval``. ``GET /api/v1/declarations``."""
+        return dict(self._rest.get("/api/v1/declarations") or {})
+
+    def connectors(self) -> "list[dict[str, Any]]":
+        """The named connections: ``name``, ``plugin``, ``origin``, ``options`` with every
+        password, secret, token and key masked, and ``usedBy``. ``GET /api/v1/connectors``."""
+        return list(self._rest.get("/api/v1/connectors") or [])
+
+    def connector(self, name: str) -> dict[str, Any]:
+        """One named connection, secrets masked. ``GET /api/v1/connectors/{name}``."""
+        return dict(self._rest.get("/api/v1/connectors/" + _segment(name)) or {})
+
     # ------------------------------------------------------------------ the catalogue
 
     def streams(self) -> "list[dict[str, Any]]":

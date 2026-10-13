@@ -422,6 +422,13 @@ def build_parser() -> _Parser:
     p.add_argument("--grep", metavar="TEXT", help="only lines containing this")
     b.add("plugins", _http.plugins, "Every plugin the node can load.")
     b.add("sinks", _http.sinks, "The sinks the node binds.")
+    b.add("declarations", _http.declarations,
+          "Where each stream, lookup and sink was declared, and files not applied.")
+    p = b.add("connectors", _http.connectors, "The named connections (secrets masked).")
+    add = b.verbs(p, _http.connectors)
+    add("list", "Every named connection you may see, and what uses it.")
+    v = add("show", "One named connection: plugin, file, options (secrets masked), users.")
+    v.add_argument("connector_name", metavar="<connector>")
     p = b.add("doctor", _doctor.doctor,
               "Check this machine and the node: Python, pyarrow, Java, the token file, HTTP, "
               "Flight, TLS, who you are. Exit 1 on any RED.")
@@ -1007,5 +1014,9 @@ def main(
 
 
 def run() -> None:
-    """The console-script entry point."""
+    """The console-script entry point. ``external_lib/python`` goes on ``sys.path`` first, so a CLI
+    extension a deployment keeps there is importable (ADR-064)."""
+    from pravaha import external_lib
+
+    external_lib.add_to_sys_path()
     sys.exit(main())

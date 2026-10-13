@@ -64,3 +64,15 @@ docs/publications/research/*.blg
 deploy/docker/compose/.env
 deploy/docker/compose/pravaha-home/
 /pravaha-home/
+
+# ADR-064: a deployment's own code. Only the two READMEs are tracked.
+/external_lib/java/*
+!/external_lib/java/README.md
+/external_lib/python/*
+!/external_lib/python/README.md
+# ADR-064: a node run from the checkout keeps its state in ./data, and its declarations in
+# ./config/streams, lookups, sinks and connectors -- yours, not the repository's (/data/ is above).
+/config/streams/
+/config/lookups/
+/config/sinks/
+/config/connectors/

@@ -102,6 +102,13 @@ containers:
       # second copy on an emptyDir. Empty is "no file" to Spring Boot.
       - name: LOGGING_FILE_NAME
         value: ""
+      {{- range $folder := list "streams" "lookups" "sinks" "connectors" }}
+      {{- if index $v.declarations $folder }}
+      # ADR-064: this folder's ConfigMap, mounted below; a folder named here must exist.
+      - name: PRAVAHA_CONFIG_{{ upper $folder }}DIR
+        value: /opt/pravaha/declarations/{{ $folder }}
+      {{- end }}
+      {{- end }}
       - name: SPRING_CONFIG_ADDITIONAL_LOCATION
         value: "optional:classpath:/pravaha-home.yaml,optional:file:/opt/pravaha/conf/{{ if $v.auth.existingSecret }},optional:file:/opt/pravaha/secrets/auth/{{ end }}{{ range $v.extraConfigMounts }},optional:file:{{ .mountPath }}/{{ end }}"
       {{- with $v.extraEnv }}
@@ -165,6 +172,18 @@ containers:
         mountPath: {{ .mountPath }}
         readOnly: true
       {{- end }}
+      {{- range $folder := list "streams" "lookups" "sinks" "connectors" }}
+      {{- if index $v.declarations $folder }}
+      - name: declarations-{{ $folder }}
+        mountPath: /opt/pravaha/declarations/{{ $folder }}
+        readOnly: true
+      {{- end }}
+      {{- end }}
+      {{- if $v.externalLib.volume }}
+      - name: external-lib
+        mountPath: /opt/pravaha/external_lib
+        readOnly: true
+      {{- end }}
       {{- if $v.persistence.enabled }}
       - name: data
         mountPath: {{ $v.persistence.mountPath }}
@@ -214,6 +233,17 @@ volumes:
     secret:
       secretName: {{ .secret }}
     {{- end }}
+  {{- end }}
+  {{- range $folder := list "streams" "lookups" "sinks" "connectors" }}
+  {{- with index $v.declarations $folder }}
+  - name: declarations-{{ $folder }}
+    configMap:
+      name: {{ . }}
+  {{- end }}
+  {{- end }}
+  {{- with $v.externalLib.volume }}
+  - name: external-lib
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   - name: tmp
     emptyDir:

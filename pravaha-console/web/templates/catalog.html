@@ -73,7 +73,10 @@
         <span class="chip mute">{{ t('catalog.stream.version', version=s.version) }}</span></div>
       <div class="small mt-1">{% if s.eventTime %}<span class="chip ok" title="{{ t('catalog.stream.event_time_title') }}">{{ t('catalog.stream.event_time') }} <span class="mono">{{ s.eventTime }}</span>{% if s.outOfOrderness %} · {{ t('catalog.stream.late', lateness=s.outOfOrderness) }}{% endif %}</span>
         {% else %}<span class="chip warn" title="{{ t('catalog.stream.no_event_time_title') }}">{{ t('catalog.stream.no_event_time') }}</span>{% endif %}
-        {% if s.source %}<span class="chip mute" title="{{ t('catalog.stream.source_title') }}">{{ s.source }}</span>{% else %}<span class="chip mute">{{ t('catalog.stream.not_bound') }}</span>{% endif %}</div>
+        {% if s.source %}<span class="chip mute" title="{{ t('catalog.stream.source_title') }}">{{ s.source }}</span>{% else %}<span class="chip mute">{{ t('catalog.stream.not_bound') }}</span>{% endif %}
+        {#- ADR-064: where the stream was declared, and a file change the node has not applied. #}
+        {% if s.get('origin') %}<span class="chip mute stream-origin" title="{{ t('catalog.stream.origin_title') }}">{{ s.origin }}</span>{% endif %}
+        {% if s.get('notApplied') %}<span class="chip warn stream-not-applied" title="{{ s.notApplied }}">{{ t('catalog.stream.not_applied') }}</span>{% endif %}</div>
       <ul class="field-list mt-2">
         {% for f in s.fields[:6] %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}</span></li>{% endfor %}
         {% if s.fields|length > 6 %}<li class="text-muted small">{{ t('catalog.stream.more', n=s.fields|length - 6) }}</li>{% endif %}

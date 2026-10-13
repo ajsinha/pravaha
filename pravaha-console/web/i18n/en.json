@@ -2088,6 +2088,8 @@
       "no_event_time": "no event time",
       "source_title": "The plugin a source binding feeds it from",
       "not_bound": "not bound",
+      "origin_title": "Where it was declared: file:<path> (a file in the streams folder), config (inline) or api",
+      "not_applied": "file change not applied",
       "more": "and {n} more",
       "query_it": "Query it",
       "schema": "Schema"
@@ -2235,6 +2237,8 @@
     "allowed_lateness_zero": "none: a window is final when it closes, and a row arriving after is counted and dropped",
     "source": "Source",
     "not_bound": "not bound — rows arrive only if something writes them",
+    "origin": "Declared by",
+    "not_applied": "Its file changed and the change is not applied: {reason}",
     "readers": "Registered queries that read it",
     "lineage_engine": "From the engine: the streams each query's plan reads.",
     "lineage_name": "Matched by name in each query's SQL — this engine did not say what each query reads.",

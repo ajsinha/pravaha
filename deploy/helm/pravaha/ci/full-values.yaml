@@ -37,3 +37,13 @@ config:
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
         event-time: event_time
         out-of-orderness: 10s
+
+# ADR-064: declaration folders from ConfigMaps, and external_lib from a claim.
+declarations:
+  streams: pravaha-streams
+  connectors: pravaha-connectors
+
+externalLib:
+  volume:
+    persistentVolumeClaim:
+      claimName: pravaha-external-lib

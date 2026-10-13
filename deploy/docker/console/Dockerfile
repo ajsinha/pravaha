@@ -40,7 +40,7 @@ LABEL org.opencontainers.image.title="Pravaha console" \
 RUN groupadd --system --gid 10001 pravaha \
  && useradd --system --uid 10001 --gid pravaha --home-dir /opt/pravaha/tmp --no-create-home \
             --shell /usr/sbin/nologin pravaha \
- && mkdir -p /opt/pravaha/conf /opt/pravaha/data/console /opt/pravaha/logs /opt/pravaha/tmp \
+ && mkdir -p /opt/pravaha/conf /opt/pravaha/data/console /opt/pravaha/logs /opt/pravaha/tmp /opt/pravaha/external_lib/python \
  && chown 10001:0 /opt/pravaha/conf /opt/pravaha/data /opt/pravaha/data/console /opt/pravaha/logs /opt/pravaha/tmp \
  && chmod 0775 /opt/pravaha/conf /opt/pravaha/data /opt/pravaha/logs /opt/pravaha/tmp \
  && chmod 0770 /opt/pravaha/data/console

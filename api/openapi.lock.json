@@ -428,6 +428,28 @@
         "responses" : [ "201", "default" ]
       }
     },
+    "/api/v1/connectors" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Connector[]",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/connectors/{name}" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "Connector",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/debug/sessions" : {
       "get" : {
         "hasBody" : false,
@@ -510,6 +532,17 @@
         "parameters" : [ "path:id" ],
         "responseBodies" : {
           "200" : "Change[]",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/declarations" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Declarations",
           "default" : "ApiError"
         },
         "responses" : [ "200", "default" ]
@@ -1271,6 +1304,14 @@
       "usage.cost" : "optional number/double",
       "usage.promptTokens" : "optional integer/int32"
     },
+    "Connector" : {
+      "name" : "optional string",
+      "options" : "optional map",
+      "options{}" : "required string",
+      "origin" : "optional string",
+      "plugin" : "optional string",
+      "usedBy[]" : "optional string"
+    },
     "DeadLetter" : {
       "at" : "optional string/date-time",
       "code" : "optional string",
@@ -1341,6 +1382,19 @@
       "results[].id" : "optional string",
       "results[].newId" : "optional string",
       "results[].outcome" : "optional string"
+    },
+    "Declarations" : {
+      "declarations[]" : "optional object",
+      "declarations[].code" : "optional string",
+      "declarations[].detail" : "optional string",
+      "declarations[].kind" : "optional string",
+      "declarations[].name" : "optional string",
+      "declarations[].origin" : "optional string",
+      "declarations[].state" : "optional string",
+      "declarations[].usedBy[]" : "optional string",
+      "folders" : "optional map",
+      "folders{}" : "required string",
+      "watchInterval" : "optional string"
     },
     "Detail" : {
       "alert" : "optional object",
@@ -2168,6 +2222,8 @@
       "fields[].ordinal" : "optional integer/int32",
       "fields[].type" : "optional string",
       "name" : "optional string",
+      "notApplied" : "optional string",
+      "origin" : "optional string",
       "outOfOrderness" : "optional string",
       "source" : "optional string",
       "version" : "optional integer/int32"
