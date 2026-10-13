@@ -206,6 +206,10 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   only through `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`. Set beside a plaintext `grpc://` URL the console
   refuses to start, naming both settings. In the console README, the getting-started settings table and
   RUNNING_IN_DOCKER.md.
+- **OPSCKPT-1: Operations says "first checkpoint pending" for a query that checkpoints but has not yet.**
+  It said "not checkpointing" whenever there was no last success to age. The engine publishes a new
+  gauge, `pravaha_query_checkpoint_enabled{query}` (1 or 0), and the console's Operations page reads
+  it; against an engine without it the page says what it said before.
 
 ---
 

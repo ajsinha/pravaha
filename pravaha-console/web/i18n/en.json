@@ -168,6 +168,7 @@
         "ms": "{n} ms"
       },
       "not_checkpointing": "not checkpointing",
+      "first_checkpoint_pending": "first checkpoint pending",
       "ago": "ago",
       "took": "took {n} s",
       "failed": "{n} failed",
@@ -1284,6 +1285,7 @@
     "ago": "ago",
     "took": "took {n} s",
     "not_checkpointing": "not checkpointing",
+    "first_checkpoint_pending": "first checkpoint pending",
     "failed": "{n} failed",
     "empty": {
       "title": "No queries registered",
