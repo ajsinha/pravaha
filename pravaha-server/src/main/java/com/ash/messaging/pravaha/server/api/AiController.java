@@ -186,15 +186,34 @@ public class AiController {
             AiFeatures.NARRATIVE,
             AiFeatures.PAGE);
 
+    /**
+     * What {@code POST /api/v1/ai/chat} answers under when the caller's {@code feature} is not one the policy
+     * lists (AIQA-1): every unlisted name shares this one, so a caller can neither mint a fresh per-minute
+     * budget per request nor reach a feature the administrator has no way to close.
+     */
+    static final String API_OTHER = "api:other";
+
+    /** The most characters one chat call may carry, system text and every message together (AIQA-2). */
+    static final int CHAT_MAX_CHARS = 100_000;
+
     private final AiProperties ai;
     private final LlmGateway gateway;
     private final HttpAuthorizer authorizer;
+    private final @Nullable AiFeatures capabilities;
     private final Map<String, Deque<Long>> tests = new ConcurrentHashMap<>();
 
+    /** Without the features' capability gate in {@code /ai/features}: tests. */
     public AiController(AiProperties ai, LlmGateway gateway, HttpAuthorizer authorizer) {
+        this(ai, gateway, authorizer, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiController(
+            AiProperties ai, LlmGateway gateway, HttpAuthorizer authorizer, @Nullable AiFeatures capabilities) {
         this.ai = ai;
         this.gateway = gateway;
         this.authorizer = authorizer;
+        this.capabilities = capabilities;
     }
 
     @GetMapping("/admin/ai")
@@ -269,10 +288,13 @@ public class AiController {
         boolean on = gateway.enabled();
         Map<String, AiProperties.Feature> rules = ai.getPolicy().getFeatures();
         Map<String, Boolean> open = new LinkedHashMap<>();
+        AiFeatures engine = capabilities;
         for (String f : FEATURES) {
             AiProperties.Feature rule = rules.get(f);
             List<String> roles = rule == null ? List.of() : rule.getRoles();
-            open.put(f, on && (roles.isEmpty() || roles.stream().anyMatch(p.roles()::contains)));
+            boolean byPolicy = on && (roles.isEmpty() || roles.stream().anyMatch(p.roles()::contains));
+            // AIQA-6: the engine's own gate too, so a screen never offers what is refused before the model.
+            open.put(f, byPolicy && (engine == null || engine.capable(p, f)));
         }
         return new FeatureStatus(on, ai.getValues(), open);
     }
@@ -302,23 +324,56 @@ public class AiController {
         if (msgs.isEmpty()) {
             throw new PravahaException(ApiErrors.MISSING_FIELD, "send messages or a prompt");
         }
+        String system = b.system();
+        long chars = system == null ? 0 : system.length();
+        for (ChatMessage m : msgs) {
+            chars += m.content().length();
+        }
+        if (chars > CHAT_MAX_CHARS) {
+            throw new PravahaException(
+                    ApiErrors.INVALID_PARAMETER,
+                    "a chat call carries at most " + CHAT_MAX_CHARS + " characters; this one carries " + chars);
+        }
         Integer asked = b.timeoutSeconds();
         Duration t = Duration.ofSeconds(Math.min(CHAT_CAP_SECONDS, Math.max(1, asked == null ? 30 : asked)));
-        String feature = b.feature();
         ChatRequest req = new ChatRequest(
                 b.model(),
-                b.system(),
+                system,
                 msgs,
                 List.of(),
                 b.temperature(),
-                b.maxTokens(),
+                answerLimit(b.model(), b.maxTokens()),
                 Boolean.TRUE.equals(b.jsonMode()),
                 t);
-        return gateway.chat(
-                context(
-                        authorizer.principalOf(http),
-                        "api:" + (feature == null || feature.isBlank() ? "other" : feature.strip())),
-                req);
+        return gateway.chat(context(authorizer.principalOf(http), apiFeature(b.feature())), req);
+    }
+
+    /**
+     * The policy's name for a chat call: {@code api:<feature>} when the policy lists that name, else
+     * {@value #API_OTHER} (AIQA-1).
+     */
+    String apiFeature(@Nullable String feature) {
+        if (feature == null || feature.isBlank()) {
+            return API_OTHER;
+        }
+        String named = "api:" + feature.strip();
+        return ai.getPolicy().getFeatures().containsKey(named) ? named : API_OTHER;
+    }
+
+    /**
+     * The most a chat answer may be (AIQA-2): what the caller asked, never more than the model's own
+     * {@code max-tokens} in its file, else {@code pravaha.ai.features.max-tokens}; at least 1.
+     */
+    private @Nullable Integer answerLimit(@Nullable String model, @Nullable Integer asked) {
+        if (asked == null) {
+            return null;
+        }
+        if (asked < 1) {
+            throw new PravahaException(ApiErrors.INVALID_PARAMETER, "maxTokens is at least 1");
+        }
+        Integer configured = gateway.registry().chat(model).info().maxTokens();
+        int ceiling = configured != null ? configured : ai.getFeatures().getMaxTokens();
+        return Math.min(asked, ceiling);
     }
 
     private static ChatMessage.Role role(@Nullable String role) {

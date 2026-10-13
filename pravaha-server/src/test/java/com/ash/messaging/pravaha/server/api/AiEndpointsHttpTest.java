@@ -140,7 +140,7 @@ class AiEndpointsHttpTest {
                 .andExpect(jsonPath("$.events[0].target").value("mock/m"))
                 .andExpect(jsonPath("$.events[0].decision").value("ALLOW"))
                 .andExpect(jsonPath("$.events[0].reason").value("ok"))
-                .andExpect(jsonPath("$.events[0].detail", containsString("feature=api:explain")))
+                .andExpect(jsonPath("$.events[0].detail", containsString("feature=api:other")))
                 .andExpect(jsonPath("$.events[0].detail", containsString("promptTokens=")))
                 .andExpect(jsonPath("$.events[0].detail", not(containsString("salary"))))
                 .andExpect(jsonPath("$.events[0].detail", not(containsString("echo"))));

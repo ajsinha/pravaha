@@ -166,12 +166,33 @@ class LlmLayerTest {
     @Test
     void aKeyComesFromTheEnvironmentAndNeverAppearsInTheConfigsText() throws Exception {
         write("oai.yaml", "type: openai\napi-key: ${OAI_KEY}\nmodels:\n  - name: m\n");
-        write("dflt.yaml", "type: openai\napi-key: ${MISSING_KEY:-fallback-key}\nmodels:\n  - name: n\n");
+        write("empty.yaml", "type: openai\napi-key: ${MISSING_KEY:-}\nmodels:\n  - name: n\n");
         LlmRegistry reg = registry(Map.of("OAI_KEY", "sekret"));
         ProviderConfig c = reg.provider("oai").orElseThrow().config();
         assertThat(c.apiKey()).isEqualTo("sekret");
         assertThat(c.toString()).contains("apiKey=set").doesNotContain("sekret");
-        assertThat(reg.provider("dflt").orElseThrow().config().apiKey()).isEqualTo("fallback-key");
+        assertThat(reg.provider("empty").orElseThrow().config().apiKey()).isEmpty();
+    }
+
+    @Test
+    void aFallbackValueInASecretIsALiteralAndIsRefused() throws Exception {
+        // AIQA-7: ${NAME:-value} passed the literal check, so a key could be written into the file as a fallback.
+        write("dflt.yaml", "type: openai\napi-key: ${MISSING_KEY:-sk-fallback-123}\nmodels:\n  - name: n\n");
+        write("proxy.yaml", "type: openai\napi-key: ${K}\nproxy:\n  password: ${P:-hunter2}\nmodels:\n  - name: n\n");
+        write(
+                "hdr.yaml",
+                "type: openai\napi-key: ${K}\nheader:\n  X-Api-Key: \"${H:-sk-hdr-9}\"\nmodels:\n  - name: n\n");
+        LlmRegistry reg = registry(Map.of("K", "k"));
+        assertThat(reg.provider("dflt")).isEmpty();
+        assertThat(reg.provider("proxy")).isEmpty();
+        assertThat(reg.provider("hdr")).isEmpty();
+        assertThat(reg.fileErrors().get("dflt.yaml"))
+                .contains("no fallback value")
+                .doesNotContain("sk-fallback");
+        assertThat(reg.fileErrors().get("proxy.yaml"))
+                .contains("proxy.password")
+                .doesNotContain("hunter2");
+        assertThat(reg.fileErrors().get("hdr.yaml")).contains("X-Api-Key").doesNotContain("sk-hdr");
     }
 
     @Test

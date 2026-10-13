@@ -116,6 +116,16 @@ class AiFeaturesEndToEndTest {
     /** First match wins; each matches the last user turn, which starts {@code TASK: <name>}. */
     private static final List<String[]> RULES = List.of(
             rule("TASK: summarise", "Europe spent 40 in all."),
+            // AI QA (wave 7): a masked column under another name; model text that would drive a terminal
+            rule("TASK: ask" + said("question", "alias the card"), sql("SELECT card AS c, amount FROM payments")),
+            rule(
+                    "TASK: ask" + said("question", "escape in the words"),
+                    "{\"sql\": \"SELECT COUNT(*) AS n FROM payments\", "
+                            + "\"explanation\": \"\\u001b]0;owned\\u0007Counts \\u202epayments.\"}"),
+            rule(
+                    "TASK: (repair )?ask" + said("question", "escape in the sql"),
+                    sql("SELECT COUNT(*) AS n FROM payments -- \\u001b[2J")),
+            rule("TASK: explain-sql[\\s\\S]*bidi_probe", "It counts\u202e the rows\u200b."),
             rule(
                     "TASK: repair ask" + said("question", "fix me"),
                     sql("SELECT region, SUM(amount) AS total FROM payments GROUP BY region")),
@@ -391,6 +401,69 @@ class AiFeaturesEndToEndTest {
         assertThat(ask.values()).isEqualTo("aggregates");
         String result = prompts.get(1).messages().get(0).content();
         assertThat(result).startsWith("TASK: summarise").contains("EU | 40").doesNotContain("US |");
+    }
+
+    @Test
+    void underAggregatesAMaskedColumnUnderAnotherNameNeverReachesTheModel() {
+        // AIQA-3: the result table hid masked columns by output name only, so `card AS c` sent card's values.
+        prompts.clear();
+        AiAnswers.AskAnswer a = features("aggregates").ask(ANA, "alias the card please", null);
+        assertThat(a.rows()).isNotEmpty();
+        assertThat(a.summary())
+                .as("a query that names a masked column is not summarised")
+                .isNull();
+        assertThat(prompts)
+                .noneSatisfy(r -> assertThat(r.messages().get(0).content()).startsWith("TASK: summarise"));
+        assertThat(prompts)
+                .allSatisfy(r -> assertThat(
+                                r.messages().get(r.messages().size() - 1).content())
+                        .doesNotContain("XXXX-"));
+    }
+
+    @Test
+    void modelTextCannotCarryControlCharactersToTheCaller() {
+        // AIQA-4: explanations, summaries and explain answers came back as the model wrote them, so an
+        // escape sequence reached the CLI's terminal; SQL with one is refused rather than run and printed.
+        AiFeatures ai = features("labels-only");
+        AiAnswers.AskAnswer a = ai.ask(ANA, "escape in the words", null);
+        assertThat(a.explanation())
+                .doesNotContain("\u001b")
+                .doesNotContain("\u0007")
+                .doesNotContain("‮");
+        assertThat(a.explanation()).contains("Counts");
+        assertThatThrownBy(() -> ai.ask(ANA, "escape in the sql", null))
+                .hasMessageStartingWith("PRV-1088")
+                .hasMessageContaining("control or format characters");
+        AiAnswers.ExplainAnswer e =
+                ai.explain(OPS, "sql", "SELECT COUNT(*) AS bidi_probe FROM payments", null, null, null, null);
+        assertThat(e.explanation()).isEqualTo("It counts  the rows .");
+    }
+
+    @Test
+    void explainingSqlThatNamesARefusedViewByItsQualifiedNameIsRefused() {
+        // AIQA-5: the text check skipped a name after '.', and the planner resolves pravaha.secret_view.
+        prompts.clear();
+        AiFeatures ai = features("labels-only");
+        assertThatThrownBy(() -> ai.explain(ANA, "sql", "SELECT id FROM pravaha.secret_view", null, null, null, null))
+                .hasMessageStartingWith("PRV-7002")
+                .hasMessageContaining("secret_view");
+        AiAnswers.ExplainAnswer r =
+                ai.explain(ANA, "refusal", "SELECT id FROM pravaha.secret_view", null, "PRV-2002", null, null);
+        assertThat(r.valid()).as("the engine's verdict, re-checked as ana").isFalse();
+        assertThat(r.engineCodes()).containsExactly("PRV-7002");
+        assertThat(prompts)
+                .as("no plan of the refused view reached a model")
+                .allSatisfy(each -> assertThat(each.messages().get(0).content()).doesNotContain("UNTRUSTED plan"));
+    }
+
+    @Test
+    void theFeaturesListOffersADraftOnlyToWhoMayRegister() {
+        // AIQA-6: /api/v1/ai/features answered the policy's roles only, offering a draft that is refused.
+        AiFeatures ai = features("labels-only");
+        assertThat(ai.capable(ANA, AiFeatures.DRAFT)).isFalse();
+        assertThat(ai.capable(OPS, AiFeatures.DRAFT)).isTrue();
+        assertThat(ai.capable(ANA, AiFeatures.ALERT)).isTrue();
+        assertThat(ai.capable(ANA, AiFeatures.ASK)).isTrue();
     }
 
     // ------------------------------------------------------------------ drafts and alerts

@@ -14,6 +14,31 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 **Read before upgrading.**
 
+- **AI provider files: a `${NAME:-fallback}` fallback in a secret is refused** (AIQA-7). `api-key`, every
+  credential setting, `proxy.password`, the TLS store passwords and a credential header must be
+  `${NAME}` (or `${NAME:-}`); a fallback value was a literal key written into the file and passed the
+  literal check. The file is reported under `fileErrors` and skipped, in the engine and in the SDK's
+  `pravaha.ai` alike.
+- **`POST /api/v1/ai/chat`: a `feature` the AI policy does not list is `api:other`** (AIQA-1). Each new
+  name used to be a policy feature of its own -- a fresh per-minute budget per request, and a feature no
+  role list could close. A listed `api:<name>` keeps its own roles and limits; list `api:other` to limit
+  or close the rest. The audit row's `feature=` says `api:other` for unlisted names.
+- **`POST /api/v1/ai/chat` is bounded** (AIQA-2): `maxTokens` is never more than the model's `max-tokens`
+  in its file (else `pravaha.ai.features.max-tokens`) and at least 1, and a call carries at most 100,000
+  characters (`PRV-1051` beyond).
+- **AI explain re-checks what the plan reads** (AIQA-5): `kind: sql` and `kind: refusal` matched view
+  names in the SQL text, which missed a qualified `pravaha.secret_view` the planner resolves, so a reader
+  refused that view was sent (and shown) its plan. Every stream and view the plan scans is now asked of
+  the policy (`PRV-7002`).
+- **AI ask under `aggregates`: a masked column under another name never reaches the model** (AIQA-3).
+  The summary hid masked columns by output name only, so `card AS c` sent the column's (masked) values;
+  a query that names a column masked for the reader is no longer summarised.
+- **Model text carries no control characters** (AIQA-4): explanations, summaries, explain answers and
+  narratives have control and format characters (a terminal escape, a bidirectional override) turned to
+  spaces, and SQL or a draft that carries one is refused and repaired, so nothing the model writes can
+  drive the terminal `pravaha query --ask` prints to.
+- **`GET /api/v1/ai/features` applies the engine's own gate** (AIQA-6): `draft` is offered only to a
+  person who may register a query, `alert` only where the alert service runs.
 - **Streams, connections, lookups and sinks can be managed from the console, the API and the CLI**
   ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md), addendum). The console's
   Catalog → Streams (New stream with a schema builder, Edit, Delete, Enable/Disable) and Catalog →
