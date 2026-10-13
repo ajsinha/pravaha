@@ -182,6 +182,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **SBCOMMONSLOG-1: the Spring Boot starter brings no commons-logging.** Calcite's aggdesigner brought
   the jar and Spring warned at every start; the starter excludes it, and spring-jcl provides the same
   API, as in every Boot application.
+- **STARTERDOC-1: the spring-boot-starter help topic no longer calls `@PravahaTest` unbuilt.** Its
+  "Not built yet" note named `@PravahaTest`, the actuator endpoint, the listener error handler and the
+  Boot 3.4 leg, all of which ship; it is now a short section on each, pointing at the user guide.
 
 ---
 
