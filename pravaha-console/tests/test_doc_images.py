@@ -111,7 +111,7 @@ def tutorial_pictures() -> dict[pathlib.Path, list[str]]:
 def test_every_tutorial_picture_is_there_none_is_left_over_and_the_tool_makes_each_one():
     tool = _tool()
     shown = tutorial_pictures()
-    assert len(shown) >= 46, f"the tutorials show {len(shown)} pictures"
+    assert len(shown) >= 68, f"the tutorials show {len(shown)} pictures"
     for image, documents in shown.items():
         assert image.is_file(), (f"{documents} show {image.relative_to(REPO)}, which is missing: pravaha-console/"
                                  f".venv/bin/python tools/docs_screenshots.py --tutorial {image.parent.name}")

@@ -146,6 +146,29 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   (ACCESSORDER-1); `PRV-7002` says who may not read what once (GOVMSG-1); `PRV-5091` quotes a
   plugin's coded refusal without a Java class name (CDCOPENMSG-1); the query page says "1 row
   written" (ROWSPLURAL-1).
+- **The last five hands-on tutorials, 12 to 16 ([docs/tutorials/](../tutorials/README.md)).**
+  *Embedding Pravaha* (two Maven projects against the installed engine: a plain Java program with
+  `pravaha-embedded`, its journal and checkpoints across four runs — and the push lost by a close before
+  the next checkpoint — and a Spring Boot service with `@PravahaListener`, tested by `@PravahaTest` and
+  `PravahaTester`), *Writing a connector* (`pravaha plugin new`, a source of the tutorial's own with a
+  partition per symbol and replayable offsets, the source TCK failing a reader that ignores `pause`
+  and then passing, the jar in `plugins/` and a query over it, a sink and its TCK), *Running in
+  production* (a home, a CA made by `make-certs.sh`, Flight and the PostgreSQL gateway on TLS with the
+  untrusted and the plaintext client refused, people, captive accounts and API keys, a backup with the
+  node stopped and a restart from checkpoints, `pravaha doctor`, the image built from the checkout and
+  run read-only outside the dev profile, `SIGQUIT`, the Helm chart rendered with production values),
+  *Operating at scale* (dedicated, own and shared lanes, a rebalance planned and run, the lane and
+  read-admission metrics, `pravaha top`, Prometheus in Docker scraping with a service account's key and
+  loading the shipped rules, the Grafana dashboards, a thread dump) and *AI in Pravaha* (drishti's
+  tutorial 15 adapted: the mock provider, Admin → AI and Test connection, ask your data with a
+  follow-up and a repair turn, a draft dry-run and registered on confirmation, an alert from words,
+  explanations, the echoed prompt that shows what a model is sent, masking, the policy and the audit;
+  a real provider described). 22 more pictures. `tutorial_captures.py` grew `Node(plugins=...)` (a
+  scenario's own jars in `plugins/`), `Node(flight_ca=...)` (a node whose Flight is on TLS),
+  `Container(options=..., later=True)` with an `Up` step (a container over a home the scenario laid
+  out), and per-scenario console settings and environment for the pictures. Writing them found
+  EMBEDCKPT-1, EMBEDTS-1, SBCOMMONSLOG-1, STARTERDOC-1, PLUGINVER-1, TCKPARTS-1, TLSRECIPE-1,
+  CONSOLETLS-1, OPSCKPT-1, AIASKTS-1 and AINAME-1.
 
 ---
 

@@ -1,0 +1,7 @@
+order_id,customer,region,amount,event_time
+1,ann-gmbh,EMEA,1200,2026-10-01T09:00:05Z
+2,bobco,AMER,300,2026-10-01T09:00:12Z
+3,cafe-lyon,EMEA,4500,2026-10-01T09:00:31Z
+4,kyoto-ya,APAC,800,2026-10-01T09:00:48Z
+5,dallas-tx,AMER,2600,2026-10-01T09:01:20Z
+6,eiffel-sa,EMEA,700,2026-10-01T09:01:40Z

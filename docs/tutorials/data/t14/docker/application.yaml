@@ -1,0 +1,48 @@
+# Tutorial 14 (docs/tutorials/14-running-in-production.md): the same node in the engine's Docker image,
+# mounted at /opt/pravaha/conf, outside the dev profile: real people, with the first administrator's
+# password from a file, and one captive service account managed by configuration.
+pravaha:
+  streams:
+    orders:
+      schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    orders:
+      plugin: filesystem
+      options:
+        path: data/incoming/orders.csv
+        schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+  flight:
+    tls:
+      certificate: conf/tls/server.pem
+      key: conf/tls/server-key.pem
+  pgwire:
+    enabled: true
+    tls:
+      certificate: conf/tls/server.pem
+      key: conf/tls/server-key.pem
+  identity:
+    enabled: true
+    # The first administrator, admin, gets this file's password when the store is empty. Without it,
+    # outside the dev profile, the node refuses to start (PRV-7019) until the published one is changed.
+    bootstrap-password-file: secrets/initial-admin-password
+    # A service account the configuration owns: created at every start, its roles and password put
+    # back if anyone changed them; nobody can disable or re-role it at runtime (PRV-7023).
+    captive-users:
+      - username: ingest
+        display-name: The ingest job
+        roles: [operator]
+        password-file: secrets/ingest-password
+  security:
+    authentication: token
+    policy: authenticated
+    allow-anonymous: false
+    audit: file
+    audit-file: logs/audit.jsonl
+  checkpoint:
+    interval: 30s
+    keep: 3

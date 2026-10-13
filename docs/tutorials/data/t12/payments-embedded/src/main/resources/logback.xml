@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tutorial 12: the engine's own log, warnings and errors only, on standard error.
+     Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+     PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms. -->
+<configuration>
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder><pattern>%-5level %logger{20} - %msg%n</pattern></encoder>
+  </appender>
+  <root level="WARN"><appender-ref ref="STDERR"/></root>
+</configuration>

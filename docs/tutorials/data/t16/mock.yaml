@@ -1,0 +1,52 @@
+# Tutorial 16 (docs/tutorials/16-ai-in-pravaha.md): the mock provider, $PRAVAHA_HOME/conf/ai/mock.yaml.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
+#
+# A provider with no network and no key: regular expressions play the model. The FIRST rule whose
+# expression is found in the last message the model is sent answers with its reply; a message no rule
+# finds is echoed back ("echo: ..."), which shows you exactly what a real model would have been sent.
+# Every feature's message starts "TASK: <name>", and a person's own words sit after a marker
+#   <<<BEGIN UNTRUSTED question id=...>>>   (or description), so a rule can match the words they typed.
+type: mock
+default-model: m
+models:
+  - name: m
+mock:
+  rules:
+    # --- Ask your data: the model writes ONE SELECT over a view; Pravaha runs it as you.
+    - match: 'TASK: ask[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*only (for )?EU'
+      reply: '{"sql": "SELECT region, SUM(spend) AS total FROM region_minutes WHERE region = ''EU'' GROUP BY region", "explanation": "Adds up the EU''s spend over every minute the view holds."}'
+    - match: 'TASK: ask[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*per region'
+      reply: '{"sql": "SELECT region, SUM(spend) AS total FROM region_minutes GROUP BY region", "explanation": "Adds up each region''s spend over every minute the view holds."}'
+    - match: 'TASK: ask[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*per minute'
+      reply: '{"sql": "SELECT window_end, SUM(spend) AS total FROM region_minutes GROUP BY window_end", "explanation": "Adds up every region''s spend in each minute."}'
+    # A first answer the engine refuses (there is no column amt), and the repair turn that mends it.
+    - match: 'TASK: repair ask'
+      reply: '{"sql": "SELECT AVG(amount) AS average FROM big_payments", "explanation": "The average amount of the big payments."}'
+    - match: 'TASK: ask[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*average'
+      reply: '{"sql": "SELECT AVG(amt) AS average FROM big_payments", "explanation": "The average amount of the big payments."}'
+    # A question the views cannot answer: an empty SQL and the reason, never a guess.
+    - match: 'TASK: ask[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*weather'
+      reply: '{"sql": "", "explanation": "No view holds the weather: the views are spend per region per minute and the big payments."}'
+
+    # --- Draft a continuous query: the parts; the engine judges the whole and dry-runs it.
+    - match: 'TASK: draft'
+      reply: '{"name": "region_spend", "sql": "SELECT region, window_start, window_end, SUM(amount) AS spend, COUNT(*) AS payments FROM TABLE(TUMBLE(TABLE payments, DESCRIPTOR(event_time), INTERVAL ''1'' MINUTE)) GROUP BY region, window_start, window_end", "keys": ["region", "window_end"], "options": {"retention": null, "sink": null, "lane": null}, "explanation": "Each region''s spend and number of payments in every one-minute window of event time."}'
+
+    # --- Plain-English alerts: a CREATE ALERT over a view's own columns, or why there is none.
+    - match: 'TASK: alert[\s\S]*UNTRUSTED description id=[0-9a-f]+>>>\n[^\n]*per day'
+      reply: '{"statement": "", "explanation": "No view totals a user''s spend per day; a continuous query of each user''s spend in one-day windows would have to exist first."}'
+    - match: 'TASK: alert'
+      reply: '{"statement": "CREATE ALERT region_over_5000 ON region_minutes WHERE spend > 5000 NOTIFY ops_log WITH (severity = ''critical'')", "explanation": "Notifies when a region''s spend in one minute is over 5000."}'
+
+    # --- Explain: a query from its plan, and a refusal. (No rule for why a view changed: it is echoed.)
+    - match: 'TASK: explain-sql'
+      reply: 'It reads payments, puts each one in the one-minute window of its event time and adds up the amount and counts the payments per region in each window. A minute is published when the watermark -- the newest event time less five seconds -- passes its end, so each region has one row per closed minute.'
+    - match: 'TASK: explain-refusal[\s\S]*PRV-2050'
+      reply: "It means the query keeps a running total for every user forever: the stream never ends, so its state never stops growing. Total per window instead.\nTry: SELECT user_id, window_end, SUM(amount) AS total FROM TABLE(TUMBLE(TABLE payments, DESCRIPTOR(event_time), INTERVAL '1' MINUTE)) GROUP BY user_id, window_start, window_end"
+
+    # --- Ask about this page: an answer from the page's own words, or that it does not say.
+    - match: 'TASK: page[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*card'
+      reply: 'The page does not say.'
+    - match: 'TASK: page[\s\S]*UNTRUSTED question id=[0-9a-f]+>>>\n[^\n]*lateness'
+      reply: 'Allowed lateness is how long after a window closes a late row may still correct its answer; a row later than that is counted and dropped. This stream allows none, so a window is final when it closes.'

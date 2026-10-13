@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tutorial 12 (docs/tutorials/12-embedding-pravaha.md): the engine inside a plain Java program.
+     Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+     PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>payments-embedded</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <!-- Java 21 or later: the engine is built for 21 (ADR-062). -->
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- The engine you built or installed: `./mvnw -q -DskipTests install` in a checkout. -->
+    <pravaha.version>2.4.3-SNAPSHOT</pravaha.version>
+    <!-- Which program `mvn exec:exec` runs: Payments, or -Dmain=com.example.payments.Durable. -->
+    <main>com.example.payments.Payments</main>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- The engine's bill of materials: every pravaha-* artefact, and the versions of the libraries
+           they were built and tested with (Arrow, Jackson, Calcite ...), so Maven does not pick older
+           ones from a dependency's dependency. -->
+      <dependency>
+        <groupId>com.ash.messaging</groupId>
+        <artifactId>pravaha-bom</artifactId>
+        <version>${pravaha.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- The whole engine as a library: planner, lanes, views, checkpoints. No Spring, no server. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-embedded</artifactId>
+      <version>${pravaha.version}</version>
+    </dependency>
+    <!-- Where the engine's log lines go (any SLF4J binding will do); src/main/resources/logback.xml
+         keeps warnings and errors only. -->
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>1.5.18</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.16.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.5.0</version>
+      </plugin>
+      <plugin>
+        <!-- `mvn exec:exec` runs the program in a JVM of its own, on the project's classpath. -->
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.6.3</version>
+        <configuration>
+          <executable>java</executable>
+          <arguments>
+            <argument>-classpath</argument>
+            <classpath/>
+            <argument>${main}</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
