@@ -14,7 +14,8 @@ from tutorial_captures import Background, Cli, Http, Join, Node, Open, Sh, Snap,
 
 DOC = "05-changing-a-running-query.md"
 
-NODE = Node(config="t05/application.yaml", files=(
+NODE = Node(files=(
+    ("t05/streams", "conf/streams"),
     ("t05/txn.csv", "data/incoming/txn.csv"),
     ("t05/big_payments_v2.sql", "big_payments_v2.sql"),
 ))

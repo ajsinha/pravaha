@@ -6,8 +6,8 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Pravaha keeps the answer to a question current while the data under it moves: you ask once, in SQL,
 and the answer — a **view** — is maintained row by row from then on. In this tutorial you go from
 nothing to that, end to end: `pravaha init` scaffolds a project, a node starts on it, you sign in to
-the console, look at the stream the project declares, register two continuous queries (one in the
-Workbench, one from the command line), watch a view change live when a row arrives, check the whole
+the console, look at the stream the project declares, add a second stream while the node runs,
+register two continuous queries (one in the Workbench, one from the command line), watch a view change live when a row arrives, check the whole
 setup with `pravaha doctor`, and read the view from Python. Every output below was printed by a real
 node of this version running exactly these steps.
 
@@ -28,9 +28,10 @@ node of this version running exactly these steps.
 
 ## What you will learn
 
-- what `pravaha init` writes, and the three blocks of a node's configuration: streams, sources, queries;
+- what `pravaha init` writes: a stream in a file of its own, the source that feeds it, and a query;
 - how to start a node with sign-in on, and sign in as the development account `pravaha-dev-admin`;
 - how to read a stream's **event time** and **out-of-orderness** — the two settings that decide when an answer is final;
+- how the node picks up a stream file you add while it runs, and lets go of one you take out;
 - how to register a continuous query in the **Workbench** and with `pravaha register`, and why some queries are refused;
 - why a windowed view shows a minute only once the minute is over, and how to watch a view change in **Live** and with `pravaha subscribe`;
 - how `pravaha doctor` checks a setup, and how a program reads the view with the Python SDK.
@@ -44,18 +45,22 @@ outside the directory you name:
 ```text
 $ pravaha init shop
 created a Pravaha starter project in shop/
-  conf/application.yaml         the node's configuration: stream txn (pravaha.streams) fed by the CSV (pravaha.sources, filesystem)
-  data/txn.csv                  12 sample transactions over four minutes of event time
-  queries/spend_per_minute.sql  the first continuous query: per-user spend per one-minute window
-  docker-compose.yml            pravaha/pravaha-server:<version> on 18080 and 19090; the console on 17070 (profile console)
-  README.md                     what is here, and the next three commands
-  .pravaha                      the connection this node wants, for `pravaha context add` (not read by pravaha)
+  conf/application.yaml          the node's configuration: how often conf/streams is looked at
+  conf/streams/txn.yaml          stream txn, one file named after it, fed by the CSV (source: filesystem)
+  external_lib/java/README.md    where your own connector jars go (on the classpath at start)
+  external_lib/python/README.md  where your own Python for the console and the CLI goes
+  data/txn.csv                   12 sample transactions over four minutes of event time
+  queries/spend_per_minute.sql   the first continuous query: per-user spend per one-minute window
+  docker-compose.yml             pravaha/pravaha-server:<version> on 18080 and 19090; the console on 17070 (profile console)
+  README.md                      what is here, and the next three commands
+  .pravaha                       the connection this node wants, for `pravaha context add` (not read by pravaha)
 
 choices made for you:
   - image tag <version>, this CLI's version, so the engine speaks what the CLI expects; PRAVAHA_TAG overrides it
   - the dev profile: an open node on 127.0.0.1 for one developer; PRAVAHA_PROFILES=dev,users for sign-in and the console
   - a windowed query with an event-time column, because an unwindowed GROUP BY has unbounded state and is refused (PRV-2050)
   - the source follows the file (follow: true), so appended lines arrive without a restart
+  - the stream has a file of its own (conf/streams/txn.yaml): add files there for more streams, and the node declares them while it runs
   - your configuration is untouched: save the connection with the context command below
 
 next:
@@ -67,24 +72,31 @@ next:
 ```
 <!-- /capture -->
 
-The heart of it is `conf/application.yaml`. A node is described by separate blocks, and the
-difference between them is the first thing worth knowing:
+The heart of it is `conf/streams/txn.yaml`. A node declares each stream in **a file named after it**
+in its `conf/streams/` folder: what the stream is (its schema and its clock), and, under `source:`,
+what feeds it — a plugin and its options:
 
 ```yaml
-# shop/conf/application.yaml (comments shortened)
+# shop/conf/streams/txn.yaml (comments shortened)
+schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+event-time: event_time      # the column that carries each row's own time
+out-of-orderness: 5         # how late a row may arrive and still count; a number is seconds
+source:                     # what feeds the stream: a plugin and its options
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+    follow: true            # tail -f: appended lines arrive without a restart
+```
+
+`conf/application.yaml` holds the node's own settings; here only how often it looks at
+`conf/streams/` for new files, `pravaha.config.watch-interval`, ten minutes unless set. Step 5 adds a
+stream while the node runs, so make it ten seconds for this tutorial (in `shop/conf/application.yaml`):
+
+```yaml
 pravaha:
-  streams:                 # what a query can be planned against: the catalogue
-    txn:
-      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
-      event-time: event_time      # the column that carries each row's own time
-      out-of-orderness: 5         # how late a row may arrive and still count; a number is seconds
-  sources:                 # what feeds the stream: a plugin and its options
-    txn:
-      plugin: filesystem
-      options:
-        path: data/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
-        follow: true              # tail -f: appended lines arrive without a restart
+  config:
+    watch-interval: 10s
 ```
 
 The data is twelve payments over four minutes of **event time** — the time each payment happened,
@@ -102,7 +114,7 @@ not the time the node reads it:
 `init` refuses a directory that is not empty (exit `2`) unless you add `--force`; `--dry-run` lists
 the files and writes none.
 
-You should see the six files listed above in `shop/`, and nothing anywhere else.
+You should see the nine files listed above in `shop/`, and nothing anywhere else.
 
 ## Step 2 · Start a node, with sign-in on
 
@@ -114,21 +126,25 @@ The console signs people in against the node's own accounts, so the node runs wi
 ```bash
 cd shop
 PRAVAHA_PROFILES=dev,users docker compose --profile console up -d
-export INCOMING=data                 # the folder the node reads txn.csv from
+export INCOMING=data STREAMS=conf/streams   # the folders the node reads txn.csv and stream files from
 ```
 
 **Without Docker**, with the server jar: give the node a home of its own (`PRAVAHA_HOME`), put the
-configuration and the CSV where the configuration says, and start it; then the console from a
+configuration folder and the CSV where the configuration says, and start it; then the console from a
 checkout (`make install` once):
 
 ```bash
 cd shop
-mkdir -p node/conf node/data/incoming
-cp conf/application.yaml node/conf/ && cp data/txn.csv node/data/incoming/
+mkdir -p node/data/incoming
+cp -r conf node/ && cp data/txn.csv node/data/incoming/
 PRAVAHA_HOME=$PWD/node <checkout>/bin/pravaha-server --spring.profiles.active=dev,users &
-export INCOMING=node/data/incoming   # the folder the node reads txn.csv from
+export INCOMING=node/data/incoming STREAMS=node/conf/streams
 (cd <checkout>/pravaha-console && make run) &
 ```
+
+The node keeps what it must not forget — the queries you register, their checkpoints — under its
+home's `data/` (the image's volume `pravaha-data` with Docker), so a restart brings them back. A node
+started with no home and no settings keeps them in `./data`; `pravaha.data.dir: none` keeps nothing.
 
 Ask the node how it is:
 
@@ -222,6 +238,8 @@ event time    event_time
 out of order  PT5S
 lateness      PT0S
 source        filesystem
+origin        file:conf/streams/txn.yaml
+not applied   -
 
 ORDINAL  NAME        TYPE                                        NULLABLE
 0        txn_id      INT64 NOT NULL                              no
@@ -234,7 +252,7 @@ ORDINAL  NAME        TYPE                                        NULLABLE
 
 In the console, **Catalog → txn** shows the same, with the templates you can start a query from:
 
-![The stream page for txn: its five columns and types, Time and source with event_time, out-of-orderness PT5S and the filesystem source, no registered queries yet, and a list of templates such as Tumbling-window total and Sliding (hopping) window](img/t01/02-stream.png)
+![The stream page for txn: its five columns and types, Time and source with event_time, out-of-orderness PT5S, the filesystem source and Declared by file:conf/streams/txn.yaml, no registered queries yet, and a list of templates such as Tumbling-window total and Sliding (hopping) window](img/t01/02-stream.png)
 
 **Out-of-orderness `PT5S`** says a row may arrive up to five seconds of event time after a later one
 and still be counted. The engine turns it into a **watermark** — "nothing earlier than this is still
@@ -244,7 +262,88 @@ the watermark is dropped rather than used to correct an answer already published
 
 You should see five columns, `event time event_time` and `out of order PT5S`.
 
-## Step 5 · Register a query in the Workbench
+## Step 5 · Add a stream while the node runs
+
+You do not restart a node to give it a stream. Write a second file into its streams folder — refunds,
+fed by a CSV of their own:
+
+```bash
+echo '1,2,50,2026-10-01T09:02:30Z' > "$INCOMING/refunds.csv"
+cat > "$STREAMS/refunds.yaml" <<'YAML'
+schema: "refund_id:INT64,txn_id:INT64,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 5
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/refunds.csv
+    schema: "refund_id:INT64,txn_id:INT64,amount:INT64,event_time:TIMESTAMP"
+    follow: true
+YAML
+```
+
+The node looks at the folder every `watch-interval` — ten seconds here, ten minutes unless you set
+it — so within ten seconds `refunds` is declared, its source bound. `pravaha declarations` says
+what came from where, and whether each file is applied:
+
+<!-- capture: t01-declarations -->
+```text
+$ pravaha declarations
+connectors  conf/connectors
+streams     conf/streams
+lookups     conf/lookups
+sinks       conf/sinks
+watch       PT10S
+
+KIND    NAME     ORIGIN                          STATE    CODE  DETAIL
+stream  refunds  file:conf/streams/refunds.yaml  applied  -     -
+stream  txn      file:conf/streams/txn.yaml      applied  -     -
+```
+<!-- /capture -->
+
+`pravaha streams` lists both, with an `ORIGIN` column: `file:` and the file for one declared in the
+folder, `config` for one written inline under `pravaha.streams` in `application.yaml` (which still
+works), `api` for one declared over HTTP:
+
+<!-- capture: t01-streams-list -->
+```text
+$ pravaha streams
+NAME     VERSION  EVENT TIME  LATENESS  SOURCE      ORIGIN                          FIELDS
+txn      1        event_time  PT5S      filesystem  file:conf/streams/txn.yaml      txn_id INT64 NOT NULL, user_id VARCHAR NOT NULL, amount INT64 NOT NULL, status VARCHAR NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+refunds  1        event_time  PT5S      filesystem  file:conf/streams/refunds.yaml  refund_id INT64 NOT NULL, txn_id INT64 NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+```
+<!-- /capture -->
+
+The **Catalog** shows the same origin on each stream's card:
+
+![The Catalog's Streams tab: two stream cards, refunds and txn, each with its event-time chip, the filesystem source and its origin chip, file:conf/streams/refunds.yaml and file:conf/streams/txn.yaml](img/t01/03-catalog.png)
+
+Take the file out and the stream goes at the next look:
+
+<!-- capture: t01-remove -->
+```text
+$ rm "$STREAMS/refunds.yaml"
+```
+<!-- /capture -->
+
+<!-- capture: t01-streams-after -->
+```text
+$ pravaha streams
+NAME  VERSION  EVENT TIME  LATENESS  SOURCE      ORIGIN                      FIELDS
+txn   1        event_time  PT5S      filesystem  file:conf/streams/txn.yaml  txn_id INT64 NOT NULL, user_id VARCHAR NOT NULL, amount INT64 NOT NULL, status VARCHAR NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+```
+<!-- /capture -->
+
+A stream that a registered query reads is the exception: its file's change or removal is **not
+applied** while the query is registered — the query keeps the definition it was planned against, the
+node logs `PRV-1065` naming the file and the queries, and `pravaha declarations` lists the file as
+`not-applied` until the last of those queries is dropped. A file that cannot be read is reported
+(`PRV-1064`, naming the file and the key) and never takes the node down; a literal password in one is
+refused (`PRV-1063`: write `${ENV_NAME}`).
+
+You should see `refunds` with `ORIGIN file:conf/streams/refunds.yaml`, then only `txn`.
+
+## Step 6 · Register a query in the Workbench
 
 Open **Workbench**, type a question and register it. The first one here keeps every payment of 500 or
 more:
@@ -257,7 +356,7 @@ The editor plans it as you type (**valid**, bottom right). Open **Register**, na
 tick `txn_id` as the key — the column that says which row a later row replaces — and press **Register
 continuous query**:
 
-![The Workbench with the SQL above in the editor marked valid, the Register tab open with the name big_payments, txn_id ticked as key 1 and retention left to the engine's default, and the confirmation big_payments is running with its fingerprint and keys](img/t01/03-workbench.png)
+![The Workbench with the SQL above in the editor marked valid, the Register tab open with the name big_payments, txn_id ticked as key 1 and retention left to the engine's default, and the confirmation big_payments is running with its fingerprint and keys](img/t01/04-workbench.png)
 
 From that moment the node keeps `big_payments` current: every payment that arrives goes through the
 filter once. Not every question is accepted. A total per user **for ever** is refused, because its
@@ -279,7 +378,7 @@ catalogue does not have), `PRV-2020` (a shape the engine does not run, such as `
 
 You should see `big_payments is running` with a fingerprint and `keys [0]`.
 
-## Step 6 · Register one from the command line, and read it
+## Step 7 · Register one from the command line, and read it
 
 The project's query is a **windowed** aggregate: each user's completed spend per minute of event time.
 
@@ -335,14 +434,14 @@ short of the end of 09:03, which is still open. Publishing 09:03 now would publi
 row could make wrong. (Carol's 900 is `PENDING` and alice's 30 `FAILED`, so the `WHERE` leaves them
 out.) In the console, **Catalog → Views → spend_per_minute** reads the view by its key:
 
-![The view page for spend_per_minute: RUNNING, 12 rows in, its fingerprint; a point query on user_id equals bob answering three rows, one for each of the minutes 09:00, 09:01 and 09:02, with spend 50, 75 and 60](img/t01/04-view.png)
+![The view page for spend_per_minute: RUNNING, 12 rows in, its fingerprint; a point query on user_id equals bob answering three rows, one for each of the minutes 09:00, 09:01 and 09:02, with spend 50, 75 and 60](img/t01/05-view.png)
 
 A read of a name that is not a view is `PRV-4023`; `ORDER BY` in a read is refused (`PRV-2020`)
 because a view has no row order — sort in whatever reads it.
 
 You should see seven rows and no row for 09:03.
 
-## Step 7 · Watch the view change
+## Step 8 · Watch the view change
 
 Open **Watch live** on the view page, and in a terminal follow it with `pravaha subscribe`. Then
 append one payment from 09:05 — it is what moves event time past the end of 09:03:
@@ -373,7 +472,7 @@ The watermark moved to 09:04:55, the 09:03 minute closed, and its two rows arriv
 **weight**: `+1` a row appeared, `-1` one was withdrawn. The Live page shows the same commit as it
 happens, with the current rows beside the change log:
 
-![The Live page for spend_per_minute: 2 changes, 2 appeared, 0 withdrawn, 9 current rows; the current rows now include dave and alice for 09:03 with 45 and 80, and the change log shows both at +1](img/t01/05-live.png)
+![The Live page for spend_per_minute: 2 changes, 2 appeared, 0 withdrawn, 9 current rows; the current rows now include dave and alice for 09:03 with 45 and 80, and the change log shows both at +1](img/t01/06-live.png)
 
 The 09:05 minute is now the open one. Read the newest minutes to check:
 
@@ -392,7 +491,7 @@ alice    2026-10-01 09:03:00+00:00  80     1
 
 You should see two `+1` rows for 09:03 in one commit, and the Live page counting `2 appeared`.
 
-## Step 8 · Check the setup with doctor
+## Step 9 · Check the setup with doctor
 
 `pravaha doctor` checks this machine and the node in one go — Python, the CLI, pyarrow, Java, the
 token, HTTP, Flight, who you are — and says how to fix anything that is not green. It changes nothing
@@ -423,7 +522,7 @@ program should use instead.
 
 You should see `doctor: 0 red`.
 
-## Step 9 · Read it from Python
+## Step 10 · Read it from Python
 
 The SDK speaks Flight SQL for reads and subscriptions and HTTP for the catalogue. The same token
 works:
@@ -487,8 +586,9 @@ You should see `rows in: 13` and bob's three closed minutes.
 | `PRV-7001` on every command | no token, or one the node does not know | `export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin)` |
 | `PRV-7016` on any command | the session has ended (12 hours, or 30 minutes idle) | sign in again, or use an API key |
 | The node stops at start with `PRV-7022` | the captive account's literal password needs the `dev` profile | start with `--spring.profiles.active=dev,users` (only on your own machine) |
-| `PRV-2050` at register | an aggregate with no window keeps state for ever | add a window, as in Step 6 |
+| A new stream file is not there | the node has not looked yet, or the file was refused | wait one `watch-interval` (ten minutes unless set); `pravaha declarations` and the node's log name a refused file and why (`PRV-1061` its name, `PRV-1064` its content) |
+| `PRV-2050` at register | an aggregate with no window keeps state for ever | add a window, as in Step 7 |
 | `PRV-2002` at register | a name the catalogue does not have, or a window over a stream with no `event-time` | check `pravaha streams describe`; declare `event-time` on the stream |
-| `RUNNING`, rows in climbing, the view empty | no window has closed: the watermark has not passed one's end | append a later row, as in Step 7; check `stream txn: event-time=...` in the log |
+| `RUNNING`, rows in climbing, the view empty | no window has closed: the watermark has not passed one's end | append a later row, as in Step 8; check `stream txn: event-time=...` in the log |
 | The view never changes after an append | the source does not follow the file, or you appended to another copy | `follow: true` under `options:`; `$INCOMING` is the folder the node reads |
 | `doctor` reports `http` `RED` | nothing answers on 18080 | start the node (Step 2); `--http` if it is elsewhere |

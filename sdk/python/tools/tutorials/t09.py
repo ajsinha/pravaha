@@ -20,6 +20,9 @@ URL = "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
 SHOWN_URL = "jdbc:h2:$PRAVAHA_HOME/data/warehouse/warehouse;AUTO_SERVER=TRUE"
 
 NODE = Node(config="t09/application.yaml", jars=(H2,), files=(
+    ("t09/streams", "conf/streams"),
+    ("t09/sinks", "conf/sinks"),
+    ("t09/connectors", "conf/connectors"),
     ("t09/txn.csv", "data/incoming/txn.csv"),
     ("t09/warehouse.sql", "warehouse.sql"),
     ("t09/spend_by_user.sql", "spend_by_user.sql"),

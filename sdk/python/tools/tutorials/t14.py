@@ -33,6 +33,7 @@ ENGINE = Container(
 )
 
 NODE = Node(config="t14/application.yaml", pgwire=True, flight_ca="conf/tls/ca.pem", containers=(ENGINE,), files=(
+    ("t14/streams", "conf/streams"),
     ("t14/orders.csv", "data/incoming/orders.csv"),
     ("t14/region_revenue.sql", "region_revenue.sql"),
     ("t14/make-certs.sh", "tutorial/make-certs.sh"),
@@ -40,11 +41,8 @@ NODE = Node(config="t14/application.yaml", pgwire=True, flight_ca="conf/tls/ca.p
     ("t14/values-prod.yaml", "tutorial/values-prod.yaml"),
 ))
 
-#: The console reaches a TLS engine through gRPC's own trust setting: it has none of its own (CONSOLETLS-1).
-CONSOLE_ENV = {"GRPC_DEFAULT_SSL_ROOTS_FILE_PATH": "{home}/conf/tls/ca.pem"}
-
-#: A person's roles come in no fixed order (ROLESORDER-1): shown in one.
-ROLES = (r"\boperator,admin\b", "admin,operator")
+#: The console trusts a private CA's TLS engine through PRAVAHA_ENGINE_CA (engine.tls.ca), as the tutorial says.
+CONSOLE_ENV = {"PRAVAHA_ENGINE_CA": "{home}/conf/tls/ca.pem"}
 
 #: The node's Flight port, from the URL the reader exported.
 FLIGHT = "$(echo {url} | sed 's/.*://')"
@@ -82,7 +80,7 @@ STEPS = (
        show=f"pravaha --url grpc://localhost:19090 query --sql '{READ}'"),
     # People and keys.
     Sh("t14-user", "printf '%s\\n' 'Tutorial-oncall-2026' | pravaha user create oncall --roles operator --password-stdin"),
-    Cli("t14-users", ("user", "list"), subs=((r"\d{4}-\d\d-\d\dT[\d:.]+Z", "<time>"), ROLES)),
+    Cli("t14-users", ("user", "list"), subs=((r"\d{4}-\d\d-\d\dT[\d:.]+Z", "<time>"),)),
     Sh("t14-key", "pravaha key create reporting --days 30 | tee reporting.key", show="pravaha key create reporting --days 30"),
     Sh("t14-psql", f"PGPASSWORD=$(tail -n 1 reporting.key) {PSQL} -c '{READ}'",
        show=f"PGPASSWORD=\"$KEY\" {PSQL_SHOWN} -c '{READ}'"),
@@ -110,6 +108,7 @@ STEPS = (
        show=f"deploy/docker/build.sh --tag {IMAGE} | tail -n 3", subs=((r"size  \d+ bytes", "size  N bytes"),)),
     Sh("t14-docker-home", "mkdir -p docker/conf/tls docker/secrets docker/data/incoming docker/logs docker/tmp "
                           "&& cp tutorial/docker-application.yaml docker/conf/application.yaml "
+                          "&& cp -r conf/streams docker/conf/ "
                           "&& cp conf/tls/server.pem conf/tls/server-key.pem docker/conf/tls/ "
                           "&& cp data/incoming/orders.csv docker/data/incoming/ "
                           f"&& printf '%s' '{ADMIN_PASSWORD}' > docker/secrets/initial-admin-password "
@@ -130,10 +129,10 @@ STEPS = (
        show="ADMIN=$(pravaha --http http://localhost:28080 login --user admin)"),
     Sh("t14-docker-whoami", f"PRAVAHA_TOKEN=$(cat docker.token) pravaha --http {DOCKER_HTTP} whoami",
        show="PRAVAHA_TOKEN=$ADMIN pravaha --http http://localhost:28080 whoami",
-       subs=((r"password expires\s+\S+", "password expires  <time>"), ROLES)),
+       subs=((r"password expires\s+\S+", "password expires  <time>"),)),
     Sh("t14-docker-users", f"PRAVAHA_TOKEN=$(cat docker.token) pravaha --http {DOCKER_HTTP} user list",
        show="PRAVAHA_TOKEN=$ADMIN pravaha --http http://localhost:28080 user list",
-       subs=((r"\d{4}-\d\d-\d\dT[\d:.]+Z", "<time>"), ROLES)),
+       subs=((r"\d{4}-\d\d-\d\dT[\d:.]+Z", "<time>"),)),
     Sh("t14-docker-dump", "docker kill --signal=QUIT {pravaha-node} >/dev/null && sleep 2 && docker logs {pravaha-node} 2>&1 "
                           "| grep -m1 -A1 '^Full thread dump'",
        show="docker kill --signal=QUIT pravaha-node && docker logs pravaha-node 2>&1 | grep -m1 -A1 '^Full thread dump'",

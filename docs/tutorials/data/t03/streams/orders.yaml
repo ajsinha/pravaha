@@ -1,0 +1,12 @@
+# Tutorial 3 (docs/tutorials/03-joins-and-lookups.md): the node's conf/streams/orders.yaml.
+# The file name is the stream's name; a relative path is relative to the node's home (PRAVAHA_HOME).
+schema: "order_id:STRING,customer_id:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 10s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/orders.csv
+    schema: "order_id:STRING,customer_id:STRING,amount:INT64,event_time:TIMESTAMP"
+    skip.header: "true"
+    follow: "true"

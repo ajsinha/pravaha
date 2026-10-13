@@ -1,21 +1,8 @@
 # Tutorial 14 (docs/tutorials/14-running-in-production.md): the same node in the engine's Docker image,
 # mounted at /opt/pravaha/conf, outside the dev profile: real people, with the first administrator's
-# password from a file, and one captive service account managed by configuration.
+# password from a file, and one captive service account managed by configuration. The stream is the
+# same conf/streams/orders.yaml, mounted with the rest of conf/.
 pravaha:
-  streams:
-    orders:
-      schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 5s
-  sources:
-    orders:
-      plugin: filesystem
-      options:
-        path: data/incoming/orders.csv
-        schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
-        event.time: event_time
-        skip.header: "true"
-        follow: "true"
   flight:
     tls:
       certificate: conf/tls/server.pem

@@ -3328,7 +3328,7 @@
       "points": {
         "1": {
           "heading": "Event time and lateness",
-          "text": "Out-of-orderness is how long windows wait for rows arriving out of order before they close. Allowed lateness is how long after a window closes a late row may still correct its answer; a row later than that is counted on its query as a late row and dropped. A stream with no event-time column has no window that can close."
+          "text": "Out-of-orderness is how long a window waits for rows arriving out of order before it closes. Allowed lateness is how long after that a late row may still correct it; a later one is dropped."
         },
         "2": {
           "heading": "Where rows come from",

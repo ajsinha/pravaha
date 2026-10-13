@@ -13,9 +13,9 @@ import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
 import com.ash.messaging.pravaha.testkit.tck.SourcePluginTck;
 
 /**
- * The ten conformance tests every shipped source runs, over a fixture of one symbol and five ticks.
- * One symbol, because the TCK's replay test resumes partition 0 and expects the rest of the whole
- * fixture from it (TCKPARTS-1): with two symbols it would count the other symbol's ticks as lost.
+ * The ten conformance tests every shipped source runs, over a fixture of two symbols -- two
+ * partitions -- and five ticks each. The replay test resumes every partition from an offset of its
+ * own and expects that partition's remainder.
  */
 class AcmeSourceTckTest extends SourcePluginTck {
 
@@ -24,7 +24,7 @@ class AcmeSourceTckTest extends SourcePluginTck {
     @Override
     protected StreamSourcePlugin createPlugin() {
         AcmeSourcePlugin plugin = new AcmeSourcePlugin();
-        plugin.configure(new Context("ticks", Map.of("symbols", "ACME", "ticks", "5")));
+        plugin.configure(new Context("ticks", Map.of("symbols", "ACME,GLOBEX", "ticks", "5")));
         plugin.open();
         return plugin;
     }
@@ -36,6 +36,6 @@ class AcmeSourceTckTest extends SourcePluginTck {
 
     @Override
     protected int expectedRecordCount() {
-        return 5;
+        return 10;
     }
 }

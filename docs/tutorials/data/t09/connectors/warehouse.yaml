@@ -1,0 +1,6 @@
+# Tutorial 9: the node's conf/connectors/warehouse.yaml -- the database the three sinks write, once.
+# An H2 file in the node's home here; in production a URL, a user and password: "${ENV_NAME}".
+plugin: jdbc-sink
+options:
+  url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
+  user: sa

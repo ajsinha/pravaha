@@ -12,11 +12,12 @@ import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
 
 /**
- * The same engine, built from configuration -- the keys a node reads -- with a registry journal and a
- * checkpoint directory under {@code state/}, checkpointing every second. Each run pushes one payment
- * of 250. Run it more than once: the journal registers the query again at start, and the checkpoint
- * brings its total back. With {@code CLOSE_AT_ONCE=1} it closes straight after the push, before the
- * next checkpoint -- and that payment is not there the next time.
+ * The same engine, built from configuration -- the keys a node reads -- with its data root at
+ * {@code state/} (the registry journal and the checkpoints beneath it), checkpointing every second.
+ * Each run pushes one payment of 250. Run it more than once: the journal registers the query again at
+ * start, and the checkpoint brings its total back. With {@code CLOSE_AT_ONCE=1} it closes straight
+ * after the push, before the next periodic checkpoint -- and close() takes a last one, so that payment
+ * is there the next time too.
  */
 public final class Durable {
 
@@ -25,8 +26,9 @@ public final class Durable {
                 .set("pravaha.node.id", "payments-service")
                 .set("pravaha.streams.txn.schema",
                         "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP")
-                .set("pravaha.registry.journal", "state/registry.journal")
-                .set("pravaha.checkpoint.directory", "state/checkpoints")
+                // One root: state/registry.journal and state/checkpoints/ beneath it. An embedded
+                // engine keeps nothing unless told where.
+                .set("pravaha.data.dir", "state")
                 .set("pravaha.checkpoint.interval", "1s")
                 .build();
         try (PravahaEngine engine = PravahaEngine.create(configuration)) {
@@ -44,11 +46,11 @@ public final class Durable {
                     Instant.parse("2026-10-01T09:00:00Z")});
             System.out.println("after a payment of 250: " + total(engine));
             if (System.getenv("CLOSE_AT_ONCE") == null) {
-                // A checkpoint is taken every pravaha.checkpoint.interval, not at close: wait for one.
+                // A checkpoint is taken every pravaha.checkpoint.interval: wait for one.
                 Thread.sleep(2_500);
                 System.out.println("checkpointed; closing");
             } else {
-                System.out.println("closing before the next checkpoint");
+                System.out.println("closing before the next checkpoint: close() takes a last one");
             }
         }
     }

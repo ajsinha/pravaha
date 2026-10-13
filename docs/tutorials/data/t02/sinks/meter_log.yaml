@@ -1,0 +1,6 @@
+# Tutorial 2: the node's conf/sinks/meter_log.yaml -- the file name is the sink's name. An
+# append-only file: a query whose answer can be corrected cannot write to it (PRV-2041).
+plugin: filesystem
+options:
+  path: data/outgoing/meter_log.csv
+  schema: "meter_id:STRING,window_start:TIMESTAMP,window_end:TIMESTAMP,readings:INT64,min_w:INT64,max_w:INT64"

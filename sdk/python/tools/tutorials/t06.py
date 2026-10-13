@@ -14,6 +14,7 @@ from tutorial_captures import Cli, Node, Open, Sh, Snap, Until
 DOC = "06-investigating-an-incident.md"
 
 NODE = Node(config="t06/application.yaml", files=(
+    ("t06/streams", "conf/streams"),
     ("t06/txn.csv", "data/incoming/txn.csv"),
     ("t06/spend_per_minute.sql", "spend_per_minute.sql"),
 ))

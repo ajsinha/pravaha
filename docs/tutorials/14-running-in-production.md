@@ -23,14 +23,15 @@ by a real node, a real container and a real `helm` running these steps.
   `psql`.
 - `openssl`, the `psql` client, Docker (as a member of the `docker` group), and `helm` 3 for the last
   step (no cluster is needed: `helm template` renders without one).
-- The tutorial's files, in [data/t14/](data/t14/): `application.yaml` (the node), `orders.csv`,
+- The tutorial's files, in [data/t14/](data/t14/): `application.yaml` (the node), `streams/orders.yaml`
+  (the stream, for the node's `conf/streams/`), `orders.csv`,
   `region_revenue.sql`, `make-certs.sh` (a test CA and a server certificate), `docker/application.yaml`
   (the container's configuration) and `values-prod.yaml` (the chart's).
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t14 T=$PWD/docs/tutorials/data/t14
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp $T/application.yaml $PRAVAHA_HOME/conf/
+cp -r $T/application.yaml $T/streams $PRAVAHA_HOME/conf/
 cp $T/orders.csv $PRAVAHA_HOME/data/incoming/
 ```
 
@@ -49,9 +50,14 @@ cp $T/orders.csv $PRAVAHA_HOME/data/incoming/
 ## Step 1 · A home, and certificates for it
 
 A **home** is one directory with everything a node owns. `bin/pravaha-server` runs from it: it reads
-`conf/application.yaml` over the shipped defaults, keeps its registry journal, checkpoints and identity
-store under `data/`, writes `logs/pravaha-server.log`, loads `plugins/`, and uses `tmp/` as the JVM's
-temporary directory. Make a test CA and a server certificate in `conf/tls`:
+`conf/application.yaml` over the shipped defaults and its streams, lookups, sinks and connections from
+`conf/streams/`, `conf/lookups/`, `conf/sinks/` and `conf/connectors/`; keeps its registry journal,
+checkpoints and identity store under `data/`; writes `logs/pravaha-server.log`; loads `plugins/` and
+`external_lib/java/`; and uses `tmp/` as the JVM's temporary directory. Two settings move it all —
+`pravaha.config.dir` and `pravaha.data.dir` — and each path beneath them can still be set on its own.
+(A node started with no home keeps its state in `./data` and reads `./config`.)
+
+Make a test CA and a server certificate in `conf/tls`:
 
 <!-- capture: t14-certs -->
 ```text
@@ -77,7 +83,7 @@ The **subjectAltName** is the part people leave out: a certificate without one f
 verification whatever its CN says. The script also states the CA's key usage — strict verifiers,
 `pravaha doctor`'s Python among them, refuse a CA certificate without it, while OpenSSL and gRPC accept
 one; the recipe in the [TLS guide](../guides/CONNECTOR_TLS.md#6-generating-material-for-a-test-environment)
-does not state it, so `doctor` reports that recipe's CA as untrusted (TLSRECIPE-1). Keys must be
+states it the same way. Keys must be
 PKCS#8 (`BEGIN PRIVATE KEY`), which is what `openssl` writes now. **In production the CA's key is not on
 the node** — the script leaves `ca-key.pem` here only because this is a test CA.
 
@@ -293,6 +299,7 @@ never. Copy them **with the node stopped**: a checkpoint being written is not a 
 ```text
 $ cd "$PRAVAHA_HOME" && tar czf pravaha-backup.tgz conf data && tar tzf pravaha-backup.tgz | grep -v '/$'
 conf/application.yaml
+conf/streams/orders.yaml
 conf/tls/ca-key.pem
 conf/tls/ca.pem
 conf/tls/server-key.pem
@@ -320,9 +327,10 @@ APAC    2026-10-01 09:01:00+00:00  800      1
 ```
 <!-- /capture -->
 
-**A clean stop does not take a last checkpoint.** A node's sources replay from the newest checkpoint's
-offsets, so nothing is lost — what was read after it is read again. (For the embedded engine, whose rows
-are pushed and cannot be replayed, that costs rows: [tutorial 12](12-embedding-pravaha.md#step-3--surviving-a-restart).)
+**A clean stop takes a last checkpoint**, so the restart resumes exactly where the node stopped. A
+crash — `kill -9`, the machine — resumes from the newest periodic checkpoint instead, and the sources
+replay what was read after it, so nothing is lost either way. (For the embedded engine, whose rows are
+pushed and cannot be replayed, a crash costs rows: [tutorial 12](12-embedding-pravaha.md#step-3--surviving-a-restart).)
 
 You should see a checkpoint id, the backup's files — `conf/`, the journals, the checkpoint — and the same
 three regions after the restart.
@@ -355,10 +363,10 @@ doctor: 0 red, 1 yellow
 
 `tls flight` says whether the certificate is trusted, the name it is valid for and when it expires —
 the line to watch before it does. `token expiry` is yellow because a session ends within hours; a
-script should use an API key. The console reaches a TLS engine too — the pictures here are of one — but
-it has no setting of its own for a private CA: it trusts one through gRPC's
-`GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` environment variable, set to the CA's file before it starts
-(CONSOLETLS-1). On Operations, after the restart, `region_revenue` has its three rows and a checkpoint
+script should use an API key. The console reaches a TLS engine too — the pictures here are of one: give
+it the CA's file as `engine.tls.ca` in its configuration, or `PRAVAHA_ENGINE_CA` in its environment
+(`PRAVAHA_ENGINE_CA=$PRAVAHA_HOME/conf/tls/ca.pem`), and it trusts the engine's certificate.
+On Operations, after the restart, `region_revenue` has its three rows and a checkpoint
 seconds old, and the note *no watermark yet*: the source resumed past every row it had read, so since
 the start it has seen no row with an event time to measure one from.
 
@@ -385,7 +393,8 @@ $ deploy/docker/build.sh --tag pravaha/pravaha-server:tutorial-14 | tail -n 3
 
 The container gets a home of its own — mounted, not the image's: `conf/` and `secrets/` read-only,
 `data/`, `logs/` and `tmp/` writable, and everything else read-only (`--read-only`, with a `tmpfs` at
-`/tmp` for the JVM's attach socket). Its configuration leaves the dev profile behind:
+`/tmp` for the JVM's attach socket). Its `conf/streams/` holds the same `orders.yaml`, and its
+`conf/application.yaml` leaves the dev profile behind:
 
 <!-- file: data/t14/docker/application.yaml -->
 ```yaml
@@ -407,6 +416,7 @@ The container gets a home of its own — mounted, not the image's: `conf/` and `
 ```text
 $ find docker -type f | sort
 docker/conf/application.yaml
+docker/conf/streams/orders.yaml
 docker/conf/tls/server-key.pem
 docker/conf/tls/server.pem
 docker/data/incoming/orders.csv
@@ -570,7 +580,7 @@ ServiceMonitor, a PrometheusRule and the test Pod, and the certificate mounted f
 | `PRV-1040 ... Socket closed` | a plaintext `grpc://` client against a TLS node | `grpc+tls://` |
 | the node refuses to start naming the other half of a TLS pair | a certificate without its key, or a key without its certificate | set both, or neither |
 | a key is refused as PKCS#1 | `BEGIN RSA PRIVATE KEY` | `openssl pkcs8 -topk8 -nocrypt -in old.pem -out new.pem` |
-| `doctor` says `CA cert does not include key usage extension` | Python's strict verification refuses a CA without key usage (TLSRECIPE-1) | make the CA as `make-certs.sh` does |
+| `doctor` says `CA cert does not include key usage extension` | Python's strict verification refuses a CA without key usage | make the CA as `make-certs.sh` does |
 | `FATAL: PRV-6221` from `psql` | the gateway requires TLS and the client did not ask | `sslmode=verify-full` and `sslrootcert=` |
 | `PRV-7019` at start | outside the dev profile, the store is empty and no first password is given | `pravaha.identity.bootstrap-password-file` |
 | `PRV-7022` at start | a captive user's entry cannot be honoured (no password source, a bad name) | the message names the entry |

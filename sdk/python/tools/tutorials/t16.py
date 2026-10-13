@@ -19,6 +19,7 @@ from tutorial_captures import Cli, Http, Node, Open, Sh, Snap, Ui, Until
 DOC = "16-ai-in-pravaha.md"
 
 NODE = Node(config="t16/application.yaml", files=(
+    ("t16/streams", "conf/streams"),
     ("t16/payments.csv", "data/incoming/payments.csv"),
     ("t16/mock.yaml", "conf/ai/mock.yaml"),
     ("t16/region_minutes.sql", "region_minutes.sql"),

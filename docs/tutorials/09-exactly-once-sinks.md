@@ -23,15 +23,17 @@ steps — including the crash.
 - The H2 database jar, `h2-2.3.232.jar` (Maven Central, `com.h2database:h2:2.3.232`), for the tables: a
   database in one file, so this tutorial needs no server. The same sink writes PostgreSQL (its driver is
   in the server jar), and any database with a JDBC driver in `plugins/`.
-- The tutorial's files, in [data/t09/](data/t09/): `application.yaml` (a stream, three sinks, a checkpoint
-  every 30 seconds), `txn.csv` (six payments), `warehouse.sql` (the three tables) and `spend_by_user.sql`.
+- The tutorial's files, in [data/t09/](data/t09/): `streams/txn.yaml` (the stream), three sinks in
+  `sinks/`, the database they write as a named connection (`connectors/warehouse.yaml`),
+  `application.yaml` (a checkpoint every 30 seconds), `txn.csv` (six payments), `warehouse.sql` (the
+  three tables) and `spend_by_user.sql`.
 - A node home with the configuration, the data, the driver in `plugins/`, and the tables made before the
   node starts — **a sink never creates or alters its table**:
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t09
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming $PRAVAHA_HOME/plugins
-cp docs/tutorials/data/t09/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t09/{application.yaml,streams,sinks,connectors} $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t09/txn.csv $PRAVAHA_HOME/data/incoming/
 cp ~/.m2/repository/com/h2database/h2/2.3.232/h2-2.3.232.jar $PRAVAHA_HOME/plugins/
 cd docs/tutorials/data/t09
@@ -62,41 +64,59 @@ export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin) PRAVAHA_INSECURE_
 
 ## Step 1 · Three sinks, three tables
 
+The three sinks write one database, so the database is a **named connection** — said once — and each
+sink's file names it and says only what is its own:
+
 ```yaml
-# data/t09/application.yaml (the sinks)
-  sinks:
-    spend_table:
-      plugin: jdbc-sink
-      options:
-        url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
-        user: sa
-        table: spend_by_user
-        schema: "user_id:STRING,window_start:TIMESTAMP,window_end:TIMESTAMP,spend:INT64"
-        key.columns: "user_id,window_end"
-        mode: upsert
-        transactional: "true"
-    payments_log:
-      plugin: jdbc-sink
-      options:
-        url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
-        user: sa
-        table: payments_log
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64"
-        mode: append
-        transactional: "true"
-    payments_log_plain:
-      plugin: jdbc-sink
-      options:
-        url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
-        user: sa
-        table: payments_log_plain
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64"
-        mode: append
-        transactional: "false"
+# conf/connectors/warehouse.yaml (the database)
+plugin: jdbc-sink
+options:
+  url: "jdbc:h2:./data/warehouse/warehouse;AUTO_SERVER=TRUE"
+  user: sa
+```
+
+```yaml
+# conf/sinks/spend_table.yaml
+connector: warehouse
+options:
+  table: spend_by_user
+  schema: "user_id:STRING,window_start:TIMESTAMP,window_end:TIMESTAMP,spend:INT64"
+  key.columns: "user_id,window_end"
+  mode: upsert
+  transactional: "true"
+```
+
+```yaml
+# conf/sinks/payments_log.yaml
+connector: warehouse
+options:
+  table: payments_log
+  schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+  mode: append
+  transactional: "true"
+```
+
+```yaml
+# conf/sinks/payments_log_plain.yaml
+connector: warehouse
+options:
+  table: payments_log_plain
+  schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+  mode: append
+  transactional: "false"
+```
+
+```yaml
+# conf/application.yaml
+pravaha:
   checkpoint:
     interval: 30s
     keep: 5
 ```
+
+A sink's options are the connection's with its own laid over them — moving the warehouse to
+PostgreSQL is one file's `url`, `user` and `password: "${ENV_NAME}"` (a literal password is refused,
+`PRV-1063`).
 
 The tables are ordinary: `spend_by_user` has a primary key on exactly `key.columns`, which is what an
 upsert resolves against; the two logs have none.

@@ -19,7 +19,8 @@ way a drop ends it. Every output below was printed by a real node running these 
 - [Tutorial 1](01-first-15-minutes.md) done: a node with `--spring.profiles.active=dev,users`, signed in,
   `PRAVAHA_TOKEN` and `PRAVAHA_INSECURE_TOKEN=true` exported.
 - The tutorial's files, in [data/t04/](data/t04/): `application.yaml` (the node, with the PostgreSQL
-  gateway on), `txn.csv` (six payments) and `follow.py` (Step 4).
+  gateway on), `streams/txn.yaml` (the stream and its source, a file the node reads from its
+  `conf/streams/`), `txn.csv` (six payments) and `follow.py` (Step 4).
 - `psql`, the PostgreSQL client (`sudo apt install postgresql-client`, or any version from 9.4 on), for Step 6.
 - **Two terminals**: a subscription waits for changes, so follow in one and append rows from the other.
 - A node home with the configuration and the data in place:
@@ -27,7 +28,7 @@ way a drop ends it. Every output below was printed by a real node running these 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t04
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t04/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t04/application.yaml docs/tutorials/data/t04/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t04/txn.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
 cd docs/tutorials/data/t04
@@ -37,19 +38,22 @@ The source reads an **operation column**: a line whose `op` is `D` withdraws the
 correction to a payment is a `D` line and an `I` line. That is what makes the `−1`s in this tutorial.
 
 ```yaml
-# data/t04/application.yaml (the source and the gateway)
+# conf/streams/txn.yaml (the source)
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    follow: "true"
+    op.column: op              # D withdraws the row it repeats; anything else inserts
+```
+
+```yaml
+# conf/application.yaml (the gateway)
 pravaha:
-  sources:
-    txn:
-      plugin: filesystem
-      options:
-        path: data/incoming/txn.csv
-        follow: "true"
-        op.column: op              # D withdraws the row it repeats; anything else inserts
   pgwire:
-    enabled: true                  # read-only, off by default
-    host: 127.0.0.1                # loopback until TLS is configured
-    port: 5433                     # 5432 is usually a real PostgreSQL on the same machine
+    enabled: true              # read-only, off by default
+    host: 127.0.0.1            # loopback until TLS is configured
+    port: 5433                 # 5432 is usually a real PostgreSQL on the same machine
 ```
 
 ## What you will learn
@@ -373,7 +377,9 @@ pravaha subscribe --view big_payments --reconnect --limit 1
 ```
 
 Restart the node (stop it, and start it again as in *Before you start*). It comes back with its
-query — the registry journal under `PRAVAHA_HOME` holds it — and re-reads the file. Then append a
+query — a node keeps its registry journal and checkpoints in its data folder, `$PRAVAHA_HOME/data`
+here and `./data` for a node with no home, unless told `pravaha.data.dir: none` — and re-reads the
+file. Then append a
 payment:
 
 <!-- capture: t04-append-after-restart -->

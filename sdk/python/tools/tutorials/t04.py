@@ -13,7 +13,8 @@ from tutorial_captures import Background, Cli, Join, Node, Open, Py, Restart, Sh
 
 DOC = "04-following-a-view.md"
 
-NODE = Node(config="t04/application.yaml", pgwire=True, files=(("t04/txn.csv", "data/incoming/txn.csv"),))
+NODE = Node(config="t04/application.yaml", pgwire=True, files=(("t04/streams", "conf/streams"),
+                                                                  ("t04/txn.csv", "data/incoming/txn.csv")))
 
 BIG = "SELECT txn_id, user_id, amount FROM txn WHERE amount >= 500"
 PSQL = 'psql "host=127.0.0.1 port={port} dbname=pravaha user=pravaha-dev-admin"'

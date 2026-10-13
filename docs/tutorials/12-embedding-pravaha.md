@@ -9,8 +9,8 @@ and open no port at all. In this tutorial you build two small Maven projects aga
 installed: a **plain Java program** with `pravaha-embedded` (no Spring), which declares a stream,
 registers two continuous queries, pushes payments, closes a minute by advancing event time, follows a
 view and reads it, and is refused exactly as a node would refuse it; the same engine **built from
-configuration**, run four times so you can watch a restart keep its total — and a close before the
-next checkpoint lose a payment; and a **Spring Boot service** with the starter, where a
+configuration**, run four times so you can watch a restart keep its total — a close straight after a
+push included; and a **Spring Boot service** with the starter, where a
 `@PravahaListener` keeps a board up to date and `@PravahaTest` with `PravahaTester` tests it without a
 single sleep. Last, the same SQL on a node, so you can see when to embed and when not to. Every output
 below was printed by these projects and a real node running these steps.
@@ -25,9 +25,10 @@ below was printed by these projects and a real node running these steps.
   `pravaha-bom` and the rest into `~/.m2/repository`).
 - The tutorial's two projects, in [data/t12/](data/t12/): `payments-embedded/` (a plain Java program)
   and `payments-spring/` (a Spring Boot service). Each `pom.xml` names the engine's version in one
-  property, `pravaha.version`; set it to the version you installed (`./mvnw help:evaluate
+  Maven property, `<pravaha.version>`; set it to the version you installed (`./mvnw help:evaluate
   -Dexpression=project.version -q -DforceStdout` prints it).
-- For step 6, a node with the same payments: `application.yaml`, `txn.csv` and `merchant_minutes.sql`.
+- For step 6, a node with the same payments: `streams/txn.yaml` (the stream, for the node's
+  `conf/streams/`), `txn.csv` and `merchant_minutes.sql`.
 
 ```bash
 cp -r docs/tutorials/data/t12/payments-embedded docs/tutorials/data/t12/payments-spring ~/work/
@@ -41,7 +42,7 @@ cd ~/work/payments-embedded
 - the embedded lifecycle: **declare → start → register, push, read, subscribe → close**; pushing rows
   and advancing event time yourself; reading rows into records;
 - that the embedded engine refuses what a node refuses, with the same `PRV` codes;
-- the registry journal and checkpoints in a program, and what a close before a checkpoint costs;
+- the registry journal and checkpoints in a program, what a clean close keeps, and what a crash costs;
 - the Spring Boot starter: `pravaha.*` properties, `PravahaTemplate`, `@PravahaListener`;
 - testing with `@PravahaTest` and `PravahaTester` — and why each test wants an engine of its own;
 - when to embed, and when to run a node instead.
@@ -206,9 +207,9 @@ Read it line by line:
   next minute, which is still open.
 - **The subscriber** runs on the thread that committed; keep it short, or hand the work to an
   executor. `c.as(Minute.class)` reads the change into a record by column name, a `TIMESTAMP` into an
-  `Instant`. (`c.values()` gives the same row as a map — with a `TIMESTAMP` as nanoseconds since 1970,
-  not an `Instant`, whatever the [embedded engine topic](../../pravaha-console/content/topics/embedded-engine.md)'s
-  sample output shows; EMBEDTS-1.)
+  `Instant`. `c.javaValues()` gives the same row as a map, a `TIMESTAMP` as an `Instant` (a `DATE` a
+  `LocalDate`, a `TIME` a `LocalTime`); `c.values()` keeps the engine's own numbers — a `TIMESTAMP` as
+  nanoseconds since 1970.
 - **The refusals are the node's own.** An unwindowed `GROUP BY user_id` would keep state for every user
   for ever:
 
@@ -226,8 +227,11 @@ You should see the two large payments before the minute closes, `0` minutes publ
 ## Step 3 · Surviving a restart
 
 `createDefault()` is memory only — right for a test, wrong for a service. `Durable.java` builds the
-engine from **configuration**, with the keys a node reads: a registry journal (registrations come back
-at start) and a checkpoint directory (each query's state comes back), checkpointing every second:
+engine from **configuration**, with the keys a node reads: a data root, `pravaha.data.dir`, under which
+the engine keeps a registry journal (registrations come back at start) and checkpoints (each query's
+state comes back), checkpointing every second. A node keeps its state in `./data` unless told
+otherwise; an embedded engine keeps nothing until you name a root — a library does not write into the
+application that embeds it:
 
 <!-- file: data/t12/payments-embedded/src/main/java/com/example/payments/Durable.java -->
 ```java
@@ -235,8 +239,9 @@ at start) and a checkpoint directory (each query's state comes back), checkpoint
                 .set("pravaha.node.id", "payments-service")
                 .set("pravaha.streams.txn.schema",
                         "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP")
-                .set("pravaha.registry.journal", "state/registry.journal")
-                .set("pravaha.checkpoint.directory", "state/checkpoints")
+                // One root: state/registry.journal and state/checkpoints/ beneath it. An embedded
+                // engine keeps nothing unless told where.
+                .set("pravaha.data.dir", "state")
                 .set("pravaha.checkpoint.interval", "1s")
                 .build();
 ```
@@ -270,7 +275,7 @@ checkpointed; closing
 <!-- /capture -->
 
 The second run found the query in the journal and its total in the last checkpoint. Now close **before**
-the next checkpoint:
+the next periodic checkpoint, straight after the push:
 
 <!-- capture: t12-durable-closed -->
 ```text
@@ -278,7 +283,7 @@ $ CLOSE_AT_ONCE=1 mvn -q exec:exec -Dmain=com.example.payments.Durable
 payments_total is back: the journal registered it again at start
 at start: 2 payments, 500 in all
 after a payment of 250: 3 payments, 750 in all
-closing before the next checkpoint
+closing before the next checkpoint: close() takes a last one
 ```
 <!-- /capture -->
 
@@ -286,26 +291,28 @@ closing before the next checkpoint
 ```text
 $ mvn -q exec:exec -Dmain=com.example.payments.Durable
 payments_total is back: the journal registered it again at start
-at start: 2 payments, 500 in all
-after a payment of 250: 3 payments, 750 in all
+at start: 3 payments, 750 in all
+after a payment of 250: 4 payments, 1000 in all
 checkpointed; closing
 ```
 <!-- /capture -->
 
-The third run's payment is gone: it started at `2 payments, 500`. **The engine checkpoints every
-`pravaha.checkpoint.interval`, not at `close()`.** On a node that costs nothing — its sources replay
-from the checkpoint's offsets — but pushed rows have no source to replay them, so whatever was pushed
-after the last checkpoint is lost on a restart, a clean one included (EMBEDCKPT-1). Until the engine
-checkpoints at close, a service that pushes must either keep its own record of what it pushed since the
-last checkpoint, or bind a [source](../../pravaha-console/content/topics/embedded-engine.md#every-call)
-(`bindSource`) whose offsets replay. What is on disk:
+The third run's payment is there: the fourth started at `3 payments, 750`. **The engine checkpoints
+every `pravaha.checkpoint.interval`, and once more at a clean `close()`**, so a service that shuts down
+in an orderly way loses nothing it pushed. A crash is another matter — a `kill -9`, the power, an
+out-of-memory exit: there is no last checkpoint, and pushed rows have no source to replay them, so what
+was pushed after the last periodic checkpoint is gone. On a node that costs nothing — its sources
+replay from the checkpoint's offsets — so a service that pushes and cannot lose a row keeps its own
+record of what it pushed since the last checkpoint, or binds a
+[source](../../pravaha-console/content/topics/embedded-engine.md#every-call) (`bindSource`) whose
+offsets replay. What is on disk:
 
 <!-- capture: t12-state -->
 ```text
 $ find state -type f | sort
-state/checkpoints/payments_5ftotal/checkpoint-4.bin
-state/checkpoints/payments_5ftotal/checkpoint-5.bin
-state/checkpoints/payments_5ftotal/checkpoint-6.bin
+state/checkpoints/payments_5ftotal/checkpoint-10.bin
+state/checkpoints/payments_5ftotal/checkpoint-8.bin
+state/checkpoints/payments_5ftotal/checkpoint-9.bin
 state/registry.journal
 ```
 <!-- /capture -->
@@ -314,8 +321,8 @@ Three checkpoints are kept (`pravaha.checkpoint.keep`), each query in a director
 engine keeps `state/` readable by its owner only, and narrows it (with a warning) when it finds it
 wider — a umask of `022` makes new directories `rwxr-xr-x`, which it then tightens.
 
-You should see the total come back after a restart, and the payment pushed just before an early close
-not come back.
+You should see the total come back after every restart, the payment pushed just before an early close
+included: `3 payments, 750` at the fourth start.
 
 ## Step 4 · The Spring Boot starter
 
@@ -388,11 +395,10 @@ the view: RegionRevenue[region=EMEA, windowEnd=2026-10-01T09:01:00Z, revenue=570
 ```
 <!-- /capture -->
 
-Two things in the pom are worth copying. It imports `spring-boot-dependencies` **and** `pravaha-bom`,
-for the reason step 1 gave. And it excludes `commons-logging` from the starter: Calcite's
-`aggdesigner` brings it, Spring has its own (`spring-jcl`), and with both on the classpath every start
-prints `Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar`
-(SBCOMMONSLOG-1). What fails, and when: a listener naming a query that does not exist, or with a
+One thing in the pom is worth copying: it imports `spring-boot-dependencies` **and** `pravaha-bom`,
+for the reason step 1 gave. (It needs no exclusions: the starter itself keeps the `commons-logging`
+that Calcite brings off the classpath, so Spring's own `spring-jcl` starts without a warning.) What
+fails, and when: a listener naming a query that does not exist, or with a
 signature it cannot be called with, **fails the start**, naming it; a query in `pravaha.queries` the
 engine refuses fails the start with the engine's code (`PRV-2050`, `PRV-2071`, …); a listener that
 throws is logged and stays subscribed; one more than `listener.max-pending` commits behind is detached
@@ -458,7 +464,8 @@ You should see `Tests run: 2, Failures: 0` and `BUILD SUCCESS`.
 ## Step 6 · The same SQL on a node
 
 The query is the same SQL whichever host runs it. Bind the same payments to a file on a node (the
-`filesystem` source, as in [tutorial 1](01-first-15-minutes.md)) and register it from the CLI:
+`filesystem` source, as in [tutorial 1](01-first-15-minutes.md)): `streams/txn.yaml` into the node's
+`conf/streams/`, `txn.csv` where it says, and register it from the CLI:
 
 <!-- capture: t12-register -->
 ```text
@@ -532,13 +539,14 @@ for the unwindowed query.
 | Symptom | What it means | What to do |
 |---|---|---|
 | `Could not resolve dependencies ... jackson-annotations:jar:2.15.4` (or Guava, SnakeYAML) | the project does not import `pravaha-bom`, so Maven picked a dependency's older versions | import `pravaha-bom` in `dependencyManagement`, as step 1 |
-| `Could not find artifact com.ash.messaging:pravaha-embedded` | the engine is not in your local Maven repository, or `pravaha.version` names another version | `./mvnw -q -DskipTests install` in a checkout; set `pravaha.version` to what it installed |
+| `Could not find artifact com.ash.messaging:pravaha-embedded` | the engine is not in your local Maven repository, or the pom's `<pravaha.version>` names another version | `./mvnw -q -DskipTests install` in a checkout; set `<pravaha.version>` to what it installed |
 | a windowed view stays empty | event time was never advanced over pushed rows, or the stream was declared without its event-time column | `advanceEventTime(stream, instant)`; declare the column |
 | `PRV-2050` | an unwindowed `GROUP BY` per key: its state would grow for ever | window it, or aggregate globally |
 | `PRV-8102` | a pushed row has a value the column's type cannot take; the whole batch is refused | push the right Java type (`Long` for `INT64`, `Instant` for `TIMESTAMP`) |
 | `PRV-8101` | a push to a stream that was never declared | `declareStream` before `start()` |
 | `PRV-2070` / `PRV-2071` | a registration without a key, or a key the query does not produce | name key columns the query outputs |
 | `PRV-8105` | some queries on the stream took the push and one did not | do not retry that push (it would count twice where it landed); fix the query that failed |
-| the total is lower after a restart | rows pushed after the last checkpoint are not replayed (EMBEDCKPT-1) | a shorter `pravaha.checkpoint.interval`, or a replayable source |
+| the total is lower after a crash | rows pushed after the last checkpoint are not replayed; a clean `close()` takes a last checkpoint, a crash does not | close the engine on shutdown (try-with-resources, or the Spring context); a shorter `pravaha.checkpoint.interval`, or a replayable source |
+| nothing comes back after a restart | no data root: an embedded engine keeps nothing unless `pravaha.data.dir` (or the journal and checkpoint settings) names one | set `pravaha.data.dir` |
 | a `@PravahaTest` test fails when run with others | the tests share one engine, and another test's event time made these rows late | `@DirtiesContext(classMode = AFTER_EACH_TEST_METHOD)`, or give each test its own minutes |
 | the start fails naming a listener | `@PravahaListener` names a query that does not exist, or has a signature it cannot be called with | register the query in `pravaha.queries`; use one of the four signatures |

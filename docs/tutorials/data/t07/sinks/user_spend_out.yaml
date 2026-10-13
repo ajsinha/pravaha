@@ -1,0 +1,9 @@
+# Tutorial 7: the node's conf/sinks/user_spend_out.yaml -- each user's spend per closed minute, in
+# Avro against the same .avsc the source reads with.
+connector: kafka-local-out
+options:
+  topic: user-spend
+  schema: "user_id:STRING,window_end:TIMESTAMP(3),spend:INT64"
+  key.columns: "user_id,window_end"
+  format: avro
+  schema.file: conf/user_spend.avsc

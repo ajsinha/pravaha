@@ -19,8 +19,11 @@ Every output below was printed by a real node running these steps.
 
 - [Tutorial 1](01-first-15-minutes.md) done, and [tutorial 2](02-windows-and-late-data.md) for the
   watermark: a join's time bound is closed by the same clock.
-- The tutorial's files, in [data/t03/](data/t03/): `application.yaml`, `orders.csv` (six orders),
-  `payments.csv` (four payments), `customers.sql` (the customer table) and three queries.
+- The tutorial's files, in [data/t03/](data/t03/): the two streams (`streams/orders.yaml`,
+  `streams/payments.yaml`), the lookup (`lookups/customers.yaml`) and the database connection it uses
+  (`connectors/shop-db.yaml`) — a file each, which the node reads from the folders of those names
+  under its `conf/` — `orders.csv` (six orders), `payments.csv` (four payments), `customers.sql` (the
+  customer table) and three queries.
 - **The H2 database jar**, `h2-2.3.232.jar` — one file, from Maven Central
   (`com.h2database:h2:2.3.232`) or `~/.m2/repository/com/h2database/h2/2.3.232/` after a build. H2 is
   an embedded SQL database: the table is a file in the node's home, so the lookup is a real JDBC
@@ -31,7 +34,7 @@ Every output below was printed by a real node running these steps.
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t03
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming $PRAVAHA_HOME/plugins
-cp docs/tutorials/data/t03/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t03/{streams,lookups,connectors} $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t03/orders.csv docs/tutorials/data/t03/payments.csv $PRAVAHA_HOME/data/incoming/
 cp ~/.m2/repository/com/h2database/h2/2.3.232/h2-2.3.232.jar $PRAVAHA_HOME/plugins/
 cd docs/tutorials/data/t03            # the commands below read the .sql files from here
@@ -39,7 +42,7 @@ cd docs/tutorials/data/t03            # the commands below read the .sql files f
 
 ## What you will learn
 
-- how a lookup is configured (`pravaha.lookups`, the `jdbc-lookup` plugin, a driver in `plugins/`) and how it differs from a stream;
+- how a lookup is configured (a file in `conf/lookups/`, the `jdbc-lookup` plugin, a driver in `plugins/`), how a named connection holds the database once, and how a lookup differs from a stream;
 - a stream–stream `JOIN` with a time bound, and what its plan looks like;
 - a `LEFT` join that finds what did *not* happen, and why it needs a bound to exist at all;
 - why a join is only as current as its slower stream;
@@ -70,23 +73,31 @@ INSERT INTO customers VALUES ('c-3', 'Chen Li', 'bronze', 'west');
 
 `DATABASE_TO_LOWER=TRUE` keeps the table's names in lower case, as the SQL writes them;
 `AUTO_SERVER=TRUE` lets a second process (H2's shell, in Step 7) open the file while the node holds
-it. Customer `c-4` is deliberately missing. The node's configuration declares two streams and one
-**lookup**:
+it. Customer `c-4` is deliberately missing. The node's `conf/` declares two streams and one
+**lookup**, and the lookup reaches the database through a **named connection** — where the database
+is and who the node is to it, written once for every lookup that asks it:
 
 ```yaml
-# data/t03/application.yaml (the lookup)
-pravaha:
-  lookups:
-    customers:
-      plugin: jdbc-lookup
-      options:
-        url: "jdbc:h2:./data/ref/customers;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE"
-        user: sa
-        table: customers              # the name a query joins
-        key.columns: customer_id
-        pool.size: "2"
-        cache.seconds: "0"            # ask every time: a change to the table is seen at once
+# conf/connectors/shop-db.yaml (the connection)
+plugin: jdbc-lookup
+options:
+  url: "jdbc:h2:./data/ref/customers;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE"
+  user: sa
+  pool.size: "2"
 ```
+
+```yaml
+# conf/lookups/customers.yaml (the lookup: only what is its own)
+connector: shop-db
+options:
+  table: customers              # the name a query joins
+  key.columns: customer_id
+  cache.seconds: "0"            # ask every time: a change to the table is seen at once
+```
+
+The lookup's options are the connection's with its own laid over them — on a clash the lookup's win.
+A second table in the same database is one more small file in `conf/lookups/`, and a password is
+written `${ENV_NAME}` in the connection, never literally (`PRV-1063`).
 
 A **source** feeds a stream: it is consumed, and its event time drives watermarks. A **lookup** is
 only *asked*, one key at a time: it never advances event time and holds no state to checkpoint, so a
@@ -108,9 +119,19 @@ jdbc-lookup       <version>    lookup       yes         yes     UNKNOWN  lookup:
 <!-- capture: t03-streams -->
 ```text
 $ pravaha streams list
-NAME      VERSION  EVENT TIME  LATENESS  SOURCE      FIELDS
-orders    1        event_time  PT10S     filesystem  order_id VARCHAR NOT NULL, customer_id VARCHAR NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
-payments  1        event_time  PT10S     filesystem  payment_id VARCHAR NOT NULL, order_id VARCHAR NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+NAME      VERSION  EVENT TIME  LATENESS  SOURCE      ORIGIN                           FIELDS
+orders    1        event_time  PT10S     filesystem  file:conf/streams/orders.yaml    order_id VARCHAR NOT NULL, customer_id VARCHAR NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+payments  1        event_time  PT10S     filesystem  file:conf/streams/payments.yaml  payment_id VARCHAR NOT NULL, order_id VARCHAR NOT NULL, amount INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+```
+<!-- /capture -->
+
+The connection, and what uses it — every password, secret or key in its options would show as `****`:
+
+<!-- capture: t03-connectors -->
+```text
+$ pravaha connectors list
+NAME     PLUGIN       ORIGIN                             USED BY
+shop-db  jdbc-lookup  file:conf/connectors/shop-db.yaml  lookup:customers
 ```
 <!-- /capture -->
 
@@ -118,7 +139,8 @@ A driver that is not in `plugins/`, a wrong URL or a refused password fails the 
 plugin's own message ("cannot connect to … Check the URL, the credentials, and that the driver is on
 the classpath"); a `key.columns` the table lacks is refused when the lookup opens.
 
-You should see `jdbc-lookup` bound as `lookup:customers`, and two streams.
+You should see `jdbc-lookup` bound as `lookup:customers`, two streams, and `shop-db` used by
+`lookup:customers`.
 
 ## Step 2 · Join two streams within a time bound
 
@@ -424,7 +446,7 @@ staleness traded for fewer round trips.
 The catalogue lists the two streams; the lookup is configuration, and `pravaha plugins` is where its
 binding shows:
 
-![The Catalog page: two stream cards, orders and payments, each with event time event_time, PT10S late and the filesystem source, and 5 registered queries](img/t03/04-catalog.png)
+![The Catalog page: two stream cards, orders and payments, each with event time event_time, PT10S late, the filesystem source and the file it was declared in, and 5 registered queries](img/t03/04-catalog.png)
 
 You should see `o-8` at `gold`, and `o-2` and `o-6` still at `silver`.
 
@@ -448,6 +470,7 @@ You should see `o-8` at `gold`, and `o-2` and `o-6` still at `silver`.
 | `PRV-2020` for a `LEFT` join between streams | it has no time bound | add `AND p.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '5' MINUTE` |
 | `PRV-2020` for `RIGHT` or `FULL` | not built | swap the inputs and use `LEFT`, with a bound |
 | `PRV-2020` for a filter on a looked-up column | an inner lookup join cannot filter the lookup's side | `LEFT JOIN … FOR SYSTEM_TIME AS OF … WHERE c.tier = 'gold'` |
-| `PRV-2002` naming the lookup | the query names it by its key under `pravaha.lookups`, not its `table` | join the name the plugin gives the table (`table:` for `jdbc-lookup`) |
+| `PRV-1067` at start | the lookup names a connection no file in `conf/connectors/` declares | check the `connector:` name against the connection's file name |
+| `PRV-2002` naming the lookup | the query names it by its file's name, not its `table` | join the name the plugin gives the table (`table:` for `jdbc-lookup`) |
 | A `LEFT` join's view stops growing | one input has stopped, and the join moves at the slower stream | read both streams' newest event times; feed the quiet one |
 | A view holds fewer rows than you expect | the key conflates rows: a later row replaced an earlier one | key it by the column that identifies one fact |

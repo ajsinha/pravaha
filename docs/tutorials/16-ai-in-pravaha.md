@@ -24,14 +24,15 @@ provider behind it. Every output below was printed by a real node running these 
 - [Tutorial 1](01-first-15-minutes.md) done; [tutorial 10](10-alerts.md) for alerts and
   [tutorial 11](11-governance.md) for users help, but are not needed.
 - Nothing to buy and no key: the mock provider is part of Pravaha.
-- The tutorial's files, in [data/t16/](data/t16/): `application.yaml` (the stream, a log channel, the
-  audit file and the AI layer on), `mock.yaml` (the mock provider's rules), `payments.csv` (eight card
+- The tutorial's files, in [data/t16/](data/t16/): `application.yaml` (a log channel, the audit file
+  and the AI layer on), `streams/payments.yaml` (the stream, for the node's `conf/streams/`),
+  `mock.yaml` (the mock provider's rules), `payments.csv` (eight card
   payments from three regions), `region_minutes.sql` and `big_payments.sql`.
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t16
 mkdir -p $PRAVAHA_HOME/conf/ai $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t16/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t16/application.yaml docs/tutorials/data/t16/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t16/mock.yaml $PRAVAHA_HOME/conf/ai/
 cp docs/tutorials/data/t16/payments.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
@@ -205,17 +206,16 @@ the SQL the model chose
   SELECT window_end, SUM(spend) AS total FROM region_minutes GROUP BY window_end
 Adds up every region's spend in each minute.
 
-window_end           total
-1790845260000000000  6800
-1790845320000000000  5200
+window_end                 total
+2026-10-01 09:01:00+00:00  6800
+2026-10-01 09:02:00+00:00  5200
 
 chart  line  x=window_end y=total
 2 rows; run as you; values sent to the model: labels-only; nothing saved
 ```
 <!-- /capture -->
 
-(On this build `query --ask` prints a `TIMESTAMP` column as nanoseconds since 1970 where `query`
-prints the instant — `1790845260000000000` is 2026-10-01 09:01:00 UTC; AIASKTS-1.) **Follow-ups**:
+**Follow-ups**:
 `chat` sends each question with the last three and the SQL chosen for them, so "and only for EU?"
 changes the previous SQL rather than starting again:
 
@@ -436,11 +436,10 @@ PRV-1088  the model could not write this as an alert on a view you may read: No 
 ```
 <!-- /capture -->
 
-On **Alerts**, *Describe an alert*. Asked again, the name `region_over_5000` is taken and the draft is
-named `region_over_2` — the counter replaced the name's own number instead of following it
-(AINAME-1):
+On **Alerts**, *Describe an alert*. Asked again, the name `region_over_5000` is taken, so the draft is
+named `region_over_5000_2`:
 
-![Alerts, Describe an alert: the description, and the draft alert region_over_2, not created: notifies when a region's spend in one minute is over 5000, on the view region_minutes, when spend > 5000, notify ops_log, its statement with severity critical, Open in Workbench and Create; the page badged 1 firing, and the list of alerts beginning below](img/t16/04-alert.png)
+![Alerts, Describe an alert: the description, and the draft alert region_over_5000_2, not created: notifies when a region's spend in one minute is over 5000, on the view region_minutes, when spend > 5000, notify ops_log, its statement with severity critical, Open in Workbench and Create; the page badged 1 firing, and the list of alerts beginning below](img/t16/04-alert.png)
 
 You should see the statement `CREATE ALERT region_over_5000 ON region_minutes WHERE spend > 5000 NOTIFY
 ops_log`, the alert `ACTIVE` with `1` firing, and `PRV-1088` for the alert no view can support.
@@ -582,7 +581,7 @@ the engine accepts this statement now: it raised no refusal for it
 words and up to four of its help topics, never anything from the browser, and the answer comes from that
 text only — "The page does not say." when it does not:
 
-![A stream's page, payments: Time and source with out-of-orderness PT5S and allowed lateness PT0S; About this page with its three cards; and Ask about this page with the question what is allowed lateness?, answered that allowed lateness is how long after a window closes a late row may still correct its answer, a later row being counted and dropped, and that this stream allows none](img/t16/06-page.png)
+![A stream's page, payments: Time and source with out-of-orderness PT5S, allowed lateness PT0S and Declared by file:conf/streams/payments.yaml; About this page with its three cards; and Ask about this page with the question what is allowed lateness?, answered that allowed lateness is how long after a window closes a late row may still correct its answer, a later row being counted and dropped, and that this stream allows none](img/t16/06-page.png)
 
 You should see the explanation, `PRV-2050` with a `Try:` rewrite, the echoed prompt with `KEYS ENTERED
 (up to 20): [9]` and no amount, and `card_number = '•••'`.

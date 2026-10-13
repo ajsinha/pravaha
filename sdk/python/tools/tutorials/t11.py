@@ -15,6 +15,7 @@ from tutorial_captures import Cli, Node, Open, Sh, Snap, Until
 DOC = "11-governance.md"
 
 NODE = Node(config="t11/application.yaml", files=(
+    ("t11/streams", "conf/streams"),
     ("t11/payments.csv", "data/incoming/payments.csv"),
     ("t11/payments_view.sql", "payments_view.sql"),
 ))

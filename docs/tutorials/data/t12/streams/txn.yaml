@@ -1,0 +1,13 @@
+# Tutorial 12 (docs/tutorials/12-embedding-pravaha.md): the same payments, on a node rather than in a
+# program -- what the embedded engine's Payments.java pushes, read from a file instead.
+# The node's conf/streams/txn.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 5s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+    skip.header: "true"
+    follow: "true"

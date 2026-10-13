@@ -1,0 +1,8 @@
+# Tutorial 3: the node's conf/lookups/customers.yaml -- a table a query asks, row by row, and never
+# consumes. The connection (plugin, URL, user) is conf/connectors/shop-db.yaml; this file says only
+# what is its own, and wins on a clash.
+connector: shop-db
+options:
+  table: customers              # the name a query joins
+  key.columns: customer_id
+  cache.seconds: "0"            # ask every time: a change to the table is seen at once

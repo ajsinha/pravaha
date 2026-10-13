@@ -22,8 +22,9 @@ slot keeps for it. Every output below was printed by a real node and a real data
   subscriptions and what a `−1` means to a reader.
 - Docker, for a PostgreSQL 14 or later. The tutorial's runs on `localhost:15432`, so that it is not a
   PostgreSQL of your own on 5432.
-- The tutorial's files, in [data/t08/](data/t08/): `application.yaml` (the `postgres-cdc` binding and
-  checkpoints every 10 seconds), `shop.sql` (the `orders` table and four orders) and `open_orders.sql`.
+- The tutorial's files, in [data/t08/](data/t08/): `streams/orders.yaml` (the `postgres-cdc` binding),
+  `connectors/shop-postgres.yaml` (the database, as a named connection), `application.yaml`
+  (checkpoints every 10 seconds), `shop.sql` (the `orders` table and four orders) and `open_orders.sql`.
 - A database with `wal_level = logical`, the table loaded, and a node home:
 
 ```bash
@@ -31,7 +32,7 @@ docker run -d --name pravaha-postgres -p 15432:5432 -e POSTGRES_HOST_AUTH_METHOD
   -e POSTGRES_DB=shop postgres:16-alpine -c wal_level=logical
 export PRAVAHA_HOME=$HOME/pravaha-t08
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data
-cp docs/tutorials/data/t08/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t08/{application.yaml,streams,connectors} $PRAVAHA_HOME/conf/
 cd docs/tutorials/data/t08
 ```
 
@@ -74,26 +75,40 @@ export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin) PRAVAHA_INSECURE_
 
 ## Step 1 · Bind the table
 
+The database is a **named connection** — where it is and who the node is to it, written once for
+every table the node follows there — and the stream's file names it and says only what is its own:
+
 ```yaml
-# data/t08/application.yaml
+# conf/connectors/shop-postgres.yaml
+plugin: postgres-cdc
+options:
+  url: "jdbc:postgresql://localhost:15432/shop"
+  user: postgres                   # in production a REPLICATION role, password: "${PRAVAHA_CDC_PASSWORD}"
+```
+
+```yaml
+# conf/streams/orders.yaml
+schema: "order_id:INT64,customer:STRING,status:STRING,amount:INT64"
+source:
+  connector: shop-postgres
+  options:
+    table: public.orders
+    slot: pravaha_orders           # the replication slot: the database keeps WAL until it is confirmed
+    publication: pravaha_orders
+    snapshot.mode: initial         # the rows already there first (needs a primary key), then the changes
+```
+
+```yaml
+# conf/application.yaml
 pravaha:
-  streams:
-    orders:
-      schema: "order_id:INT64,customer:STRING,status:STRING,amount:INT64"
-  sources:
-    orders:
-      plugin: postgres-cdc
-      options:
-        url: "jdbc:postgresql://localhost:15432/shop"
-        user: postgres
-        table: public.orders
-        slot: pravaha_orders           # the replication slot: the database keeps WAL until it is confirmed
-        publication: pravaha_orders
-        snapshot.mode: initial         # the rows already there first (needs a primary key), then the changes
   checkpoint:
-    interval: 10s
+    interval: 10s                  # the slot is confirmed at checkpoints
     keep: 5
 ```
+
+A second table from the same database is one more file in `conf/streams/` naming `shop-postgres`, with
+its own `table`, `slot` and `publication`. A password in the connection is written `${ENV_NAME}`;
+a literal one is refused (`PRV-1063`).
 
 The stream's schema is checked against the table by name when the source opens — leave it out and it
 is read from the table. There is no event time: a change happens when its transaction **commits**, and
@@ -109,6 +124,8 @@ event time    -
 out of order  -
 lateness      -
 source        postgres-cdc
+origin        file:conf/streams/orders.yaml
+not applied   -
 
 ORDINAL  NAME      TYPE              NULLABLE
 0        order_id  INT64 NOT NULL    no
@@ -118,7 +135,7 @@ ORDINAL  NAME      TYPE              NULLABLE
 ```
 <!-- /capture -->
 
-![The Catalog page of the stream orders: four columns order_id, customer, status and amount, event time none declared so no window over this stream can close, and the source postgres-cdc; no registered query reads it yet](img/t08/01-stream.png)
+![The Catalog page of the stream orders: four columns order_id, customer, status and amount, event time none declared so no window over this stream can close, the source postgres-cdc and Declared by file:conf/streams/orders.yaml; no registered query reads it yet](img/t08/01-stream.png)
 
 You should see `source postgres-cdc` and the table's four columns.
 
@@ -410,7 +427,9 @@ feed         RUNNING
 ```
 <!-- /capture -->
 
-The node restored `open_orders` from its last checkpoint, and the source asked the slot for everything
+The node came back with `open_orders` registered — a node keeps its registry journal and checkpoints
+in its data folder (`$PRAVAHA_HOME/data` here, `./data` for a node with no home) unless told
+`pravaha.data.dir: none` — restored it from its last checkpoint, and the source asked the slot for everything
 after the position that checkpoint confirmed — dana's shipment among it — so the view lost nothing and
 counted nothing twice. The slot held the WAL while the node was down; that is its whole job, and also
 its cost: a node down for a week holds a week of WAL on the database. `pravaha.checkpoint` and
@@ -428,17 +447,17 @@ You should see dana's order 5 gone, and ann's three orders.
 `+1`, delete `−1`, update both — and no JDBC driver:
 
 ```yaml
-pravaha:
-  sources:
-    orders:
-      plugin: mysql-cdc
-      options:
-        host: db-1.internal
-        port: "3306"
-        user: pravaha_cdc
-        password: "${PRAVAHA_CDC_PASSWORD}"
-        table: shop.orders
-        server.id: "6401"              # the replica id: unique among the server's replicas
+# conf/streams/orders.yaml, from MySQL
+schema: "order_id:INT64,customer:STRING,status:STRING,amount:INT64"
+source:
+  plugin: mysql-cdc
+  options:
+    host: db-1.internal
+    port: "3306"
+    user: pravaha_cdc
+    password: "${PRAVAHA_CDC_PASSWORD}"
+    table: shop.orders
+    server.id: "6401"              # the replica id: unique among the server's replicas
 ```
 
 What differs: the server must log `binlog_format = ROW` and `binlog_row_image = FULL` (MySQL 8's

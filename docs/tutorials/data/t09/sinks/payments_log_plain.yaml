@@ -1,0 +1,8 @@
+# Tutorial 9: the node's conf/sinks/payments_log_plain.yaml -- the same, without a transaction: each
+# batch straight into the table. At least once.
+connector: warehouse
+options:
+  table: payments_log_plain
+  schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+  mode: append
+  transactional: "false"

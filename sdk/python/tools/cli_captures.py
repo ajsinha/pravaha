@@ -232,7 +232,9 @@ class ScratchNode:
              f"--server.port={self.http_port}", "--pravaha.flight.host=127.0.0.1",
              f"--pravaha.flight.port={self.flight_port}", *self.args],
             cwd=self.home, stdout=log, stderr=subprocess.STDOUT,
-            env={**os.environ, **self.env} if self.env else None,
+            # Not the CLI's PRAVAHA_CONFIG_DIR (its token and contexts): the server would bind it as
+            # pravaha.config.dir and look for its streams folder there.
+            env={**{k: v for k, v in os.environ.items() if k != "PRAVAHA_CONFIG_DIR"}, **self.env},
         )
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:

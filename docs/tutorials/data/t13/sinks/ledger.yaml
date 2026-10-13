@@ -1,0 +1,5 @@
+# Tutorial 13 (docs/tutorials/13-writing-a-connector.md), step 6: a sink you wrote -- acme-ledger,
+# which appends each row it is given to a file. The node's conf/sinks/ledger.yaml.
+plugin: acme-ledger            # what AcmeLedgerSinkPlugin.name() answers
+options:
+  path: data/outgoing/ledger.txt

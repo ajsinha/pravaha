@@ -28,6 +28,9 @@ KAFKA = Container(
 )
 
 NODE = Node(config="t07/application.yaml", containers=(KAFKA,), files=(
+    ("t07/streams", "conf/streams"),
+    ("t07/sinks", "conf/sinks"),
+    ("t07/connectors", "conf/connectors"),
     ("t07/payments.jsonl", "payments.jsonl"),
     ("t07/user_spend.avsc", "conf/user_spend.avsc"),
     ("t07/user_spend.avsc", "user_spend.avsc"),
@@ -85,6 +88,7 @@ STEPS = (
     Cli("t07-plugins", ("plugins",), omit=(r"^(?!NAME|kafka)",)),
     Cli("t07-streams", ("streams", "list")),
     Cli("t07-sinks", ("sinks",)),
+    Cli("t07-connectors", ("connectors", "list")),
     Open("/catalog/streams/payments"),
     Snap("01-stream"),
     Cli("t07-register-big", ("register", *Q, "--sql", BIG, "--keys", "0", "--sink", "big_payments_out")),

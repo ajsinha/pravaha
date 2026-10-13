@@ -1,0 +1,12 @@
+# Tutorial 14 (docs/tutorials/14-running-in-production.md): the node's conf/streams/orders.yaml --
+# orders, from a file. The same file serves the node on this machine and the one in the container.
+schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 5s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/orders.csv
+    schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+    skip.header: "true"
+    follow: "true"

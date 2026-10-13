@@ -17,7 +17,8 @@ from tutorial_captures import REPO, Cli, Node, Open, Sh, Snap, Until
 
 DOC = "12-embedding-pravaha.md"
 
-NODE = Node(config="t12/application.yaml", files=(
+NODE = Node(files=(
+    ("t12/streams", "conf/streams"),
     ("t12/txn.csv", "data/incoming/txn.csv"),
     ("t12/merchant_minutes.sql", "merchant_minutes.sql"),
     ("t12/payments-embedded", "payments-embedded"),
