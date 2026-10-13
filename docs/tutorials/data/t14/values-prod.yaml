@@ -1,0 +1,23 @@
+# Tutorial 14 (docs/tutorials/14-running-in-production.md): the Helm chart's values for one production
+# node -- a pinned image, TLS from a Secret you created, a persistent volume, the Prometheus Operator's
+# ServiceMonitor and rules. `helm template` renders it without a cluster.
+image:
+  tag: "2.4.2"
+tls:
+  enabled: true
+  existingSecret: pravaha-tls          # kubectl create secret tls pravaha-tls --cert=server.pem --key=server-key.pem
+persistence:
+  size: 50Gi
+resources:
+  requests: {cpu: "2", memory: 4Gi}
+  limits: {cpu: "4", memory: 4Gi}
+serviceMonitor:
+  enabled: true                        # needs the Prometheus Operator's CRDs in the cluster
+prometheusRule:
+  enabled: true
+podDisruptionBudget:
+  enabled: true                        # maxUnavailable: 1 -- minAvailable: 1 would block a drain for ever
+config:
+  pravaha:
+    checkpoint:
+      interval: 30s

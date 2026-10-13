@@ -1,0 +1,36 @@
+# Tutorial 14 (docs/tutorials/14-running-in-production.md): a node set up as production runs one --
+# TLS on Flight and on the PostgreSQL gateway, frequent checkpoints, an audit file.
+# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+pravaha:
+  streams:
+    orders:
+      schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    orders:
+      plugin: filesystem
+      options:
+        path: data/incoming/orders.csv
+        schema: "order_id:INT64,customer:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+  # Flight SQL over TLS: without these two every row, credential and query crosses the network in
+  # clear text. A half-set pair is refused at start, naming the missing half.
+  flight:
+    tls:
+      certificate: conf/tls/server.pem
+      key: conf/tls/server-key.pem
+  # The PostgreSQL gateway on the same certificate; a client that does not ask for TLS is refused.
+  pgwire:
+    enabled: true
+    tls:
+      certificate: conf/tls/server.pem
+      key: conf/tls/server-key.pem
+  # Each query's state every 5 seconds (1 minute by default), under $PRAVAHA_HOME/data/checkpoints.
+  checkpoint:
+    interval: 5s
+  security:
+    audit: file
+    audit-file: logs/audit.jsonl
