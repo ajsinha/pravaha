@@ -19,7 +19,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import org.jspecify.annotations.Nullable;
@@ -33,7 +32,6 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.bindings.ingest.PluginLookupSources;
 import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
-import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
 import com.ash.messaging.pravaha.common.config.ConfigErrors;
@@ -41,7 +39,6 @@ import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.common.io.StateOwnership;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
 import com.ash.messaging.pravaha.pgwire.PgWireLimits;
-import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -195,6 +192,21 @@ public class PravahaNode implements SmartLifecycle {
         this.securityExtensions =
                 extensions == null ? com.ash.messaging.pravaha.server.security.SecurityExtensions.NONE : extensions;
         this.credentials = null;
+    }
+
+    /** ADR-064: the per-object declaration folders; none for a node a builder made, unless set. */
+    private com.ash.messaging.pravaha.server.folders.ConfigFolders configFolders =
+            com.ash.messaging.pravaha.server.folders.ConfigFolders.none();
+
+    /** Set by Spring; by a test, directly. Before {@link #start()}. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public synchronized void setConfigFolders(com.ash.messaging.pravaha.server.folders.ConfigFolders folders) {
+        this.configFolders = folders;
+    }
+
+    /** The declaration folders, and what the watcher has not applied. */
+    public com.ash.messaging.pravaha.server.folders.ConfigFolders configFolders() {
+        return configFolders;
     }
 
     private final @Nullable File tlsCertificate;
@@ -714,96 +726,16 @@ public class PravahaNode implements SmartLifecycle {
      */
     private void registerDeclaredStreams() {
         declaredStreams.getStreams().forEach((name, declaration) -> {
-            if (declaration.getSchema() == null || declaration.getSchema().isBlank()) {
-                // DOCX-19: PRV-1020, not PRV-2002. A key that is missing from the configuration
-                // file is not a SQL statement failing validation, and 2xxx is the SQL range.
-                throw new PravahaException(
-                        ConfigErrors.MISSING_REQUIRED,
-                        "stream '" + name + "' is declared under pravaha.streams with no schema. A stream "
-                                + "is a name and a shape; the name alone cannot be planned against.");
-            }
-            StreamSchema parsed = FilesystemSourcePlugin.parseSchema(name, declaration.getSchema());
-            StreamSchema declared = withEventTime(parsed, declaration);
+            StreamSchema declared = com.ash.messaging.pravaha.server.catalog.StreamDeclarations.schemaOf(
+                    name, declaration, defaultOutOfOrderness, configFolders.whereDeclared(name));
             streams.register(declared);
-            // TIME-6. One line per stream saying what its event time is and what lateness is in
-            // force, because four of the six ways to arrive at "RUNNING, ingesting, serving
-            // nothing" are settings that nothing on the node ever mentioned. `sources bound:` and
-            // its `event.time` option was the only statement the engine made about any of this,
-            // and `grep -icE "out-of-orderness"` over a whole startup log was 0 on every
-            // configuration tried. The effective values, from the built schema rather than from
-            // the declaration, so a default shows as the default rather than as blank.
-            log.info(
-                    "stream {}: event-time={}, out-of-orderness={}, allowed-lateness={}",
-                    name,
-                    declared.eventTimeOrdinal().isPresent()
-                            ? declared.field(declared.eventTimeOrdinal().getAsInt())
-                                    .name()
-                            : "none -- no window over this stream can ever close",
-                    declared.eventTimeOrdinal().isPresent() ? declared.outOfOrderness() : "n/a",
-                    declared.eventTimeOrdinal().isPresent() ? declared.allowedLateness() : "n/a");
+            com.ash.messaging.pravaha.server.catalog.StreamDeclarations.describe(log, declared);
         });
         if (!declaredStreams.getStreams().isEmpty()) {
             log.info(
                     "streams declared in configuration: {}",
                     declaredStreams.getStreams().keySet());
         }
-    }
-
-    /**
-     * Marks the event-time column, and the stream's own lateness, if the declaration named them.
-     *
-     * <p>Rebuilt rather than mutated because a schema is immutable: a running query keeps the
-     * version it was planned against, which is what stops a re-declaration changing the meaning of a
-     * query already in flight.
-     */
-    private StreamSchema withEventTime(StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
-        boolean namesAnEventTime = declaration.getEventTime() != null
-                && !declaration.getEventTime().isBlank();
-        // T-6. `getOutOfOrderness() != null` is the new clause, and it is the whole of the second
-        // half of that finding. StreamCatalog.withEventTime already refuses an out-of-orderness
-        // declared without an event-time column -- correctly, because lateness needs an event time
-        // to be about -- and this early return meant such a declaration never reached it. It was
-        // read from the file, dropped on the floor, and nothing said so: eleven windows fired
-        // versus six, decided by a key one level up in the same tree.
-        if (!namesAnEventTime && declaration.getAllowedLateness() == null && declaration.getOutOfOrderness() == null) {
-            return parsed;
-        }
-        // DOCX-6. The node-level default applies to a stream that declares an event time and no
-        // lateness of its own. Not to one that declares no event time: there is nothing for the
-        // lateness to be about, and quietly attaching one would put an out-of-orderness on a
-        // schema whose watermark never moves.
-        java.time.Duration lateness = declaration.getOutOfOrderness() != null
-                ? declaration.getOutOfOrderness()
-                : (namesAnEventTime ? defaultOutOfOrderness : null);
-        // One implementation, shared with POST /api/v1/streams, so a stream declared by file and one
-        // declared over HTTP cannot disagree about what an event-time declaration means. An allowed
-        // lateness with no event time reaches it, and is refused there by name.
-        return com.ash.messaging.pravaha.server.catalog.StreamCatalog.withEventTime(
-                parsed, declaration.getEventTime(), lateness, declaration.getAllowedLateness());
-    }
-
-    /**
-     * Passes the stream's declared event-time column down to its source.
-     *
-     * <p>So it is declared once. The engine's schema and the plugin's are built from different
-     * places -- {@code pravaha.streams.<n>.schema} and the binding's own {@code schema} option --
-     * and only the first carried the event-time marker. The plugin then decoded rows with a schema
-     * that had none and stamped them all with event time zero, which no watermark can advance past
-     * into a window in the present. Making the operator write the column twice would have worked and
-     * would have been one more thing to get out of step.
-     */
-    private SourceBinding withDeclaredEventTime(SourceBinding binding) {
-        StreamDeclarationProperties.Declaration declaration =
-                declaredStreams.getStreams().get(binding.streamName());
-        if (declaration == null
-                || declaration.getEventTime() == null
-                || declaration.getEventTime().isBlank()
-                || binding.options().containsKey("event.time")) {
-            return binding;
-        }
-        Map<String, String> options = new java.util.LinkedHashMap<>(binding.options());
-        options.put("event.time", declaration.getEventTime().strip());
-        return new SourceBinding(binding.streamName(), binding.plugin(), options);
     }
 
     /** The policy every transport authorizes against: one object, so HTTP and the engine cannot disagree. */
@@ -942,6 +874,7 @@ public class PravahaNode implements SmartLifecycle {
         log.info("{}", CoordinatorFactory.describe(clusterConfiguration, coordinator, self));
 
         refuseAccidentalOpenServer();
+        configFolders.loadInto(declaredStreams, sources, sinks); // ADR-064: files join the inline blocks
         registerDeclaredStreams();
 
         ViewCatalog viewCatalog = new ViewCatalog();
@@ -1048,9 +981,9 @@ public class PravahaNode implements SmartLifecycle {
                             persistence.getCheckpoint().getKeep(),
                             persistence.getCheckpoint().getTimeout());
                 },
-                () -> log.warn("pravaha.checkpoint.directory is not set, so registered queries keep no "
-                        + "checkpoints: a restart recovers their definitions from the journal and none of "
-                        + "their accumulated state"));
+                () -> log.warn("pravaha.checkpoint.directory is none (or pravaha.data.dir is), so registered "
+                        + "queries keep no checkpoints: a restart recovers their definitions from the journal "
+                        + "and none of their accumulated state"));
 
         // Switched on, which it never was. pravaha.watermark.* was read by nothing on this server:
         // QueryExecution.generatingWatermarks is what arms every bound in the engine -- a window
@@ -1108,7 +1041,10 @@ public class PravahaNode implements SmartLifecycle {
                     directory,
                     dlqRetention.describe());
         });
-        sources.toBindings().forEach(binding -> feeds.bind(withDeclaredEventTime(binding)));
+        sources.toBindings()
+                .forEach(binding ->
+                        feeds.bind(com.ash.messaging.pravaha.server.catalog.StreamDeclarations.withDeclaredEventTime(
+                                binding, declaredStreams.getStreams().get(binding.streamName()))));
         registry.feedingFrom(feeds);
 
         // Dimension tables, opened at start-up and handed to the registry. Nothing in shipped code
@@ -1218,9 +1154,23 @@ public class PravahaNode implements SmartLifecycle {
             catalog.started(registry, journalPath.isPresent());
         }
         alerts.start(registry, journalPath, auditSink()); // ADR-057: after recovery, so each finds its view
+        // ADR-064: after recovery, so a recovered query holds the stream, lookup or sink it uses.
+        configFolders.watch(
+                new com.ash.messaging.pravaha.server.folders.LiveDeclarations(
+                        streams,
+                        registry,
+                        sourceFeeds,
+                        java.util.Objects.requireNonNull(lookupSources),
+                        pluginSinks,
+                        declaredStreams,
+                        sources,
+                        sinks,
+                        defaultOutOfOrderness,
+                        configFolders.connectors()),
+                auditSink());
         if (journalPath.isEmpty()) {
-            log.warn("pravaha.registry.journal is not set, so registered queries live only in memory and "
-                    + "a restart will lose them without saying so");
+            log.warn("pravaha.registry.journal is none (or pravaha.data.dir is), so registered queries live "
+                    + "only in memory and a restart will lose them without saying so");
         }
 
         com.ash.messaging.pravaha.serving.ReadAdmission reads = readLimits.admission();
@@ -1318,6 +1268,7 @@ public class PravahaNode implements SmartLifecycle {
         // Reverse of startup: stop accepting, then let go of the queries, then leave the cluster.
         closeQuietly("Flight server", flight);
         closeQuietly("PostgreSQL wire server", pgwire);
+        closeQuietly("declaration folders", configFolders); // ADR-064: nothing changes the node now
         closeQuietly("alerts", alerts); // before the registry: they follow its views
         closeQuietly("registry", registry);
         // After the registry, because a running query may still be looking rows up in one.

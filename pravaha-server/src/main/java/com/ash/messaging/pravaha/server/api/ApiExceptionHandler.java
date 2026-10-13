@@ -179,6 +179,7 @@ public class ApiExceptionHandler {
             case "PRV-1080" -> HttpStatus.CONFLICT;
             case "PRV-1081" -> HttpStatus.SERVICE_UNAVAILABLE;
             case "PRV-1082" -> HttpStatus.NOT_FOUND;
+            case "PRV-1067" -> HttpStatus.NOT_FOUND; // a named connection nobody declared (ADR-064)
             case "PRV-1083" -> HttpStatus.BAD_REQUEST;
             case "PRV-1084" -> HttpStatus.FORBIDDEN;
             case "PRV-1085" -> HttpStatus.TOO_MANY_REQUESTS;

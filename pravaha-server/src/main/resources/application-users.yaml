@@ -25,7 +25,9 @@ pravaha:
     policy: authenticated
   identity:
     enabled: true
-    store: data/identity/identity.journal
+    # No store here: it is ${pravaha.data.dir}/identity/identity.journal by convention (ADR-064), so a
+    # local node keeps its users, its queries, their views and their source positions in ./data across
+    # a restart -- the registry journal and checkpoints sit beside it in the same folder.
     # A development account, ensured at every start (captive: it cannot be disabled, re-roled or
     # re-passworded at runtime, and comes back as configured after a restart). Its password is a
     # literal, which only the dev profile allows (PRV-7022): this profile runs with `dev` locally.

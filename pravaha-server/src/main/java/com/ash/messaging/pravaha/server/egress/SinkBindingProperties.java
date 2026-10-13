@@ -56,7 +56,8 @@ import com.ash.messaging.pravaha.bindings.egress.SinkBinding;
 @ConfigurationProperties(prefix = "pravaha")
 public class SinkBindingProperties {
 
-    private final Map<String, Spec> sinks = new LinkedHashMap<>();
+    private final Map<String, Spec> sinks =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<>()); // ADR-064: changed live
 
     /**
      * Spring binds into this map; the key is the sink name a query would address.
@@ -72,8 +73,8 @@ public class SinkBindingProperties {
     /** The configured sink bindings, validated. */
     public List<SinkBinding> toBindings() {
         List<SinkBinding> configured = new ArrayList<>();
-        sinks.forEach((name, spec) ->
-                configured.add(new SinkBinding(name, spec.plugin == null ? "" : spec.plugin, spec.options)));
+        sinks.forEach((name, spec) -> configured.add(new SinkBinding(
+                name, java.util.Objects.requireNonNullElse(spec.effectivePlugin(), ""), spec.effectiveOptions())));
         return configured;
     }
 
@@ -82,6 +83,9 @@ public class SinkBindingProperties {
 
         private @Nullable String plugin;
         private Map<String, String> options = new LinkedHashMap<>();
+        private @Nullable String connector;
+        private @Nullable String resolvedPlugin;
+        private @Nullable Map<String, String> resolvedOptions;
 
         public @Nullable String getPlugin() {
             return plugin;
@@ -97,6 +101,34 @@ public class SinkBindingProperties {
 
         public void setOptions(Map<String, String> options) {
             this.options = options == null ? new LinkedHashMap<>() : options;
+        }
+
+        /**
+         * A named connection this binding takes its plugin and options from (ADR-064): a file in
+         * {@code pravaha.config.connectors-dir}. The binding's own options are laid over the connection's.
+         */
+        public @Nullable String getConnector() {
+            return connector;
+        }
+
+        public void setConnector(@Nullable String connector) {
+            this.connector = connector == null || connector.isBlank() ? null : connector.strip();
+        }
+
+        /** Records what the named connection resolved to; not a setting (no bean accessor names it). */
+        public void resolvedTo(String plugin, Map<String, String> options) {
+            this.resolvedPlugin = plugin;
+            this.resolvedOptions = Map.copyOf(options);
+        }
+
+        /** The plugin the binding uses: its own, or its connection's. */
+        public @Nullable String effectivePlugin() {
+            return resolvedPlugin != null ? resolvedPlugin : plugin;
+        }
+
+        /** The options the binding uses: its own, laid over its connection's. */
+        public Map<String, String> effectiveOptions() {
+            return resolvedOptions != null ? resolvedOptions : options;
         }
     }
 }

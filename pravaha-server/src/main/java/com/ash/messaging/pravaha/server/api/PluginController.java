@@ -124,9 +124,9 @@ public class PluginController {
         }
         // Bindings last, and only the ones this caller may see. A plugin named by a visible binding
         // that nothing above found is "configured and cannot run", which is the finding.
-        sources.getSources().forEach((stream, spec) -> bind(byName, http, "source", stream, spec.getPlugin()));
-        sources.getLookups().forEach((table, spec) -> bind(byName, http, "lookup", table, spec.getPlugin()));
-        sinks.getSinks().forEach((sink, spec) -> bind(byName, http, "sink", sink, spec.getPlugin()));
+        sources.getSources().forEach((stream, spec) -> bind(byName, http, "source", stream, spec.effectivePlugin()));
+        sources.getLookups().forEach((table, spec) -> bind(byName, http, "lookup", table, spec.effectivePlugin()));
+        sinks.getSinks().forEach((sink, spec) -> bind(byName, http, "sink", sink, spec.effectivePlugin()));
         return byName.values().stream().map(Merged::toDto).toList();
     }
 

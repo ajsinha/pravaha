@@ -313,6 +313,44 @@ public final class QueryRegistry implements AutoCloseable {
         });
     }
 
+    /** What a declared object is to a query: read, joined as a dimension table, or written (ADR-064). */
+    public enum Use {
+        STREAM,
+        LOOKUP,
+        SINK
+    }
+
+    /** The registered queries using {@code name} as {@code use}; see {@link DeclarationUses}. */
+    public List<String> usersOf(Use use, String name) {
+        return lock.call(() -> DeclarationUses.of(use, name, byName, deliveries));
+    }
+
+    /** Runs {@code change} under this registry's lock only if no query uses {@code name}; else its users. */
+    public List<String> unlessUsed(Use use, String name, Runnable change) {
+        return lock.call(() -> {
+            List<String> users = DeclarationUses.of(use, name, byName, deliveries);
+            if (users.isEmpty()) {
+                change.run();
+            }
+            return users;
+        });
+    }
+
+    /** Plans no later registration over the stream {@code name}: its configuration file was removed. */
+    public void forgetStream(String name) {
+        lock.run(() -> streams = java.util.Arrays.stream(streams)
+                .filter(stream -> !stream.name().equals(name))
+                .toArray(StreamSchema[]::new));
+    }
+
+    /** Joins no later registration against the dimension table {@code name}. */
+    public void forgetLookup(String name) {
+        lock.run(() -> {
+            lookups.remove(name);
+            lookupSchemas.remove(name);
+        });
+    }
+
     /** Dimension tables registered queries may join against, by the name the SQL refers to. */
     final Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups = new LinkedHashMap<>();
 
@@ -358,8 +396,11 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public QueryRegistry lookingUp(com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin plugin) {
         StreamSchema schema = plugin.schema();
-        lookups.put(schema.name(), plugin);
-        lookupSchemas.put(schema.name(), schema);
+        // Under the lock: replaced live by a lookup's configuration file (ADR-064).
+        lock.run(() -> {
+            lookups.put(schema.name(), plugin);
+            lookupSchemas.put(schema.name(), schema);
+        });
         return this;
     }
 

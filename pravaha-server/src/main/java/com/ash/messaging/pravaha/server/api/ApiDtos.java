@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.server.api;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
 
@@ -48,6 +49,10 @@ public final class ApiDtos {
      *     nothing does. The plugin's name only: a binding's options can hold credentials
      * @param allowedLateness how long after a window closes a late row may still correct it, as
      *     ISO-8601; null when there is no event time, {@code PT0S} when windows are final at close
+     * @param origin where the stream was declared: {@code file:<path>} (a file in
+     *     {@code pravaha.config.streams-dir}), {@code config} (inline) or {@code api} (ADR-064)
+     * @param notApplied why its file's latest change or removal is not in force -- a query still reads
+     *     the stream, or the file is invalid -- or null when what is running is what the file says
      */
     public record StreamSummary(
             String name,
@@ -57,12 +62,63 @@ public final class ApiDtos {
             @Nullable String eventTime,
             @Nullable String outOfOrderness,
             @Nullable String source,
-            @Nullable String allowedLateness) {
+            @Nullable String allowedLateness,
+            @Nullable String origin,
+            @Nullable String notApplied) {
 
         public StreamSummary(String name, int version, int fieldCount, List<FieldInfo> fields) {
-            this(name, version, fieldCount, fields, null, null, null, null);
+            this(name, version, fieldCount, fields, null, null, null, null, null, null);
+        }
+
+        /** This summary, saying where the stream came from. */
+        public StreamSummary from(@Nullable String origin, @Nullable String notApplied) {
+            return new StreamSummary(
+                    name,
+                    version,
+                    fieldCount,
+                    fields,
+                    eventTime,
+                    outOfOrderness,
+                    source,
+                    allowedLateness,
+                    origin,
+                    notApplied);
         }
     }
+
+    /**
+     * One declared stream, lookup or sink, and where it came from (ADR-064); or one declaration file the
+     * node has not applied as written.
+     *
+     * @param kind {@code stream}, {@code lookup} or {@code sink}
+     * @param origin {@code file:<path>}, {@code config} or {@code api}
+     * @param state {@code applied}, or {@code not-applied} with a code and a reason
+     * @param usedBy the queries holding the object, when that is why a change is not applied
+     */
+    public record Declaration(
+            String kind,
+            String name,
+            String origin,
+            String state,
+            @Nullable String code,
+            @Nullable String detail,
+            List<String> usedBy) {}
+
+    /**
+     * A named connection (ADR-064).
+     *
+     * @param options its options, every password, secret, token and key shown as {@code ****}
+     * @param usedBy the bindings naming it: {@code source:txn}, {@code lookup:users}, {@code sink:out}
+     */
+    public record Connector(
+            String name, String plugin, String origin, Map<String, String> options, List<String> usedBy) {}
+
+    /**
+     * The declaration folders and everything declared on the node.
+     *
+     * @param watchInterval how often the folders are looked at, or {@code off}
+     */
+    public record Declarations(Map<String, String> folders, String watchInterval, List<Declaration> declarations) {}
 
     public record FieldInfo(String name, String type, boolean nullable, int ordinal) {}
 
