@@ -22,6 +22,8 @@ POSTGRES = Container(
 )
 
 NODE = Node(config="t08/application.yaml", containers=(POSTGRES,), files=(
+    ("t08/streams", "conf/streams"),
+    ("t08/connectors", "conf/connectors"),
     ("t08/shop.sql", "shop.sql"),
     ("t08/open_orders.sql", "open_orders.sql"),
 ))

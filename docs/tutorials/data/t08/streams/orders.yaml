@@ -1,0 +1,10 @@
+# Tutorial 8: the node's conf/streams/orders.yaml -- the orders table's changes, through the
+# connection conf/connectors/shop-postgres.yaml.
+schema: "order_id:INT64,customer:STRING,status:STRING,amount:INT64"
+source:
+  connector: shop-postgres
+  options:
+    table: public.orders
+    slot: pravaha_orders           # the replication slot: the database keeps WAL until it is confirmed
+    publication: pravaha_orders
+    snapshot.mode: initial         # the rows already there first (needs a primary key), then the changes

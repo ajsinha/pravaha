@@ -1,23 +1,7 @@
 # Tutorial 8 (docs/tutorials/08-change-data-capture.md): a PostgreSQL table's inserts, updates and
-# deletes, from its write-ahead log, as a stream.
-# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+# deletes, from its write-ahead log, as a stream. The node's conf/application.yaml; the stream is
+# conf/streams/orders.yaml and the database conf/connectors/shop-postgres.yaml.
 pravaha:
-  streams:
-    orders:
-      schema: "order_id:INT64,customer:STRING,status:STRING,amount:INT64"
-  sources:
-    orders:
-      plugin: postgres-cdc
-      options:
-        # The tutorial's database in Docker, on 15432 so that it is not a PostgreSQL of your own.
-        # Its user is trusted without a password: for this machine only. In production, a role with
-        # REPLICATION, TLS in the URL, and password: "${PRAVAHA_CDC_PASSWORD}".
-        url: "jdbc:postgresql://localhost:15432/shop"
-        user: postgres
-        table: public.orders
-        slot: pravaha_orders           # the replication slot: the database keeps WAL until it is confirmed
-        publication: pravaha_orders
-        snapshot.mode: initial         # the rows already there first (needs a primary key), then the changes
   # The slot is confirmed only at checkpoints: without them the database would keep every byte of WAL.
   checkpoint:
     interval: 10s

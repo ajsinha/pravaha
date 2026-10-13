@@ -1,0 +1,8 @@
+# Tutorial 8: the node's conf/connectors/shop-postgres.yaml -- the database, once, for every table
+# the node follows in it. The tutorial's database runs in Docker on 15432, so that it is not a
+# PostgreSQL of your own. Its user is trusted without a password: for this machine only. In
+# production, a role with REPLICATION, TLS in the URL, and password: "${PRAVAHA_CDC_PASSWORD}".
+plugin: postgres-cdc
+options:
+  url: "jdbc:postgresql://localhost:15432/shop"
+  user: postgres
