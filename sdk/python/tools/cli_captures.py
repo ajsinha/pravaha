@@ -124,6 +124,9 @@ SETUP: "tuple[tuple[str, ...], ...]" = (
     ("streams", "declare", "txn", "--schema", "user_id:STRING,amount:INT64,ts:TIMESTAMP",
      "--event-time", "ts", "--out-of-orderness", "PT5S"),
     ("register", "--name", "spend_by_minute", "--sql", WINDOW_SQL, "--keys", "0,1"),
+    # A named connection for `connectors test` (ADR-064): written by the node into its own folder.
+    ("connectors", "create", "files", "--plugin", "filesystem",
+     "--option", "schema=user_id:STRING,amount:INT64,ts:TIMESTAMP"),
 )
 
 CAPTURES: "tuple[Capture, ...]" = (
@@ -138,6 +141,10 @@ CAPTURES: "tuple[Capture, ...]" = (
     Capture("explain", ("explain", "--sql", WINDOW_SQL)),
     Capture("whoami", ("whoami",)),
     Capture("drop-dry-run", ("drop", "--name", "spend_by_minute", "--dry-run")),
+    Capture("streams-create-dry-run", ("streams", "create", "audit", "--schema", "id:INT64,note:STRING",
+                                       "--plugin", "filesystem", "--option", "path=data/audit.csv",
+                                       "--dry-run")),
+    Capture("connectors-test", ("connectors", "test", "files", "--option", "path=incoming/txn.csv")),
     Capture("describe-refused", ("describe", "no_such_query")),
     Capture("doctor", ("doctor",), omit=(r"^\S+\s+port \d+\s",)),
     Capture("ai-query-ask", ("query", "--ask", "total spend per user", "--chart")),
@@ -347,6 +354,9 @@ def capture_all() -> "dict[str, str]":
     node = ScratchNode(AI_ARGS)
     (node.home / "ai").mkdir()
     (node.home / "ai" / "mock.yaml").write_text(AI_MOCK, encoding="utf-8")
+    # What `connectors test` opens: a file the connection's plugin can read (ADR-064).
+    (node.home / "incoming").mkdir()
+    (node.home / "incoming" / "txn.csv").write_text("u1,40,2026-01-01T00:00:00Z\n", encoding="utf-8")
     with node:
         config = node.home / "config"
         env = _environment(config)

@@ -194,6 +194,12 @@ HTTP (`--http`):
 | `metrics [--grep TEXT]` | `GET /actuator/prometheus` |
 | `plugins`, `sinks` | `GET /api/v1/plugins`, `/api/v1/sinks` |
 | `streams [list]`, `streams describe S`, `streams declare S --schema ... [--event-time C] [--out-of-orderness D]` | `GET /api/v1/streams`, `/streams/{name}`, `POST /api/v1/streams` |
+| `streams create\|edit S (--file F \| --schema ... [--event-time C] [--out-of-orderness D] [--allowed-lateness D] [--plugin P \| --connector C] [--option k=v]... [--disabled]) [--dry-run]` | `POST`, `PUT /api/v1/streams/{name}[?dryRun=true]`: writes `config/streams/<name>.yaml` and applies it at once |
+| `streams delete\|enable\|disable S [--dry-run]` | `DELETE /api/v1/streams/{name}`, `POST /streams/{name}/enable`, `/disable` |
+| `declarations` | `GET /api/v1/declarations` |
+| `connectors [list]`, `connectors show C` | `GET /api/v1/connectors`, `/connectors/{name}` (secrets masked) |
+| `connectors create\|edit C (--file F \| --plugin P [--option k=v]... [--disabled]) [--dry-run]`, `connectors delete\|enable\|disable C [--dry-run]` | `POST`, `PUT`, `DELETE /api/v1/connectors/{name}`, `POST /connectors/{name}/enable`, `/disable` |
+| `connectors test C [--option k=v]... [--within S]` | `POST /api/v1/connectors/{name}/test` (exit `1` unless the plugin answered healthy) |
 | `views [list]`, `views describe V` | `GET /api/v1/queries` (a view is a registered query's), `/api/v1/views/{name}` |
 | `describe Q` | `GET /api/v1/queries/{name}` — including `lane` and `sharedLane` |
 | `plan Q` | `GET /api/v1/queries/{name}/plan` |
@@ -219,6 +225,45 @@ HTTP (`--http`):
 | `policy ls [--on O]`, `policy show P` | `GET /api/v1/catalog/policies[?object=]`, `/catalog/policies/{name}` |
 | `policy create-filter P --as EXPR [--except-role R]... [--comment]`, `policy create-mask P --column C --as EXPR [--except-role R]...` | `POST /api/v1/catalog/policies` |
 | `policy bind P --on O \| --tag k[=v]`, `policy unbind P --on O \| --tag k[=v] [--yes]`, `policy drop P [--yes]` | `POST`, `DELETE /api/v1/catalog/policies/{name}/bindings`, `DELETE /catalog/policies/{name}` |
+
+**Streams and connections are files** ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)).
+`streams create|edit|delete|enable|disable` and `connectors create|edit|delete|enable|disable` write
+the same `config/streams/<name>.yaml` and `config/connectors/<name>.yaml` a person would, through the
+node, which writes them atomically and applies them at once. `--file` sends a file as written; the
+flags build one. `--dry-run` is the node's own: nothing is written, and the file that would be is
+printed with what uses the object -- exit `1` when the node would refuse it. A change or removal of a
+stream a query reads, or a connection a binding names, is refused (`PRV-1065`) and writes nothing;
+`disable` never is -- the stream stays declared, its queries keep running and receive nothing until
+`enable`. A secret option is written as `${ENV_NAME}`; a literal one is refused (`PRV-1063`).
+`connectors test` configures the connection's plugin, opens it and asks its health in bounded time
+(`--within`, 10 s by default, at most 60), and never prints an option's value. Captured against a
+scratch node:
+
+<!-- capture: streams-create-dry-run -->
+```text
+$ pravaha streams create audit --schema id:INT64,note:STRING --plugin filesystem --option path=data/audit.csv --dry-run
+would create stream audit: config/streams/audit.yaml
+
+# Stream audit, written through the Pravaha API by anonymous.
+# This file is the declaration: edit it here or from the console, the CLI or the API.
+schema: "id:INT64,note:STRING"
+source:
+  plugin: filesystem
+  options:
+    path: data/audit.csv
+```
+<!-- /capture -->
+
+<!-- capture: connectors-test -->
+```text
+$ pravaha connectors test files --option path=incoming/txn.csv
+files: ok  HEALTHY in N ms
+plugin     filesystem
+tested as  source
+detail     -
+code       -
+```
+<!-- /capture -->
 
 The catalogue commands (ADR-059) need a node with `pravaha.catalog.enabled`; `revoke`, `catalog
 owner`, `policy unbind` and `policy drop` change nothing without `--yes`.
