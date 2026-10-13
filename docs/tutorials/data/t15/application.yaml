@@ -1,21 +1,7 @@
 # Tutorial 15 (docs/tutorials/15-operating-at-scale.md): payments, five queries on shared and dedicated
 # lanes, read admission limits, and a Prometheus scrape.
-# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+# The node's conf/application.yaml; the stream is conf/streams/txn.yaml.
 pravaha:
-  streams:
-    txn:
-      schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 5s
-  sources:
-    txn:
-      plugin: filesystem
-      options:
-        path: data/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
-        event.time: event_time
-        skip.header: "true"
-        follow: "true"
   lane:
     # A smaller inbox than the default 2048 x 512 B: 64 KiB a lane rather than 1 MiB.
     inbox:

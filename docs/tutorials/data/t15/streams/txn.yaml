@@ -1,0 +1,12 @@
+# Tutorial 15 (docs/tutorials/15-operating-at-scale.md): the node's conf/streams/txn.yaml -- payments.
+# A relative path is relative to the node's home (PRAVAHA_HOME).
+schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 5s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+    skip.header: "true"
+    follow: "true"

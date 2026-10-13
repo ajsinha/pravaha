@@ -30,6 +30,7 @@ PROMETHEUS = Container(
 )
 
 NODE = Node(config="t15/application.yaml", containers=(PROMETHEUS,), files=(
+    ("t15/streams", "conf/streams"),
     ("t15/txn.csv", "data/incoming/txn.csv"),
     ("t15/prometheus.yml", "prometheus.yml"),
 ))
@@ -95,9 +96,9 @@ STEPS = (
     Sh("t15-prom-lanes", f"curl -s '{PROM}/api/v1/query?query=pravaha_lane_shared_queries' | {PROMQL}",
        show=f"curl -s 'localhost:9090/api/v1/query?query=pravaha_lane_shared_queries' | {PROMQL}"),
     Sh("t15-prom-rules", f"curl -s '{PROM}/api/v1/rules' | python3 -c \"import json, sys; "
-                         "[print(g['name'], len(g['rules'])) for g in json.load(sys.stdin)['data']['groups']]\"",
+                         "[print(g['name'] + ':', len(g['rules'])) for g in json.load(sys.stdin)['data']['groups']]\"",
        show="curl -s 'localhost:9090/api/v1/rules' | python3 -c \"import json, sys; "
-            "[print(g['name'], len(g['rules'])) for g in json.load(sys.stdin)['data']['groups']]\""),
+            "[print(g['name'] + ':', len(g['rules'])) for g in json.load(sys.stdin)['data']['groups']]\""),
     Sh("t15-dashboards", f"cd {REPO} && for f in deploy/observability/grafana/*.json; do python3 -c \"import json, sys; "
                          "d = json.load(open(sys.argv[1])); print(sys.argv[1].split('/')[-1], '--', d['title'], '--', "
                          "len(d.get('panels', [])), 'panels')\" $f; done",

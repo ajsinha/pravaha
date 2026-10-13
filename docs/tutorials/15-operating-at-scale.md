@@ -20,13 +20,14 @@ real Prometheus running these steps.
 - [Tutorial 1](01-first-15-minutes.md) done; [tutorial 6](06-investigating-an-incident.md) introduces
   `top` and the metrics, [tutorial 14](14-running-in-production.md) API keys.
 - Docker, for Prometheus (`prom/prometheus`); a JDK's `jcmd` for the thread dump.
-- The tutorial's files, in [data/t15/](data/t15/): `application.yaml` (the stream, the lanes, read
-  admission), `txn.csv` (eight payments) and `prometheus.yml`.
+- The tutorial's files, in [data/t15/](data/t15/): `application.yaml` (the lanes, read admission),
+  `streams/txn.yaml` (the stream, for the node's `conf/streams/`), `txn.csv` (eight payments) and
+  `prometheus.yml`.
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t15
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t15/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t15/application.yaml docs/tutorials/data/t15/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t15/txn.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
 export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin) PRAVAHA_INSECURE_TOKEN=true
@@ -270,9 +271,9 @@ its source has stopped. **Operate → Operations** says the same, and lists what
 
 ![Operations: healthy with 3 things to watch, each query's watermark far behind the wall clock because the sample data is old; engine RUNNING, 3 queries, the heap; and per query its rows in, rate, state against its ceiling, view rows, watermark lag, subscribers, inbox and checkpoint, then the shared lanes](img/t15/04-operations.png)
 
-(The Checkpoint column says `not checkpointing` for these queries: a home checkpoints every query
-into `data/checkpoints` once a minute, and none has taken its first yet. The words are wrong for that —
-"no checkpoint yet" is what is true — OPSCKPT-1.)
+(The Checkpoint column says `first checkpoint pending` for these queries: a node checkpoints every
+query into `data/checkpoints` once a minute, and none has taken its first yet. A query that never
+checkpoints — a node with `pravaha.data.dir: none` — says `not checkpointing`.)
 
 You should see `pravaha_lane_own_queries ... 3.0` and the three queries in `top`, each `8` rows in.
 
@@ -341,10 +342,10 @@ checkpoints failing, sinks behind, notification delivery, catalogue denials, the
 
 <!-- capture: t15-prom-rules -->
 ```text
-$ curl -s 'localhost:9090/api/v1/rules' | python3 -c "import json, sys; [print(g['name'], len(g['rules'])) for g in json.load(sys.stdin)['data']['groups']]"
-pravaha 10
-pravaha-alerts-catalog 4
-pravaha-console 1
+$ curl -s 'localhost:9090/api/v1/rules' | python3 -c "import json, sys; [print(g['name'] + ':', len(g['rules'])) for g in json.load(sys.stdin)['data']['groups']]"
+pravaha: 10
+pravaha-alerts-catalog: 4
+pravaha-console: 1
 ```
 <!-- /capture -->
 
@@ -379,6 +380,7 @@ $ jcmd $(pgrep -f pravaha-server) Thread.print -l > threads.txt && grep -m1 '^Fu
 Full thread dump OpenJDK 64-Bit Server VM (<version>):
       N "pravaha-alerts
       N "pravaha-clock
+      N "pravaha-config-watch
       N "pravaha-lane-runner
       N "pravaha-metrics
       N "pravaha-replacements
@@ -393,6 +395,7 @@ Full thread dump OpenJDK 64-Bit Server VM (<version>):
 | `pravaha-clock` | the one timer thread; each firing (a watermark tick, an idleness check) is handed to a virtual thread |
 | `pravaha-state-owner` | renews the lease on the node's claim to its checkpoint and journal directories, so two nodes cannot share one |
 | `pravaha-metrics`, `pravaha-alerts`, `pravaha-replacements` | reconciling the per-query meters, evaluating alerts, running blue/green replacements |
+| `pravaha-config-watch` | looking at `conf/streams/`, `conf/lookups/`, `conf/sinks/` and `conf/connectors/` every `pravaha.config.watch-interval` |
 
 Much of the rest — Flight calls, ticks, waits — runs on virtual threads, which a dump made this way does
 not list; `jcmd <pid> Thread.dump_to_file -format=json threads.json` writes those too. A node in a
