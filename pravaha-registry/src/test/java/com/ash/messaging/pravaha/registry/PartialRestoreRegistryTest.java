@@ -94,7 +94,7 @@ class PartialRestoreRegistryTest {
         query.commit();
         Checkpoint taken = checkpointerOf(query).checkpointNow();
         byte[] view = taken.operatorState().get(QueryExecution.SERVED_VIEW_STATE);
-        first.close();
+        first.closeAsIfCrashed(); // a crash: the restore below is from the periodic checkpoint
         registries.remove(first);
 
         // A sound header, a body cut short: past the check that runs before the lanes, refused after.

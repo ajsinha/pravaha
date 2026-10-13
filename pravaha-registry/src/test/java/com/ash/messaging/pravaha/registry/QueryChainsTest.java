@@ -388,7 +388,7 @@ class QueryChainsTest {
     // ------------------------------------------------------------------ helpers
 
     private void restart(QueryRegistry registry) {
-        registry.close();
+        registry.closeAsIfCrashed(); // a crash: no last checkpoint, so the scenario's checkpoint is the last one
         registries.remove(registry);
     }
 

@@ -417,7 +417,7 @@ class TransactionalSinkDeliveryTest {
     /** The process dies: every connection it held is gone, and nothing it does afterwards arrives. */
     private void crash(QueryRegistry registry) {
         TxnSink.killAll();
-        registry.close();
+        registry.closeAsIfCrashed();
         registries.remove(registry);
     }
 
