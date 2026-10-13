@@ -22,19 +22,17 @@ was printed by a real build and a real node running these steps.
 - Java 21 or later and Maven 3.9. The engine's artefacts in your local Maven repository: in a checkout,
   `./mvnw -q -DskipTests install` once (it installs `pravaha-api` and `pravaha-testkit`, which a
   plugin builds against).
-- `PRAVAHA_VERSION` set to that version. `pravaha plugin new` writes it into the project's `pom.xml`;
-  without `--pravaha-version` it uses the CLI's own version, which in a checkout is the release number
-  without `-SNAPSHOT` (`2.4.3` where the engine you built is `2.4.3-SNAPSHOT`), and the build then
-  cannot find the engine (PLUGINVER-1).
+- `pravaha plugin new` writes the engine's version into the project's `pom.xml`: run from a checkout,
+  the version that checkout builds (`-SNAPSHOT` and all), so the project finds the engine you
+  installed; from an installed CLI, the CLI's own. `--pravaha-version` names another.
 - The tutorial's files, in [data/t13/](data/t13/): the source (`AcmeSourcePlugin.java`,
-  `AcmeReader.java`), its TCK test (`AcmeSourceTckTest.java`), the node's `application.yaml`, the same
-  with the sink bound (`application-with-ledger.yaml`) and `tick_minutes.sql`.
+  `AcmeReader.java`), its TCK test (`AcmeSourceTckTest.java`), the stream it feeds
+  (`streams/ticks.yaml`), the sink of step 6 (`sinks/ledger.yaml`) and `tick_minutes.sql`.
 
 ```bash
-export PRAVAHA_VERSION=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)
 export PRAVAHA_HOME=$HOME/pravaha-t13 T=$PWD/docs/tutorials/data/t13
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data $PRAVAHA_HOME/plugins ~/work
-cp $T/application.yaml $PRAVAHA_HOME/conf/ && cp $T/tick_minutes.sql ~/work/
+cp -r $T/streams $PRAVAHA_HOME/conf/ && cp $T/tick_minutes.sql ~/work/
 cd ~/work
 ```
 
@@ -53,7 +51,7 @@ cd ~/work
 
 <!-- capture: t13-new -->
 ```text
-$ pravaha plugin new acme --kind source --pravaha-version "$PRAVAHA_VERSION"
+$ pravaha plugin new acme --kind source
 created a Pravaha source plugin, acme in pravaha-plugin-acme/
   pom.xml                                                                                       pravaha-api <version> (provided) and pravaha-testkit (test); Java 21
   src/main/java/com/example/acme/AcmeSourcePlugin.java                                          the plugin: name, version, configure (validates), capabilities, schema, partitions, health
@@ -63,7 +61,7 @@ created a Pravaha source plugin, acme in pravaha-plugin-acme/
   README.md                                                                                     how to build it, and where the jar goes
 
 choices made for you:
-  - pravaha-api and pravaha-testkit <version>: as --pravaha-version said
+  - pravaha-api and pravaha-testkit <version>: this source checkout's version (--pravaha-version for another)
   - pravaha-api at provided scope: the node carries it, and a second copy in plugins/ would clash
   - maven.compiler.release 21: production runs Java 21, which cannot load newer class files
   - the TCK wired in (SourcePluginTck), so a change that breaks the contract fails `mvn verify`
@@ -201,23 +199,23 @@ You should see the two classes in place of the example's.
 
 ## Step 3 · The TCK, and a contract broken on purpose
 
-The TCK test extends `SourcePluginTck` and gives it a fixture — here one symbol and five ticks:
+The TCK test extends `SourcePluginTck` and gives it a fixture — here two symbols, so two partitions,
+and five ticks each:
 
 <!-- file: data/t13/AcmeSourceTckTest.java -->
 ```java
     @Override
     protected StreamSourcePlugin createPlugin() {
         AcmeSourcePlugin plugin = new AcmeSourcePlugin();
-        plugin.configure(new Context("ticks", Map.of("symbols", "ACME", "ticks", "5")));
+        plugin.configure(new Context("ticks", Map.of("symbols", "ACME,GLOBEX", "ticks", "5")));
         plugin.open();
         return plugin;
     }
 ```
 
-One symbol, not two, for a reason: the TCK's replay test resumes **partition 0** from an offset and
-expects the rest of the **whole** fixture from it, so with two symbols it counts the other symbol's
-ticks as lost and fails a source that loses nothing (TCKPARTS-1). Before the passing run, see what a
-real mistake looks like. A reader that ignores `pause` turns the engine's flow control into an
+Two partitions are worth testing: the TCK's replay test resumes **every** partition from an offset of
+its own and expects that partition's remainder, which is what a node does after a restart. Before the
+passing run, see what a real mistake looks like. A reader that ignores `pause` turns the engine's flow control into an
 out-of-memory error further down the pipeline; make that mistake:
 
 <!-- capture: t13-break -->
@@ -272,25 +270,21 @@ pravaha-plugin-acme-<version>-SNAPSHOT.jar
 ```
 <!-- /capture -->
 
-The node's configuration binds the stream `ticks` to the plugin by the name `name()` answers, with the
-options `configure` reads:
+The stream's file, `conf/streams/ticks.yaml`, binds the stream `ticks` to the plugin by the name
+`name()` answers, with the options `configure` reads:
 
-<!-- file: data/t13/application.yaml -->
+<!-- file: data/t13/streams/ticks.yaml -->
 ```yaml
-pravaha:
-  streams:
-    ticks:
-      schema: "symbol:STRING,seq:INT64,price:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 0s
-  sources:
-    ticks:
-      plugin: acme                   # what AcmeSourcePlugin.name() answers
-      options:                       # what AcmeSourcePlugin.configure() reads, and checks
-        symbols: ACME,GLOBEX         # one partition each
-        ticks: "6"                   # per symbol
-        start: "2026-10-01T09:00:00Z"
-        step-seconds: "15"
+schema: "symbol:STRING,seq:INT64,price:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 0s
+source:
+  plugin: acme                   # what AcmeSourcePlugin.name() answers
+  options:                       # what AcmeSourcePlugin.configure() reads, and checks
+    symbols: ACME,GLOBEX         # one partition each
+    ticks: "6"                   # per symbol
+    start: "2026-10-01T09:00:00Z"
+    step-seconds: "15"
 ```
 
 Start the node from a second terminal (`bin/pravaha-server --spring.profiles.active=dev,users &`, which puts `plugins/` on the
@@ -308,8 +302,8 @@ acme              <version>    source       yes         yes     UNKNOWN  source:
 <!-- capture: t13-streams -->
 ```text
 $ pravaha streams list
-NAME   VERSION  EVENT TIME  LATENESS  SOURCE  FIELDS
-ticks  1        event_time  PT0S      acme    symbol VARCHAR NOT NULL, seq INT64 NOT NULL, price INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
+NAME   VERSION  EVENT TIME  LATENESS  SOURCE  ORIGIN                        FIELDS
+ticks  1        event_time  PT0S      acme    file:conf/streams/ticks.yaml  symbol VARCHAR NOT NULL, seq INT64 NOT NULL, price INT64 NOT NULL, event_time TIMESTAMP(9) WITH LOCAL TIME ZONE NOT NULL
 ```
 <!-- /capture -->
 
@@ -345,7 +339,7 @@ Ticks 1 to 4 of each symbol (09:00:00 to 09:00:45) are in the 09:00 minute; tick
 the watermark past its end (the stream allows no out-of-orderness), so it closed. Ticks 5 and 6 are in
 09:01, which closes when a later tick comes — and this source has no more.
 
-![The stream ticks in the catalogue: four columns symbol, seq, price and event_time, all not null, event time event_time with no out-of-orderness or allowed lateness, the source acme, and the registered query tick_minutes reading it](img/t13/02-stream.png)
+![The stream ticks in the catalogue: four columns symbol, seq, price and event_time, all not null, event time event_time with no out-of-orderness or allowed lateness, the source acme, Declared by file:conf/streams/ticks.yaml, and the registered query tick_minutes reading it](img/t13/02-stream.png)
 
 ![The live page of tick_minutes: two current rows for the 09:00 to 09:01 window, ACME low 103 high 110 from four ticks and GLOBEX low 152 high 160 from four ticks](img/t13/03-view.png)
 
@@ -359,7 +353,7 @@ can do with them — append only, or upsert by key, retractions or not, exactly 
 
 <!-- capture: t13-new-sink -->
 ```text
-$ pravaha plugin new acme-ledger --kind sink --pravaha-version "$PRAVAHA_VERSION"
+$ pravaha plugin new acme-ledger --kind sink
 created a Pravaha sink plugin, acme-ledger in pravaha-plugin-acme-ledger/
   pom.xml                                                                                     pravaha-api <version> (provided) and pravaha-testkit (test); Java 21
   src/main/java/com/example/acmeledger/AcmeLedgerSinkPlugin.java                              the plugin: appends rows to a file (option path); append-only, at-least-once
@@ -368,7 +362,7 @@ created a Pravaha sink plugin, acme-ledger in pravaha-plugin-acme-ledger/
   README.md                                                                                   how to build it, and where the jar goes
 
 choices made for you:
-  - pravaha-api and pravaha-testkit <version>: as --pravaha-version said
+  - pravaha-api and pravaha-testkit <version>: this source checkout's version (--pravaha-version for another)
   - pravaha-api at provided scope: the node carries it, and a second copy in plugins/ would clash
   - maven.compiler.release 21: production runs Java 21, which cannot load newer class files
   - the TCK wired in (SinkPluginTck), so a change that breaks the contract fails `mvn verify`
@@ -393,7 +387,8 @@ $ mvn verify | grep -E 'Tests run:|FAILURE!|must|BUILD'
 ```
 <!-- /capture -->
 
-Drop the jar beside the source's, bind it, and restart the node (plugins are found at start):
+Drop the jar beside the source's, bind it with a file in `conf/sinks/`, and restart the node — the node
+would pick the file up at its next look, but a plugin's jar is found only at start:
 
 <!-- capture: t13-install-sink -->
 ```text
@@ -403,17 +398,17 @@ pravaha-plugin-acme-ledger-<version>-SNAPSHOT.jar
 ```
 <!-- /capture -->
 
-<!-- file: data/t13/application-with-ledger.yaml -->
+<!-- file: data/t13/sinks/ledger.yaml -->
 ```yaml
-  sinks:
-    ledger:
-      plugin: acme-ledger            # what AcmeLedgerSinkPlugin.name() answers
-      options:
-        path: data/outgoing/ledger.txt
+plugin: acme-ledger            # what AcmeLedgerSinkPlugin.name() answers
+options:
+  path: data/outgoing/ledger.txt
 ```
 
-(`cp $T/application-with-ledger.yaml $PRAVAHA_HOME/conf/application.yaml`, and `mkdir -p
-$PRAVAHA_HOME/data/outgoing`: the sink opens its file at start and does not make the directory.)
+(`cp -r $T/sinks $PRAVAHA_HOME/conf/`, and `mkdir -p $PRAVAHA_HOME/data/outgoing`: the sink opens its
+file at start and does not make the directory.) The node comes back with `tick_minutes` registered — a
+node keeps its registry journal and checkpoints under its data folder, `$PRAVAHA_HOME/data` — and the
+source resumes each partition from its checkpointed offset.
 
 <!-- capture: t13-sinks -->
 ```text
@@ -469,12 +464,11 @@ You should see `ledger` with plugin `acme-ledger`, `APPEND`, `AT_LEAST_ONCE`, an
 
 | Symptom | What it means | What to do |
 |---|---|---|
-| `Could not find artifact com.ash.messaging:pravaha-api:jar:2.4.3` | the project names a version that is not in your Maven repository; in a checkout the CLI's own version lacks `-SNAPSHOT` (PLUGINVER-1) | `plugin new ... --pravaha-version "$PRAVAHA_VERSION"`, or set `pravaha.version` in the pom |
+| `Could not find artifact com.ash.messaging:pravaha-api:jar:<version>` | the project names a version that is not in your Maven repository | `plugin new ... --pravaha-version <the version you installed>`, or set `<pravaha.version>` in the pom |
 | the node will not start: no plugin `acme` | the jar is not in `plugins/`, the node was not started with `-Dloader.path=plugins` (`bin/pravaha-server` does it), or `META-INF/services` does not name the class | check all three; `unzip -l` the jar for the services file |
 | `PRV-5001` at start | a binding lacks an option `configure` requires; the message names the key | add it under `options:` |
-| `PRV-5990` (the plugin's own) at start | `configure` refused a value | the message says which and why |
+| the plugin's own code at start (`ACME_BAD_CONFIGURATION`) | `configure` refused a value | the message says which and why |
 | `pravaha plugins` says `COMPATIBLE no` | the plugin was built against a plugin API this node does not speak | rebuild against the node's version |
 | `UnsupportedClassVersionError` | the jar was compiled for a newer Java than the node runs | keep `maven.compiler.release` at 21 |
-| the TCK's `replayableOffsetsActuallyReplay` fails for a multi-partition fixture | the TCK resumes partition 0 and expects the rest of the whole fixture (TCKPARTS-1) | a one-partition fixture |
 | `PRV-2041` registering with `--sink` | the query's rows can be withdrawn, and the sink appends only | a filter or projection, or a sink that upserts and retracts |
 | the sink fails to open | its directory does not exist | `mkdir -p` it before the start |

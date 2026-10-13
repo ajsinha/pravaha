@@ -1,0 +1,12 @@
+# Tutorial 13 (docs/tutorials/13-writing-a-connector.md): a stream fed by a source you wrote -- acme,
+# Acme Exchange's price ticks -- from its jar in plugins/. The node's conf/streams/ticks.yaml.
+schema: "symbol:STRING,seq:INT64,price:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 0s
+source:
+  plugin: acme                   # what AcmeSourcePlugin.name() answers
+  options:                       # what AcmeSourcePlugin.configure() reads, and checks
+    symbols: ACME,GLOBEX         # one partition each
+    ticks: "6"                   # per symbol
+    start: "2026-10-01T09:00:00Z"
+    step-seconds: "15"

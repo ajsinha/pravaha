@@ -11,22 +11,21 @@ TCK, the jar dropped in beside the source, a restart, and a query writing to it.
 """
 
 import pathlib
-import re
 
 from tutorial_captures import REPO, Cli, Node, Open, Restart, Sh, Snap, Until
 
 DOC = "13-writing-a-connector.md"
 
-NODE = Node(config="t13/application.yaml", plugins=True, files=(
+NODE = Node(plugins=True, files=(
+    ("t13/streams", "conf/streams"),
     ("t13/AcmeSourcePlugin.java", "tutorial/AcmeSourcePlugin.java"),
     ("t13/AcmeReader.java", "tutorial/AcmeReader.java"),
     ("t13/AcmeSourceTckTest.java", "tutorial/AcmeSourceTckTest.java"),
-    ("t13/application-with-ledger.yaml", "tutorial/application-with-ledger.yaml"),
+    ("t13/sinks", "tutorial/sinks"),
     ("t13/tick_minutes.sql", "tick_minutes.sql"),
 ))
 
 _M2 = REPO / ".m2-local" if (REPO / ".m2-local").is_dir() else pathlib.Path.home() / ".m2" / "repository"
-_VERSION = re.search(r"<version>([^<]+)</version>", (REPO / "pom.xml").read_text(encoding="utf-8")).group(1)
 _MVN = f"mvn -o -B -Dmaven.repo.local={_M2}"
 T = "docs/tutorials/data/t13"
 SRC = "src/main/java/com/example/acme"
@@ -38,8 +37,8 @@ LEDGER_JAR = "pravaha-plugin-acme-ledger/target/pravaha-plugin-acme-ledger-0.1.0
 
 
 def new(capture, name: str, kind: str) -> Sh:
-    return Sh(capture, f"pravaha plugin new {name} --kind {kind} --pravaha-version {_VERSION}",
-              show=f'pravaha plugin new {name} --kind {kind} --pravaha-version "$PRAVAHA_VERSION"')
+    # In a checkout the CLI takes the version the checkout builds (PLUGINVER-1), as a reader's does.
+    return Sh(capture, f"pravaha plugin new {name} --kind {kind}")
 
 
 def verify(capture, project: str, prefix: str = "") -> Sh:
@@ -85,7 +84,7 @@ STEPS = (
     # The sink, briefly.
     new("t13-new-sink", "acme-ledger", "sink"),
     verify("t13-verify-sink", "pravaha-plugin-acme-ledger"),
-    Sh("t13-install-sink", f"cp {LEDGER_JAR} plugins/ && cp tutorial/application-with-ledger.yaml conf/application.yaml"
+    Sh("t13-install-sink", f"cp {LEDGER_JAR} plugins/ && cp -r tutorial/sinks conf/"
                            " && mkdir -p data/outgoing && ls plugins",
        show='cp target/pravaha-plugin-acme-ledger-0.1.0-SNAPSHOT.jar "$PRAVAHA_HOME/plugins/" && ls "$PRAVAHA_HOME/plugins"'),
     Restart(),
