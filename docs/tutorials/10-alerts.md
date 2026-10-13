@@ -19,7 +19,8 @@ was printed by a real node, and every notification was received by the catcher, 
 
 - [Tutorial 1](01-first-15-minutes.md) done, and [tutorial 4](04-following-a-view.md) for what a `−1`
   means: an alert clears because the view withdraws the row.
-- The tutorial's files, in [data/t10/](data/t10/): `application.yaml` (the stream, the two channels),
+- The tutorial's files, in [data/t10/](data/t10/): `application.yaml` (the two channels),
+  `streams/stock.yaml` (the stream, a file the node reads from its `conf/streams/`),
   `stock.csv` (four stock counts), `low_stock.sql`, and `catcher.py`, a webhook receiver in the Python
   standard library that checks each notification's signature.
 - A node home with the configuration and the data, and a shared secret the webhook signs with — a
@@ -28,7 +29,7 @@ was printed by a real node, and every notification was received by the catcher, 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t10
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t10/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t10/application.yaml docs/tutorials/data/t10/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t10/stock.csv $PRAVAHA_HOME/data/incoming/
 ```
 
@@ -57,7 +58,7 @@ python catcher.py --port 18099 --secret-file "$PRAVAHA_HOME/conf/hook.secret" --
 ## Step 1 · Channels, and a view to watch
 
 ```yaml
-# data/t10/application.yaml (the channels)
+# conf/application.yaml (the channels)
 pravaha:
   notifiers:
     buyers:

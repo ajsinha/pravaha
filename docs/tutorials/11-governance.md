@@ -20,14 +20,15 @@ of all of it. Every output below was printed by a real node running these steps.
 
 - [Tutorial 1](01-first-15-minutes.md) done: you signed in as `pravaha-dev-admin`, who holds the
   `admin` role.
-- The tutorial's files, in [data/t11/](data/t11/): `application.yaml` (the stream, the catalogue on,
-  an audit file), `payments.csv` (five card payments, three EU and two US) and `payments_view.sql`.
+- The tutorial's files, in [data/t11/](data/t11/): `application.yaml` (the catalogue on, an audit
+  file), `streams/payments.yaml` (the stream, a file the node reads from its `conf/streams/`),
+  `payments.csv` (five card payments, three EU and two US) and `payments_view.sql`.
 - A node home with the configuration and the data:
 
 ```bash
 export PRAVAHA_HOME=$HOME/pravaha-t11
 mkdir -p $PRAVAHA_HOME/conf $PRAVAHA_HOME/data/incoming
-cp docs/tutorials/data/t11/application.yaml $PRAVAHA_HOME/conf/
+cp -r docs/tutorials/data/t11/application.yaml docs/tutorials/data/t11/streams $PRAVAHA_HOME/conf/
 cp docs/tutorials/data/t11/payments.csv $PRAVAHA_HOME/data/incoming/
 bin/pravaha-server --spring.profiles.active=dev,users &
 cd docs/tutorials/data/t11
@@ -35,7 +36,7 @@ export PRAVAHA_TOKEN=$(pravaha login --user pravaha-dev-admin) PRAVAHA_INSECURE_
 ```
 
 ```yaml
-# data/t11/application.yaml (what this tutorial needs beyond a stream and a source)
+# conf/application.yaml (what this tutorial needs beyond a stream and its source)
 pravaha:
   catalog:
     enabled: true
@@ -490,7 +491,7 @@ a line) is the durable record; `pravaha audit` and the console read the recent o
 
 Last, the people: ann, her role and her attribute, as an administrator sees and changes them:
 
-![Admin, Users: admin with the roles operator and admin; ann with the role analyst and the attribute region=EU, active, last signed in; pravaha-dev-admin with the role admin; each with Set buttons for roles and attributes, Disable and Issue reset, and a form to add a person](img/t11/05-users.png)
+![Admin, Users: admin with the roles admin and operator; ann with the role analyst and the attribute region=EU, active, last signed in; pravaha-dev-admin with the role admin; each with Set buttons for roles and attributes, Disable and Issue reset, and a form to add a person](img/t11/05-users.png)
 
 A person is disabled, never deleted (`pravaha user disable ann`), because the audit trail and the
 registry name owners by id.

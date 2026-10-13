@@ -14,6 +14,7 @@ from tutorial_captures import Background, Cli, Join, Node, Open, Py, Sh, Snap, U
 DOC = "10-alerts.md"
 
 NODE = Node(config="t10/application.yaml", files=(
+    ("t10/streams", "conf/streams"),
     ("t10/stock.csv", "data/incoming/stock.csv"),
     ("t10/low_stock.sql", "low_stock.sql"),
 ))
