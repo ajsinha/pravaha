@@ -1,21 +1,8 @@
 # Tutorial 16 (docs/tutorials/16-ai-in-pravaha.md): card payments from three regions, and the engine's AI
 # layer switched on with the deterministic mock provider (conf/ai/mock.yaml): no network, no key.
-# The node's conf/application.yaml; a relative path is relative to the node's home (PRAVAHA_HOME).
+# The node's conf/application.yaml; the stream is conf/streams/payments.yaml. A relative path is
+# relative to the node's home (PRAVAHA_HOME).
 pravaha:
-  streams:
-    payments:
-      schema: "payment_id:INT64,user_id:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
-      event-time: event_time
-      out-of-orderness: 5s
-  sources:
-    payments:
-      plugin: filesystem
-      options:
-        path: data/incoming/payments.csv
-        schema: "payment_id:INT64,user_id:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
-        event.time: event_time
-        skip.header: "true"
-        follow: "true"
   # A channel for the alert the model drafts: each notification a line in the node's log.
   notifiers:
     ops_log:

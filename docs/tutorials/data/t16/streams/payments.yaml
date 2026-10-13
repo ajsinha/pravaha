@@ -1,0 +1,12 @@
+# Tutorial 16 (docs/tutorials/16-ai-in-pravaha.md): the node's conf/streams/payments.yaml -- card
+# payments from three regions. A relative path is relative to the node's home (PRAVAHA_HOME).
+schema: "payment_id:INT64,user_id:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 5s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/payments.csv
+    schema: "payment_id:INT64,user_id:STRING,region:STRING,card_number:STRING,amount:INT64,event_time:TIMESTAMP"
+    skip.header: "true"
+    follow: "true"
