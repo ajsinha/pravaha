@@ -29,6 +29,13 @@ app:
     years: "2026"
     holder: Ashutosh Sinha
 
+# Where a deployment keeps its own code (ADR-064): <external_lib>/python goes on sys.path at start,
+# so a console extension there is importable. Empty: PRAVAHA_EXTERNAL_LIB, then
+# $PRAVAHA_HOME/external_lib, then the checkout's external_lib beside this console. Code there runs
+# with the console's privileges.
+paths:
+  external_lib: "${PRAVAHA_EXTERNAL_LIB:}"
+
 # Signing in (ADR-052). The engine is the identity authority: a person signs in with the
 # username and password the engine holds for them, the console keeps the engine session token
 # it answers with in a signed cookie, and every engine call it makes for that person carries

@@ -96,6 +96,35 @@ public final class ConfigErrors {
      */
     public static final ErrorCode KEY_UNREACHABLE = new ErrorCode(1027, "CONFIG_KEY_UNREACHABLE");
 
+    // ADR-064: the configuration folders -- one YAML file per stream, lookup and sink.
+
+    /** A folder named by {@code pravaha.config.streams-dir} (or lookups-, sinks-) that does not exist. */
+    public static final ErrorCode FOLDER_MISSING = new ErrorCode(1060, "CONFIG_FOLDER_MISSING");
+
+    /** A declaration file whose name is not a name the object could have without brackets. */
+    public static final ErrorCode FILE_NAME_INVALID = new ErrorCode(1061, "CONFIG_FILE_NAME_INVALID");
+
+    /** One name declared in two places: a file and inline configuration, the API, or another file. */
+    public static final ErrorCode DECLARED_TWICE = new ErrorCode(1062, "CONFIG_DECLARED_TWICE");
+
+    /** A literal password, secret, token or key in a declaration file, where only ${ENV} may stand. */
+    public static final ErrorCode FILE_LITERAL_SECRET = new ErrorCode(1063, "CONFIG_FILE_LITERAL_SECRET");
+
+    /** A declaration file that cannot be read, parsed or bound; refused at start, reported while running. */
+    public static final ErrorCode FILE_INVALID = new ErrorCode(1064, "CONFIG_FILE_INVALID");
+
+    /** A changed or removed declaration file whose object a registered query still uses: not applied. */
+    public static final ErrorCode FILE_IN_USE = new ErrorCode(1065, "CONFIG_FILE_IN_USE");
+
+    /** {@code pravaha.data.dir}, or a store beneath it, that cannot be created or written. */
+    public static final ErrorCode DATA_DIR_UNUSABLE = new ErrorCode(1066, "CONFIG_DATA_DIR_UNUSABLE");
+
+    /** A binding names a connection ({@code connector:}) that no file in the connectors folder declares. */
+    public static final ErrorCode CONNECTOR_UNKNOWN = new ErrorCode(1067, "CONFIG_CONNECTOR_UNKNOWN");
+
+    /** A binding names both a plugin and a connection whose plugin is a different one. */
+    public static final ErrorCode CONNECTOR_PLUGIN_CLASH = new ErrorCode(1068, "CONFIG_CONNECTOR_PLUGIN_CLASH");
+
     // PRV-1029 CONFIG_DOCS_BASE_URL_INVALID is allocated here and declared in
     // com.ash.messaging.pravaha.api.HelpUrls, for the same reason as PRV-1028 below: the base URL
     // for a failure's help page is read by pravaha-api itself, which cannot see this class

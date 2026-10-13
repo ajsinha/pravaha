@@ -55,7 +55,9 @@ public class DtoMapper {
                 // nothing without an event time for it to be about -- so it is only said beside one.
                 eventTime.isPresent() ? schema.outOfOrderness().toString() : null,
                 sourcePlugin,
-                eventTime.isPresent() ? schema.allowedLateness().toString() : null);
+                eventTime.isPresent() ? schema.allowedLateness().toString() : null,
+                null,
+                null);
     }
 
     /** A view's key, by name and by the ordinal registration took. */

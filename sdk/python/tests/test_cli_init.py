@@ -27,8 +27,9 @@ from pravaha.cli._init import QUERY_KEYS, QUERY_NAME
 from test_cli import home, run  # noqa: F401
 
 SDK = pathlib.Path(__file__).resolve().parents[1]
-FILES = {"conf/application.yaml", "data/txn.csv", f"queries/{QUERY_NAME}.sql", "docker-compose.yml",
-         "README.md", ".pravaha"}
+FILES = {"conf/application.yaml", "conf/streams/txn.yaml", "data/txn.csv", f"queries/{QUERY_NAME}.sql",
+         "docker-compose.yml", "README.md", ".pravaha", "external_lib/java/README.md",
+         "external_lib/python/README.md"}
 
 
 def _written(root: pathlib.Path) -> "set[str]":
@@ -79,6 +80,7 @@ def test_the_yaml_parses_and_compose_runs_the_engine_image_on_the_standard_ports
     root = tmp_path / "p"
     compose_text = (root / "docker-compose.yml").read_text()
     app_text = (root / "conf/application.yaml").read_text()
+    stream_text = (root / "conf/streams/txn.yaml").read_text()
     try:
         import yaml  # type: ignore[import-untyped]
     except ImportError:  # the SDK has no YAML dependency; the shape is checked by hand instead
@@ -90,16 +92,19 @@ def test_the_yaml_parses_and_compose_runs_the_engine_image_on_the_standard_ports
         assert set(server["ports"]) == {"127.0.0.1:18080:18080", "127.0.0.1:19090:19090"}
         assert compose["services"]["pravaha-console"]["profiles"] == ["console"]
         app = yaml.safe_load(app_text)["pravaha"]
-        assert app["streams"]["txn"]["event-time"] == "event_time"
-        assert app["sources"]["txn"]["plugin"] == "filesystem"
+        assert "streams" not in app and "sources" not in app
+        stream = yaml.safe_load(stream_text)
+        assert stream["event-time"] == "event_time"
+        assert stream["source"]["plugin"] == "filesystem"
     for needle in ("image: pravaha/pravaha-server:", '"127.0.0.1:18080:18080"',
                    '"127.0.0.1:19090:19090"', '"0.0.0.0:17070:17070"', "profiles: [console]",
-                   "./conf/application.yaml:/opt/pravaha/conf/application.yaml:ro"):
+                   "./conf/application.yaml:/opt/pravaha/conf/application.yaml:ro",
+                   "./conf/streams:/opt/pravaha/conf/streams:ro"):
         assert needle in compose_text, needle
-    assert "\t" not in compose_text + app_text
-    for needle in ("  streams:\n    txn:\n", "event-time: event_time", "plugin: filesystem",
+    assert "\t" not in compose_text + app_text + stream_text
+    for needle in ("event-time: event_time", "source:\n  plugin: filesystem",
                    "path: data/incoming/txn.csv"):
-        assert needle in app_text, needle
+        assert needle in stream_text, needle
     # Every sample row has the schema's five columns.
     assert all(len(line.split(",")) == 5 for line in (root / "data/txn.csv").read_text().splitlines())
 
@@ -123,7 +128,8 @@ def test_the_project_runs_on_a_real_node(home, tmp_path):
     assert run("init", str(project))[0] == EXIT_OK
     try:
         node = tool.ScratchNode(args=(
-            f"--spring.config.additional-location=file:{project / 'conf' / 'application.yaml'}",))
+            f"--spring.config.additional-location=file:{project / 'conf' / 'application.yaml'}",
+            f"--pravaha.config.dir={project / 'conf'}"))
     except tool.NodeUnavailable as exc:
         pytest.skip(str(exc))
     # Where the compose file mounts ./data: the node's home is its working directory.

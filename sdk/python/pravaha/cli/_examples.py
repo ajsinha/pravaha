@@ -85,6 +85,10 @@ EXAMPLES: "dict[str, tuple[str, ...]]" = {
     "metrics": ("pravaha metrics --grep pravaha_query_rows_in",),
     "plugins": ("pravaha plugins",),
     "sinks": ("pravaha sinks --json",),
+    "declarations": ("pravaha declarations", "pravaha declarations --json"),
+    "connectors": ("pravaha connectors", "pravaha connectors show kafka-prod"),
+    "connectors list": ("pravaha connectors list --json",),
+    "connectors show": ("pravaha connectors show kafka-prod",),
     "doctor": (
         "pravaha doctor",
         "pravaha doctor --local --timeout 5",

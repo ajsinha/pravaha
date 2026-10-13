@@ -42,13 +42,45 @@ public final class PluginLookupSources implements AutoCloseable {
     private final Map<String, SourceBinding> bindings = new LinkedHashMap<>();
     private final List<LookupSourcePlugin> opened = new ArrayList<>();
 
-    public PluginLookupSources bind(SourceBinding binding) {
+    public synchronized PluginLookupSources bind(SourceBinding binding) {
         bindings.put(binding.streamName(), binding);
         return this;
     }
 
-    public Map<String, SourceBinding> bindings() {
+    public synchronized Map<String, SourceBinding> bindings() {
         return Map.copyOf(bindings);
+    }
+
+    /**
+     * Opens one table while the node runs, without binding it: a lookup's configuration file was added
+     * or changed (ADR-064). The caller binds it with {@link #adopt} once it may be used, or closes it.
+     */
+    public LookupSourcePlugin openOne(SourceBinding binding) {
+        LookupSourcePlugin plugin = discover(binding);
+        plugin.configure(new PluginSourceFeeds.BindingContext(binding));
+        plugin.open();
+        return plugin;
+    }
+
+    /** Binds an opened table in place of any of the same name, closing the one it replaces. */
+    public synchronized void adopt(SourceBinding binding, LookupSourcePlugin plugin) {
+        closeQuietly(release(binding.streamName()));
+        bindings.put(binding.streamName(), binding);
+        opened.add(plugin);
+    }
+
+    /** Unbinds and closes the table {@code name}: its configuration file was removed. */
+    public synchronized void unbind(String name) {
+        bindings.remove(name);
+        closeQuietly(release(name));
+    }
+
+    private List<LookupSourcePlugin> release(String name) {
+        List<LookupSourcePlugin> named = opened.stream()
+                .filter(plugin -> plugin.schema().name().equals(name))
+                .toList();
+        opened.removeAll(named);
+        return named;
     }
 
     /**
@@ -59,7 +91,7 @@ public final class PluginLookupSources implements AutoCloseable {
      * arrives means finding it out in production; the SPI already refuses a plan naming a table it
      * was not given, for the same reason.
      */
-    public List<LookupSourcePlugin> open() {
+    public synchronized List<LookupSourcePlugin> open() {
         List<LookupSourcePlugin> plugins = new ArrayList<>();
         try {
             for (SourceBinding binding : bindings.values()) {
@@ -111,7 +143,7 @@ public final class PluginLookupSources implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         closeQuietly(opened);
         opened.clear();
     }

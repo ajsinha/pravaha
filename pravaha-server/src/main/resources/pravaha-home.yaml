@@ -18,7 +18,8 @@
 #
 #   $PRAVAHA_HOME/bin/        launchers                                 (the distribution's)
 #   $PRAVAHA_HOME/lib/        pravaha-server.jar                        (the distribution's)
-#   $PRAVAHA_HOME/conf/       application.yaml, console.yaml            (the deployment's)
+#   $PRAVAHA_HOME/conf/       application.yaml, console.yaml, streams/, lookups/, sinks/, ai/
+#                                                                       (the deployment's)
 #   $PRAVAHA_HOME/secrets/    key material, 0700                        (the deployment's)
 #   $PRAVAHA_HOME/plugins/    extra jars on the classpath (loader.path) (the deployment's)
 #   $PRAVAHA_HOME/data/       every byte of engine state                (the node's)
@@ -44,29 +45,29 @@ logging:
       total-size-cap: 1GB
 
 pravaha:
-  # Registered continuous queries. Holds query text and bound parameter values: data, not config.
-  registry:
-    journal: ${PRAVAHA_HOME}/data/registry.journal
-
-  # What each query had accumulated; one directory per query beneath this one.
-  checkpoint:
-    directory: ${PRAVAHA_HOME}/data/checkpoints
-
-  # Users, password hashes, API key hashes and sessions, when pravaha.identity.enabled is true.
-  identity:
-    store: ${PRAVAHA_HOME}/data/identity/identity.journal
-
-  ai:
-    dir: ${PRAVAHA_HOME}/conf/ai
+  # The two roots (ADR-064). Everything else is found beneath them by convention, and each derived
+  # setting can still be written in conf/application.yaml or passed as --pravaha.<key>=... :
+  #   data/registry.journal            pravaha.registry.journal    (query text and bound values: data)
+  #   data/checkpoints/                pravaha.checkpoint.directory (one directory per query)
+  #   data/catalog.journal             pravaha.catalog.journal     (beside the registry journal)
+  #   data/alerts.journal              pravaha.alerts.journal      (beside the registry journal)
+  #   data/identity/identity.journal   pravaha.identity.store      (when pravaha.identity.enabled)
+  #   conf/streams/ lookups/ sinks/    pravaha.config.streams-dir, lookups-dir, sinks-dir
+  #   conf/ai/                         pravaha.ai.dir
+  data:
+    dir: ${PRAVAHA_HOME}/data
+  config:
+    dir: ${PRAVAHA_HOME}/conf
+  # Code the deployment adds: java/*.jar on the classpath at start (bin/pravaha-server), python/ for
+  # the console and the CLI. Runs with the node's privileges.
+  external-lib:
+    dir: ${PRAVAHA_HOME}/external_lib
 
   # Where `audit: file` writes. Only a location: whether there is an audit trail is
   # pravaha.security.audit, which stays the deployment's decision.
   security:
     audit-file: ${PRAVAHA_HOME}/logs/audit.jsonl
 
-  # The catalogue's grants (pravaha.catalog.journal) and the alerts' decisions
-  # (pravaha.alerts.journal) default to files beside the registry journal above -- so to
-  # $PRAVAHA_HOME/data/catalog.journal and $PRAVAHA_HOME/data/alerts.journal -- with nothing set here.
 
 # --------------------------------------------------------------------------------------------
 # Deliberately NOT set, although the layout has a place for each. Each changes behaviour, not only

@@ -61,18 +61,31 @@ class PravahaHomeLayoutTest {
      */
     private static final Map<String, String> PLACED = Map.of(
             "logging.file.name", "logs/pravaha-server.log",
+            // ADR-064: the roots the layout sets, and what is found beneath them by convention
+            "pravaha.data.dir", "data",
+            "pravaha.config.dir", "conf",
+            "pravaha.external-lib.dir", "external_lib",
             "pravaha.registry.journal", "data/registry.journal",
             "pravaha.checkpoint.directory", "data/checkpoints",
-            "pravaha.identity.store", "data/identity/identity.journal",
             "pravaha.security.audit-file", "logs/audit.jsonl",
-            // ADR-063: the AI layer's provider files, written by the operator beside conf/application.yaml
+            // ADR-063: the AI layer's provider files, beside conf/application.yaml
             "pravaha.ai.dir", "conf/ai");
+
+    /** What pravaha-home.yaml itself sets: the roots and the logs; the rest follows by convention. */
+    private static final Set<String> LAYOUT = Set.of(
+            "logging.file.name",
+            "pravaha.data.dir",
+            "pravaha.config.dir",
+            "pravaha.external-lib.dir",
+            "pravaha.security.audit-file");
 
     /** Path-valued keys the layout deliberately leaves unset, because setting them changes behaviour. */
     private static final Set<String> LEFT_TO_THE_DEPLOYMENT = Set.of(
             // derived: beside pravaha.registry.journal, so under data/ with nothing set
             "pravaha.catalog.journal",
             "pravaha.alerts.journal",
+            // by convention under pravaha.data.dir, and only when pravaha.identity.enabled
+            "pravaha.identity.store",
             // setting one switches a behaviour on
             "pravaha.dlq.directory",
             "pravaha.state.spill.directory",
@@ -158,12 +171,12 @@ class PravahaHomeLayoutTest {
     @Test
     void theLayoutSetsOnlyTheListedPlacesAndTheLogRotation() throws IOException {
         Set<String> keys = keysOf("pravaha-home.yaml");
-        Set<String> expected = new TreeSet<>(PLACED.keySet());
+        Set<String> expected = new TreeSet<>(LAYOUT);
         expected.add("logging.logback.rollingpolicy.max-file-size");
         expected.add("logging.logback.rollingpolicy.max-history");
         expected.add("logging.logback.rollingpolicy.total-size-cap");
         assertThat(keys).containsExactlyInAnyOrderElementsOf(expected);
-        for (String key : PLACED.keySet()) {
+        for (String key : LAYOUT) {
             String raw = rawValue("pravaha-home.yaml", key);
             assertThat(raw).as(key).startsWith("${PRAVAHA_HOME}/");
         }

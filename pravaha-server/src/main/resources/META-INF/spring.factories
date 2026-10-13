@@ -1,3 +1,5 @@
 # Project Pravaha -- Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. Proprietary and confidential.
 # pravaha.logging.format and pravaha.tracing.* are turned into Spring Boot settings before logging starts.
-org.springframework.boot.env.EnvironmentPostProcessor=com.ash.messaging.pravaha.server.observe.ObservabilityEnvironment
+# pravaha.data.dir and pravaha.config.dir: the stores and folders found under them by convention (ADR-064).
+org.springframework.boot.env.EnvironmentPostProcessor=com.ash.messaging.pravaha.server.observe.ObservabilityEnvironment,\
+com.ash.messaging.pravaha.server.config.NodeLayoutEnvironment

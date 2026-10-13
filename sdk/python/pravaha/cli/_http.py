@@ -53,6 +53,64 @@ def status(ctx: Context) -> int:
     if plugins:
         ctx.out.line()
         ctx.out.table(plugins, ["name", "version", "health", "detail"])
+    pending = _not_applied(ctx)
+    if pending:
+        ctx.out.line()
+        ctx.out.note(f"{len(pending)} configuration file(s) not applied:")
+        ctx.out.table(pending, ["kind", "name", "code", "detail"])
+    return EXIT_OK
+
+
+def _not_applied(ctx: Context) -> "list[dict[str, Any]]":
+    """The declaration files the node has not applied (ADR-064); none from a node too old to say."""
+    try:
+        listed = ctx.api.declarations().get("declarations") or []
+    except PravahaError:
+        return []
+    return [d for d in listed if isinstance(d, dict) and d.get("state") == "not-applied"]
+
+
+def declarations(ctx: Context) -> int:
+    answer = ctx.api.declarations()
+    listed = answer.get("declarations") or []
+    if ctx.out.json_mode:
+        ctx.out.json(answer)
+        return EXIT_OK
+    folders = answer.get("folders") or {}
+    ctx.out.fields([(k, v) for k, v in folders.items()] + [("watch", answer.get("watchInterval"))])
+    ctx.out.line()
+    ctx.out.table(listed, ["kind", "name", "origin", "state", "code", "detail"])
+    return EXIT_OK
+
+
+def connectors(ctx: Context) -> int:
+    verb = ctx.args.verb or "list"
+    if verb == "list":
+        listed = ctx.api.connectors()
+        rows = [{**c, "usedBy": ", ".join(c.get("usedBy") or [])} for c in listed]
+        ctx.out.result(
+            listed,
+            rows,
+            ["name", "plugin", "origin", ("usedBy", "USED BY")],
+            empty="no named connection is declared that you may see",
+        )
+        return EXIT_OK
+    one = ctx.api.connector(ctx.require("connector_name", "the connection's name"))
+    if ctx.out.json_mode:
+        ctx.out.json(one)
+        return EXIT_OK
+    ctx.out.fields(
+        [
+            ("name", one.get("name")),
+            ("plugin", one.get("plugin")),
+            ("origin", one.get("origin")),
+            ("used by", ", ".join(one.get("usedBy") or []) or "nothing"),
+        ]
+    )
+    options = one.get("options") or {}
+    if options:
+        ctx.out.line()
+        ctx.out.table([{"option": k, "value": v} for k, v in sorted(options.items())], ["option", "value"])
     return EXIT_OK
 
 
@@ -159,7 +217,7 @@ def streams(ctx: Context) -> int:
             listed,
             rows,
             ["name", "version", ("eventTime", "EVENT TIME"), ("outOfOrderness", "LATENESS"),
-             "source", "fields"],
+             "source", "origin", "fields"],
             empty="no stream is declared that you may read",
         )
         return EXIT_OK
@@ -188,6 +246,8 @@ def streams(ctx: Context) -> int:
             ("out of order", one.get("outOfOrderness")),
             ("lateness", one.get("allowedLateness")),
             ("source", one.get("source")),
+            ("origin", one.get("origin")),
+            ("not applied", one.get("notApplied")),
         ]
     )
     ctx.out.line()

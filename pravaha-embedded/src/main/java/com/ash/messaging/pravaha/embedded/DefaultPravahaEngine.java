@@ -135,6 +135,20 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private final AtomicLong sequence = new AtomicLong();
     private @Nullable RowArena pushArena;
 
+    private @org.jspecify.annotations.Nullable String setting(String key) {
+        return configuration.getString(key).orElse(null);
+    }
+
+    /**
+     * A path setting as written, or found under {@code pravaha.data.dir} by convention (ADR-064). An engine
+     * is given no data root unless one is written: a library writing ./data into its host would surprise.
+     */
+    private Optional<String> layoutPath(String key) {
+        Map<String, String> derived = com.ash.messaging.pravaha.common.config.NodeLayout.derived(this::setting, null);
+        String value = derived.containsKey(key) ? derived.get(key) : configuration.getString(key, "");
+        return Optional.ofNullable(value).filter(path -> !path.isBlank());
+    }
+
     DefaultPravahaEngine(Configuration configuration) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.instanceId = configuration.getString("pravaha.node.id", "pravaha-embedded");
@@ -302,14 +316,13 @@ final class DefaultPravahaEngine implements PravahaEngine {
         reads = new ViewQuery(views, policy, audit, readLimits.admission(), readLimits.deadline());
 
         // Checkpoints before the feeds, so a query is checkpointed from its first row.
-        configuration
-                .getString("pravaha.checkpoint.directory")
-                .filter(s -> !s.isBlank())
-                .ifPresent(dir -> {
-                    Path directory = Path.of(dir);
-                    claim(directory);
-                    built.checkpointingTo(directory, configuration);
-                });
+        // ADR-064: pravaha.data.dir, when written, places the journal and checkpoints by convention.
+        com.ash.messaging.pravaha.common.config.NodeLayout.prepare(this::setting, null);
+        layoutPath("pravaha.checkpoint.directory").ifPresent(dir -> {
+            Path directory = Path.of(dir);
+            claim(directory);
+            built.checkpointingTo(directory, configuration);
+        });
 
         built.generatingWatermarks(
                 configuration.getDuration("pravaha.watermark.idle-after", Duration.ofSeconds(30)),
@@ -352,22 +365,19 @@ final class DefaultPravahaEngine implements PravahaEngine {
         trackEventTimes(byName);
 
         // After the feeds and sinks, so a recovered query comes back fed and writing.
-        configuration
-                .getString("pravaha.registry.journal")
-                .filter(s -> !s.isBlank())
-                .ifPresent(file -> {
-                    Path journal = Path.of(file).toAbsolutePath();
-                    if (journal.getParent() != null) {
-                        claim(journal.getParent());
-                    }
-                    built.journalTo(new RegistryJournal(journal));
-                    QueryRegistry.Recovery recovery = built.recover(owner -> Optional.of(CALLER));
-                    recovery.refused()
-                            .forEach(refusal -> LOG.log(
-                                    System.Logger.Level.ERROR,
-                                    "registration not recovered, kept in "
-                                            + "registry().refusedAtRecovery() until dropped -- " + refusal));
-                });
+        layoutPath("pravaha.registry.journal").ifPresent(file -> {
+            Path journal = Path.of(file).toAbsolutePath();
+            if (journal.getParent() != null) {
+                claim(journal.getParent());
+            }
+            built.journalTo(new RegistryJournal(journal));
+            QueryRegistry.Recovery recovery = built.recover(owner -> Optional.of(CALLER));
+            recovery.refused()
+                    .forEach(refusal -> LOG.log(
+                            System.Logger.Level.ERROR,
+                            "registration not recovered, kept in " + "registry().refusedAtRecovery() until dropped -- "
+                                    + refusal));
+        });
 
         for (ContinuousQuery query : declaredQueries) {
             if (built.find(query.name()).isPresent()) {

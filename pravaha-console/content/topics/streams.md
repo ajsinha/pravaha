@@ -4,9 +4,9 @@ slug: streams
 category: concepts
 order: 10
 icon: water
-summary: "A stream is a named, typed, unbounded sequence of rows. How to declare one — schema, event time, lateness — in configuration, over HTTP or in code, and how it is bound to a source."
+summary: "A stream is a named, typed, unbounded sequence of rows. How to declare one — schema, event time, lateness — in a file of its own, in configuration, over HTTP or in code, and how it is bound to a source."
 audience: Everyone
-keywords: [stream, schema, declare, pravaha.streams, event-time, out-of-orderness, allowed-lateness, allowedLateness, types, nullable, source binding, POST /api/v1/streams, catalog]
+keywords: [stream, schema, declare, config/streams, declaration file, origin, not applied, watch-interval, connector, pravaha.streams, event-time, out-of-orderness, allowed-lateness, allowedLateness, types, nullable, source binding, POST /api/v1/streams, catalog]
 guide: continuous-queries#2-declaring-a-stream
 related: [event-time-watermarks, sources-overview, source-filesystem, query-lifecycle, sql-reference]
 ---
@@ -26,6 +26,44 @@ Declaring a stream and feeding it are **two separate things**, and a running que
 
 The separation is deliberate: a query can be written ahead of its source, a source can be swapped
 without touching the queries, and an embedder pushing rows in directly needs no source at all.
+
+## Declaring a stream in a file
+
+The way `pravaha init` writes one (into its project's `conf/streams/`): **a YAML file per stream,
+named after it**, in `config/streams/` (`$PRAVAHA_HOME/conf/streams/` under a home; `pravaha.config.streams-dir` to put it elsewhere). The
+file holds what `pravaha.streams.<name>` would, plus an optional `source:` block holding what
+`pravaha.sources.<name>` would -- so one file says what the stream is and where it comes from:
+
+```yaml
+# config/streams/txn.yaml -- the stream is called txn because the file is
+schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 10s
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    follow: "true"
+```
+
+It is read by the same binder as the inline block, so every key below means the same thing in both.
+A file is stricter: an unknown key is refused (PRV-1064), a literal password, secret, token or key is
+refused (PRV-1063 -- write `${ENV_NAME}`), and a name that would need brackets is refused (PRV-1061).
+The same name in a file and inline is PRV-1062. `config/lookups/<name>.yaml` and
+`config/sinks/<name>.yaml` work the same way, and a `source:` may name a shared connection with
+`connector:` ([sources](/help/topics/sources-overview)).
+
+**The folders are watched.** Every `pravaha.config.watch-interval` (`10m`; `off` reads them at start
+only) the node looks again: **add a file and the stream is declared, with its source bound; take a
+file out and the stream is removed; change one and it is replaced** -- no restart. The one exception:
+a stream a registered query reads is never changed or removed under the query. The running
+definition is kept, the node warns (PRV-1065, naming the file and the queries), and the stream is
+shown as *not applied* -- in `pravaha streams describe`, `pravaha status`, the Catalog page and
+`GET /api/v1/declarations` -- until those queries are dropped; the next look then applies it. A file
+that is broken while the node runs is reported and ignored, and never takes the node down.
+
+Every stream says where it came from: `origin` on `GET /api/v1/streams` and the ORIGIN column of
+`pravaha streams` is `file:<path>`, `config` (inline) or `api`.
 
 ## Declaring a stream in configuration
 
@@ -49,7 +87,7 @@ pravaha:
 | `out-of-orderness` | no | `10s` | how late this stream's rows may arrive and still be waited for; the watermark trails the newest event time by this much |
 | `allowed-lateness` | no | `0s` | how long after a window has been published a late row may still **correct** it — the old result at `−1`, the new one at `+1`. Needs `event-time`; refused negative. Non-zero makes every windowed query over the stream one that revises, so it needs a sink that takes retractions (PRV-2041) |
 
-Declared here, a stream comes back on every start. The keys are per stream on purpose: lateness is a
+Declared here -- or in a file -- a stream comes back on every start. The keys are per stream on purpose: lateness is a
 property of the **source** — a feed of mobile clients over a bad network and a scan of data at rest
 have nothing in common — and a query over three streams gets three tolerances rather than the worst
 of them.

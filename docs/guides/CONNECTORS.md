@@ -28,9 +28,11 @@ name its `name()` reports. Nothing in the engine is edited or rebuilt.
 **The shipped `pravaha-server` jar carries every plugin module the project builds**: the sources
 `filesystem`, `feedfile`, `jdbc`, `delta`, `kafka`, `postgres-cdc`, `mysql-cdc`, `aerospike` and
 `cassandra`, with their sink and lookup counterparts. **A plugin from outside the project goes in
-`$PRAVAHA_HOME/plugins/`** (`/opt/pravaha/plugins` in the image): `bin/pravaha-server` puts that directory
-on the classpath (`-Dloader.path`, read by Spring Boot's `PropertiesLauncher`), so a jar dropped there is
-found at the next start like a bundled one. A source naming a plugin nothing on the classpath answers to
+`external_lib/java/`** (`$PRAVAHA_HOME/external_lib/java/`, `/opt/pravaha/external_lib/java` in the image;
+`$PRAVAHA_HOME/plugins/` works as it always did): `bin/pravaha-server` puts every `*.jar` there on the
+classpath, sorted (`-Dloader.path`, read by Spring Boot's `PropertiesLauncher`), so a jar dropped there is
+found at the next start like a bundled one. It is read at start only -- a jar added later needs a restart
+-- and the start-up log lists the jars it loaded. Code there runs with the server's privileges. A source naming a plugin nothing on the classpath answers to
 is refused when the node starts, with `PRV-5090` listing every source plugin the process does carry — so
 the list is the answer: a misspelt name is in it under its right spelling. Until PLUGINLATE-1 the node
 started `UP` and only the first registration was refused.
@@ -41,6 +43,69 @@ started `UP` and only the first registration was refused.
 | `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](../design/adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed upserts with a tombstone for a retraction, the value JSON, Avro or Protobuf, or an explicit JSON changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node), `iceberg-sink` (an Apache Iceberg table, upsert by key through equality deletes or a changelog; one snapshot per checkpoint) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | `aerospike-lookup`, `jdbc-lookup` — **with the suffix**: a plugin answers to the name it reports for itself, and these two report `aerospike-lookup` and `jdbc-lookup`. This row said "aerospike, jdbc" until CFG-4, so `pravaha.lookups.<n>.plugin: jdbc` copied from it was refused at startup with `PRV-5090` |
 | `NotifierPlugin` | Where an alert's notifications go ([ADR-057](../design/adr/057-alerts.md)) | `webhook`, `log` |
+
+## Where a binding is written: a file each
+
+A source, a lookup and a sink are each **a YAML file named after what it binds**, in the node's
+configuration folders ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)); the inline
+blocks `pravaha.sources`, `pravaha.lookups` and `pravaha.sinks` in `application.yaml` still work, and one
+name may be declared in only one place (`PRV-1062`).
+
+| What | File | Holds what this holds inline |
+|---|---|---|
+| a stream and its source | `config/streams/<stream>.yaml`, the source under `source:` | `pravaha.streams.<stream>` and `pravaha.sources.<stream>` |
+| a dimension table | `config/lookups/<name>.yaml` | `pravaha.lookups.<name>` |
+| a sink | `config/sinks/<name>.yaml` | `pravaha.sinks.<name>` |
+| a named connection | `config/connectors/<name>.yaml` | (no inline form) |
+
+Under a home the folders are `$PRAVAHA_HOME/conf/streams` and so on; `pravaha.config.streams-dir` and its
+siblings move one. The node reads them at start and looks again every `pravaha.config.watch-interval`
+(`10m`): a new file declares, a removed file removes, a changed file replaces -- except a binding a
+registered query uses, which keeps running as it was (`PRV-1065`) until that query is dropped. A
+literal password, secret, token or key in any of these files is refused (`PRV-1063`): write
+`${ENV_NAME}`.
+
+### Named connections
+
+One system that several bindings reach -- a Kafka cluster, a database -- is described once:
+
+```yaml
+# config/connectors/kafka-prod.yaml
+plugin: kafka
+options:
+  bootstrap.servers: broker1:9092,broker2:9092
+  security.protocol: SSL
+  ssl.truststore.location: /opt/pravaha/secrets/truststore.jks
+  ssl.truststore.password: ${KAFKA_TRUSTSTORE_PASSWORD}
+```
+
+and each binding names it, with only what is its own:
+
+```yaml
+# config/streams/orders.yaml
+schema: "order_id:INT64,customer_id:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+source:
+  connector: kafka-prod
+  options:
+    topic: orders
+```
+
+A connection is for **one plugin**: the source plugin `kafka` and the sink plugin `kafka-sink` reaching
+the same cluster are two connections, `kafka-prod` and, say, `kafka-prod-out`.
+
+- **The plugin comes from the connection.** `connector:` may stand instead of `plugin:` or beside it;
+  beside it, naming a different plugin is refused (`PRV-1068`).
+- **The options are the connection's, with the binding's own laid over them**: on a clash, the binding
+  wins.
+- **A connection nobody declared** is refused at start (`PRV-1067`); while the node runs, the binding is
+  reported and tried again at each look, so the connection's file and the binding's may arrive in either
+  order.
+- **A connection a binding names is not changed or removed while it does** (`PRV-1065`, naming
+  the bindings: `source:orders`, `lookup:<name>`, `sink:<name>`). A connection cannot name another connection.
+- `GET /api/v1/connectors` (and `/{name}`) lists each connection's plugin, file and users, every
+  password, secret, token or key shown as `****`; `pravaha connectors list` and `show <name>` read it.
+  Inline blocks may write `connector:` too.
 
 ---
 

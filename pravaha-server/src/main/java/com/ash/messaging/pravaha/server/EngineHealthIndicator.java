@@ -137,6 +137,15 @@ public class EngineHealthIndicator implements HealthIndicator {
                     .build();
         }
         detail.put("flightPort", node.flightPort().orElseThrow());
+        // ADR-064: a declaration file the node has not applied as written. Detail, not DEGRADED: what is
+        // running is what was running, and every view answers.
+        var notApplied = node.configFolders().problems();
+        if (!notApplied.isEmpty()) {
+            detail.put("configFilesNotApplied", notApplied.size());
+            detail.put(
+                    "firstConfigFileNotApplied",
+                    notApplied.get(0).code() + " " + notApplied.get(0).message());
+        }
         // AUDITROTATE-1. A durable audit sink that is not recording -- a file that cannot be written
         // or cannot rotate -- must not leave the node UP: the queries it audits go on (auditing never
         // fails a query), so this is DEGRADED rather than DOWN, with the sink's own words.

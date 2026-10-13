@@ -76,6 +76,23 @@ config:
 # Additional Spring config; a list of {name, mountPath, configMap|secret} mounted beside the one above.
 extraConfigMounts: []
 
+# Declaration folders (ADR-064): the name of an existing ConfigMap per folder, one key per object named
+# <object>.yaml -- a stream (with its source:), a lookup, a sink, a named connection. Each is mounted at
+# /opt/pravaha/declarations/<folder> and named by pravaha.config.<folder>-dir. Kubernetes updates a
+# mounted ConfigMap in place, and the node looks every pravaha.config.watch-interval: a key added
+# declares, a key removed removes -- except what a registered query uses. Empty: no such folder.
+declarations:
+  streams: ""
+  lookups: ""
+  sinks: ""
+  connectors: ""
+
+# external_lib (ADR-064): a volume source -- persistentVolumeClaim, csi, image -- holding java/*.jar
+# (on the classpath at start; a new jar needs a pod restart) and python/. Mounted read-only at
+# /opt/pravaha/external_lib. Code there runs with the node's privileges. Empty: none.
+externalLib:
+  volume: {}
+
 # -- Secrets: referenced, never created ------------------------------------------------------
 
 auth:

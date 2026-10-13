@@ -665,13 +665,24 @@ allows. That is what the TCK is for.
 
 1. Build a jar holding your classes and the service file, depending on `pravaha-api` at `provided` scope
    (the node already has it) and shading or listing any client library you need.
-2. Put the jar — and its dependencies — in **`$PRAVAHA_HOME/plugins/`** (`/opt/pravaha/plugins` in the
-   image). `bin/pravaha-server` passes `-Dloader.path=$PRAVAHA_HOME/plugins` to Spring Boot's
-   `PropertiesLauncher`, so the jar is on the classpath at the next start. Plugins are not isolated from each
+2. **Drop the jar — and its dependencies — in `external_lib/java/`** (`$PRAVAHA_HOME/external_lib/java/`,
+   `/opt/pravaha/external_lib/java` in the image; from a checkout, `./external_lib/java/`). `bin/pravaha-server`
+   puts every top-level `*.jar` there, sorted, on Spring Boot's `PropertiesLauncher` `-Dloader.path`, beside
+   `$PRAVAHA_HOME/plugins/` (which still works), so the jar is on the classpath at the next start and
+   `ServiceLoader` finds your plugin like a shipped one
+   ([ADR-064](../../design/adr/064-configuration-folders-and-node-layout.md)). The folder is read at start
+   only -- a new or replaced jar needs a restart -- and the node's start-up log lists the jars it loaded and
+   any it found and did not (a node started from an IDE or `java -jar` loads none). The jar runs with the
+   server's privileges. An embedded engine finds a plugin on its application's own classpath. Plugins are not isolated from each
    other: `PluginClassLoader` exists but nothing uses it, so a dependency clash is the deployment's to
    resolve.
-3. Bind it under `pravaha.sources.<stream>`, `pravaha.sinks.<name>`, `pravaha.lookups.<table>` or
-   `pravaha.notifiers.<channel>`. A binding naming a plugin nothing on the classpath answers to stops the node
+3. Bind it -- in a file of its own, `config/streams/<stream>.yaml` (under `source:`),
+   `config/lookups/<table>.yaml` or `config/sinks/<name>.yaml`, or inline under `pravaha.sources.<stream>`,
+   `pravaha.sinks.<name>`, `pravaha.lookups.<table>` or `pravaha.notifiers.<channel>`. Settings several
+   bindings share -- servers, TLS, credential references -- can go in a named connection,
+   `config/connectors/<name>.yaml`, that each binding names with `connector:`
+   ([CONNECTORS.md](../../guides/CONNECTORS.md#named-connections)). A secret in any of these files is
+   `${ENV_NAME}`, never a literal (`PRV-1063`). A binding naming a plugin nothing on the classpath answers to stops the node
    at start with `PRV-5090`, listing every plugin the process does carry; a provider that cannot load is
    named with its cause (`PRV-5012`) without stopping the others (PKG-3).
 4. `GET /api/v1/plugins` and `pravaha plugins` list every plugin the node can load — each instantiated once,

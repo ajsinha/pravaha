@@ -712,10 +712,12 @@ files over any of the same name and touches nothing else. `--dry-run` lists the 
 
 | File | What it is |
 |---|---|
-| `conf/application.yaml` | the node's configuration: the stream `txn` under `pravaha.streams` (with its event-time column), fed by the CSV under `pravaha.sources` (`filesystem`, `follow: true`) |
+| `conf/application.yaml` | the node's configuration: how often the declaration folders are looked at (`pravaha.config.watch-interval`); streams are declared in files beside it |
+| `conf/streams/txn.yaml` | the stream `txn`, one file named after it (ADR-064): its schema and event-time column, and the CSV feeding it under `source:` (`filesystem`, `follow: true`). Add a file there and the node declares that stream while it runs |
+| `external_lib/java/`, `external_lib/python/` | where your own connector jars (on the engine's classpath at start) and Python for the console go, each with a README |
 | `data/txn.csv` | twelve sample transactions over four minutes of event time |
 | `queries/spend_per_minute.sql` | the first continuous query: each user's completed spend per one-minute tumbling window |
-| `docker-compose.yml` | `pravaha/pravaha-server:<the CLI's version>` on the standard ports (127.0.0.1:18080 and 19090) with the file above mounted as `/opt/pravaha/conf/application.yaml`, and the console on 17070 behind the `console` profile |
+| `docker-compose.yml` | `pravaha/pravaha-server:<the CLI's version>` on the standard ports (127.0.0.1:18080 and 19090) with `conf/application.yaml`, `conf/streams/` and `external_lib/` mounted under `/opt/pravaha`, and the console on 17070 behind the `console` profile |
 | `README.md` | what is here, and the next three commands |
 | `.pravaha` | the connection the project's node wants; the CLI does not read it |
 

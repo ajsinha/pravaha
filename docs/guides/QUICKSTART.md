@@ -7,8 +7,8 @@ Ten minutes from a clone to a continuous query you can watch updating. No store 
 cluster, no configuration file.
 
 > **Or start with `pravaha init`.** With the Python CLI installed and Docker at hand,
-> `pravaha init my-project` writes a project that runs as it stands — a stream and the CSV feeding
-> it, a first windowed query, and a `docker-compose.yml` for the engine image on the standard ports —
+> `pravaha init my-project` writes a project that runs as it stands — a stream in a file of its own,
+> `conf/streams/txn.yaml`, and the CSV feeding it, a first windowed query, and a `docker-compose.yml` for the engine image on the standard ports —
 > and prints the three commands that start it, register the query and read its answer
 > ([CLI reference](../../pravaha-console/content/topics/cli-reference.md#starting-a-project)).
 
@@ -162,10 +162,27 @@ pravaha:
     tls: { certificate: /opt/pravaha/conf/tls.crt, key: /opt/pravaha/conf/tls.key }
 ```
 
-**Declaring a stream, and where its rows come from.** Two separate things, and a query needs both.
-`pravaha.streams` puts the schema in the catalog so a query can be planned against it;
-`pravaha.sources` says what feeds it. A stream can be declared with nothing attached — that is what
-a query written ahead of its source needs — so they are separate blocks:
+**Declaring a stream, and where its rows come from.** One file per stream, named after it, in
+`config/streams/` under the directory you start the server from
+([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)). The file says what the stream
+is, so a query can be planned against it, and under `source:` what feeds it:
+
+```yaml
+# config/streams/txn.yaml -- the stream is txn because the file is txn.yaml
+schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+event-time: event_time
+source:
+  plugin: filesystem
+  options:
+    path: /opt/pravaha/data/incoming/txn.csv
+```
+
+The server reads `config/streams/` at start and **looks again every ten minutes**
+(`pravaha.config.watch-interval`): add a file and the stream is declared, take it out and the stream
+is removed -- unless a registered query reads it, in which case the node keeps it and says so. The same
+two things can be written inline in an `application.yaml`, as `pravaha.streams` and `pravaha.sources` --
+one name in one place only. A stream can be declared with nothing attached, which is what a query
+written ahead of its source needs:
 
 ```yaml
 pravaha:
@@ -222,12 +239,13 @@ reporting `RUNNING`. The same option exists on the Aerospike source, and matters
 same reason.
 
 With that file, the whole loop works from the command line. Stop the server from the start of this
-step first (`kill %1`), then start one that reads the file — still with `dev`: the file above
-declares a stream and a source and says nothing about security, and without a security choice the
-node refuses to start (`PRV-7004`):
+step first (`kill %1`), then start one that reads it — still with `dev`: the stream file says nothing
+about security, and without a security choice the node refuses to start (`PRV-7004`). With
+`config/streams/txn.yaml` in place, no flag is needed; with the inline form, name the file:
 
 ```bash
-pravaha-server --spring.profiles.active=dev --spring.config.additional-location=file:./application.yaml &
+pravaha-server --spring.profiles.active=dev &        # reads config/streams/txn.yaml
+# or: pravaha-server --spring.profiles.active=dev --spring.config.additional-location=file:./application.yaml &
 pravaha register --name by_user \
         --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED'" --keys 0
 pravaha query --sql "SELECT * FROM by_user"
@@ -264,7 +282,10 @@ NAME          STATE    FINGERPRINT   ROWS IN  SINK
 user_volume   RUNNING  a3f1c2d4e5b6  0        -
 ```
 
-It is now running and will keep `user_volume` current until you drop it.
+It is now running and will keep `user_volume` current until you drop it — **across a restart, too**.
+The node keeps its registry journal and checkpoints in `./data` unless told otherwise
+(`pravaha.data.dir`), so stop it and start it again and `pravaha queries` lists `user_volume`, its view
+and its place in the file intact. `pravaha.data.dir: none` gives the old node that forgot everything.
 
 ## 5. Ask it something
 

@@ -253,6 +253,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         return this;
     }
 
+    /** Binds nothing to {@code stream} from now on: its configuration file was removed (ADR-064). */
+    public void unbind(String stream) {
+        bindings.remove(stream);
+    }
+
     /**
      * The bindings in force, by stream name, in declaration order.
      *

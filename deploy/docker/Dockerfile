@@ -51,7 +51,9 @@ WORKDIR /opt/pravaha
 # distribution has, rooted at /opt/pravaha:
 #
 #   bin/ lib/          the launcher and the jar                       (the image's, read-only)
-#   conf/              application.yaml -- mounted, read after the layout, so it wins
+#   conf/              application.yaml -- mounted, read after the layout, so it wins; streams/, lookups/,
+#                      sinks/, connectors/: one YAML file per object, watched (ADR-064)
+#   external_lib/      java/*.jar on the classpath at start; python/ for the console (ADR-064)
 #   secrets/           key material, 0700
 #   plugins/           extra jars on the classpath (loader.path)
 #   data/              every byte of engine state                     (VOLUME)
@@ -72,8 +74,11 @@ RUN groupadd --system --gid 10001 pravaha \
  && useradd --system --uid 10001 --gid pravaha --no-create-home --home-dir /opt/pravaha/tmp \
             --shell /usr/sbin/nologin pravaha \
  && mkdir -p /opt/pravaha/bin /opt/pravaha/lib /opt/pravaha/conf /opt/pravaha/plugins \
+             /opt/pravaha/conf/streams /opt/pravaha/conf/lookups /opt/pravaha/conf/sinks /opt/pravaha/conf/connectors \
+             /opt/pravaha/external_lib/java /opt/pravaha/external_lib/python \
              /opt/pravaha/data /opt/pravaha/logs /opt/pravaha/secrets /opt/pravaha/tmp \
- && chown 10001:0 /opt/pravaha/conf /opt/pravaha/plugins /opt/pravaha/data /opt/pravaha/logs \
+ && chown -R 10001:0 /opt/pravaha/conf /opt/pravaha/external_lib \
+ && chown 10001:0 /opt/pravaha/plugins /opt/pravaha/data /opt/pravaha/logs \
                   /opt/pravaha/secrets /opt/pravaha/tmp \
  && chmod 0770 /opt/pravaha/conf /opt/pravaha/plugins /opt/pravaha/data /opt/pravaha/logs /opt/pravaha/tmp \
  && chmod 0700 /opt/pravaha/secrets

@@ -4,9 +4,9 @@ continuous query, and a compose file for the published engine image.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 
-The project is configured the way a node is (docs/guides/QUICKSTART.md, step 4): the stream under
-``pravaha.streams`` and what feeds it under ``pravaha.sources`` in the node's ``conf/application.yaml``,
-read from ``$PRAVAHA_HOME/conf`` (docs/operations/RUNNING_IN_DOCKER.md). The query is a ``.sql`` file
+The project is configured the way a node is (docs/guides/QUICKSTART.md, step 4): the stream and what
+feeds it in a file of its own, ``conf/streams/txn.yaml``, named after it (ADR-064), read from
+``$PRAVAHA_HOME/conf/streams`` (docs/operations/RUNNING_IN_DOCKER.md). The query is a ``.sql`` file
 registered with ``pravaha register``, because a node registers queries over Flight, not from its
 configuration. Nothing outside DIR is written: the context the project's node wants is printed as a
 ``pravaha context add`` command, never saved into the user's configuration.
@@ -62,32 +62,58 @@ def image_tag() -> str:
 
 
 def application_yaml() -> str:
-    return f"""\
+    return """\
 # The node's configuration: mounted as /opt/pravaha/conf/application.yaml, which the image's
 # launcher reads after the jar's defaults (docs/operations/RUNNING_IN_DOCKER.md, "PRAVAHA_HOME").
 # Every path is relative to the node's home, /opt/pravaha in the container.
+#
+# The stream is not declared here: it has a file of its own, conf/streams/txn.yaml, named after it
+# (ADR-064). The node reads conf/streams/, conf/lookups/, conf/sinks/ and conf/connectors/ at start
+# and looks again every pravaha.config.watch-interval (10m): add a file and its stream is declared,
+# take one out and it is removed -- unless a registered query still uses it. Inline
+# pravaha.streams / pravaha.sources blocks here still work; one name in both places is refused.
 
 pravaha:
-  # The catalog: what a query can be planned against. A stream can be declared with nothing feeding
-  # it; the source below is a separate block for that reason.
-  streams:
-    txn:
-      schema: "{SCHEMA}"
-      # The column that carries each row's own time. Without it no watermark advances, no window
-      # can close, and a windowed query is refused when it is registered (PRV-2002).
-      event-time: event_time
-      # How late a row may arrive and still count; a number is seconds.
-      out-of-orderness: 5
+  config:
+    # How often conf/streams and its siblings are looked at; 0 or off reads them at start only.
+    watch-interval: 10m
+"""
 
-  # What feeds the stream: the CSV in ./data, mounted read-only at data/incoming/.
-  sources:
-    txn:
-      plugin: filesystem
-      options:
-        path: data/incoming/txn.csv
-        schema: "{SCHEMA}"
-        # tail -f: rows appended to data/txn.csv while the node runs arrive without a restart.
-        follow: true
+
+def stream_yaml() -> str:
+    return f"""\
+# The stream txn: its file name is its name. Everything pravaha.streams.txn would hold, and the
+# source that feeds it -- what pravaha.sources.txn would hold -- under source:.
+
+schema: "{SCHEMA}"
+# The column that carries each row's own time. Without it no watermark advances, no window can
+# close, and a windowed query is refused when it is registered (PRV-2002).
+event-time: event_time
+# How late a row may arrive and still count; a number is seconds.
+out-of-orderness: 5
+
+# What feeds the stream: the CSV in ./data, mounted read-only at data/incoming/.
+source:
+  plugin: filesystem
+  options:
+    path: data/incoming/txn.csv
+    schema: "{SCHEMA}"
+    # tail -f: rows appended to data/txn.csv while the node runs arrive without a restart.
+    follow: true
+"""
+
+
+def external_lib_readme(kind: str) -> str:
+    what = ("every *.jar here is on the engine's classpath at start -- a connector or plugin jar "
+            "dropped here is found like a shipped one; a new jar needs a restart"
+            if kind == "java" else
+            "this folder is on the console's and the CLI's sys.path, for their extensions")
+    return f"""\
+# external_lib/{kind}
+
+Mounted at /opt/pravaha/external_lib/{kind}: {what}.
+
+Code here runs with the privileges of the process that loads it. Put nothing here you would not run.
 """
 
 
@@ -118,6 +144,8 @@ services:
       - "127.0.0.1:19090:19090"
     volumes:
       - ./conf/application.yaml:/opt/pravaha/conf/application.yaml:ro
+      - ./conf/streams:/opt/pravaha/conf/streams:ro
+      - ./external_lib:/opt/pravaha/external_lib:ro
       - ./data:/opt/pravaha/data/incoming:ro
       - pravaha-data:/opt/pravaha/data
       - pravaha-logs:/opt/pravaha/logs
@@ -166,11 +194,13 @@ continuous query that keeps each user's completed spend per minute current.
 
 | File | What it is |
 |---|---|
-| `conf/application.yaml` | the node's configuration: the `txn` stream and the file source feeding it |
+| `conf/application.yaml` | the node's configuration; streams are declared in files beside it |
+| `conf/streams/txn.yaml` | the `txn` stream and the file source feeding it -- one file per stream |
 | `data/txn.csv` | twelve sample transactions; append lines and they arrive (`follow: true`) |
 | `queries/{QUERY_NAME}.sql` | the continuous query, registered with `pravaha register` |
 | `docker-compose.yml` | the engine image on 18080/19090, the console (profile `console`) on 17070 |
 | `.pravaha` | the connection this project's node wants, for `pravaha context add` |
+| `external_lib/` | your own code: `java/*.jar` on the engine's classpath, `python/` for the console |
 
 ## Next
 
@@ -220,8 +250,13 @@ def build(target: pathlib.Path) -> Scaffold:
     tag = image_tag()
     scaffold = Scaffold("a Pravaha starter project")
     scaffold.add("conf/application.yaml", application_yaml(),
-                 "the node's configuration: stream txn (pravaha.streams) fed by the CSV "
-                 "(pravaha.sources, filesystem)")
+                 "the node's configuration: how often conf/streams is looked at")
+    scaffold.add("conf/streams/txn.yaml", stream_yaml(),
+                 "stream txn, one file named after it, fed by the CSV (source: filesystem)")
+    scaffold.add("external_lib/java/README.md", external_lib_readme("java"),
+                 "where your own connector jars go (on the classpath at start)")
+    scaffold.add("external_lib/python/README.md", external_lib_readme("python"),
+                 "where your own Python for the console and the CLI goes")
     scaffold.add("data/txn.csv", sample_csv(),
                  "12 sample transactions over four minutes of event time")
     scaffold.add(f"queries/{QUERY_NAME}.sql", QUERY_SQL,
@@ -240,6 +275,8 @@ def build(target: pathlib.Path) -> Scaffold:
         "a windowed query with an event-time column, because an unwindowed GROUP BY has unbounded "
         "state and is refused (PRV-2050)",
         "the source follows the file (follow: true), so appended lines arrive without a restart",
+        "the stream has a file of its own (conf/streams/txn.yaml): add files there for more streams, "
+        "and the node declares them while it runs",
         "your configuration is untouched: save the connection with the context command below",
     ]
     scaffold.next = [

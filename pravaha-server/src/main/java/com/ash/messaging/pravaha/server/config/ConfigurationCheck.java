@@ -105,6 +105,11 @@ public class ConfigurationCheck {
     @jakarta.annotation.PostConstruct
     public void check() {
         applyDocsBaseUrl();
+        // ADR-064: one line naming where every store and folder is, after the conventions applied.
+        log.info("{}", com.ash.messaging.pravaha.common.config.NodeLayout.describe(environment::getProperty));
+        log.info(
+                "{}",
+                com.ash.messaging.pravaha.common.config.NodeLayout.describeExternalJars(environment::getProperty));
         refuseKeysThatReachedNothing();
         reportCredentialCount();
         refuseBareNumberDurations();
@@ -335,7 +340,7 @@ public class ConfigurationCheck {
             if (fromBinding == null || fromDeclaration == null) {
                 return;
             }
-            if (!normalised(fromBinding).equals(normalised(fromDeclaration))) {
+            if (!sameSchema(fromBinding, fromDeclaration)) {
                 divergent.add("'" + stream + "': pravaha.streams." + stream + ".schema is \"" + fromDeclaration
                         + "\" and pravaha.sources." + stream + ".options.schema is \"" + fromBinding + "\"");
             }
@@ -355,6 +360,11 @@ public class ConfigurationCheck {
                         + "surface at the first registration as a complaint about a column name, blaming "
                         + "whichever of the two the message happened to be built from. Write the schema "
                         + "once, under pravaha.streams, and leave the binding's option out.");
+    }
+
+    /** Whether two {@code name:TYPE,...} specs agree; shared with a stream's declaration file (ADR-064). */
+    public static boolean sameSchema(String one, String other) {
+        return normalised(one).equals(normalised(other));
     }
 
     /** Column order and names matter; the spaces an operator puts between them do not. */

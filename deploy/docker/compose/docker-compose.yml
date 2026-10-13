@@ -24,7 +24,7 @@
 #
 # THE ONE ROOT. The engine and the console each see ONE tree, /opt/pravaha, and on this host it is
 # $PRAVAHA_HOME_DIR (tools/docker-env.sh makes deploy/docker/compose/pravaha-home unless told otherwise):
-# its conf/, secrets/, plugins/, data/, logs/ and tmp/ are bind-mounted onto the same names under
+# its conf/, secrets/, plugins/, external_lib/, data/, logs/ and tmp/ are bind-mounted onto the same names under
 # /opt/pravaha. Not the directory itself, because the image's own bin/ and lib/ live under /opt/pravaha
 # too, and a mount over the root would hide them.
 #
@@ -65,6 +65,9 @@ services:
       - ${PRAVAHA_HOME_DIR:?run tools/docker-env.sh first}/conf:/opt/pravaha/conf:ro
       - ${PRAVAHA_HOME_DIR}/secrets:/opt/pravaha/secrets:ro
       - ${PRAVAHA_HOME_DIR}/plugins:/opt/pravaha/plugins:ro
+      # ADR-064: java/*.jar on the classpath at start (a new jar needs a restart). conf/ above already
+      # carries conf/streams, lookups, sinks and connectors, which the node watches.
+      - ${PRAVAHA_HOME_DIR}/external_lib:/opt/pravaha/external_lib:ro
       - ${PRAVAHA_HOME_DIR}/data:/opt/pravaha/data
       - ${PRAVAHA_HOME_DIR}/logs:/opt/pravaha/logs
       - ${PRAVAHA_HOME_DIR}/tmp:/opt/pravaha/tmp
@@ -93,6 +96,7 @@ services:
     volumes:
       # Its own file only: the engine's application.yaml holds the engine's credentials.
       - ${PRAVAHA_HOME_DIR}/conf/console.yaml:/opt/pravaha/conf/console.yaml:ro
+      - ${PRAVAHA_HOME_DIR}/external_lib/python:/opt/pravaha/external_lib/python:ro   # on sys.path at start
       - ${PRAVAHA_HOME_DIR}/data/console:/opt/pravaha/data/console
       - ${PRAVAHA_HOME_DIR}/logs:/opt/pravaha/logs
       - ${PRAVAHA_HOME_DIR}/tmp:/opt/pravaha/tmp

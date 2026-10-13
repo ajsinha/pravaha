@@ -57,6 +57,7 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `assist.log` | `PRAVAHA_ASSIST_LOG` | *empty* | The console's assist log (JSON Lines): every configuration change and every request. Empty is `console-assist-log.jsonl` beside the configuration. |
 | `assist.watch_seconds` | — | `1` | How often the console looks for a change another process stored. |
 | `logging.level` | `LOG_LEVEL` | `INFO` | |
+| `paths.external_lib` | `PRAVAHA_EXTERNAL_LIB` | *empty* | The `external_lib` root (ADR-064): its `python/` folder is put first on `sys.path` at start and logged, so a console extension there imports without being installed. Empty: `$PRAVAHA_HOME/external_lib`, then the checkout's `external_lib/` beside the console. A missing folder is fine. **Code there runs with the console's privileges** -- it can read every session the console holds. |
 
 **The engine does not have to be up.** The console starts anyway and says the engine is
 unreachable, on every page. Each screen renders what it can and names what is missing: the workbench

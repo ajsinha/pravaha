@@ -103,11 +103,18 @@ Why each setting:
   that this node may run open and that `admin` may keep its published password. `users` turns on the
   engine's own users, which the console signs people in against (ADR-052): token authentication, the
   `authenticated` policy (each user administers their own queries; only `admin` reads the audit
-  trail), and the identity store at `data/identity/identity.journal`. Drop `users` to run the engine
+  trail), and the identity store, by convention at `data/identity/identity.journal` under
+  `pravaha.data.dir`. Drop `users` to run the engine
   with no credentials at all (then `dev` serves everything to everybody, and the console cannot sign
   in). With neither, the server refuses to start (`PRV-7004`). Never use `dev` anywhere reachable.
-- **The working directory is the repository root**, because the identity store's path is relative:
-  the first start creates `data/identity/` there (git-ignored) with the `admin` user.
+- **The working directory is the repository root**, because the node's roots are relative to it
+  ([ADR-064](../../design/adr/064-configuration-folders-and-node-layout.md)): **a local run keeps
+  everything in `./data`** -- the registry journal, the checkpoints and, with `users`, the identity store
+  (the first start creates `data/` there, git-ignored, with the `admin` user) -- so a restart of the run
+  brings back your users, your queries, their views and their place in each source. Declaration files
+  are read from `./config` (`config/streams/`, `config/ai/`, ...) and added jars from
+  `./external_lib/java/`; the IDE's run does not go through `bin/pravaha-server`, so those jars are
+  **not** loaded, and the start-up log says so.
 - **The module is `pravaha-server`**, which depends on every connector, so Kafka, Delta, JDBC,
   PostgreSQL and MySQL CDC, Aerospike, Cassandra and the files plugins are on the run classpath and
   bind as they do from the fat jar.
@@ -124,9 +131,10 @@ Check it: `curl -s localhost:18080/actuator/health` answers `{"status":"UP"...}`
 node reports is `unknown` from an IDE, because it comes from the jar's manifest and a run from
 classes has no jar.
 
-The log also says, on purpose, what a development node lacks: Flight in plaintext, `admin` on its
-default password, no checkpoint directory, and no registry journal, so registered queries live in
-memory and a restart forgets them. The local file below fixes the last two.
+The log also says, on purpose, what a development node lacks: Flight in plaintext and `admin` on its
+default password. Its `layout:` line names where everything is kept -- `data/registry.journal`,
+`data/checkpoints`, `config/streams` and the rest under the repository root. To run a node that keeps
+nothing, as every run did before ADR-064, add `--pravaha.data.dir=none`.
 
 ### Your own configuration
 
@@ -137,15 +145,17 @@ Keep a local file outside the repository and add it to the program arguments:
 ```
 
 Every key in [`application.yaml`](../../../pravaha-server/src/main/resources/application.yaml) can go
-there, and the file wins over the defaults. A useful start, which declares a stream over the first
-example's CSV file so the console has something to show:
+there, and the file wins over the defaults. A stream is simplest as a file of its own: put
+`txn.yaml` in a folder outside the repository and name it with
+`--pravaha.config.streams-dir=/home/you/pravaha-local/streams`, and the node declares it at start and
+picks up files you add or remove while it runs (every `pravaha.config.watch-interval`, `10m`; set
+`--pravaha.config.watch-interval=10s` while you experiment). The same thing inline, which declares a
+stream over the first example's CSV file so the console has something to show:
 
 ```yaml
 pravaha:
-  registry:
-    journal: /home/you/.pravaha-dev/registry.journal     # registrations survive a restart of the run
-  checkpoint:
-    directory: /home/you/.pravaha-dev/checkpoints
+  data:
+    dir: /home/you/.pravaha-dev            # registry.journal and checkpoints/ beneath it, kept across runs
   streams:
     txn:
       schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"

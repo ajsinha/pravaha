@@ -45,6 +45,14 @@ public class StreamController {
     private final DtoMapper mapper;
     private final com.ash.messaging.pravaha.server.security.HttpAuthorizer authorizer;
     private final SourceBindingProperties sources;
+    private com.ash.messaging.pravaha.server.folders.ConfigFolders folders =
+            com.ash.messaging.pravaha.server.folders.ConfigFolders.none();
+
+    /** Where each stream came from (ADR-064); a controller made by hand reports none. */
+    @Autowired(required = false)
+    public void setConfigFolders(com.ash.messaging.pravaha.server.folders.ConfigFolders folders) {
+        this.folders = folders;
+    }
 
     public StreamController(
             StreamCatalog catalog,
@@ -68,7 +76,11 @@ public class StreamController {
     /** A stream as the API shows it, with the plugin that feeds it -- the plugin's name, never its options. */
     private ApiDtos.StreamSummary summaryOf(StreamSchema schema) {
         var binding = sources.getSources().get(schema.name());
-        return mapper.toSummary(schema, binding == null ? null : binding.getPlugin());
+        var kind = com.ash.messaging.pravaha.server.folders.DeclarationKind.STREAM;
+        return mapper.toSummary(schema, binding == null ? null : binding.effectivePlugin())
+                .from(
+                        folders.origin(kind, schema.name()),
+                        folders.notApplied(kind, schema.name()).orElse(null));
     }
 
     /**

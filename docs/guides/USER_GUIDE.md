@@ -62,6 +62,41 @@ deadline — it is meant to run for hours — so only its opening is bounded; no
 a result that has opened. Until 2.2.0 the setting existed and nothing read it over Flight, so a node
 that accepted a call and never answered held the caller for ever (SDKDEADLINE-1).
 
+### The streams a query reads: a file each
+
+A query reads streams the node has declared. The simplest way to declare one is **a YAML file named
+after it** in the node's `config/streams/` folder (`$PRAVAHA_HOME/conf/streams/` under a home), which
+is what `pravaha init` writes into its project's `conf/streams/` ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)):
+
+```yaml
+# config/streams/card_swipe.yaml
+schema: "card_id:STRING,merchant:STRING,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+out-of-orderness: 10s
+source:
+  plugin: kafka
+  options:
+    bootstrap.servers: broker1:9092
+    topic: card-swipes
+```
+
+The file holds what `pravaha.streams.<name>` holds in `application.yaml`, plus the `source:` that
+`pravaha.sources.<name>` would; both spellings work, but one name may be declared only once
+(`PRV-1062`). `config/lookups/<name>.yaml` and `config/sinks/<name>.yaml` declare dimension tables and
+sinks the same way. Systems used by several bindings get a **named connection**,
+`config/connectors/<name>.yaml` (a `plugin:` and its `options:`), and each binding says
+`connector: <name>` and only the options that are its own -- they win over the connection's. A
+password, token or key is written `${ENV_NAME}`, never literally (`PRV-1063`).
+
+**The node watches the folders** -- every `pravaha.config.watch-interval`, ten minutes unless set:
+**drop a file in and the stream is there; take it out and the stream is gone**; change it and the new
+definition replaces the old. A stream your query reads is the exception: its file's change or removal
+is **not applied** while the query is registered (`PRV-1065`), so a running answer is never pulled out
+from under you. `pravaha streams` shows each stream's `ORIGIN` (`file:<path>`, `config` or `api`), and
+`pravaha streams describe <name>` says when a file is not applied, and why. Drop the query and the
+change goes through at the next look. [CONNECTORS.md](CONNECTORS.md#named-connections) has the
+connector side.
+
 ## 2. Register a continuous query
 
 In SQL, through anything that sends SQL — `client.query(...)` in either SDK, `pravaha query --sql`,
@@ -737,14 +772,19 @@ Configuration configuration = Configuration.builder()
         .set("pravaha.sources.txn.options.schema", "user_id:STRING,amount:INT64")
         .set("pravaha.queries.big_txn.sql", "SELECT user_id, amount FROM txn WHERE amount > 100")
         .set("pravaha.queries.big_txn.keys", "user_id")
-        // Persistence is opt-in: registrations come back from the journal, state from checkpoints.
-        .set("pravaha.registry.journal", "/var/lib/app/pravaha/registry.journal")
-        .set("pravaha.checkpoint.directory", "/var/lib/app/pravaha/checkpoints")
+        // Persistence is opt-in in an embedded engine: one root puts the journal and the checkpoints
+        // beneath it (registry.journal, checkpoints/), each still settable on its own.
+        .set("pravaha.data.dir", "/var/lib/app/pravaha")
         .build();
 try (PravahaEngine engine = PravahaEngine.create(configuration)) {
     engine.start();   // big_txn is registered, fed from the file, and recovered after a restart
 }
 ```
+
+An embedded engine reads these inline keys only: the server's declaration folders, and its watching
+of them, are not part of it. It takes a data root only when you write one -- a library does not write
+`./data` into the application that embeds it, where a server node does by default -- and it loads
+plugins from your application's own classpath, not from `external_lib/`.
 
 An embedded engine has no authentication or policy: every call runs as the anonymous principal, on
 the assumption that your application has already decided who may call it. Run the server when that

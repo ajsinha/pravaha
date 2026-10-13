@@ -235,12 +235,76 @@ pravaha:
     # neither the key nor a code (CFG-2).
     port: 19090
 
+  # THE TWO ROOTS (ADR-064). A node keeps its state under one folder and reads its declarations from
+  # another; every other path is found beneath them by convention, and each derived path is still a
+  # setting of its own -- written here, in conf/application.yaml, or as --pravaha.<key>=... -- that wins
+  # over the convention. The node logs one `layout:` line at start naming where everything is.
+  #
+  #   pravaha.data.dir (data)                   pravaha.config.dir (config)
+  #     registry.journal    registry.journal       streams/   config.streams-dir
+  #     checkpoints/        checkpoint.directory   lookups/   config.lookups-dir
+  #     catalog.journal     catalog.journal        sinks/     config.sinks-dir
+  #     alerts.journal      alerts.journal         ai/        ai.dir
+  #     identity/identity.journal  identity.store (when identity is on)
+  #
+  # A NODE WITH NOTHING SET KEEPS ITS QUERIES. Since ADR-064 the registry journal and checkpoints are in
+  # ./data by default, so a restart brings back every registered query, its view and its source
+  # positions. `data.dir: none` is the old in-memory node, on purpose: nothing is kept, and the node
+  # warns at start. `none` on one derived path switches just that store off. Relative paths are relative
+  # to the working directory; under a PRAVAHA_HOME the roots are $PRAVAHA_HOME/data and $PRAVAHA_HOME/conf.
+  # A data root that cannot be created or written stops the node (PRV-1066).
+  data:
+    dir: data
+  # The third root: code a deployment adds. java/*.jar goes on the classpath at start -- bin/pravaha-server
+  # reads this from its command line (--pravaha.external-lib.dir=...) or PRAVAHA_EXTERNAL_LIB, because the
+  # classpath is fixed before the JVM starts, so a value only here moves the start-up line and not the
+  # jars. A new jar needs a restart. python/ is the console's and the CLI's. Code there runs with the
+  # node's privileges.
+  external-lib:
+    dir: external_lib
+  config:
+    dir: config
+    # PER-OBJECT DECLARATION FILES. One YAML file per stream, lookup and sink, NAMED AFTER IT: the file
+    # config/streams/txn.yaml declares the stream txn and holds what pravaha.streams.txn would -- schema,
+    # event-time, out-of-orderness, allowed-lateness -- plus an optional source: block (plugin, options),
+    # what pravaha.sources.txn would. config/lookups/<name>.yaml and config/sinks/<name>.yaml hold what
+    # pravaha.lookups.<name> and pravaha.sinks.<name> would. Only .yaml/.yml; hidden files are skipped.
+    # ${ENV} and ${ENV:default} resolve as they do here; a literal password, secret, token or key in a
+    # file is refused (PRV-1063) -- write ${ENV_NAME}. A name needing brackets is refused (PRV-1061).
+    #
+    # Inline blocks below keep working, and both are read; one name declared in a file AND inline is
+    # refused at start (PRV-1062). A folder left to the convention may be missing (it is empty); one
+    # named here must exist (PRV-1060). An invalid file stops the node at start (PRV-1064).
+    #
+    # WATCHED WHILE RUNNING, every watch-interval: ADD A FILE AND ITS STREAM, LOOKUP OR SINK IS DECLARED;
+    # TAKE A FILE OUT AND IT IS REMOVED; change one and it is replaced. The one exception: an object a
+    # registered query uses -- a stream it reads, a lookup it joins, a sink it writes -- is never changed
+    # or removed under the query. The running definition is kept, a PRV-1065 warning names the file and
+    # the queries, GET /api/v1/declarations and the console's Catalog show "not applied", and the change
+    # is applied at the first look after those queries are dropped. A file that becomes invalid while
+    # running is reported and ignored; it never takes the node down.
+    # Each folder; empty is the convention, ${pravaha.config.dir}/<folder>, and may be missing. A
+    # folder named here must exist (PRV-1060).
+    streams-dir: ""
+    lookups-dir: ""
+    sinks-dir: ""
+    connectors-dir: ""
+    # NAMED CONNECTIONS: config/connectors/<name>.yaml holds a plugin and its options once; a source:,
+    # lookup or sink -- in a file or inline -- writes `connector: <name>` instead of repeating them,
+    # and its own options are laid over the connection's. A different plugin beside it is refused
+    # (PRV-1068), an unknown name too (PRV-1067); a connection a binding names is not changed or
+    # removed while it does. GET /api/v1/connectors lists them, secrets masked.
+    # How often the folders are looked at. A unit is required (10 alone is refused); 0 or off reads
+    # them at start only. At least 1s.
+    watch-interval: 10m
+
   # The streams this node knows about. Until these are in the catalog nothing can be planned
   # against them, and a query naming one is refused with "Object 'txn' not found. Known streams: []"
   # -- accurate, and baffling next to a configuration file that clearly mentions txn.
   #
   # Declaring them here is what lets a node be described by a file. The alternative, and for a long
-  # time the only way, is POST /api/v1/streams after every restart.
+  # time the only way, is POST /api/v1/streams after every restart. A file per stream in
+  # config/streams/ (above) is the other way to write the same thing, and the one `pravaha init` uses.
   #
   # A NAME WITH ANYTHING BUT LETTERS, DIGITS AND HYPHENS NEEDS BRACKETS. Spring canonicalises a map
   # key before binding it and discards one it cannot: `txn ` (trailing space) and `txnu"` were in
@@ -339,7 +403,8 @@ pravaha:
   identity:
     enabled: false
     # The append-only file every user, key hash and session is kept in. Owner-readable only; it holds
-    # no reversible secret, but put it on the volume that is backed up.
+    # no reversible secret, but put it on the volume that is backed up. Unset with identity on:
+    # ${pravaha.data.dir}/identity/identity.journal (ADR-064).
     store: ""
     # This deployment's name, part of every key it issues: a qa key is refused by prod (PRV-7014).
     environment: dev
@@ -494,8 +559,9 @@ pravaha:
   # no model is called, and every AI call answers PRV-1080.
   ai:
     enabled: false
-    # Unset under a PRAVAHA_HOME: conf/ai there (pravaha-home.yaml). The *.yaml.example files are not read.
-    dir: config/ai
+    # Unset: ${pravaha.config.dir}/ai -- config/ai, or conf/ai under a PRAVAHA_HOME. The *.yaml.example
+    # files are not read.
+    dir: ""
     # The model a call that names none gets: provider/model or a model name only one provider has.
     default-model: ""
     # How often the folder is looked at for added, changed or removed files (no restart needed), and a
@@ -561,9 +627,9 @@ pravaha:
   #     plugin: log
 
   registry:
-    # Where registered continuous queries are written down. Unset means they live only in memory and
-    # a restart loses them -- which the node warns about at startup rather than leaving to be found
-    # out at the next restart. The file holds query text and bound parameter values (account numbers,
+    # Where registered continuous queries are written down. Unset: ${pravaha.data.dir}/registry.journal
+    # (ADR-064). Only `none` -- here, or on pravaha.data.dir -- keeps them in memory, so a restart loses
+    # them, which the node warns about at startup rather than leaving to be found out at the next restart. The file holds query text and bound parameter values (account numbers,
     # customer ids), so permission it like data, not like configuration.
     #
     # THE DIRECTORY ABOVE IT HAS TO EXIST. It used to be created on the first append, so a typo in
@@ -737,8 +803,8 @@ pravaha:
   # with a journal and no checkpoint directory comes back knowing every question and none of the
   # answers -- which is what this server did, because nothing ever constructed a checkpointer.
   #
-  # Unset means no checkpoints, and the node says so at startup rather than leaving it to be
-  # discovered during a recovery. Each query checkpoints into its own directory beneath this one:
+  # Unset: ${pravaha.data.dir}/checkpoints (ADR-064). `none` means no checkpoints, and the node says so
+  # at startup rather than leaving it to be discovered during a recovery. Each query checkpoints into its own directory beneath this one:
   # one shared store would make pruning global, so a busy query would evict a quiet one's only
   # fallback.
   checkpoint:

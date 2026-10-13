@@ -38,19 +38,20 @@ pravaha:
 
 | Key | Default | What it decides |
 |---|---|---|
-| `pravaha.registry.journal` | empty | The journal file. Empty: registrations live only in memory |
-| `pravaha.checkpoint.directory` | empty | The checkpoint root; each query checkpoints into its own sub-directory. Empty: no checkpoints |
+| `pravaha.registry.journal` | `registry.journal` under `pravaha.data.dir` | The journal file -- `./data/registry.journal` on a node with nothing set (ADR-064). `none`, or `pravaha.data.dir: none`: registrations live only in memory |
+| `pravaha.checkpoint.directory` | `checkpoints/` under `pravaha.data.dir` | The checkpoint root; each query checkpoints into its own sub-directory. `none`: no checkpoints |
 | `pravaha.checkpoint.interval` | `1m` | How often each query takes one. It is also how far a restart replays, and how far a transactional sink trails its view |
 | `pravaha.checkpoint.keep` | `3` | How many to keep **per query**, pruned automatically |
 | `pravaha.checkpoint.timeout` | `30s` | How long one checkpoint may take — including preparing a transactional sink on the query's lane — before it is abandoned and counted as a failure |
 | `pravaha.node.id` | `pravaha-node-01` | Who claims these directories (below) |
 | `pravaha.state.allow-shared` | `false` | Skip the ownership check — almost never |
 
-Without them the startup log says:
+A node with nothing set has both, under `./data` (`$PRAVAHA_HOME/data` under a home). Switched off --
+`pravaha.data.dir: none` -- the startup log says:
 
 ```text
-WARN pravaha.checkpoint.directory is not set, so registered queries keep no checkpoints: a restart recovers their definitions from the journal and none of their accumulated state
-WARN pravaha.registry.journal is not set, so registered queries live only in memory and ...
+WARN pravaha.checkpoint.directory is none (or pravaha.data.dir is), so registered queries keep no checkpoints: a restart recovers their definitions from the journal and none of their accumulated state
+WARN pravaha.registry.journal is none (or pravaha.data.dir is), so registered queries live only in memory and a restart will lose them without saying so
 ```
 
 ## What a restart does, in each configuration

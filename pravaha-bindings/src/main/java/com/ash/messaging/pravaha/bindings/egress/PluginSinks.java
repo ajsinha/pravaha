@@ -67,6 +67,11 @@ public final class PluginSinks implements SinkFactory, AutoCloseable {
         return this;
     }
 
+    /** Resolves {@code sinkName} no more: its configuration file was removed (ADR-064). */
+    public void unbind(String sinkName) {
+        bindings.remove(sinkName);
+    }
+
     /** The bindings in force, by sink name. */
     public Map<String, SinkBinding> bindings() {
         return Map.copyOf(bindings);

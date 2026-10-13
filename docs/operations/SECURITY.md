@@ -586,6 +586,26 @@ narrative, ask about this page -- follow Drishti's rule: **the model writes name
   each reader's row filter and masks are applied when they ask. A view whose reads a security policy
   filters inside the plan is not explained (`PRV-7003`).
 
+## Code and configuration a deployment adds (ADR-064)
+
+**`external_lib/` is trusted code.** Every `*.jar` in `external_lib/java/` is on the engine's classpath
+from the next start, and `external_lib/python/` is on the console's and the CLI's `sys.path`
+([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)). Nothing isolates either: a jar
+there runs inside the engine with its privileges -- it can read every row, every view, the identity
+store and every credential the process holds -- and a module there runs inside the console with every
+session the console holds. Treat the folder like the server jar: writable only by whoever deploys the
+node (the image creates it owned by the node's user, and `bin/pravaha-server` creates it with
+`umask 077`), its contents reviewed and versioned, nothing in it downloaded at run time. The node logs
+the jars it loaded at every start, which is the record to check.
+
+**Declaration files hold no secret.** A stream, lookup, sink or connection file in the configuration
+folders that writes a literal password, secret, token or key is refused (`PRV-1063`) -- at start, the
+node does not start; while it runs, the file is not applied -- and the refusal names the setting, never
+the value. Write `${ENV_NAME}`, resolved from the node's environment as `application.yaml` is. The
+connections listing, `GET /api/v1/connectors`, shows every such option as `****`. The folders
+themselves are configuration: whoever can write them can point a stream at another source or a sink at
+another destination at the next look, so they deserve the same permissions as `conf/application.yaml`.
+
 ## Transport
 
 TLS is the client default; `grpc://` plaintext has to be spelled out. Both SDKs refuse to send a token

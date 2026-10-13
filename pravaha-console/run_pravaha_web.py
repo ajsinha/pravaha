@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core import external_lib
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.library import ContentLibrary
 from core.engine import Engine
@@ -225,6 +226,10 @@ def main() -> None:
                       file=config.get("logging.file") or None,
                       max_bytes=config.get_int("logging.max_bytes", 50 * 1024 * 1024),
                       backups=config.get_int("logging.backups", 10))
+
+    # ADR-064: a deployment's own Python, importable before anything optional is loaded.
+    added = external_lib.add_to_sys_path(config.get("paths.external_lib") or None)
+    logger.info("external_lib/python: %s", added if added else "none (the folder does not exist)")
 
     host = config.get("server.host", "0.0.0.0")
     port = config.get_int("server.port", 17070)

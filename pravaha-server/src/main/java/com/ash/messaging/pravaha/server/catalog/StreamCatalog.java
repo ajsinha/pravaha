@@ -94,6 +94,62 @@ public class StreamCatalog {
         }
     }
 
+    /**
+     * Declares {@code schema}, in place of any stream of the name, unless a registered query reads that
+     * stream (ADR-064: a stream's configuration file added or changed while the node runs).
+     *
+     * <p>Under the lock {@link #register} holds, then the registry's, so no registration falls between
+     * the question and the change. {@code alongside} runs first, under both: what else the file says --
+     * the stream's source binding -- and a refusal from it changes nothing.
+     *
+     * @return the queries reading the stream, in which case nothing was changed; empty when it was
+     */
+    public List<String> declareUnlessUsed(StreamSchema schema, Runnable alongside) {
+        return unlessUsed(schema.name(), () -> {
+            alongside.run();
+            synchronized (this) {
+                streams.put(schema.name(), schema);
+            }
+            QueryRegistry planning = registry;
+            if (planning != null) {
+                planning.declare(schema);
+            }
+        });
+    }
+
+    /** Removes the stream {@code name} unless a registered query reads it; as {@link #declareUnlessUsed}. */
+    public List<String> forgetUnlessUsed(String name, Runnable alongside) {
+        return unlessUsed(name, () -> {
+            alongside.run();
+            synchronized (this) {
+                streams.remove(name);
+            }
+            QueryRegistry planning = registry;
+            if (planning != null) {
+                planning.forgetStream(name);
+            }
+        });
+    }
+
+    private List<String> unlessUsed(String name, Runnable change) {
+        declaring.lock();
+        try {
+            QueryRegistry planning = registry;
+            if (planning == null) {
+                change.run();
+                return List.of();
+            }
+            return planning.unlessUsed(QueryRegistry.Use.STREAM, name, change);
+        } finally {
+            declaring.unlock();
+        }
+    }
+
+    /** Forgets a dimension table: its configuration file was removed (ADR-064). */
+    public synchronized void forgetLookup(String name) {
+        lookups.remove(name);
+    }
+
     private synchronized StreamSchema record(StreamSchema schema) {
         StreamSchema existing = streams.get(schema.name());
         if (existing != null && existing.version() == schema.version()) {

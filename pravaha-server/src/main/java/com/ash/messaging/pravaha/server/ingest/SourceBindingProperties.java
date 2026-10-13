@@ -47,9 +47,11 @@ import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 @ConfigurationProperties(prefix = "pravaha")
 public class SourceBindingProperties {
 
-    private final Map<String, Spec> sources = new LinkedHashMap<>();
+    private final Map<String, Spec> sources =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<>()); // ADR-064: changed live
 
-    private final Map<String, Spec> lookups = new LinkedHashMap<>();
+    private final Map<String, Spec> lookups =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<>()); // ADR-064: changed live
 
     /**
      * Spring binds into this map; the key is the stream name.
@@ -89,16 +91,16 @@ public class SourceBindingProperties {
     /** The configured lookup bindings, keyed by the name a query joins against. */
     public List<SourceBinding> toLookupBindings() {
         List<SourceBinding> configured = new ArrayList<>();
-        lookups.forEach((table, spec) ->
-                configured.add(new SourceBinding(table, spec.plugin == null ? "" : spec.plugin, spec.options)));
+        lookups.forEach((table, spec) -> configured.add(new SourceBinding(
+                table, java.util.Objects.requireNonNullElse(spec.effectivePlugin(), ""), spec.effectiveOptions())));
         return configured;
     }
 
     /** The configured bindings, validated. */
     public List<SourceBinding> toBindings() {
         List<SourceBinding> configured = new ArrayList<>();
-        sources.forEach((stream, spec) ->
-                configured.add(new SourceBinding(stream, spec.plugin == null ? "" : spec.plugin, spec.options)));
+        sources.forEach((stream, spec) -> configured.add(new SourceBinding(
+                stream, java.util.Objects.requireNonNullElse(spec.effectivePlugin(), ""), spec.effectiveOptions())));
         return configured;
     }
 
@@ -107,6 +109,9 @@ public class SourceBindingProperties {
 
         private @Nullable String plugin;
         private Map<String, String> options = new LinkedHashMap<>();
+        private @Nullable String connector;
+        private @Nullable String resolvedPlugin;
+        private @Nullable Map<String, String> resolvedOptions;
 
         public @Nullable String getPlugin() {
             return plugin;
@@ -122,6 +127,34 @@ public class SourceBindingProperties {
 
         public void setOptions(Map<String, String> options) {
             this.options = options == null ? new LinkedHashMap<>() : options;
+        }
+
+        /**
+         * A named connection this binding takes its plugin and options from (ADR-064): a file in
+         * {@code pravaha.config.connectors-dir}. The binding's own options are laid over the connection's.
+         */
+        public @Nullable String getConnector() {
+            return connector;
+        }
+
+        public void setConnector(@Nullable String connector) {
+            this.connector = connector == null || connector.isBlank() ? null : connector.strip();
+        }
+
+        /** Records what the named connection resolved to; not a setting (no bean accessor names it). */
+        public void resolvedTo(String plugin, Map<String, String> options) {
+            this.resolvedPlugin = plugin;
+            this.resolvedOptions = Map.copyOf(options);
+        }
+
+        /** The plugin the binding uses: its own, or its connection's. */
+        public @Nullable String effectivePlugin() {
+            return resolvedPlugin != null ? resolvedPlugin : plugin;
+        }
+
+        /** The options the binding uses: its own, laid over its connection's. */
+        public Map<String, String> effectiveOptions() {
+            return resolvedOptions != null ? resolvedOptions : options;
         }
     }
 }

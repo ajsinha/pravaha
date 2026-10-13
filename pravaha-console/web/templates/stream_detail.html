@@ -31,6 +31,8 @@
         <tr><th>{{ t('stream.allowed_lateness') }}</th><td id="stream-allowed-lateness">{% if stream.eventTime and stream.get('allowedLateness') %}<span class="mono">{{ stream.allowedLateness }}</span>
           <span class="small text-muted">— {{ t('stream.allowed_lateness_zero') if stream.allowedLateness in ('PT0S', 'PT0.0S') else t('stream.allowed_lateness_meaning') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
         <tr><th>{{ t('stream.source') }}</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">{{ t('stream.not_bound') }}</span>{% endif %}</td></tr>
+        <tr><th>{{ t('stream.origin') }}</th><td id="stream-origin">{% if stream.get('origin') %}<span class="mono">{{ stream.origin }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          {% if stream.get('notApplied') %}<div class="small text-warning" id="stream-not-applied">{{ t('stream.not_applied', reason=stream.notApplied) }}</div>{% endif %}</td></tr>
       </tbody></table></div></div>
   </div>
   <div class="col-lg-6">

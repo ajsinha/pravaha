@@ -46,7 +46,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "pravaha")
 public class StreamDeclarationProperties {
 
-    private final Map<String, Declaration> streams = new LinkedHashMap<>();
+    private final Map<String, Declaration> streams =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<>()); // ADR-064: changed live
 
     public Map<String, Declaration> getStreams() {
         return streams;
