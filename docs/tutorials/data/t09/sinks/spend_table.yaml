@@ -1,0 +1,9 @@
+# Tutorial 9: the node's conf/sinks/spend_table.yaml -- the view, kept in a table: upserted and
+# deleted by key, applied once per checkpoint.
+connector: warehouse
+options:
+  table: spend_by_user
+  schema: "user_id:STRING,window_start:TIMESTAMP,window_end:TIMESTAMP,spend:INT64"
+  key.columns: "user_id,window_end"
+  mode: upsert
+  transactional: "true"

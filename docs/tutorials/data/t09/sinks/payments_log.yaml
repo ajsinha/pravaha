@@ -1,0 +1,8 @@
+# Tutorial 9: the node's conf/sinks/payments_log.yaml -- every big payment, appended: exactly once,
+# because it is transactional.
+connector: warehouse
+options:
+  table: payments_log
+  schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+  mode: append
+  transactional: "true"
