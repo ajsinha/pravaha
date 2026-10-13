@@ -10,9 +10,29 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.5.0 — 2026-10-13
 
-**Read before upgrading.**
+**Drishti's look, help and tutorials, plain English on the engine, and configuration as files.**
+2.5.0 gives the console drishti's seven themes (Crimson by default), menus, help catalogue and
+examples gallery; adds sixteen hands-on tutorials with real CLI output and screenshots; puts an AI
+layer in the engine, off by default, with six plain-English features (ask, draft, alert draft,
+explain, narrate, ask about this page); and declares streams, lookups, sinks and named connections
+as one file each under a watched config folder, manageable from the console, the API and the CLI.
+
+**Read before upgrading from 2.4.2.**
+
+- **A node with nothing set now persists its queries** under `./data` (`pravaha.data.dir`; `none`
+  keeps the old memory-only behaviour), and reads declarations from `./config`
+  (`pravaha.config.dir`). See ADR-064 and the entries below.
+- **The command line's folder variable is `PRAVAHA_CLI_DIR`.** `PRAVAHA_CONFIG_DIR` is still read
+  by the CLI, with a warning, but a server whose only setting of its config folder is that variable
+  refuses to start (PRV-1069).
+- **Lookups are now authorized**, and three AI settings are stricter; each is the first of the
+  entries that follow.
+- **Open:** two low findings, both post-GA (AIQA-8: explain of `SELECT *` names a masked column;
+  AIQA-9: concurrent AI calls can overshoot the daily cost budget by up to one call each).
+
+What changed, in detail:
 
 - **A lookup a query joins is now authorized (LOOKUPAUTH-1).** Registration asked the security policy about every stream and view a plan scans and never about a lookup it joins, so a person refused a dimension table could read it through a join. It is now asked about each one, directly and through the views a query builds on, and the AI layer's explain does the same. A policy that refuses a lookup to someone now refuses their queries that join it.
 - **AI provider files: a `${NAME:-fallback}` fallback in a secret is refused** (AIQA-7). `api-key`, every
