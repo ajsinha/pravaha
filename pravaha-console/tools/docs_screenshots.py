@@ -418,8 +418,12 @@ def take_tutorial(name: str, only: Optional[list[str]] = None, out: pathlib.Path
         tab.wait_for(step.ready, timeout=step.timeout)
         tab.settle(quiet_ms=400)
         tab.eval("(() => { document.activeElement && document.activeElement.blur(); return true; })()")
-        _standard_ports(tab, run.node, {f"127.0.0.1:{run.pg_port}": "127.0.0.1:5433",
-                                        f"port={run.pg_port}": "port=5433"} if run.pg_port else None)
+        # The node's scratch home out of a path the page shows (a stream's origin, file:<path>), as
+        # tutorial_captures.normalise takes it out of what the CLI prints.
+        swaps = {str(run.node.home) + "/": ""}
+        if run.pg_port:
+            swaps.update({f"127.0.0.1:{run.pg_port}": "127.0.0.1:5433", f"port={run.pg_port}": "port=5433"})
+        _standard_ports(tab, run.node, swaps)
         target = folder / f"{step.name}.png"
         target.write_bytes(tab.screenshot())
         written.append(target)

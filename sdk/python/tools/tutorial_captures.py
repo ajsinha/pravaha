@@ -107,7 +107,8 @@ class Container:
 @dataclass(frozen=True)
 class Node:
     """The node a tutorial runs against. ``config`` is the tutorial's ``application.yaml`` (under
-    ``docs/tutorials/data/``); ``files`` copies sample data into the node's home (source -> place),
+    ``docs/tutorials/data/``), none when the node needs no setting of its own; ``files`` copies sample
+    data and the declaration folders (``conf/streams``, ...) into the node's home (source -> place),
     where its relative paths resolve, as under ``PRAVAHA_HOME``. ``jars`` go to ``plugins/`` (``-Dloader.path``),
     found under ``~/.m2/repository``; ``pgwire`` turns the PostgreSQL gateway on, on a free port;
     ``containers`` are started first (:class:`Container`). ``plugins`` loads ``plugins/`` (as
@@ -115,7 +116,7 @@ class Node:
     is the CA (in the home) that signed the certificate of a node whose configuration puts Flight on
     TLS: the reader's ``PRAVAHA_URL`` is then ``grpc+tls://`` and their ``PRAVAHA_TLS_CA`` that file."""
 
-    config: str
+    config: str = ""
     files: "tuple[tuple[str, str], ...]" = ()
     profiles: str = "dev,users"
     args: "tuple[str, ...]" = ()
@@ -379,7 +380,7 @@ def make_node(scenario: Any) -> "tuple[ScratchNode, int]":
     if spec.pgwire:
         pg = free_port({node.http_port, node.flight_port})
         args += ["--pravaha.pgwire.enabled=true", "--pravaha.pgwire.host=127.0.0.1", f"--pravaha.pgwire.port={pg}"]
-    args.append("--spring.config.additional-location=optional:classpath:/pravaha-home.yaml,file:conf/application.yaml")
+    args.append("--spring.config.additional-location=optional:classpath:/pravaha-home.yaml,optional:file:conf/application.yaml")
     node.args = tuple(args)
     return node, pg
 
@@ -395,12 +396,17 @@ def lay_out(node: ScratchNode, spec: Node, services: "Optional[dict[str, tuple[s
     a container's ``localhost:<port>`` in the configuration is the port it really has."""
     conf = node.home / "conf"
     conf.mkdir(exist_ok=True)
-    config = _source(node, spec.config).read_text(encoding="utf-8")
-    for container in spec.containers:
-        if services and container.name in services:
-            real = services[container.name][1]
-            config = re.sub(rf"\b(localhost|127\.0\.0\.1):{container.port}\b", rf"\g<1>:{real}", config)
-    (conf / "application.yaml").write_text(config, encoding="utf-8")
+
+    def real_ports(config: str) -> str:
+        for container in spec.containers:
+            if services and container.name in services:
+                real = services[container.name][1]
+                config = re.sub(rf"\b(localhost|127\.0\.0\.1):{container.port}\b", rf"\g<1>:{real}", config)
+        return config
+
+    if spec.config:
+        (conf / "application.yaml").write_text(real_ports(_source(node, spec.config).read_text(encoding="utf-8")),
+                                               encoding="utf-8")
     for source, place in spec.files:
         target = node.home / place
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -408,6 +414,9 @@ def lay_out(node: ScratchNode, spec: Node, services: "Optional[dict[str, tuple[s
             shutil.copytree(_source(node, source), target)
         else:
             shutil.copy(_source(node, source), target)
+    # The declaration folders (conf/streams, sinks, lookups, connectors) name a container's port too.
+    for declared in conf.glob("*/*.yaml"):
+        declared.write_text(real_ports(declared.read_text(encoding="utf-8")), encoding="utf-8")
     if spec.jars:
         (node.home / "plugins").mkdir(exist_ok=True)
         for coordinate in spec.jars:
@@ -659,6 +668,7 @@ def _play(run: Run, scenario: Any, name: str, on_snap: Optional[Callable[[Any], 
 def normalise(text: str, run: Run) -> str:
     """What differs between runs and machines, as stable words; the sample data's times are kept."""
     node = run.node
+    text = _realign(text, str(node.home) + "/")
     swaps = [
         (f"127.0.0.1:{node.http_port}", "localhost:18080"),
         (f"127.0.0.1:{node.flight_port}", "localhost:19090"),
@@ -711,6 +721,38 @@ def normalise(text: str, run: Run) -> str:
         r"\[([^\[\]]+)\]", lambda o: "[" + ", ".join(sorted(o.group(1).split(", "))) + "]", m.group(1)),
         text, flags=re.MULTILINE)
     return text
+
+
+_HEADER = re.compile(r"[A-Z][A-Z_#]*(?: [A-Z_#]+)*(?:  +[A-Z][A-Z_#]*(?: [A-Z_#]+)*)+")
+
+
+def _realign(text: str, prefix: str) -> str:
+    """A table the CLI printed with the node's home in a column (a stream's origin, ``file:<path>``):
+    the home taken out of each cell and the columns laid out again, two spaces apart, as the CLI
+    would have laid them out for the shorter text."""
+    if prefix not in text:
+        return text
+    lines = text.split("\n")
+    out: "list[str]" = []
+    i = 0
+    while i < len(lines):
+        header = lines[i]
+        end = i + 1
+        while end < len(lines) and lines[end].strip():
+            end += 1
+        if not _HEADER.fullmatch(header.rstrip()) or not any(prefix in line for line in lines[i + 1:end]):
+            out.append(header)
+            i += 1
+            continue
+        starts = [0] + [m.end() for m in re.finditer(r"  +(?=\S)", header)]
+        rows = [[line[a:b].rstrip() if b else line[a:].rstrip()
+                 for a, b in zip(starts, starts[1:] + [0])] for line in lines[i:end]]
+        rows = [[cell.replace(prefix, "") for cell in row] for row in rows]
+        widths = [max(len(row[k]) for row in rows) for k in range(len(starts))]
+        out += ["  ".join(cell.ljust(widths[k]) if k < len(starts) - 1 else cell
+                          for k, cell in enumerate(row)).rstrip() for row in rows]
+        i = end
+    return "\n".join(out)
 
 
 def _keeping_columns(replacement: str) -> "Callable[[re.Match[str]], str]":
