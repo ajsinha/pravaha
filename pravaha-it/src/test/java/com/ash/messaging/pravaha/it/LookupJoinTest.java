@@ -200,6 +200,37 @@ class LookupJoinTest {
         }
     }
 
+    @Test
+    void aRegistrationJoiningALookupTheyMayNotReadIsRefused() {
+        // LOOKUPAUTH-1: the policy was asked about every stream the plan scans and never about a lookup
+        // it joins, so a person refused the dimension table read it through any join.
+        com.ash.messaging.pravaha.security.SecurityPolicy noUsers =
+                new com.ash.messaging.pravaha.security.SecurityPolicy() {
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayRead(Principal principal, String view) {
+                        return view.equals("users")
+                                ? com.ash.messaging.pravaha.security.AccessDecision.deny("users is restricted")
+                                : com.ash.messaging.pravaha.security.AccessDecision.allow();
+                    }
+
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayRegisterQuery(Principal principal) {
+                        return com.ash.messaging.pravaha.security.AccessDecision.allow();
+                    }
+                };
+        MapLookup users = new MapLookup(Duration.ZERO);
+        try (QueryRegistry registry = new QueryRegistry(
+                        new ViewCatalog(), noUsers, com.ash.messaging.pravaha.security.AuditSink.NONE, orders())
+                .lookingUp(users)) {
+            assertThatThrownBy(() -> registry.register("enriched", INNER, List.of(0), Principal.ANONYMOUS))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("'users', which they may not read");
+            assertThat(registry.register("plain", "SELECT order_id FROM orders", List.of(0), Principal.ANONYMOUS))
+                    .as("the same policy lets the stream itself be read")
+                    .isNotNull();
+        }
+    }
+
     private static final String INNER = "SELECT o.order_id, u.segment FROM orders o "
             + "JOIN users FOR SYSTEM_TIME AS OF o.ts AS u ON o.user_id = u.user_id";
     private static final String OUTER = "SELECT o.order_id, u.segment FROM orders o "

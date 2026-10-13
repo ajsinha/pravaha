@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.registry;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.ash.messaging.pravaha.runtime.plan.LookupJoinOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 
@@ -40,6 +41,23 @@ final class PlanSources {
         List<String> found = new ArrayList<>();
         collect(plan, found);
         return found;
+    }
+
+    /**
+     * Every lookup a plan joins, in plan order (LOOKUPAUTH-1): read as surely as a scanned stream, so
+     * the policy is asked about it too -- but it is no feed, so it is kept out of {@link #of}.
+     */
+    static List<String> lookupsOf(PhysicalOperator plan) {
+        List<String> found = new ArrayList<>();
+        collectLookups(plan, found);
+        return found;
+    }
+
+    private static void collectLookups(PhysicalOperator operator, List<String> into) {
+        if (operator instanceof LookupJoinOperator join && !into.contains(join.lookupStream())) {
+            into.add(join.lookupStream());
+        }
+        operator.inputs().forEach(input -> collectLookups(input, into));
     }
 
     private static void collect(PhysicalOperator operator, List<String> into) {

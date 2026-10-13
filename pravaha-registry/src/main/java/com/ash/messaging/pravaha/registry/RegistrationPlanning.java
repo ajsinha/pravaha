@@ -112,8 +112,8 @@ final class RegistrationPlanning {
                 action,
                 name,
                 sql,
-                chains.sources(plan, tenant),
-                chains.provenance(plan, tenant));
+                chains.reads(plan, tenant),
+                chains.readsThrough(plan, tenant));
         var narrowings = RegistrationAuthorization.narrowings(
                 registry.policy(),
                 registry.audit(),

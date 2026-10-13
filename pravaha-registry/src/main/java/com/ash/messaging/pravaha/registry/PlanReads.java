@@ -35,7 +35,7 @@ public final class PlanReads {
 
     /** The engine names of what {@code sql} scans, planned as {@code principal}'s registration would plan it. */
     public static List<String> of(QueryRegistry registry, String sql, Principal principal) {
-        return registry.chains.sources(
+        return registry.chains.reads(
                 registry.planAs(sql, BoundParameters.none(), principal).plan(), principal.tenant());
     }
 }

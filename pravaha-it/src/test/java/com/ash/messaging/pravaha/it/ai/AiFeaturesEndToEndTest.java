@@ -429,7 +429,7 @@ class AiFeaturesEndToEndTest {
         assertThat(a.explanation())
                 .doesNotContain("\u001b")
                 .doesNotContain("\u0007")
-                .doesNotContain("‮");
+                .doesNotContain("\u202e");
         assertThat(a.explanation()).contains("Counts");
         assertThatThrownBy(() -> ai.ask(ANA, "escape in the sql", null))
                 .hasMessageStartingWith("PRV-1088")

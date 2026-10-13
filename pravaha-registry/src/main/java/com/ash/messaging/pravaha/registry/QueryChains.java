@@ -190,6 +190,34 @@ final class QueryChains {
                 .toList();
     }
 
+    /** What {@code plan} reads for the policy: what it scans, then the lookups it joins (LOOKUPAUTH-1). */
+    List<String> reads(PhysicalOperator plan, String tenant) {
+        Set<String> found = new LinkedHashSet<>(sources(plan, tenant));
+        found.addAll(PlanSources.lookupsOf(plan));
+        return List.copyOf(found);
+    }
+
+    /** {@link #provenance}, with every lookup the plan or a view it builds on joins (LOOKUPAUTH-1). */
+    List<String> readsThrough(PhysicalOperator plan, String tenant) {
+        Set<String> found = new LinkedHashSet<>(provenance(plan, tenant));
+        lookupsThrough(plan, tenant, found, new java.util.HashSet<>());
+        return List.copyOf(found);
+    }
+
+    private void lookupsThrough(PhysicalOperator plan, String tenant, Set<String> into, Set<String> seen) {
+        into.addAll(PlanSources.lookupsOf(plan));
+        for (String upstream : upstreamsOf(plan, tenant)) {
+            if (seen.add(upstream)) {
+                registry.find(upstream).ifPresent(query -> {
+                    PhysicalOperator above = query.plan();
+                    if (above != null) {
+                        lookupsThrough(above, tenant, into, seen);
+                    }
+                });
+            }
+        }
+    }
+
     /** The registered views a plan of {@code tenant}'s reads, by engine name, in plan order. */
     List<String> upstreamsOf(PhysicalOperator plan, String tenant) {
         Set<String> streams = streamNames();
