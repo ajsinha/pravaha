@@ -20,7 +20,10 @@ JAR = "plugins/h2-2.3.232.jar"
 URL = "jdbc:h2:./data/ref/customers;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE"
 SHOWN_URL = "jdbc:h2:$PRAVAHA_HOME/data/ref/customers;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE"
 
-NODE = Node(config="t03/application.yaml", jars=(H2,), files=(
+NODE = Node(jars=(H2,), files=(
+    ("t03/streams", "conf/streams"),
+    ("t03/lookups", "conf/lookups"),
+    ("t03/connectors", "conf/connectors"),
     ("t03/orders.csv", "data/incoming/orders.csv"),
     ("t03/payments.csv", "data/incoming/payments.csv"),
     ("t03/customers.sql", "customers.sql"),
@@ -66,6 +69,7 @@ EXPLAIN = ("(() => { [...document.querySelectorAll('button')].find(b => b.textCo
 STEPS = (
     Cli("t03-lookup-plugin", ("plugins",), omit=(r"^(?!NAME|filesystem|jdbc-lookup)",)),
     Cli("t03-streams", ("streams", "list")),
+    Cli("t03-connectors", ("connectors", "list")),
     Cli("t03-register-paid", ("register", "--name", "paid_orders", "--sql-file", "paid_orders.sql", "--keys", "0")),
     Until(("query", "--sql", "SELECT COUNT(*) AS n FROM paid_orders"), r"^3\s*$"),
     Cli("t03-query-paid", ("query", "--sql", "SELECT * FROM paid_orders")),

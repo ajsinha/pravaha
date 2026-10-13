@@ -1,0 +1,10 @@
+# Tutorial 3: the node's conf/connectors/shop-db.yaml -- a named connection: the database once,
+# where it is and who the node is to it, for every lookup that asks it. Here an H2 database file in
+# the node's home, so the tutorial needs no database server; in production the same plugin reads
+# PostgreSQL, MySQL, Oracle or any database with a JDBC driver in plugins/, and a password is written
+# ${ENV_NAME}, never literally (PRV-1063).
+plugin: jdbc-lookup
+options:
+  url: "jdbc:h2:./data/ref/customers;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE"
+  user: sa
+  pool.size: "2"
