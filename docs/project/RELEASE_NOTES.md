@@ -195,6 +195,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   a correct source with records in two partitions failed it. It now resumes each partition that holds
   records and expects that partition's remainder (exactly, for `EXACTLY_ONCE`); a two-partition fixture
   in `pravaha-testkit` runs the whole TCK.
+- **TLSRECIPE-1: the test-certificate recipes make a CA that strict checks accept.** CONNECTOR_TLS.md
+  §6 and the TLS help topic made a CA with no keyUsage, which `pravaha doctor` (and any X.509-strict
+  stack) refuses. Both now give the CA `basicConstraints=CA:TRUE` and `keyUsage=keyCertSign,cRLSign`,
+  and the server certificate its keyUsage, `serverAuth` and authority key identifier, as the
+  tutorials' `make-certs.sh` does; the recipe passes `openssl verify -x509_strict`.
 
 ---
 

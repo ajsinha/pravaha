@@ -348,9 +348,11 @@ convention of the Arrow Flight library it wraps rather than Pravaha's own.
 Enough to get a working encrypted connection you can then verify.
 
 ```bash
-# A CA.
+# A CA. Its keyUsage says it may sign certificates (keyCertSign, cRLSign): `pravaha doctor` and
+# strict TLS stacks refuse a CA without one, and openssl's default leaves it out.
 openssl req -x509 -newkey rsa:4096 -days 3650 -nodes \
-  -keyout ca-key.pem -out ca.pem -subj "/CN=pravaha-test-ca"
+  -keyout ca-key.pem -out ca.pem -subj "/CN=pravaha-test-ca" \
+  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
 
 # A server certificate that will actually pass hostname verification. The SAN is the part
 # people leave out, and a certificate without one fails verification no matter what the CN says.
@@ -358,7 +360,9 @@ openssl req -newkey rsa:4096 -nodes -keyout server-key.pem -out server.csr \
   -subj "/CN=pravaha.internal"
 openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial \
   -out server.pem -days 825 \
-  -extfile <(printf "subjectAltName=DNS:pravaha.internal,DNS:localhost,IP:127.0.0.1")
+  -extfile <(printf '%s\n' "subjectAltName=DNS:pravaha.internal,DNS:localhost,IP:127.0.0.1" \
+    "keyUsage=critical,digitalSignature,keyEncipherment" "extendedKeyUsage=serverAuth" \
+    "authorityKeyIdentifier=keyid,issuer")
 
 # A PKCS12 truststore, for the keystore form of the same trust decision.
 keytool -importcert -noprompt -alias pravaha-test-ca -file ca.pem \
