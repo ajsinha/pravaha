@@ -61,6 +61,7 @@ public final class LiveDeclarations implements DeclarationWatcher.Target {
     private final SinkBindingProperties sinkSettings;
     private final Duration defaultOutOfOrderness;
     private final Connectors connectors;
+    private java.util.function.Supplier<java.util.Set<String>> stopped = java.util.Set::of;
 
     public LiveDeclarations(
             StreamCatalog catalog,
@@ -212,6 +213,69 @@ public final class LiveDeclarations implements DeclarationWatcher.Target {
                     sinkSettings.getSinks().remove(name);
                 });
         };
+    }
+
+    /**
+     * Where the streams switched off come from: the files in force ({@link ConfigFolders#stoppedStreams}).
+     * Asked after every change, and handed to the source feeds, which skip those streams' readers.
+     */
+    public LiveDeclarations stoppingFrom(java.util.function.Supplier<java.util.Set<String>> stoppedStreams) {
+        this.stopped = stoppedStreams;
+        return this;
+    }
+
+    @Override
+    public void changed() {
+        feeds.stopReading(stopped.get());
+    }
+
+    @Override
+    public List<String> users(DeclarationKind kind, String name) {
+        return switch (kind) {
+            case CONNECTOR -> Connectors.users(name, sourceSettings, sinkSettings);
+            case STREAM -> registry.usersOf(QueryRegistry.Use.STREAM, name);
+            case LOOKUP -> registry.usersOf(QueryRegistry.Use.LOOKUP, name);
+            case SINK -> registry.usersOf(QueryRegistry.Use.SINK, name);
+        };
+    }
+
+    /**
+     * What {@link #declare} refuses before it changes anything, asked of copies: the schema, the
+     * connection a binding names, and whether the plugin is one this node can load. A dimension table is
+     * not opened -- that is network I/O -- so a lookup that cannot be opened is refused by the write itself.
+     */
+    @Override
+    public void check(DeclarationFile file) {
+        String where = file.kind().label() + " '" + file.name() + "' (" + file.path() + ")";
+        switch (file.kind()) {
+            case STREAM -> {
+                StreamDeclarationProperties.Declaration declaration = Objects.requireNonNull(file.stream());
+                StreamDeclarations.schemaOf(file.name(), declaration, defaultOutOfOrderness, "file " + file.path());
+                SourceBindingProperties.Spec spec = file.source();
+                if (spec != null) {
+                    connectors.resolve(where, spec);
+                    new PluginSourceFeeds()
+                            .bind(new SourceBinding(
+                                    file.name(),
+                                    Objects.requireNonNull(spec.effectivePlugin()),
+                                    spec.effectiveOptions()));
+                }
+            }
+            case LOOKUP -> connectors.resolve(where, Objects.requireNonNull(file.source()));
+            case SINK -> {
+                SinkBindingProperties.Spec spec = Objects.requireNonNull(file.sink());
+                connectors.resolve(where, spec);
+                try (PluginSinks trial = new PluginSinks()) {
+                    String name = file.name();
+                    trial.bind(new SinkBinding(
+                                    name, Objects.requireNonNull(spec.effectivePlugin()), spec.effectiveOptions()))
+                            .capabilitiesOf(name);
+                }
+            }
+            case CONNECTOR -> {
+                // A connection is its plugin and options; a binding naming it is what is checked.
+            }
+        }
     }
 
     @Override

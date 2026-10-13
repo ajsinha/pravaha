@@ -131,6 +131,23 @@ public final class ConfigErrors {
      */
     public static final ErrorCode CONFIG_DIR_FROM_CLI_VARIABLE = new ErrorCode(1069, "CONFIG_DIR_FROM_CLI_VARIABLE");
 
+    // ADR-064's write path: the console, the API and the CLI write the same files a person would.
+
+    /** A create ({@code POST /api/v1/streams/{name}} and its siblings) for a name a file already declares. */
+    public static final ErrorCode DECLARATION_EXISTS = new ErrorCode(1070, "CONFIG_DECLARATION_EXISTS");
+
+    /** An update, delete, enable or disable of a name no declaration file declares. */
+    public static final ErrorCode DECLARATION_UNKNOWN = new ErrorCode(1071, "CONFIG_DECLARATION_UNKNOWN");
+
+    /** A write to an object declared inline in application.yaml or by the API, which no file holds. */
+    public static final ErrorCode DECLARATION_NOT_A_FILE = new ErrorCode(1072, "CONFIG_DECLARATION_NOT_A_FILE");
+
+    /** A write on a node with no configuration folders, or a folder the node cannot write. */
+    public static final ErrorCode FOLDER_NOT_WRITABLE = new ErrorCode(1073, "CONFIG_FOLDER_NOT_WRITABLE");
+
+    /** A connection test that failed or ran out of time: the outcome of {@code POST /api/v1/connectors/{name}/test}. */
+    public static final ErrorCode CONNECTION_TEST_FAILED = new ErrorCode(1074, "CONFIG_CONNECTION_TEST_FAILED");
+
     // PRV-1029 CONFIG_DOCS_BASE_URL_INVALID is allocated here and declared in
     // com.ash.messaging.pravaha.api.HelpUrls, for the same reason as PRV-1028 below: the base URL
     // for a failure's help page is read by pravaha-api itself, which cannot see this class

@@ -23,19 +23,32 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
+import com.ash.messaging.pravaha.server.folders.DeclarationKind;
+import com.ash.messaging.pravaha.server.folders.DeclarationWrites;
 import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
 
-/** Streams the engine can read from. */
+/**
+ * Streams the engine can read from.
+ *
+ * <p>Two ways to declare one. {@code POST /api/v1/streams} registers a stream on the running node only
+ * (origin {@code api}): it binds no source and is gone after a restart, as it always was, and is kept as
+ * it is. {@code POST /api/v1/streams/{name}} and the rest of {@code /{name}} write
+ * {@code config/streams/<name>.yaml} -- the file a person would write, with its source -- and apply it at
+ * once; the file is what the node reads at the next start (ADR-064).
+ */
 @RestController
 @RequestMapping("/api/v1/streams")
 @Tag(name = "Streams", description = "Registered streams and their schemas")
@@ -47,6 +60,20 @@ public class StreamController {
     private final SourceBindingProperties sources;
     private com.ash.messaging.pravaha.server.folders.ConfigFolders folders =
             com.ash.messaging.pravaha.server.folders.ConfigFolders.none();
+    private @Nullable DeclarationEndpoints endpoints;
+    private @Nullable RegistryAccess registry;
+
+    /** The file writes behind {@code /{name}} (ADR-064); a controller made by hand has none. */
+    @Autowired(required = false)
+    public void setDeclarationWrites(DeclarationWrites writes) {
+        this.endpoints = new DeclarationEndpoints(writes, authorizer);
+    }
+
+    /** How many queries read each stream, for the listing; a controller made by hand reports none. */
+    @Autowired(required = false)
+    public void setRegistryAccess(RegistryAccess registry) {
+        this.registry = registry;
+    }
 
     /** Where each stream came from (ADR-064); a controller made by hand reports none. */
     @Autowired(required = false)
@@ -74,13 +101,27 @@ public class StreamController {
     }
 
     /** A stream as the API shows it, with the plugin that feeds it -- the plugin's name, never its options. */
-    private ApiDtos.StreamSummary summaryOf(StreamSchema schema) {
+    private ApiDtos.StreamSummary summaryOf(StreamSchema schema, java.util.Set<String> stopped) {
         var binding = sources.getSources().get(schema.name());
-        var kind = com.ash.messaging.pravaha.server.folders.DeclarationKind.STREAM;
+        var kind = DeclarationKind.STREAM;
         return mapper.toSummary(schema, binding == null ? null : binding.effectivePlugin())
                 .from(
                         folders.origin(kind, schema.name()),
-                        folders.notApplied(kind, schema.name()).orElse(null));
+                        folders.notApplied(kind, schema.name()).orElse(null))
+                .managed(
+                        !stopped.contains(schema.name()),
+                        binding == null ? null : binding.getConnector(),
+                        readersOf(schema.name()).size());
+    }
+
+    private java.util.List<String> readersOf(String stream) {
+        RegistryAccess access = registry;
+        return access == null
+                ? java.util.List.of()
+                : access.registry()
+                        .map(found ->
+                                found.usersOf(com.ash.messaging.pravaha.registry.QueryRegistry.Use.STREAM, stream))
+                        .orElse(java.util.List.of());
     }
 
     /**
@@ -94,9 +135,10 @@ public class StreamController {
     @GetMapping
     @Operation(summary = "List registered streams")
     public List<ApiDtos.StreamSummary> list(jakarta.servlet.http.HttpServletRequest request) {
+        java.util.Set<String> stopped = folders.stoppedStreams(sources);
         return catalog.all().stream()
                 .filter(schema -> authorizer.mayRead(request, schema.name()))
-                .map(this::summaryOf)
+                .map(schema -> summaryOf(schema, stopped))
                 .toList();
     }
 
@@ -107,7 +149,103 @@ public class StreamController {
         // same as one for a stream that does not. Checking existence first would answer "does
         // payroll exist" for anyone who can reach this endpoint.
         authorizer.requireRead(request, name);
-        return summaryOf(catalog.require(name));
+        return summaryOf(catalog.require(name), folders.stoppedStreams(sources));
+    }
+
+    /**
+     * Declares a stream by writing {@code config/streams/<name>.yaml} and applying it at once.
+     *
+     * <p>{@code dryRun=true} writes nothing and answers what would happen: the file's text, whether it is
+     * accepted and why not, and what uses the stream.
+     */
+    @PostMapping("/{name}")
+    @Operation(
+            summary = "Declare a stream by writing its file (config/streams/<name>.yaml); dryRun=true writes nothing")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "What was written -- or, on a dry run, what would be")
+    public ResponseEntity<ApiDtos.DeclarationChange> create(
+            @PathVariable String name,
+            @RequestBody ApiDtos.StreamFileRequest request,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            jakarta.servlet.http.HttpServletRequest http) {
+        return endpoints().writeStream(http, name, DeclarationWrites.Action.CREATE, request, dryRun);
+    }
+
+    /** Replaces a stream's file. Refused, writing nothing, while a query reads it -- unless only {@code enabled} changes. */
+    @PutMapping("/{name}")
+    @Operation(
+            summary = "Replace a stream's file; refused while a query reads it (PRV-1065); dryRun=true writes nothing")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "What was written, or would be on a dry run")
+    public ResponseEntity<ApiDtos.DeclarationChange> update(
+            @PathVariable String name,
+            @RequestBody ApiDtos.StreamFileRequest request,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            jakarta.servlet.http.HttpServletRequest http) {
+        return endpoints().writeStream(http, name, DeclarationWrites.Action.UPDATE, request, dryRun);
+    }
+
+    /** Removes a stream's file and the stream. Refused, writing nothing, while a query reads it. */
+    @DeleteMapping("/{name}")
+    @Operation(
+            summary =
+                    "Remove a stream's file and the stream; refused while a query reads it; dryRun=true lists its readers")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "What was written, or would be on a dry run")
+    public ResponseEntity<ApiDtos.DeclarationChange> delete(
+            @PathVariable String name,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            jakarta.servlet.http.HttpServletRequest http) {
+        return endpoints().delete(http, DeclarationKind.STREAM, name, dryRun);
+    }
+
+    /** Switches a stream's source back on: its readers resume where they stood. */
+    @PostMapping("/{name}/enable")
+    @Operation(summary = "Enable a stream: its source is read again (writes enabled: in its file)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "What was written, or would be on a dry run")
+    public ResponseEntity<ApiDtos.DeclarationChange> enable(
+            @PathVariable String name,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            jakarta.servlet.http.HttpServletRequest http) {
+        return endpoints().enable(http, DeclarationKind.STREAM, name, true, dryRun);
+    }
+
+    /**
+     * Switches a stream's source off: the stream stays declared, queries over it keep running and receive
+     * nothing. Never refused for being in use -- that is what it is for.
+     */
+    @PostMapping("/{name}/disable")
+    @Operation(summary = "Disable a stream: declared, its source read from nothing, its queries kept running")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "What was written, or would be on a dry run")
+    public ResponseEntity<ApiDtos.DeclarationChange> disable(
+            @PathVariable String name,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            jakarta.servlet.http.HttpServletRequest http) {
+        return endpoints().enable(http, DeclarationKind.STREAM, name, false, dryRun);
+    }
+
+    /** The stream's file as written, for an editor, with the queries that read it. */
+    @GetMapping("/{name}/file")
+    @Operation(summary = "A stream's declaration file as written, for an editor")
+    public ApiDtos.DeclarationText file(@PathVariable String name, jakarta.servlet.http.HttpServletRequest http) {
+        return endpoints().text(http, DeclarationKind.STREAM, name, readersOf(name));
+    }
+
+    private DeclarationEndpoints endpoints() {
+        DeclarationEndpoints wired = endpoints;
+        if (wired == null) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.common.config.ConfigErrors.FOLDER_NOT_WRITABLE,
+                    "this node writes no declaration files");
+        }
+        return wired;
     }
 
     /**
@@ -145,7 +283,7 @@ public class StreamController {
                 request.eventTime(),
                 durationOf("outOfOrderness", request.outOfOrderness()),
                 durationOf("allowedLateness", request.allowedLateness()));
-        return ResponseEntity.status(HttpStatus.CREATED).body(summaryOf(catalog.register(schema)));
+        return ResponseEntity.status(HttpStatus.CREATED).body(summaryOf(catalog.register(schema), java.util.Set.of()));
     }
 
     private static java.time.@Nullable Duration durationOf(String setting, @Nullable String text) {

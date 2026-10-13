@@ -153,6 +153,20 @@ public class ApiExceptionHandler {
         if (ai != null) {
             return ai;
         }
+        // ADR-064's writes: the body is fine and what is on the node says no -- a query uses the object,
+        // a file already declares the name, configuration declares it, the node has no folders -- so 409;
+        // a name no file declares is 404.
+        switch (code.code()) {
+            case "PRV-1062", "PRV-1065", "PRV-1069", "PRV-1071", "PRV-1072" -> {
+                return HttpStatus.CONFLICT;
+            }
+            case "PRV-1070" -> {
+                return HttpStatus.NOT_FOUND;
+            }
+            default -> {
+                // the category decides, below
+            }
+        }
         HttpStatus identity = identityStatus(code.code());
         if (identity != null) {
             return identity;

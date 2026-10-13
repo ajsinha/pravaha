@@ -119,6 +119,10 @@ final class PumpingFeed implements SourceFeed {
     private final AtomicLong rowsFed = new AtomicLong();
 
     private volatile boolean paused;
+
+    /** Streams whose source is switched off (a disabled stream or connection, ADR-064): their pumps are skipped. */
+    private volatile java.util.function.Predicate<String> stopped = stream -> false;
+
     private long lastPublishedNanos;
     private volatile boolean closed;
     private volatile @Nullable PravahaException failure;
@@ -191,6 +195,12 @@ final class PumpingFeed implements SourceFeed {
         thread.start();
     }
 
+    /** Skips the pumps of streams {@code stopped} names while it names them (ADR-064). Called before {@link #start()}. */
+    PumpingFeed stoppingWhen(java.util.function.Predicate<String> stopped) {
+        this.stopped = stopped;
+        return this;
+    }
+
     /** Watches these streams for partitions added while the query runs. Called before {@link #start()}. */
     PumpingFeed growing(List<PartitionGrowth> watched) {
         this.growth = List.copyOf(watched);
@@ -231,7 +241,11 @@ final class PumpingFeed implements SourceFeed {
             }
             int moved = 0;
             try {
+                java.util.function.Predicate<String> off = stopped;
                 for (int index = 0; index < pumps.size(); index++) {
+                    if (off.test(inputs.get(index).stream())) {
+                        continue; // a disabled stream: declared, and read from nothing until enabled
+                    }
                     polling = index;
                     moved += pumps.get(index).pumpOnce(BATCH);
                 }

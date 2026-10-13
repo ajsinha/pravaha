@@ -81,6 +81,13 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     private volatile java.nio.file.@Nullable Path deadLetterDirectory;
 
     /**
+     * Streams whose source is switched off: a stream file with {@code enabled: false}, or one whose source
+     * names a disabled connection (ADR-064). Still bound, so a query registered meanwhile reads it once it is
+     * enabled; every feed reading one -- running or not yet -- skips it until then.
+     */
+    private volatile java.util.Set<String> stopped = java.util.Set.of();
+
+    /**
      * The live dead-letter queue and rejection rate of each query that has one (B5).
      *
      * <p>So that a gauge scraped every fifteen seconds can answer from counters the writer already
@@ -251,6 +258,24 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         discover(binding);
         bindings.put(binding.streamName(), binding);
         return this;
+    }
+
+    /**
+     * Switches the sources of exactly these streams off, and every other back on (ADR-064). Takes effect for
+     * running queries at their next poll: a stopped stream's rows stop arriving, the queries keep running,
+     * and enabling it again resumes them from where their readers stood.
+     */
+    public void stopReading(java.util.Set<String> streams) {
+        stopped = java.util.Set.copyOf(streams);
+    }
+
+    /** The streams whose source is switched off. */
+    public java.util.Set<String> stoppedStreams() {
+        return stopped;
+    }
+
+    private boolean isStopped(String stream) {
+        return stopped.contains(stream);
     }
 
     /** Binds nothing to {@code stream} from now on: its configuration file was removed (ADR-064). */
@@ -520,7 +545,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             // Nothing shared: exactly the feed this returned before SRC-3, including the thread.
             PumpingFeed feed = new PumpingFeed(queryName, pumps, inputs, resources, description, publish)
                     .redacting(boundTo(bound))
-                    .growing(growth);
+                    .growing(growth)
+                    .stoppingWhen(this::isStopped);
             feed.start();
             return feed;
         }
@@ -530,7 +556,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 ? null
                 : new PumpingFeed(queryName, pumps, inputs, resources, description, publish)
                         .redacting(boundTo(bound))
-                        .growing(growth);
+                        .growing(growth)
+                        .stoppingWhen(this::isStopped);
         List<AutoCloseable> owned = new ArrayList<>(sharedResources);
         List<SharedSourceGroup> held = List.copyOf(joined);
         SharedFeed feed =
@@ -673,7 +700,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                             + says.get(stream)));
             return describe(partitionCounts, pushed);
         };
-        PumpingFeed feed = new PumpingFeed(queryName, pumps, inputs, resources, description, publish).growing(growth);
+        PumpingFeed feed = new PumpingFeed(queryName, pumps, inputs, resources, description, publish)
+                .growing(growth)
+                .stoppingWhen(this::isStopped);
         feed.start();
         return feed;
     }
@@ -863,7 +892,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     return null;
                 }
                 openConfigured(plugin, binding);
-                group = new SharedSourceGroup(key, plugin, plugin.partitions(stream), policy);
+                group = new SharedSourceGroup(key, plugin, plugin.partitions(stream), policy, this::isStopped);
                 groups.put(key, group);
             }
             group.retain();

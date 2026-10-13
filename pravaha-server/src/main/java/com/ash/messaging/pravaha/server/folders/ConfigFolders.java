@@ -287,6 +287,47 @@ public class ConfigFolders implements AutoCloseable {
         return kind == DeclarationKind.STREAM && !names(kind).contains(name) ? "api" : "config";
     }
 
+    /** The files in force of one kind: the watcher's once it runs, what start read before. */
+    public Map<String, DeclarationFile> files(DeclarationKind kind) {
+        DeclarationWatcher live = watcher;
+        return live != null ? live.files(kind) : map(loaded, kind);
+    }
+
+    /** Resolves {@code ${ENV}} in a file being read: what the watcher and a write read files with. */
+    public PlaceholdersResolver placeholders() {
+        return placeholders;
+    }
+
+    /**
+     * The streams whose source is switched off: a stream file with {@code enabled: false}, and every stream
+     * whose source names a connection whose file says {@code enabled: false} (ADR-064). The node keeps them
+     * declared and bound, and reads nothing from them until they are enabled.
+     */
+    public Set<String> stoppedStreams(SourceBindingProperties sources) {
+        Set<String> stopped = new java.util.TreeSet<>();
+        files(DeclarationKind.STREAM).forEach((name, file) -> {
+            if (!file.enabled()) {
+                stopped.add(name);
+            }
+        });
+        Set<String> offConnections = new java.util.HashSet<>();
+        files(DeclarationKind.CONNECTOR).forEach((name, file) -> {
+            if (!file.enabled()) {
+                offConnections.add(name);
+            }
+        });
+        if (!offConnections.isEmpty()) {
+            synchronized (sources.getSources()) {
+                sources.getSources().forEach((stream, spec) -> {
+                    if (spec.getConnector() != null && offConnections.contains(spec.getConnector())) {
+                        stopped.add(stream);
+                    }
+                });
+            }
+        }
+        return stopped;
+    }
+
     /** Every file not applied as written; empty before the node starts watching. */
     public List<DeclarationWatcher.Problem> problems() {
         DeclarationWatcher live = watcher;

@@ -440,11 +440,85 @@
       }
     },
     "/api/v1/connectors/{name}" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
         "responseBodies" : {
           "200" : "Connector",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "requestBody" : "BindingFileRequest",
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
+      "put" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "requestBody" : "BindingFileRequest",
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/connectors/{name}/disable" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/connectors/{name}/enable" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/connectors/{name}/file" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "DeclarationText",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/connectors/{name}/test" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name" ],
+        "requestBody" : "ConnectionTestRequest",
+        "responseBodies" : {
+          "200" : "ConnectionTest",
           "default" : "ApiError"
         },
         "responses" : [ "200", "default" ]
@@ -543,6 +617,48 @@
         "parameters" : [ ],
         "responseBodies" : {
           "200" : "Declarations",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/declarations/{kind}/{name}" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:kind", "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "path:kind", "path:name", "query:dryRun" ],
+        "requestBody" : "BindingFileRequest",
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
+      "put" : {
+        "hasBody" : true,
+        "parameters" : [ "path:kind", "path:name", "query:dryRun" ],
+        "requestBody" : "BindingFileRequest",
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/declarations/{kind}/{name}/file" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:kind", "path:name" ],
+        "responseBodies" : {
+          "200" : "DeclarationText",
           "default" : "ApiError"
         },
         "responses" : [ "200", "default" ]
@@ -962,11 +1078,73 @@
       }
     },
     "/api/v1/streams/{name}" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
         "responseBodies" : {
           "200" : "StreamSummary",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "requestBody" : "StreamFileRequest",
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      },
+      "put" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "requestBody" : "StreamFileRequest",
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/streams/{name}/disable" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/streams/{name}/enable" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "DeclarationChange",
+          "default" : "ApiError"
+        },
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/streams/{name}/file" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "DeclarationText",
           "default" : "ApiError"
         },
         "responses" : [ "200", "default" ]
@@ -1250,6 +1428,14 @@
       "object" : "optional string",
       "tag" : "optional string"
     },
+    "BindingFileRequest" : {
+      "connector" : "optional string",
+      "enabled" : "optional boolean",
+      "options" : "optional map",
+      "options{}" : "required string",
+      "plugin" : "optional string",
+      "yaml" : "optional string"
+    },
     "CatalogObjectDto" : {
       "createdAt" : "optional string/date-time",
       "createdBy" : "optional string",
@@ -1304,7 +1490,23 @@
       "usage.cost" : "optional number/double",
       "usage.promptTokens" : "optional integer/int32"
     },
+    "ConnectionTest" : {
+      "code" : "optional string",
+      "detail" : "optional string",
+      "latencyMillis" : "optional integer/int64",
+      "name" : "optional string",
+      "ok" : "optional boolean",
+      "plugin" : "optional string",
+      "role" : "optional string",
+      "state" : "optional string"
+    },
+    "ConnectionTestRequest" : {
+      "options" : "optional map",
+      "options{}" : "required string",
+      "timeoutSeconds" : "optional integer/int32"
+    },
     "Connector" : {
+      "enabled" : "optional boolean",
       "name" : "optional string",
       "options" : "optional map",
       "options{}" : "required string",
@@ -1382,6 +1584,28 @@
       "results[].id" : "optional string",
       "results[].newId" : "optional string",
       "results[].outcome" : "optional string"
+    },
+    "DeclarationChange" : {
+      "action" : "optional string",
+      "applied" : "optional boolean",
+      "code" : "optional string",
+      "dependents[]" : "optional string",
+      "dryRun" : "optional boolean",
+      "kind" : "optional string",
+      "message" : "optional string",
+      "name" : "optional string",
+      "path" : "optional string",
+      "previous" : "optional string",
+      "valid" : "optional boolean",
+      "yaml" : "optional string"
+    },
+    "DeclarationText" : {
+      "dependents[]" : "optional string",
+      "enabled" : "optional boolean",
+      "kind" : "optional string",
+      "name" : "optional string",
+      "path" : "optional string",
+      "yaml" : "optional string"
     },
     "Declarations" : {
       "declarations[]" : "optional object",
@@ -2212,8 +2436,24 @@
       "viewSize" : "optional integer/int32",
       "watermarkNanos" : "optional integer/int64"
     },
+    "StreamFileRequest" : {
+      "allowedLateness" : "optional string",
+      "enabled" : "optional boolean",
+      "eventTime" : "optional string",
+      "outOfOrderness" : "optional string",
+      "schema" : "optional string",
+      "source" : "optional object",
+      "source.connector" : "optional string",
+      "source.options" : "optional map",
+      "source.options{}" : "required string",
+      "source.plugin" : "optional string",
+      "yaml" : "optional string"
+    },
     "StreamSummary" : {
       "allowedLateness" : "optional string",
+      "connector" : "optional string",
+      "dependents" : "optional integer/int32",
+      "enabled" : "optional boolean",
       "eventTime" : "optional string",
       "fieldCount" : "optional integer/int32",
       "fields[]" : "optional object",

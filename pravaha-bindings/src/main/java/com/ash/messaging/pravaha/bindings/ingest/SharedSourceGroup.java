@@ -64,6 +64,7 @@ final class SharedSourceGroup {
     private final List<SourcePartition> partitions;
     private final List<SharedPartitionFeed> feeds;
     private final @Nullable BackpressurePolicy policy;
+    private final java.util.function.Predicate<String> stopped;
 
     /** How each query joins a partition this group gains while it runs. Guarded by {@code this}. */
     private final List<Joiner> joiners = new ArrayList<>();
@@ -85,7 +86,18 @@ final class SharedSourceGroup {
 
     SharedSourceGroup(
             Key key, StreamSourcePlugin plugin, List<SourcePartition> partitions, @Nullable BackpressurePolicy policy) {
+        this(key, plugin, partitions, policy, stream -> false);
+    }
+
+    /** @param stopped whether a stream's source is switched off (ADR-064); its partitions read nothing then */
+    SharedSourceGroup(
+            Key key,
+            StreamSourcePlugin plugin,
+            List<SourcePartition> partitions,
+            @Nullable BackpressurePolicy policy,
+            java.util.function.Predicate<String> stopped) {
         this.key = key;
+        this.stopped = stopped;
         this.plugin = plugin;
         this.policy = policy;
         this.partitions = new java.util.concurrent.CopyOnWriteArrayList<>(partitions);
@@ -98,7 +110,8 @@ final class SharedSourceGroup {
 
     private SharedPartitionFeed feedFor(SourcePartition partition) {
         return new SharedPartitionFeed(
-                key.stream(), partition, plugin, key.binding(), policy, plugin.orderedPositions());
+                        key.stream(), partition, plugin, key.binding(), policy, plugin.orderedPositions())
+                .stoppingWhen(stopped);
     }
 
     /**
