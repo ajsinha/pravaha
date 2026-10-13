@@ -46,9 +46,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Every SQL statement in the hands-on tutorials ({@code docs/tutorials/}) is planned against the real
  * engine, as {@link HelpExamplesSqlTest} plans the help's.
  *
- * <p>Each tutorial's streams are the ones its own node declares -- {@code docs/tutorials/data/tNN/application.yaml},
- * or, for a tutorial whose node is a scaffold ({@code pravaha init} in tutorial 1), the {@code pravaha.streams}
- * the tutorial shows in a {@code yaml} block -- and its lookups take their columns from the {@code CREATE TABLE}
+ * <p>Each tutorial's streams are the ones its own node declares -- a file each in {@code
+ * docs/tutorials/data/tNN/streams/} and {@code lookups/}, named after it (ADR-064), and any inline in {@code
+ * data/tNN/application.yaml}; or, for a tutorial whose node is a scaffold ({@code pravaha init} in tutorial 1),
+ * the stream file the tutorial shows in a {@code yaml} block headed {@code # .../conf/streams/<name>.yaml} --
+ * and its lookups take their columns from the {@code CREATE TABLE}
  * of the tutorial's own {@code .sql} script. Then every {@code ```sql} block in the tutorial and every
  * {@code data/tNN/*.sql} file it registers from is planned through the planner and plan builder that
  * {@code POST /api/v1/queries/validate} uses. A block marked {@code <!-- sql: refused PRV-2020 -->} must be
@@ -62,6 +64,9 @@ class TutorialSqlTest {
             "(?:<!--\\s*sql:\\s*([a-z-]+)(?:\\s+(PRV-\\d{4}))?\\s*-->\\s*\\n)?```sql[^\\n]*\\n(.*?)\\n```",
             Pattern.DOTALL);
     private static final Pattern YAML_BLOCK = Pattern.compile("```yaml[^\\n]*\\n(.*?)\\n```", Pattern.DOTALL);
+    /** A {@code yaml} block that is a stream's file: its first line names it, {@code # .../conf/streams/<name>.yaml}. */
+    private static final Pattern STREAM_FILE = Pattern.compile("#\\s*\\S*conf/streams/(\\w+)\\.yaml");
+
     private static final Pattern CREATE_TABLE =
             Pattern.compile("CREATE TABLE\\s+(\\w+)\\s*\\((.*?)\\);", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
@@ -160,10 +165,19 @@ class TutorialSqlTest {
         Path config = data.resolve("application.yaml");
         if (Files.exists(config)) {
             sources.add(Files.readString(config, StandardCharsets.UTF_8));
-        } else {
+        }
+        // The declaration folders: a file per stream or lookup, its name the file's (ADR-064).
+        streams.putAll(declared(data.resolve("streams")));
+        lookups.putAll(declared(data.resolve("lookups")));
+        if (sources.isEmpty() && streams.isEmpty()) {
             Matcher yaml = YAML_BLOCK.matcher(text);
             while (yaml.find()) {
-                sources.add(yaml.group(1));
+                Matcher file = STREAM_FILE.matcher(yaml.group(1));
+                if (file.lookingAt()) {
+                    streams.put(file.group(1), new Yaml().load(yaml.group(1)));
+                } else {
+                    sources.add(yaml.group(1));
+                }
             }
         }
         for (String source : sources) {
@@ -202,6 +216,24 @@ class TutorialSqlTest {
             schema.registerLookup(tableOf(data, table));
         }
         return schema;
+    }
+
+    /** Each {@code <name>.yaml} in a declaration folder, by name; none when the folder is not there. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> declared(Path folder) throws IOException {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (!Files.isDirectory(folder)) {
+            return out;
+        }
+        try (Stream<Path> files = Files.list(folder)) {
+            for (Path file :
+                    files.filter(p -> p.toString().endsWith(".yaml")).sorted().toList()) {
+                String name = file.getFileName().toString();
+                out.put(name.substring(0, name.length() - ".yaml".length()), (Map<String, Object>)
+                        new Yaml().load(Files.readString(file, StandardCharsets.UTF_8)));
+            }
+        }
+        return out;
     }
 
     /** A lookup table's columns, from the CREATE TABLE in the tutorial's own database script. */
