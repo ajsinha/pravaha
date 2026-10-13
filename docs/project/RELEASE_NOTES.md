@@ -200,6 +200,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   stack) refuses. Both now give the CA `basicConstraints=CA:TRUE` and `keyUsage=keyCertSign,cRLSign`,
   and the server certificate its keyUsage, `serverAuth` and authority key identifier, as the
   tutorials' `make-certs.sh` does; the recipe passes `openssl verify -x509_strict`.
+- **CONSOLETLS-1: the console takes a private CA for a TLS engine.** `engine.tls.ca`
+  (`PRAVAHA_ENGINE_CA`): a PEM CA file the console's engine client checks a `grpc+tls://` engine's
+  certificate against, and that the SDK uses for an `https://` `engine.http_url` too. It used to work
+  only through `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`. Set beside a plaintext `grpc://` URL the console
+  refuses to start, naming both settings. In the console README, the getting-started settings table and
+  RUNNING_IN_DOCKER.md.
 
 ---
 
