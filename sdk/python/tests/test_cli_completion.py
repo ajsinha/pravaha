@@ -56,7 +56,8 @@ def test_the_tree_is_the_parsers_own(home):
     commands = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
     tree = walk(parser)
     assert set(tree[()]["subs"]) == set(commands.choices)
-    assert {"list", "describe", "declare"} == set(tree[("streams",)]["subs"])
+    assert {"list", "describe", "declare", "create", "edit", "delete", "enable", "disable"} == set(
+        tree[("streams",)]["subs"])
     assert tree[("subscribe",)]["values"]["--overflow"] == ["CONFLATE", "DROP_OLDEST", "FAIL"]
 
 
@@ -70,7 +71,7 @@ def test_bash_script_is_valid_bash_and_completes(home, tmp_path):
              'echo "${COMPREPLY[*]}"; COMP_WORDS=(pravaha replace --backfill ""); COMP_CWORD=3; '
              '_pravaha_complete; echo "${COMPREPLY[*]}"')
     done = subprocess.run(["bash", "-c", probe], capture_output=True, text=True)
-    assert done.stdout.splitlines() == ["describe declare", "history none"], done.stderr
+    assert done.stdout.splitlines() == ["describe declare delete", "history none"], done.stderr
 
 
 @pytest.mark.parametrize("shell", ["zsh", "fish"])

@@ -960,7 +960,7 @@ is waiting out `clear_after`; `owed` shows what the channels have not been told 
 `dedupe`, or not delivered (`delivery`). **An alert that said something twice** is at-least-once
 delivery doing its job after a retry or a restart: both carry the same `Idempotency-Key`.
 
-## A configuration file, or a data folder, refused (`PRV-1060` … `PRV-1069`)
+## A configuration file, or a data folder, refused (`PRV-1060` … `PRV-1074`)
 
 A stream, lookup, sink or named connection can be declared by a file of its own in the configuration
 folders -- `config/streams/<name>.yaml` and its siblings, `$PRAVAHA_HOME/conf/...` under a home
@@ -984,6 +984,11 @@ health detail `firstConfigFileNotApplied`). Nothing in a file can take a running
 | `PRV-1068` | A binding names both a plugin and a connection whose plugin is a different one | Leave `plugin:` out -- the plugin comes from the connection -- or name a connection for that plugin |
 | `PRV-1069` | **The node would read its configuration from the command line's folder.** The environment variable `PRAVAHA_CONFIG_DIR` is set -- the name the command line used for its token and contexts in 2.4.2 and earlier -- and Spring reads it as `pravaha.config.dir`, with nothing else setting that. Left alone, the node would look for `streams/`, `lookups/`, `sinks/`, `connectors/` and `ai/` there and declare nothing | Unset it in the shell that starts the server; the command line now reads `PRAVAHA_CLI_DIR`. If that folder really is the node's configuration, set `pravaha.config.dir` explicitly (`--pravaha.config.dir=...` or in the YAML) |
 | `PRV-5091` … `PRV-5001 plugin '…' requires 'schema'` at the first registration, on a stream file whose `source:` has no `schema` option | Fixed (STREAMFILESCHEMA-1): a stream's source is given the stream's `schema` when it sets none, as it is given `event-time`. A node from before the fix needs the schema repeated under `source.options` | Upgrade; then write the schema once, at the top of the file |
+| `PRV-1070` | A create (`POST /api/v1/streams/{name}`, `/connectors/{name}`, `/declarations/{lookups\|sinks}/{name}`, the console's *New*, `pravaha streams create`) for a name a file already declares. **409**; nothing written | Edit it instead (`PUT`, `pravaha streams edit`), or choose another name |
+| `PRV-1071` | An edit, delete, enable or disable of a name no declaration file declares. **404** | Check the name (`pravaha declarations`); create it first |
+| `PRV-1072` | A write to an object declared inline in `application.yaml` or by `POST /api/v1/streams`, which no file holds. **409**; nothing written | Move it into `config/<kind>/<name>.yaml` (and out of `application.yaml`) to manage it from the console, the API or the CLI |
+| `PRV-1073` | A write on a node with no configuration folders (an embedded or builder-made node), or to a folder the node's user cannot write -- a read-only mount. **409**; nothing written | Give the folder to the user the node runs as, or change the file by hand where it is mounted |
+| `PRV-1074` | A connection test (`POST /api/v1/connectors/{name}/test`, `pravaha connectors test`) failed: the plugin refused the options, would not open, reported `UNHEALTHY`, or did not answer in time (`TIMED_OUT`). In the answer's `code`, not an HTTP error; the detail never carries a secret's value | Read the detail; add an option the plugin needs for the test (a topic, a table) with `--option`; check the `${ENV}` variables are set where the node runs |
 
 ## `PRV-1052` — an HTTP request that reached no endpoint
 
@@ -1053,6 +1058,11 @@ client models the error rather than an empty object.
 | `PRV-1067` | CONFIG_CONNECTOR_UNKNOWN | config |
 | `PRV-1068` | CONFIG_CONNECTOR_PLUGIN_CLASH | config |
 | `PRV-1069` | CONFIG_DIR_FROM_CLI_VARIABLE | config |
+| `PRV-1070` | CONFIG_DECLARATION_EXISTS | config |
+| `PRV-1071` | CONFIG_DECLARATION_UNKNOWN | config |
+| `PRV-1072` | CONFIG_DECLARATION_NOT_A_FILE | config |
+| `PRV-1073` | CONFIG_FOLDER_NOT_WRITABLE | config |
+| `PRV-1074` | CONFIG_CONNECTION_TEST_FAILED | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
 | `PRV-1032` | CLIENT_INVALID_TLS_OPTIONS | client (SDK) |

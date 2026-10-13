@@ -240,6 +240,38 @@ PRV-2002  Object 'payments' not found ...
 The message deliberately does not list the streams that do exist — that would tell a caller who
 may not read them that they are there. `GET /api/v1/streams` lists what you may see.
 
+## Managing streams from the console {#managing-streams-from-the-console}
+
+**Catalog → New stream** (and **Edit** on a stream declared by a file) is a form over exactly the
+file above: a schema built a column at a time — a name, a type from the list (`DECIMAL(p,s)` typed
+in), and *nullable* — the event-time column, out-of-orderness and allowed lateness, and a source: a
+plugin and its options, or a [named connection](/help/topics/connections) and the options laid over
+it. **The file is the single source of truth**: Save writes `config/streams/<name>.yaml` — the file a
+person would write — into the node's streams folder, and the node applies it at once, not at its next
+look.
+
+- **Validate** is a dry run. The engine reads the file it would write, checks it as it checks every
+  declaration file, and answers whether it accepts it, what uses the stream, and the **exact file** —
+  shown under *Preview YAML*. Nothing is written.
+- **A change to a stream a query reads is refused** (`PRV-1065`), and nothing is written: the page
+  names the queries. Drop them first — or disable the stream instead.
+- **Disable** writes `enabled: false` into the file. The stream stays declared and bound; its source
+  is read from nothing, and the queries over it **keep running and receive nothing** until it is
+  enabled again, when they resume from where their readers stood. Disabling is never refused for being
+  in use — it is what you do to a stream a query reads.
+- **Delete** shows the dry run first — what reads the stream — and is refused while anything does.
+- **A secret option** (a key naming a password, secret, token or API key) is written as
+  `${ENV_NAME}` and the variable set where the node runs; a literal value is refused (`PRV-1063`),
+  as it is in a file written by hand.
+- **Edit the file directly** (on Edit) changes the YAML itself and keeps its comments; the form
+  rewrites the file from its fields.
+
+Changing a stream needs the `admin` role or a grant to administer it; the buttons are not offered to
+somebody the engine would refuse, and the engine checks again regardless. Every write is audited as
+`config.stream.<action>` with who made it. The same writes are `pravaha streams create|edit|delete|enable|disable`
+and `POST|PUT|DELETE /api/v1/streams/{name}` (each with `dryRun=true`). `POST /api/v1/streams` (no
+name in the path) still declares a stream on the running node only, with no file and no source.
+
 ## Pitfalls
 
 !!! warning "A windowed query that is RUNNING and empty"

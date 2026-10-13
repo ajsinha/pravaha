@@ -1720,6 +1720,25 @@ slip between "is it used?" and the change. What is not applied is visible in fou
 health detail `configFilesNotApplied` / `firstConfigFileNotApplied` (detail only: the node stays `UP`,
 because what is running is what was running).
 
+**Writes from the console, the API and the CLI.** `POST`/`PUT`/`DELETE /api/v1/streams/{name}` and
+`/api/v1/connectors/{name}`, their `/enable` and `/disable`, and `/api/v1/declarations/{lookups|sinks}/{name}`
+write the same files, atomically (a hidden temporary file in the folder, forced to disk, renamed), and
+apply them at once through the path a look takes; a refused write writes nothing. The node's user
+therefore needs **write access to the declaration folders** for these to work; a read-only mount answers
+`PRV-1073` and the files can still be changed by hand. A stream or connection file may say
+`enabled: false`: the stream stays declared and bound and its source is read from nothing (its queries
+keep running and receive nothing); a disabled connection stops the stream sources that name it. The
+audit events:
+
+| Event | When | Principal |
+|---|---|---|
+| `config.<kind>.create`, `.update`, `.delete`, `.enable`, `.disable` | a write through the API, the console or the CLI -- allowed, or refused with its code (`PRV-1065` in use, `PRV-1063` literal secret, …) | who asked |
+| `config.connector.test` | a connection tested; the outcome (`HEALTHY`, `FAILED`, `TIMED_OUT`, …) is the reason | who asked |
+| `config.<kind>.declared`, `.replaced`, `.removed`, `.enabled`, `.disabled`, `.refused` | the node applying a file, whoever wrote it | the node's own folders principal |
+
+`<kind>` is `stream`, `connector`, `lookup` or `sink`. A write through the API records both: who asked
+for it, and the node applying it. Each write also records the usual `http.administer` decision.
+
 ### Where a failure's help link points
 
 Every refusal carries a `PRV-nnnn` code, and where that code is written up is the deployment's to

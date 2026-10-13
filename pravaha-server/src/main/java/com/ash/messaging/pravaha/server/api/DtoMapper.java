@@ -57,6 +57,9 @@ public class DtoMapper {
                 sourcePlugin,
                 eventTime.isPresent() ? schema.allowedLateness().toString() : null,
                 null,
+                null,
+                null,
+                null,
                 null);
     }
 

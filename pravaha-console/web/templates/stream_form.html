@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{#- Pravaha console -- New stream / Edit stream (ADR-064). Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+    All rights reserved. The fields of config/streams/<name>.yaml: a schema built a column at a time, the event
+    time and its lateness, and where the rows come from. Validate is the engine's dry run (the exact file, and
+    what uses the stream); Save writes the file, and the engine applies it at once. -#}
+{% from "_helpcards.html" import helplink %}
+{% import "_people.html" as people %}
+{% import "_declare.html" as declare %}
+{% block title %}{{ t('decl.stream.title_edit', name=form.name) if mode == 'edit' else t('decl.stream.title_new') }} — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="{{ '/catalog/streams/' ~ form.name|urlencode if mode == 'edit' else '/catalog' }}">&larr; {{ t('decl.stream.back') }}</a></p>
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('decl.stream.kicker') }}</p>
+    <h1>{% if mode == 'edit' %}{{ t('decl.stream.heading_edit') }} <span class="mono">{{ form.name }}</span>{% else %}{{ t('decl.stream.heading_new') }}{% endif %}{{ helplink('stream-form') }}</h1>
+  </div>
+  {% if mode == 'edit' and allowed %}
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="/catalog/streams/{{ form.name|urlencode }}/{{ 'disable' if form.enabled else 'enable' }}">{{ t('decl.stream.disable') if form.enabled else t('decl.stream.enable') }}</a>
+    <a class="btn btn-sm btn-outline-danger" href="/catalog/streams/{{ form.name|urlencode }}/delete">{{ t('decl.stream.delete') }}</a>
+  </div>
+  {% endif %}
+</div>
+<div class="rule"></div>
+{{ people.flashes(flashes) }}
+<p class="lede">{{ t('decl.stream.lede') }}</p>
+{{ declare.holders(dependents, 'streams') }}
+{{ declare.outcome_panel(outcome) }}
+{{ declare.not_allowed(allowed) }}
+
+<form method="post" id="stream-form" class="decl-form" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="columns" value="{{ form.columns|length }}">
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <section class="pnl mb-3" aria-labelledby="sf-name-h"><div class="pnl-h"><h2 class="h6 m-0" id="sf-name-h">{{ t('decl.stream.name') }}</h2></div><div class="pnl-b">
+        <label class="form-label small" for="sf-name">{{ t('decl.stream.name_label') }}</label>
+        <input class="form-control mono" id="sf-name" name="name" value="{{ form.name }}" {% if mode == 'edit' %}readonly{% endif %}
+               pattern="[A-Za-z0-9_-]{1,128}" required autocomplete="off" aria-describedby="sf-name-help">
+        <div class="form-text" id="sf-name-help">{{ t('decl.stream.name_help') }}</div>
+      </div></section>
+
+      <section class="pnl mb-3" aria-labelledby="sf-schema-h"><div class="pnl-h"><h2 class="h6 m-0" id="sf-schema-h">{{ t('decl.stream.schema') }}</h2></div><div class="pnl-b">
+        <div class="table-responsive"><table class="table table-sm mb-2" id="schema-builder">
+          <caption class="visually-hidden">{{ t('decl.stream.schema') }}</caption>
+          <thead><tr><th scope="col">{{ t('decl.stream.column') }}</th><th scope="col">{{ t('decl.stream.type') }}</th><th scope="col">{{ t('decl.stream.nullable') }}</th><th scope="col"><span class="visually-hidden">{{ t('decl.options.remove') }}</span></th></tr></thead>
+          <tbody>{% for c in form.columns %}
+          <tr data-column="{{ loop.index0 }}">
+            <td><input class="form-control form-control-sm mono" name="col-{{ loop.index0 }}-name" value="{{ c.name }}" aria-label="{{ t('decl.stream.column') }} {{ loop.index }}" autocomplete="off"></td>
+            <td><input class="form-control form-control-sm mono" name="col-{{ loop.index0 }}-type" value="{{ c.type }}" list="decl-types" aria-label="{{ t('decl.stream.type') }} {{ loop.index }}" autocomplete="off"></td>
+            <td><label class="decl-check"><input class="form-check-input" type="checkbox" name="col-{{ loop.index0 }}-nullable" value="1" {% if c.nullable %}checked{% endif %} aria-label="{{ t('decl.stream.nullable') }} {{ loop.index }}"></label></td>
+            <td><button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="remove_column-{{ loop.index0 }}">{{ t('decl.options.remove') }}</button></td></tr>
+          {% endfor %}</tbody></table></div>
+        <datalist id="decl-types">{% for ty in types %}<option value="{{ ty }}"></option>{% endfor %}</datalist>
+        <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="add_column">{{ t('decl.stream.add_column') }}</button>
+        <p class="small text-muted mt-2 mb-0">{{ t('decl.stream.types_help') }}</p>
+      </div></section>
+
+      <section class="pnl mb-3" aria-labelledby="sf-time-h"><div class="pnl-h"><h2 class="h6 m-0" id="sf-time-h">{{ t('decl.stream.time') }}</h2></div><div class="pnl-b">
+        <div class="row g-2">
+          <div class="col-md-4"><label class="form-label small" for="sf-event-time">{{ t('decl.stream.event_time') }}</label>
+            <select class="form-select form-select-sm mono" id="sf-event-time" name="event_time" aria-describedby="sf-event-time-help">
+              <option value="">{{ t('decl.stream.no_event_time') }}</option>
+              {% for c in form.columns if c.name %}<option value="{{ c.name }}" {% if c.name == form.event_time %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+              {% if form.event_time and form.event_time not in form.columns|map(attribute='name') %}<option value="{{ form.event_time }}" selected>{{ form.event_time }}</option>{% endif %}
+            </select></div>
+          <div class="col-md-4"><label class="form-label small" for="sf-ooo">{{ t('decl.stream.out_of_orderness') }}</label>
+            <input class="form-control form-control-sm mono" id="sf-ooo" name="out_of_orderness" value="{{ form.out_of_orderness }}" placeholder="10s" aria-describedby="sf-ooo-help" autocomplete="off"></div>
+          <div class="col-md-4"><label class="form-label small" for="sf-late">{{ t('decl.stream.allowed_lateness') }}</label>
+            <input class="form-control form-control-sm mono" id="sf-late" name="allowed_lateness" value="{{ form.allowed_lateness }}" placeholder="0s" aria-describedby="sf-late-help" autocomplete="off"></div>
+        </div>
+        <ul class="small text-muted mt-2 mb-0">
+          <li id="sf-event-time-help">{{ t('decl.stream.event_time_help') }}</li>
+          <li id="sf-ooo-help">{{ t('decl.stream.out_of_orderness_help') }}</li>
+          <li id="sf-late-help">{{ t('decl.stream.allowed_lateness_help') }}</li>
+        </ul>
+      </div></section>
+    </div>
+
+    <div class="col-lg-5">
+      <section class="pnl mb-3" aria-labelledby="sf-source-h"><div class="pnl-h"><h2 class="h6 m-0" id="sf-source-h">{{ t('decl.stream.source') }}</h2></div><div class="pnl-b">
+        <fieldset class="mb-2"><legend class="visually-hidden">{{ t('decl.stream.source') }}</legend>
+          {% for value, label in (('none', t('decl.stream.source_none')), ('plugin', t('decl.stream.source_plugin')), ('connector', t('decl.stream.source_connector'))) %}
+          <div class="form-check"><input class="form-check-input" type="radio" name="source" id="sf-source-{{ value }}" value="{{ value }}" {% if form.source == value %}checked{% endif %}>
+            <label class="form-check-label small" for="sf-source-{{ value }}">{{ label }}</label></div>{% endfor %}
+        </fieldset>
+        <div class="row g-2 mb-2">
+          <div class="col-sm-6"><label class="form-label small" for="sf-plugin">{{ t('decl.stream.plugin') }}</label>
+            <select class="form-select form-select-sm mono" id="sf-plugin" name="plugin">
+              <option value="">—</option>
+              {% for p in plugins %}<option value="{{ p.name }}" {% if p.name == form.plugin %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+              {% if form.plugin and form.plugin not in plugins|map(attribute='name') %}<option value="{{ form.plugin }}" selected>{{ form.plugin }}</option>{% endif %}
+            </select></div>
+          <div class="col-sm-6"><label class="form-label small" for="sf-connector">{{ t('decl.stream.connector') }}</label>
+            <select class="form-select form-select-sm mono" id="sf-connector" name="connector">
+              <option value="">—</option>
+              {% for c in connections %}<option value="{{ c.name }}" {% if c.name == form.connector %}selected{% endif %}>{{ c.name }} ({{ c.plugin }})</option>{% endfor %}
+              {% if form.connector and form.connector not in connections|map(attribute='name') %}<option value="{{ form.connector }}" selected>{{ form.connector }}</option>{% endif %}
+            </select></div>
+        </div>
+        {% if plugins_error %}<p class="small text-warning">{{ t('decl.stream.plugins_unread') }}</p>{% endif %}
+        <h3 class="h6 mt-2">{{ t('decl.options.heading') }}</h3>
+        <p class="small text-muted">{{ t('decl.stream.options_help') }}</p>
+        {{ declare.option_rows(form.options, secret_keys) }}
+      </div></section>
+
+      <section class="pnl mb-3" aria-labelledby="sf-state-h"><div class="pnl-h"><h2 class="h6 m-0" id="sf-state-h">{{ t('decl.stream.state') }}</h2></div><div class="pnl-b">
+        <label class="form-label small" for="sf-enabled">{{ t('decl.stream.state_label') }}</label>
+        <select class="form-select form-select-sm" id="sf-enabled" name="enabled" aria-describedby="sf-enabled-help">
+          <option value="true" {% if form.enabled %}selected{% endif %}>{{ t('decl.stream.enabled') }}</option>
+          <option value="false" {% if not form.enabled %}selected{% endif %}>{{ t('decl.stream.disabled') }}</option>
+        </select>
+        <div class="form-text" id="sf-enabled-help">{{ t('decl.stream.state_help') }}</div>
+      </div></section>
+    </div>
+  </div>
+
+  {{ declare.preview(outcome) }}
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="validate" id="sf-validate" {% if not allowed %}disabled{% endif %}>{{ t('decl.validate') }}</button>
+    <button class="btn btn-sm btn-primary" type="submit" name="action" value="save" id="sf-save" {% if not allowed %}disabled{% endif %}>{{ t('decl.save') }}</button>
+  </div>
+</form>
+
+{% if mode == 'edit' %}
+<details class="pnl mb-3" id="stream-file">
+  <summary class="pnl-h"><span>{{ t('decl.file.heading') }}</span></summary>
+  <div class="pnl-b">
+    <p class="small text-muted">{{ t('decl.file.help') }}</p>
+    <form method="post" id="stream-file-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="form-label small visually-hidden" for="sf-yaml">{{ t('decl.file.heading') }}</label>
+      <textarea class="form-control mono small" id="sf-yaml" name="yaml" rows="12" spellcheck="false">{{ form.yaml_text }}</textarea>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="validate_yaml" {% if not allowed %}disabled{% endif %}>{{ t('decl.validate') }}</button>
+        <button class="btn btn-sm btn-primary" type="submit" name="action" value="save_yaml" {% if not allowed %}disabled{% endif %}>{{ t('decl.save_file') }}</button>
+      </div>
+    </form>
+  </div>
+</details>
+{% endif %}
+{% endblock %}

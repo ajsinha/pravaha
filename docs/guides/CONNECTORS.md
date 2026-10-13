@@ -107,6 +107,37 @@ the same cluster are two connections, `kafka-prod` and, say, `kafka-prod-out`.
   password, secret, token or key shown as `****`; `pravaha connectors list` and `show <name>` read it.
   Inline blocks may write `connector:` too.
 
+#### Managing connections from the console, the API or the CLI
+
+The console's **Catalog → Connectors** lists the plugins the node can load (name, version, kinds,
+health) and the named connections (origin, plugin, what uses each), and creates, edits, deletes,
+enables, disables and **tests** them. `POST`/`PUT`/`DELETE /api/v1/connectors/{name}`,
+`POST /api/v1/connectors/{name}/enable|disable` and `pravaha connectors create|edit|delete|enable|disable`
+do the same. Each writes `config/connectors/<name>.yaml` -- the file you would have written, atomically
+-- and the node applies it at once; each takes `?dryRun=true` (`--dry-run`), which writes nothing and
+shows the file, whether it is accepted and the bindings naming the connection.
+
+- **A secret is a reference.** A password, secret, token or API key option is written `${ENV_NAME}` and
+  the variable set where the node runs; a literal value is refused (`PRV-1063`) exactly as in a file
+  written by hand, and the console says so beside the field. The variable must be set on the node: a
+  reference that resolves to nothing is refused too.
+- **Options are a key/value list.** Plugins on the classpath declare no option metadata, so the console
+  offers key/value rows, prefilled with the setting names a registered plugin's manifest declares when
+  it has one; the plugin's section of this guide lists what it reads.
+- **Testing a connection** (`POST /api/v1/connectors/{name}/test`, `pravaha connectors test <name>`)
+  configures the connection's own plugin with its options -- plus any you add for the test, such as a
+  topic or a table -- opens it, asks its health and closes it, in bounded time (10 seconds unless asked,
+  at most 60). It answers the outcome (`HEALTHY`, `DEGRADED`, `UNHEALTHY`, `FAILED`, `TIMED_OUT`), the
+  time it took and the plugin's words with every secret option's value struck out -- never an option's
+  value. A failed test is `PRV-1074` in the answer. Testing needs what changing the connection needs
+  (the `admin` role, or a grant to administer it) and is audited (`config.connector.test`).
+- **Disabling a connection** (`enabled: false` in its file) **stops the stream sources that name it**,
+  as disabling each of those streams would: they stay declared, their queries keep running and receive
+  nothing, and enabling the connection resumes them. The lookups and sinks that name it keep running --
+  a dimension table already loaded and a sink with output owed are not stopped by it. Disabling is never
+  refused for being in use; changing or removing a connection a binding names is (`PRV-1065`, naming the
+  bindings), and writes nothing.
+
 ---
 
 ## 2. The contract, in full

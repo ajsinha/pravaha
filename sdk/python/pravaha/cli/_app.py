@@ -43,6 +43,7 @@ from pravaha.cli import (
     _catalog,
     _completion,
     _contexts,
+    _declare,
     _dryrun,
     _doctor,
     _examples,
@@ -424,11 +425,12 @@ def build_parser() -> _Parser:
     b.add("sinks", _http.sinks, "The sinks the node binds.")
     b.add("declarations", _http.declarations,
           "Where each stream, lookup and sink was declared, and files not applied.")
-    p = b.add("connectors", _http.connectors, "The named connections (secrets masked).")
+    p = b.add("connectors", _http.connectors, "The named connections (secrets masked): list, show, create, edit, delete, enable, disable, test.")
     add = b.verbs(p, _http.connectors)
     add("list", "Every named connection you may see, and what uses it.")
     v = add("show", "One named connection: plugin, file, options (secrets masked), users.")
     v.add_argument("connector_name", metavar="<connector>")
+    _declare.add_verbs(add, "connectors")
     p = b.add("doctor", _doctor.doctor,
               "Check this machine and the node: Python, pyarrow, Java, the token file, HTTP, "
               "Flight, TLS, who you are. Exit 1 on any RED.")
@@ -482,7 +484,7 @@ def build_parser() -> _Parser:
     v.add_argument("context_name", metavar="<name>")
     add("current", "The context in use, and what chose it.")
 
-    p = b.add("streams", _http.streams, "List, describe or declare streams.")
+    p = b.add("streams", _http.streams, "List, describe, declare, create, edit, delete, enable or disable streams.")
     add = b.verbs(p, _http.streams)
     add("list", "Every stream you may read.")
     v = add("describe", "One stream and its columns.")
@@ -492,6 +494,7 @@ def build_parser() -> _Parser:
     v.add_argument("--schema", help="name:TYPE,name:TYPE (suffix ? for nullable)")
     v.add_argument("--event-time", metavar="COLUMN")
     v.add_argument("--out-of-orderness", metavar="PT10S")
+    _declare.add_verbs(add, "streams")
 
     p = b.add("views", _http.views, "List views, or describe one.")
     add = b.verbs(p, _http.views)

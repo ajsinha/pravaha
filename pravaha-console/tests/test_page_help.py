@@ -49,6 +49,11 @@ SAMPLES = {
     "/queries/{name}/replacement": "/queries/big_txn/replacement",
     "/queries/{name}/debug": "/queries/big_txn/debug",
     "/alerts/{name}": "/alerts/low_stock_alert",
+    "/catalog/streams/{name}/edit": "/catalog/streams/txn/edit",
+    "/catalog/connectors/{name}/edit": "/catalog/connectors/files/edit",
+    "/catalog/lookups/{name}/edit": "/catalog/lookups/new",
+    "/catalog/sinks/{name}/edit": "/catalog/sinks/new",
+    "/catalog/{kind}/{name}/{action}": "/catalog/streams/txn/disable",
 }
 
 PANEL = re.compile(r'<details class="page-help" id="page-help" data-screen="([a-z-]+)" open>')

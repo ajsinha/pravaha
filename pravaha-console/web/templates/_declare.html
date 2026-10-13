@@ -1,0 +1,75 @@
+{#- Pravaha console -- the pieces the declaration pages share (ADR-064). Copyright (c) 2026 Ashutosh Sinha
+    <ajsinha@gmail.com>. All rights reserved. The outcome of a dry run or a refused write, the file it would
+    write, the queries that hold the object, and the option rows whose secret-looking keys need ${ENV}. -#}
+
+{#- What the engine answered: accepted (a dry run) or refused, with its code, why, and what uses the object. #}
+{% macro outcome_panel(outcome) -%}
+{% if outcome %}
+<section class="pnl mb-3 decl-outcome" id="decl-outcome" data-valid="{{ 'yes' if outcome.valid else 'no' }}" aria-live="polite">
+  <div class="pnl-h"><h2 class="h6 m-0">{{ t('decl.outcome.heading') }}</h2>
+    {% if outcome.valid %}<span class="chip ok"><span class="dot"></span>{{ t('decl.outcome.valid') }}</span>
+    {% else %}<span class="chip bad"><span class="dot"></span>{{ t('decl.outcome.refused') }}</span>{% endif %}</div>
+  <div class="pnl-b">
+    {% if outcome.valid %}
+    <p class="mb-2">{{ t('decl.outcome.would', action=outcome.action, path=outcome.path) }}</p>
+    {% else %}
+    <p class="mb-2 text-danger" role="alert" id="decl-refusal">{% if outcome.code %}<a class="mono" href="/help/codes/{{ outcome.code }}">{{ outcome.code }}</a> {% endif %}{{ outcome.message }}</p>
+    {% if outcome.code == 'PRV-1065' %}<p class="small mb-2">{{ t('decl.outcome.in_use_hint') }}</p>{% endif %}
+    {% if outcome.code == 'PRV-1063' %}<p class="small mb-2">{{ t('decl.outcome.secret_hint') }}</p>{% endif %}
+    {% endif %}
+    {% if outcome.dependents %}
+    <p class="small mb-1">{{ t('decl.outcome.dependents') }}</p>
+    <ul class="mb-0 small" id="decl-dependents">{% for d in outcome.dependents %}<li class="mono">{% if ':' in d %}{{ d }}{% else %}<a href="/queries/{{ d|urlencode }}">{{ d }}</a>{% endif %}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+{%- endmacro %}
+
+{#- The file the engine would write -- its own text, from the dry run -- behind a disclosure. #}
+{% macro preview(outcome) -%}
+<details class="pnl mb-3 decl-preview" id="decl-preview" {% if outcome and outcome.yaml %}open{% endif %}>
+  <summary class="pnl-h"><span>{{ t('decl.preview.heading') }}</span></summary>
+  <div class="pnl-b">
+    {% if outcome and outcome.yaml %}
+    <p class="small text-muted mb-2">{{ t('decl.preview.exact', path=outcome.path) }}</p>
+    <pre class="mono small mb-0" id="decl-yaml">{{ outcome.yaml }}</pre>
+    {% else %}<p class="small text-muted mb-0">{{ t('decl.preview.validate_first') }}</p>{% endif %}
+  </div>
+</details>
+{%- endmacro %}
+
+{#- The queries (or, for a connection, the bindings) that hold the object now. #}
+{% macro holders(dependents, kind) -%}
+{% if dependents %}
+<div class="alert alert-warning small" id="decl-holders" role="status">
+  <strong>{{ t('decl.holders.heading', n=dependents|length) }}</strong>
+  {% for d in dependents %}<span class="mono">{{ d }}</span>{{ ', ' if not loop.last }}{% endfor %}.
+  {{ t('decl.holders.connection') if kind == 'connectors' else t('decl.holders.body') }}
+</div>
+{% endif %}
+{%- endmacro %}
+
+{#- Key/value option rows. A key that names a password, secret, token or key needs ${ENV_NAME}. #}
+{% macro option_rows(options, secret_keys, settings=[]) -%}
+<input type="hidden" name="options" value="{{ options|length }}">
+<div class="table-responsive"><table class="table table-sm mb-2 decl-options" id="decl-options">
+  <caption class="visually-hidden">{{ t('decl.options.caption') }}</caption>
+  <thead><tr><th scope="col">{{ t('decl.options.key') }}</th><th scope="col">{{ t('decl.options.value') }}</th><th scope="col"><span class="visually-hidden">{{ t('decl.options.remove') }}</span></th></tr></thead>
+  <tbody>{% for key, value in options %}
+  <tr data-option="{{ loop.index0 }}">
+    <td><input class="form-control form-control-sm mono" name="opt-{{ loop.index0 }}-key" value="{{ key }}" list="decl-settings" aria-label="{{ t('decl.options.key') }} {{ loop.index }}" autocomplete="off"></td>
+    <td><input class="form-control form-control-sm mono" name="opt-{{ loop.index0 }}-value" value="{{ value }}" aria-label="{{ t('decl.options.value') }} {{ loop.index }}" autocomplete="off"
+         {% if key in secret_keys %}aria-invalid="true" aria-describedby="secret-{{ loop.index0 }}"{% endif %}>
+      {% if key in secret_keys %}<div class="small text-danger" id="secret-{{ loop.index0 }}">{{ t('decl.options.needs_env') }}</div>{% endif %}</td>
+    <td><button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="remove_option-{{ loop.index0 }}" formnovalidate>{{ t('decl.options.remove') }}</button></td></tr>
+  {% endfor %}</tbody></table></div>
+<datalist id="decl-settings">{% for s in settings %}<option value="{{ s }}"></option>{% endfor %}</datalist>
+<button class="btn btn-sm btn-outline-secondary mb-2" type="submit" name="action" value="add_option" formnovalidate>{{ t('decl.options.add') }}</button>
+<p class="small text-muted mb-0">{{ t('decl.options.secret_rule') }}</p>
+{%- endmacro %}
+
+{#- The engine decides; this only says why the buttons are off for somebody it would refuse. #}
+{% macro not_allowed(allowed) -%}
+{% if not allowed %}<p class="small text-muted" id="decl-not-allowed">{{ t('decl.not_allowed') }}</p>{% endif %}
+{%- endmacro %}

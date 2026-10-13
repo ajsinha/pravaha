@@ -64,8 +64,12 @@ import com.ash.messaging.pravaha.server.ingest.SourceBindingProperties;
  * resolve against the same environment. Where a file is stricter than an inline block it says so: an
  * unknown key is refused (inline, Spring ignores one), and a literal secret is refused.
  *
- * @param canonical the file's settings, sorted, before placeholders are resolved: two files that differ
- *     only in comments, order or spacing are the same declaration
+ * @param canonical the file's settings but {@code enabled}, sorted, before placeholders are resolved: two
+ *     files that differ only in comments, order or spacing are the same declaration, and two that differ
+ *     only in {@code enabled} are the same declaration switched on or off
+ * @param enabled a stream or connection file's {@code enabled:}, true when absent; always true for a lookup
+ *     or sink file. A disabled stream is declared and read from nothing; a disabled connection stops the
+ *     sources that name it
  * @param stream a stream file's declaration, else null
  * @param source a stream file's {@code source:} block, or a lookup file's binding, else null
  * @param sink a sink file's binding, else null
@@ -77,7 +81,8 @@ public record DeclarationFile(
         String canonical,
         StreamDeclarationProperties.@Nullable Declaration stream,
         SourceBindingProperties.@Nullable Spec source,
-        SinkBindingProperties.@Nullable Spec sink) {
+        SinkBindingProperties.@Nullable Spec sink,
+        boolean enabled) {
 
     private static final Logger LOG = LoggerFactory.getLogger(DeclarationFile.class);
 
@@ -92,10 +97,22 @@ public record DeclarationFile(
     private static final Pattern SAFE_VALUE =
             Pattern.compile("|\\$\\{[^}]*}|true|false|[0-9]+|[0-9]+(ms|s|m|h|d)", Pattern.CASE_INSENSITIVE);
 
+    /** The setting that switches a stream or a connection off without removing it. */
+    public static final String ENABLED = "enabled";
+
     /** A stream file: a stream declaration, and where its rows come from. */
     public static class StreamFile extends StreamDeclarationProperties.Declaration {
 
         private SourceBindingProperties.@Nullable Spec source;
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
 
         public SourceBindingProperties.@Nullable Spec getSource() {
             return source;
@@ -104,6 +121,25 @@ public record DeclarationFile(
         public void setSource(SourceBindingProperties.@Nullable Spec source) {
             this.source = source;
         }
+    }
+
+    /** A connection file: a plugin and its options, which may be switched off. */
+    public static class ConnectorFile extends SourceBindingProperties.Spec {
+
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+    }
+
+    /** Whether {@code name} is one a file can have: letters, digits, {@code _} and {@code -}, at most 128. */
+    public static boolean isValidName(String name) {
+        return NAME.matcher(name).matches();
     }
 
     /** {@code txn.yaml} and {@code txn.yml} -- not hidden, regular files -- sorted; anything else is skipped. */
@@ -154,7 +190,9 @@ public record DeclarationFile(
                 List.of(ConfigurationPropertySource.from(new MapPropertySource(file.toString(), prefixed))),
                 placeholders);
         BindHandler strict = new NoUnboundElementsBindHandler(BindHandler.DEFAULT);
-        String canonical = new TreeMap<>(raw).toString();
+        TreeMap<String, String> sorted = new TreeMap<>(raw);
+        sorted.remove(ENABLED);
+        String canonical = sorted.toString();
         try {
             return switch (kind) {
                 case STREAM -> {
@@ -165,33 +203,32 @@ public record DeclarationFile(
                         requirePlugin(file, "source.plugin", source.getPlugin(), source.getConnector());
                         refuseDivergentSchemas(file, bound, source);
                     }
-                    yield new DeclarationFile(kind, name, file, canonical, bound, source, null);
+                    yield new DeclarationFile(kind, name, file, canonical, bound, source, null, bound.isEnabled());
                 }
                 case LOOKUP -> {
                     SourceBindingProperties.Spec bound = binder.bind(
                                     "file", Bindable.ofInstance(new SourceBindingProperties.Spec()), strict)
                             .orElseGet(SourceBindingProperties.Spec::new);
                     requirePlugin(file, "plugin", bound.getPlugin(), bound.getConnector());
-                    yield new DeclarationFile(kind, name, file, canonical, null, bound, null);
+                    yield new DeclarationFile(kind, name, file, canonical, null, bound, null, true);
                 }
                 case CONNECTOR -> {
-                    SourceBindingProperties.Spec bound = binder.bind(
-                                    "file", Bindable.ofInstance(new SourceBindingProperties.Spec()), strict)
-                            .orElseGet(SourceBindingProperties.Spec::new);
+                    ConnectorFile bound = binder.bind("file", Bindable.ofInstance(new ConnectorFile()), strict)
+                            .orElseGet(ConnectorFile::new);
                     if (bound.getConnector() != null) {
                         throw new PravahaException(
                                 ConfigErrors.FILE_INVALID,
                                 file + ": a connection names its plugin; it cannot name another connection.");
                     }
                     requirePlugin(file, "plugin", bound.getPlugin(), null);
-                    yield new DeclarationFile(kind, name, file, canonical, null, bound, null);
+                    yield new DeclarationFile(kind, name, file, canonical, null, bound, null, bound.isEnabled());
                 }
                 case SINK -> {
                     SinkBindingProperties.Spec bound = binder.bind(
                                     "file", Bindable.ofInstance(new SinkBindingProperties.Spec()), strict)
                             .orElseGet(SinkBindingProperties.Spec::new);
                     requirePlugin(file, "plugin", bound.getPlugin(), bound.getConnector());
-                    yield new DeclarationFile(kind, name, file, canonical, null, null, bound);
+                    yield new DeclarationFile(kind, name, file, canonical, null, null, bound, true);
                 }
             };
         } catch (BindException e) {
@@ -323,10 +360,10 @@ public record DeclarationFile(
     private static String accepted(DeclarationKind kind) {
         return switch (kind) {
             case STREAM ->
-                "schema, event-time, out-of-orderness, allowed-lateness and a source: block "
+                "schema, event-time, out-of-orderness, allowed-lateness, enabled and a source: block "
                         + "(plugin or connector, options)";
             case LOOKUP, SINK -> "plugin (or connector) and options";
-            case CONNECTOR -> "plugin and options";
+            case CONNECTOR -> "plugin, options and enabled";
         };
     }
 }

@@ -135,6 +135,18 @@ public class HttpAuthorizer {
         }
     }
 
+    /** Records something this caller did that no decision above covers: a connection test, with its outcome. */
+    public void record(HttpServletRequest request, String action, String target, boolean succeeded, String outcome) {
+        audit.record(new com.ash.messaging.pravaha.security.AuditEvent(
+                java.time.Instant.now(),
+                principalOf(request),
+                action,
+                target,
+                succeeded,
+                outcome,
+                java.util.Optional.empty()));
+    }
+
     /** Refuses unless this caller may change what the node serves. */
     public void requireAdminister(HttpServletRequest request, String what) {
         Principal principal = principalOf(request);

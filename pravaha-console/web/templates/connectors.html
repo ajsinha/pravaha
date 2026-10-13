@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{#- Pravaha console -- Catalog -> Connectors (ADR-064). Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+    All rights reserved. The plugins this node can load, and its named connections: config/connectors/<name>.yaml,
+    a plugin and its options written once, which a stream's source, a lookup or a sink names instead of
+    repeating them. Every secret option is masked by the engine; Test connection goes through the plugin
+    (configure, open, health) in bounded time and shows the outcome and latency, never a value. -#}
+{% from "_helpcards.html" import helplink %}
+{% import "_people.html" as people %}
+{% import "_states.html" as states %}
+{% block title %}{{ t('decl.connectors.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('decl.connectors.kicker') }}</p>
+    <h1>{{ t('decl.connectors.heading') }}{{ helplink('connectors') }}</h1>
+  </div>
+  {% if may_create %}<a class="btn btn-sm btn-primary" href="/catalog/connectors/new" id="new-connection">{{ t('decl.connectors.new') }}</a>{% endif %}
+</div>
+<div class="rule"></div>
+{{ people.flashes(flashes) }}
+<p class="lede">{{ t('decl.connectors.lede') }}</p>
+
+{% if tested %}
+<section class="pnl mb-3" id="connection-test" data-ok="{{ 'yes' if tested.ok else 'no' }}" aria-live="polite">
+  <div class="pnl-h"><h2 class="h6 m-0">{{ t('decl.test.heading', name=tested_name) }}</h2>
+    <span class="chip {{ 'ok' if tested.ok else 'bad' }}"><span class="dot"></span>{{ tested.state }}</span></div>
+  <div class="pnl-b">
+    <p class="mb-1">{% if tested.ok %}{{ t('decl.test.ok', role=tested.role or '—') }}{% else %}{{ t('decl.test.failed') }}{% endif %}
+      {% if tested.latencyMillis is not none %}<span class="chip mute" id="connection-latency">{{ t('decl.test.latency', ms=tested.latencyMillis) }}</span>{% endif %}</p>
+    {% if tested.detail %}<p class="small mb-1 mono">{% if tested.code %}<a href="/help/codes/{{ tested.code }}">{{ tested.code }}</a> {% endif %}{{ tested.detail }}</p>{% endif %}
+    <p class="small text-muted mb-0">{{ t('decl.test.never_secret') }}</p>
+  </div>
+</section>
+{% endif %}
+
+<section class="pnl mb-3">
+  <div class="pnl-h"><h2 class="h6 m-0" id="connections-h">{{ t('decl.connectors.connections') }}</h2></div>
+  <div class="pnl-b">
+  {% if connections_error %}
+  {{ states.error(connections_error, retry_href='/catalog/connectors', id='connections-error', title=t('decl.connectors.connections_error')) }}
+  {% elif not connections %}
+  <div class="state" id="connections-empty"><h3 class="h6">{{ t('decl.connectors.none_title') }}</h3><p class="small mb-0">{{ t('decl.connectors.none_body') }}</p></div>
+  {% else %}
+  <div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('decl.connectors.connections') }}"><table class="table mb-0" id="connections-table">
+    <caption class="visually-hidden">{{ t('decl.connectors.connections') }}</caption>
+    <thead><tr><th scope="col">{{ t('decl.connectors.col.name') }}</th><th scope="col">{{ t('decl.connectors.col.plugin') }}</th><th scope="col">{{ t('decl.connectors.col.state') }}</th><th scope="col">{{ t('decl.connectors.col.options') }}</th><th scope="col">{{ t('decl.connectors.col.users') }}</th><th scope="col">{{ t('decl.connectors.col.origin') }}</th><th scope="col">{{ t('decl.connectors.col.actions') }}</th></tr></thead>
+    <tbody>{% for c in connections %}
+    <tr data-connection="{{ c.name }}">
+      <th scope="row" class="fw-normal mono">{{ c.name }}</th>
+      <td class="mono small">{{ c.plugin }}</td>
+      <td>{% if c.get('enabled', True) %}<span class="chip ok"><span class="dot"></span>{{ t('decl.state.enabled') }}</span>{% else %}<span class="chip warn"><span class="dot"></span>{{ t('decl.state.disabled') }}</span>{% endif %}</td>
+      <td class="small mono">{% for k, v in (c.options or {}).items() %}<div>{{ k }}: {{ v }}</div>{% else %}—{% endfor %}</td>
+      <td class="small mono">{% for u in c.usedBy or [] %}<div>{{ u }}</div>{% else %}<span class="text-muted">{{ t('decl.connectors.unused') }}</span>{% endfor %}</td>
+      <td class="small mono text-break">{{ c.origin }}</td>
+      <td>{% if may_create %}<div class="d-flex flex-wrap gap-1">
+        <form method="post" action="/catalog/connectors/{{ c.name|urlencode }}/test" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('decl.connectors.test_label', name=c.name) }}">{{ t('decl.connectors.test') }}</button></form>
+        <a class="btn btn-sm btn-outline-secondary" href="/catalog/connectors/{{ c.name|urlencode }}/edit">{{ t('decl.connectors.edit') }}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="/catalog/connectors/{{ c.name|urlencode }}/{{ 'disable' if c.get('enabled', True) else 'enable' }}">{{ t('decl.stream.disable') if c.get('enabled', True) else t('decl.stream.enable') }}</a>
+        <a class="btn btn-sm btn-outline-danger" href="/catalog/connectors/{{ c.name|urlencode }}/delete">{{ t('decl.stream.delete') }}</a>
+      </div>{% else %}<span class="text-muted small">—</span>{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% endif %}
+  <p class="small text-muted mt-2 mb-0">{{ t('decl.connectors.masked') }}</p>
+  </div>
+</section>
+
+<section class="pnl mb-3">
+  <div class="pnl-h"><h2 class="h6 m-0" id="loaded-h">{{ t('decl.connectors.plugins') }}</h2></div>
+  <div class="pnl-b">
+  {% if plugins_error %}
+  {{ states.partial(body=t('decl.connectors.plugins_error'), id='plugins-partial') }}
+  {% else %}
+  <div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('decl.connectors.plugins') }}"><table class="table table-sm mb-0" id="loaded-plugins">
+    <caption class="visually-hidden">{{ t('decl.connectors.plugins') }}</caption>
+    <thead><tr><th scope="col">{{ t('decl.connectors.col.plugin') }}</th><th scope="col">{{ t('decl.connectors.col.version') }}</th><th scope="col">{{ t('decl.connectors.col.kinds') }}</th><th scope="col">{{ t('decl.connectors.col.health') }}</th></tr></thead>
+    <tbody>{% for p in plugins %}{% set h = p.health or {} %}
+    <tr data-plugin="{{ p.name }}"><td class="mono">{{ p.name }}</td><td class="mono small">{{ p.version or '—' }}</td>
+      <td>{% for k in p.kinds or [] %}<span class="chip mute me-1">{{ k }}</span>{% else %}<span class="chip bad">{{ t('plugins.not_loaded') }}</span>{% endfor %}</td>
+      <td class="small"><span class="chip {{ 'ok' if h.state == 'HEALTHY' else 'warn' if h.state == 'DEGRADED' else 'bad' if h.state == 'UNHEALTHY' else 'mute' }}">{{ h.state or 'UNKNOWN' }}</span></td></tr>
+    {% endfor %}</tbody></table></div>
+  {% endif %}
+  {% if is_admin %}<p class="small mt-2 mb-0"><a href="/plugins">{{ t('decl.connectors.plugins_detail') }} &rarr;</a></p>{% endif %}
+  </div>
+</section>
+{% endblock %}

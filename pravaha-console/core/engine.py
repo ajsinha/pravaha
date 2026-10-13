@@ -795,7 +795,8 @@ class Engine:
     # verifies nothing: a password, a key and a session are checked by the engine or not at all.
 
     def _identity(self, method: str, path: str, body: dict | None = None,
-                  query: dict | None = None, *, anonymous: bool = False, for_address: str | None = None):
+                  query: dict | None = None, *, anonymous: bool = False, for_address: str | None = None,
+                  timeout: float | None = None):
         """``method`` on ``/api/v1<path>`` through the SDK's HTTP client, as this request's person
         (or as nobody, for the sign-in), with a refusal as an :class:`EngineHttpError`.
         ``for_address`` is the browser's address, sent as ``X-Forwarded-For`` so the engine counts a
@@ -804,7 +805,7 @@ class Engine:
             raise EngineHttpError(0, "no engine HTTP URL is configured (engine.http_url)")
         headers = {"X-Forwarded-For": for_address} if for_address else None
         rest = _IdentityRest(self._http, token=None if anonymous else credential.token(),
-                             timeout_seconds=self._http_timeout, allow_insecure_token=True,
+                             timeout_seconds=timeout or self._http_timeout, allow_insecure_token=True,
                              headers=headers)
         try:
             return rest.send(method, "/api/v1" + path, body, query)
@@ -989,6 +990,52 @@ class Engine:
     def drop_policy(self, name: str) -> None:
         """``DELETE catalog/policies/{name}``: refused (PRV-7040) while it is bound anywhere."""
         self._identity("DELETE", "/catalog/policies/" + _segment(name))
+
+    # ------------------------------------------------------------------ declaration files (ADR-064)
+    #
+    # Streams, connections, lookups and sinks are files in the node's configuration folders; these
+    # calls write them through the engine, which writes the same file a person would and applies it
+    # at once. Who may (admin, or a grant to administer the object) and what is refused -- in use,
+    # a literal secret, an unknown plugin -- are the engine's; a dry run answers without writing.
+
+    @staticmethod
+    def _declaration_path(kind: str, name: str) -> str:
+        if kind in ("streams", "connectors"):
+            return f"/{kind}/{_segment(name)}"
+        return f"/declarations/{_segment(kind)}/{_segment(name)}"
+
+    def declarations(self) -> dict:
+        """``GET declarations``: the folders, the watch interval, and every declared object's origin."""
+        return dict(self._identity("GET", "/declarations") or {})
+
+    def connectors(self) -> list[dict]:
+        """``GET connectors``: the named connections, secret options masked, with their users."""
+        return _items(self._identity("GET", "/connectors"), "items")
+
+    def declaration_file(self, kind: str, name: str) -> dict:
+        """``GET .../{name}/file``: the file as written, whether it is enabled, and its dependents."""
+        return dict(self._identity("GET", self._declaration_path(kind, name) + "/file") or {})
+
+    def write_declaration(self, kind: str, name: str, body: dict, *, update: bool, dry_run: bool) -> dict:
+        """``POST`` (create) or ``PUT`` (update) of a declaration file; ``dry_run`` writes nothing."""
+        return dict(self._identity("PUT" if update else "POST", self._declaration_path(kind, name), body,
+                                   {"dryRun": "true"} if dry_run else None) or {})
+
+    def delete_declaration(self, kind: str, name: str, *, dry_run: bool) -> dict:
+        """``DELETE`` of a declaration file: refused (PRV-1065) while anything uses the object."""
+        return dict(self._identity("DELETE", self._declaration_path(kind, name), None,
+                                   {"dryRun": "true"} if dry_run else None) or {})
+
+    def switch_declaration(self, kind: str, name: str, enabled: bool, *, dry_run: bool) -> dict:
+        """``POST .../enable|disable`` of a stream or connection: never refused for being in use."""
+        return dict(self._identity("POST", self._declaration_path(kind, name) + ("/enable" if enabled else "/disable"),
+                                   {}, {"dryRun": "true"} if dry_run else None) or {})
+
+    def test_connector(self, name: str, options: dict | None = None, timeout_seconds: int = 10) -> dict:
+        """``POST connectors/{name}/test``: through the plugin, bounded; outcome and latency, never a secret."""
+        return dict(self._identity("POST", f"/connectors/{_segment(name)}/test",
+                                   {"options": options or {}, "timeoutSeconds": timeout_seconds},
+                                   timeout=max(self._http_timeout, timeout_seconds + 5.0)) or {})
 
     # ------------------------------------------------------------------ alerts (ADR-057)
     #

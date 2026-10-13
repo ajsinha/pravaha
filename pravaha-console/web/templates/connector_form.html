@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{#- Pravaha console -- New connection / Edit connection (ADR-064). Copyright (c) 2026 Ashutosh Sinha
+    <ajsinha@gmail.com>. All rights reserved. config/connectors/<name>.yaml: a plugin and its options. A
+    secret option is written as ${ENV_NAME}, set where the node runs; a literal one is refused (PRV-1063),
+    exactly as in a file written by hand. Plugins declare no option list of their own, so options are
+    key/value rows -- with a registered plugin's manifest settings offered as keys when it has any. -#}
+{% from "_helpcards.html" import helplink %}
+{% import "_people.html" as people %}
+{% import "_declare.html" as declare %}
+{% block title %}{{ t('decl.connection.title_edit', name=form.name) if mode == 'edit' else t('decl.connection.title_new') }} — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="/catalog/connectors">&larr; {{ t('decl.connection.back') }}</a></p>
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('decl.connection.kicker') }}</p>
+    <h1>{% if mode == 'edit' %}{{ t('decl.connection.heading_edit') }} <span class="mono">{{ form.name }}</span>{% else %}{{ t('decl.connection.heading_new') }}{% endif %}{{ helplink('connector-form') }}</h1>
+  </div>
+</div>
+<div class="rule"></div>
+{{ people.flashes(flashes) }}
+<p class="lede">{{ t('decl.connection.lede') }}</p>
+{{ declare.holders(dependents, 'connectors') }}
+{{ declare.outcome_panel(outcome) }}
+{{ declare.not_allowed(allowed) }}
+
+<form method="post" id="connection-form" class="decl-form" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="row g-3">
+    <div class="col-lg-5">
+      <section class="pnl mb-3" aria-labelledby="cf-what-h"><div class="pnl-h"><h2 class="h6 m-0" id="cf-what-h">{{ t('decl.connection.what') }}</h2></div><div class="pnl-b">
+        <label class="form-label small" for="cf-name">{{ t('decl.connection.name_label') }}</label>
+        <input class="form-control mono mb-2" id="cf-name" name="name" value="{{ form.name }}" {% if mode == 'edit' %}readonly{% endif %}
+               pattern="[A-Za-z0-9_-]{1,128}" required autocomplete="off" aria-describedby="cf-name-help">
+        <div class="form-text mb-2" id="cf-name-help">{{ t('decl.connection.name_help') }}</div>
+        <label class="form-label small" for="cf-plugin">{{ t('decl.connection.plugin') }}</label>
+        <div class="d-flex gap-2">
+          <select class="form-select form-select-sm mono" id="cf-plugin" name="plugin">
+            <option value="">—</option>
+            {% for p in plugins %}<option value="{{ p.name }}" {% if p.name == form.plugin %}selected{% endif %}>{{ p.name }} ({{ (p.kinds or [])|join(', ') }})</option>{% endfor %}
+            {% if form.plugin and form.plugin not in plugins|map(attribute='name') %}<option value="{{ form.plugin }}" selected>{{ form.plugin }}</option>{% endif %}
+          </select>
+          <button class="btn btn-sm btn-outline-secondary text-nowrap" type="submit" name="action" value="pick_plugin">{{ t('decl.connection.show_settings') }}</button>
+        </div>
+        {% if plugins_error %}<p class="small text-warning mt-2 mb-0">{{ t('decl.stream.plugins_unread') }}</p>{% endif %}
+        <label class="form-label small mt-3" for="cf-enabled">{{ t('decl.stream.state_label') }}</label>
+        <select class="form-select form-select-sm" id="cf-enabled" name="enabled" aria-describedby="cf-enabled-help">
+          <option value="true" {% if form.enabled %}selected{% endif %}>{{ t('decl.stream.enabled') }}</option>
+          <option value="false" {% if not form.enabled %}selected{% endif %}>{{ t('decl.stream.disabled') }}</option>
+        </select>
+        <div class="form-text" id="cf-enabled-help">{{ t('decl.connection.state_help') }}</div>
+      </div></section>
+    </div>
+    <div class="col-lg-7">
+      <section class="pnl mb-3" aria-labelledby="cf-options-h"><div class="pnl-h"><h2 class="h6 m-0" id="cf-options-h">{{ t('decl.options.heading') }}</h2></div><div class="pnl-b">
+        <p class="small text-muted">{% if settings %}{{ t('decl.connection.settings', settings=settings|join(', ')) }}{% else %}{{ t('decl.connection.no_settings') }}{% endif %}</p>
+        {{ declare.option_rows(form.options, secret_keys, settings) }}
+      </div></section>
+    </div>
+  </div>
+  {{ declare.preview(outcome) }}
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="validate" id="cf-validate" {% if not allowed %}disabled{% endif %}>{{ t('decl.validate') }}</button>
+    <button class="btn btn-sm btn-primary" type="submit" name="action" value="save" id="cf-save" {% if not allowed %}disabled{% endif %}>{{ t('decl.save') }}</button>
+  </div>
+</form>
+
+{% if mode == 'edit' %}
+<details class="pnl mb-3" id="connection-file">
+  <summary class="pnl-h"><span>{{ t('decl.file.heading') }}</span></summary>
+  <div class="pnl-b">
+    <p class="small text-muted">{{ t('decl.file.help') }}</p>
+    <form method="post" id="connection-file-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="form-label small visually-hidden" for="cf-yaml">{{ t('decl.file.heading') }}</label>
+      <textarea class="form-control mono small" id="cf-yaml" name="yaml" rows="10" spellcheck="false">{{ form.yaml_text }}</textarea>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="validate_yaml" {% if not allowed %}disabled{% endif %}>{{ t('decl.validate') }}</button>
+        <button class="btn btn-sm btn-primary" type="submit" name="action" value="save_yaml" {% if not allowed %}disabled{% endif %}>{{ t('decl.save_file') }}</button>
+      </div>
+    </form>
+  </div>
+</details>
+{% endif %}
+{% endblock %}

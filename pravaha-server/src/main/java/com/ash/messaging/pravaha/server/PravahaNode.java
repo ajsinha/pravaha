@@ -1045,6 +1045,9 @@ public class PravahaNode implements SmartLifecycle {
                 .forEach(binding ->
                         feeds.bind(com.ash.messaging.pravaha.server.catalog.StreamDeclarations.withDeclaredEventTime(
                                 binding, declaredStreams.getStreams().get(binding.streamName()))));
+        // ADR-064: a stream file with enabled: false, or one whose connection is switched off, is declared
+        // and bound and read from nothing until it is enabled.
+        sourceFeeds.stopReading(configFolders.stoppedStreams(sources));
         registry.feedingFrom(feeds);
 
         // Dimension tables, opened at start-up and handed to the registry. Nothing in shipped code
@@ -1157,17 +1160,19 @@ public class PravahaNode implements SmartLifecycle {
         // ADR-064: after recovery, so a recovered query holds the stream, lookup or sink it uses.
         configFolders.watch(
                 new com.ash.messaging.pravaha.server.folders.LiveDeclarations(
-                        streams,
-                        registry,
-                        sourceFeeds,
-                        java.util.Objects.requireNonNull(lookupSources),
-                        pluginSinks,
-                        declaredStreams,
-                        sources,
-                        sinks,
-                        defaultOutOfOrderness,
-                        configFolders.connectors()),
+                                streams,
+                                registry,
+                                sourceFeeds,
+                                java.util.Objects.requireNonNull(lookupSources),
+                                pluginSinks,
+                                declaredStreams,
+                                sources,
+                                sinks,
+                                defaultOutOfOrderness,
+                                configFolders.connectors())
+                        .stoppingFrom(() -> configFolders.stoppedStreams(sources)),
                 auditSink());
+
         if (journalPath.isEmpty()) {
             log.warn("pravaha.registry.journal is none (or pravaha.data.dir is), so registered queries live "
                     + "only in memory and a restart will lose them without saying so");

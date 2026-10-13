@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{#- Pravaha console -- delete, enable or disable a declaration, after its dry run (ADR-064). Copyright (c)
+    2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. The engine's dry run says what uses the
+    object and whether it would refuse; Confirm makes the change. Deleting or changing what a query uses is
+    refused (PRV-1065) and writes nothing; disabling it never is -- the queries keep running and receive
+    nothing until it is enabled again. -#}
+{% from "_helpcards.html" import helplink %}
+{% import "_people.html" as people %}
+{% import "_declare.html" as declare %}
+{% block title %}{{ t('decl.confirm.title_' ~ action, name=name) }} — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="{{ back_href }}">&larr; {{ t('decl.confirm.back') }}</a></p>
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('decl.kind.' ~ kind) }}</p>
+    <h1>{{ t('decl.confirm.heading_' ~ action) }} <span class="mono">{{ name }}</span>{{ helplink('declaration-confirm') }}</h1>
+  </div>
+</div>
+<div class="rule"></div>
+{{ people.flashes(flashes) }}
+<p class="lede">{{ t('decl.confirm.lede_' ~ action) }}</p>
+{{ declare.outcome_panel(outcome) }}
+{% if outcome.valid and outcome.dependents and action == 'disable' %}
+<p class="small" id="decl-keep-running">{{ t('decl.confirm.keep_running') }}</p>
+{% endif %}
+{% if outcome.previous %}
+<details class="pnl mb-3" id="decl-current"><summary class="pnl-h"><span>{{ t('decl.confirm.current_file') }}</span></summary>
+  <div class="pnl-b"><pre class="mono small mb-0">{{ outcome.previous }}</pre></div></details>
+{% endif %}
+{{ declare.not_allowed(allowed) }}
+{% if outcome.valid %}
+<form method="post" id="decl-confirm-form" class="d-flex flex-wrap gap-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button class="btn btn-sm {{ 'btn-outline-danger' if action == 'delete' else 'btn-primary' }}" type="submit" id="decl-confirm" {% if not allowed %}disabled{% endif %}>{{ t('decl.confirm.button_' ~ action) }}</button>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ back_href }}">{{ t('decl.confirm.cancel') }}</a>
+</form>
+{% else %}
+<a class="btn btn-sm btn-outline-secondary" href="{{ back_href }}">{{ t('decl.confirm.back') }}</a>
+{% endif %}
+{% endblock %}

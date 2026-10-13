@@ -53,6 +53,10 @@ public final class ApiDtos {
      *     {@code pravaha.config.streams-dir}), {@code config} (inline) or {@code api} (ADR-064)
      * @param notApplied why its file's latest change or removal is not in force -- a query still reads
      *     the stream, or the file is invalid -- or null when what is running is what the file says
+     * @param enabled false when the stream's file says {@code enabled: false}, or its source names a
+     *     connection that does: declared, and read from nothing until enabled
+     * @param connector the named connection its source takes its plugin and options from, or null
+     * @param dependents how many registered queries read it
      */
     public record StreamSummary(
             String name,
@@ -64,10 +68,31 @@ public final class ApiDtos {
             @Nullable String source,
             @Nullable String allowedLateness,
             @Nullable String origin,
-            @Nullable String notApplied) {
+            @Nullable String notApplied,
+            @Nullable Boolean enabled,
+            @Nullable String connector,
+            @Nullable Integer dependents) {
 
         public StreamSummary(String name, int version, int fieldCount, List<FieldInfo> fields) {
-            this(name, version, fieldCount, fields, null, null, null, null, null, null);
+            this(name, version, fieldCount, fields, null, null, null, null, null, null, null, null, null);
+        }
+
+        /** This summary, saying whether its source is switched on, what connection it names, and its readers. */
+        public StreamSummary managed(boolean on, @Nullable String connection, int readers) {
+            return new StreamSummary(
+                    name,
+                    version,
+                    fieldCount,
+                    fields,
+                    eventTime,
+                    outOfOrderness,
+                    source,
+                    allowedLateness,
+                    origin,
+                    notApplied,
+                    on,
+                    connection,
+                    readers);
         }
 
         /** This summary, saying where the stream came from. */
@@ -82,9 +107,110 @@ public final class ApiDtos {
                     source,
                     allowedLateness,
                     origin,
-                    notApplied);
+                    notApplied,
+                    enabled,
+                    connector,
+                    dependents);
         }
     }
+
+    /** Where a stream's, lookup's or sink's rows come from or go: a plugin, or a named connection, and options. */
+    public record SourceSpec(
+            @Nullable String plugin,
+            @Nullable String connector,
+            @Nullable Map<String, String> options) {}
+
+    /**
+     * A stream file to write (ADR-064): the fields of {@code config/streams/<name>.yaml}, or the file's text.
+     *
+     * @param schema {@code name:TYPE,...}, the spelling configuration uses
+     * @param outOfOrderness as a file writes it: {@code 10s}, {@code PT10S}, or a number of seconds
+     * @param enabled false to declare the stream with its source switched off; absent means on
+     * @param yaml the whole file, written as given; when present every other field is ignored
+     */
+    public record StreamFileRequest(
+            @Nullable String schema,
+            @Nullable String eventTime,
+            @Nullable String outOfOrderness,
+            @Nullable String allowedLateness,
+            @Nullable Boolean enabled,
+            @Nullable SourceSpec source,
+            @Nullable String yaml) {}
+
+    /**
+     * A connection, lookup or sink file to write (ADR-064). A secret option is written as {@code ${ENV_NAME}}
+     * and the variable set where the node runs; a literal one is refused ({@code PRV-1063}).
+     *
+     * @param enabled for a connection: false switches off the sources that name it
+     * @param yaml the whole file, written as given; when present every other field is ignored
+     */
+    public record BindingFileRequest(
+            @Nullable String plugin,
+            @Nullable String connector,
+            @Nullable Map<String, String> options,
+            @Nullable Boolean enabled,
+            @Nullable String yaml) {}
+
+    /**
+     * What a write to a declaration file did, or -- with {@code dryRun=true} -- would do.
+     *
+     * @param action {@code create}, {@code update}, {@code delete}, {@code enable}, {@code disable} or
+     *     {@code unchanged}
+     * @param applied whether the file was written and is in force now
+     * @param valid whether the write is accepted; false only on a dry run, where a refusal is answered
+     * @param yaml the file as it is, or would be, after the write; null for a delete
+     * @param previous the file before the write, or null when there was none
+     * @param dependents the queries using the object, or for a connection the bindings naming it
+     */
+    public record DeclarationChange(
+            String kind,
+            String name,
+            String action,
+            boolean dryRun,
+            boolean applied,
+            boolean valid,
+            String path,
+            @Nullable String yaml,
+            @Nullable String previous,
+            List<String> dependents,
+            @Nullable String code,
+            @Nullable String message) {}
+
+    /**
+     * A declaration file as written, for an editor. Secrets in it are {@code ${ENV}} references -- a file
+     * holding a literal one is refused -- so the text is shown as it is.
+     */
+    public record DeclarationText(
+            String kind, String name, String path, String yaml, boolean enabled, List<String> dependents) {}
+
+    /**
+     * A connection test's settings.
+     *
+     * @param options laid over the connection's, as a binding's would be: the topic or table a plugin
+     *     will not open without
+     * @param timeoutSeconds how long the test may take, 1 to 60; 10 when absent
+     */
+    public record ConnectionTestRequest(
+            @Nullable Map<String, String> options, @Nullable Integer timeoutSeconds) {}
+
+    /**
+     * What testing a connection found: the plugin configured with the connection's options, opened, asked
+     * its health and closed. Never an option's value.
+     *
+     * @param role the plugin role tested: {@code source}, {@code lookup} or {@code sink}
+     * @param state the plugin's health: {@code HEALTHY}, {@code DEGRADED}, {@code UNHEALTHY}; {@code FAILED}
+     *     when it would not configure or open, {@code TIMED_OUT} when it took too long
+     * @param code {@code PRV-1074} when the test failed, else null
+     */
+    public record ConnectionTest(
+            String name,
+            String plugin,
+            boolean ok,
+            @Nullable String role,
+            long latencyMillis,
+            String state,
+            String detail,
+            @Nullable String code) {}
 
     /**
      * One declared stream, lookup or sink, and where it came from (ADR-064); or one declaration file the
@@ -111,7 +237,12 @@ public final class ApiDtos {
      * @param usedBy the bindings naming it: {@code source:txn}, {@code lookup:users}, {@code sink:out}
      */
     public record Connector(
-            String name, String plugin, String origin, Map<String, String> options, List<String> usedBy) {}
+            String name,
+            String plugin,
+            String origin,
+            Map<String, String> options,
+            List<String> usedBy,
+            boolean enabled) {}
 
     /**
      * The declaration folders and everything declared on the node.

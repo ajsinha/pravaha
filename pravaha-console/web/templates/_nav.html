@@ -14,7 +14,10 @@
       ('/catalog?tab=queries', 'diagram-3', t('menu.item.registered'), t('menu.desc.registered'), None),
       ('/catalog?tab=sinks', 'box-arrow-right', t('menu.item.sinks'), t('menu.desc.sinks'), None),
       ('/views', 'table', t('menu.item.views'), t('menu.desc.views'), '/views'),
-      ('/ask', 'stars', t('menu.item.ask'), t('menu.desc.ask'), '/ask')])]),
+      ('/ask', 'stars', t('menu.item.ask'), t('menu.desc.ask'), '/ask')]),
+    (t('menu.col.manage'), [
+      ('/catalog/streams/new', 'plus-square', t('menu.item.new_stream'), t('menu.desc.new_stream'), None),
+      ('/catalog/connectors', 'plug', t('menu.item.connectors'), t('menu.desc.connectors'), '/catalog/connectors')])]),
   (t('menu.workbench'), 'tools', [
     (t('menu.col.design'), [
       ('/workbench', 'code-square', t('menu.item.workbench'), t('menu.desc.workbench'), None),

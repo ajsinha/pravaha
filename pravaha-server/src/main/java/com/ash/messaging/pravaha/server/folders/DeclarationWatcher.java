@@ -83,6 +83,24 @@ public final class DeclarationWatcher {
 
         /** Whether {@code name} is declared on the node by something other than a file (the API). */
         boolean declaredElsewhere(DeclarationKind kind, String name);
+
+        /**
+         * Says the files in force changed -- declared, replaced, switched on or off, removed -- so what is
+         * derived from all of them (which streams are switched off) can be worked out again. Never refused
+         * for being in use: a query over a disabled stream keeps running and receives nothing.
+         */
+        default void changed() {}
+
+        /** What uses the object now: queries reading a stream, joining a lookup, writing a sink; a connection's bindings. */
+        default List<String> users(DeclarationKind kind, String name) {
+            return List.of();
+        }
+
+        /**
+         * Refuses what {@code file} declares, as {@link #declare} would, without changing anything: a dry run.
+         * What needs I/O to know -- opening a dimension table -- is left to the real change.
+         */
+        default void check(DeclarationFile file) {}
     }
 
     /**
@@ -144,6 +162,70 @@ public final class DeclarationWatcher {
     /** Every file not applied as written, in file order. */
     public synchronized List<Problem> problems() {
         return List.copyOf(problems.values());
+    }
+
+    /** The files in force, of one kind, by name. */
+    public synchronized Map<String, DeclarationFile> files(DeclarationKind kind) {
+        return Map.copyOf(current(kind));
+    }
+
+    /** The folder files of {@code kind} are read from and written to. */
+    public ConfigFolderProperties.Folder folder(DeclarationKind kind) {
+        return java.util.Objects.requireNonNull(folders.get(kind), "a folder per kind");
+    }
+
+    /** Whether {@code name} is declared inline in application.yaml, or on the node by the API. */
+    public boolean declaredOtherwise(DeclarationKind kind, String name) {
+        return inline.apply(kind).contains(name) || target.declaredElsewhere(kind, name);
+    }
+
+    /** What uses the object now; see {@link Target#users}. */
+    public List<String> users(DeclarationKind kind, String name) {
+        return target.users(kind, name);
+    }
+
+    /** Checks what {@code file} declares without changing anything; see {@link Target#check}. */
+    public void check(DeclarationFile file) {
+        target.check(file);
+    }
+
+    /**
+     * Runs {@code work} with no look at the folders in between: a write puts a file in place, applies it and
+     * -- when it is refused -- puts the old one back, and a poll must see the before or the after, never both.
+     */
+    public synchronized <T> T exclusively(java.util.function.Supplier<T> work) {
+        return work.get();
+    }
+
+    /**
+     * Applies the file for one name now, as the next look would: declares, replaces, switches on or off, or
+     * removes the object when its file is gone. A write calls this straight after writing: the next poll
+     * would find the file already applied, so without it the change would wait for nothing.
+     *
+     * @return why it was not applied, or null when it was (or there was nothing to apply)
+     */
+    public synchronized @Nullable PravahaException applyNow(DeclarationKind kind, String name) {
+        ConfigFolderProperties.Folder folder = folder(kind);
+        Map<String, DeclarationFile> current = current(kind);
+        List<Path> files = new ArrayList<>();
+        if (Files.isDirectory(folder.path())) {
+            for (Path file : DeclarationFile.list(folder.path())) {
+                if (DeclarationFile.nameOf(file).equals(name)) {
+                    files.add(file);
+                }
+            }
+        }
+        if (files.isEmpty()) {
+            return current.containsKey(name) ? removed(kind, name, current) : null;
+        }
+        if (files.size() > 1) {
+            PravahaException twice = new PravahaException(
+                    ConfigErrors.DECLARED_TWICE,
+                    "'" + name + "' is declared by " + files + "; one file per " + kind.label() + ".");
+            report(problem(kind, name, files.get(0), twice, List.of()));
+            return twice;
+        }
+        return arrived(kind, name, files.get(0), current);
     }
 
     /** The names declared by files, of one kind. */
@@ -211,20 +293,30 @@ public final class DeclarationWatcher {
                                 .noneMatch(declared -> declared.path().equals(file)));
     }
 
-    private void arrived(DeclarationKind kind, String name, Path path, Map<String, DeclarationFile> current) {
+    private @Nullable PravahaException arrived(
+            DeclarationKind kind, String name, Path path, Map<String, DeclarationFile> current) {
         DeclarationFile file;
         try {
             file = DeclarationFile.read(kind, path, placeholders);
         } catch (PravahaException e) {
             report(problem(kind, name, path, e, List.of()));
-            return;
+            return e;
         }
         DeclarationFile before = current.get(name);
         if (before != null
                 && before.canonical().equals(file.canonical())
                 && before.path().equals(path)) {
             clear(path);
-            return;
+            if (before.enabled() != file.enabled()) {
+                // Switched on or off and nothing else: never refused for being in use -- disabling a stream
+                // a query reads is the point. The query keeps running and receives nothing until enabled.
+                current.put(name, file);
+                target.changed();
+                String what = file.enabled() ? "enabled" : "disabled";
+                LOG.info("{} '{}' {} by {}", kind.label(), name, what, path);
+                record(kind, name, what, path, true, "");
+            }
+            return null;
         }
         if (before == null && (inline.apply(kind).contains(name) || target.declaredElsewhere(kind, name))) {
             report(problem(
@@ -239,59 +331,59 @@ public final class DeclarationWatcher {
                                             : "on this node by the API")
                                     + ". One name, one declaration: remove one of the two."),
                     List.of()));
-            return;
+            return new PravahaException(
+                    ConfigErrors.DECLARED_TWICE,
+                    java.util.Objects.requireNonNull(problems.get(path)).message());
         }
         List<String> users;
         try {
             users = target.declare(file);
         } catch (PravahaException e) {
             report(problem(kind, name, path, e, List.of()));
-            return;
+            return e;
         } catch (RuntimeException e) {
-            report(problem(
-                    kind,
-                    name,
-                    path,
-                    new PravahaException(ConfigErrors.FILE_INVALID, path + ": " + e.getMessage()),
-                    List.of()));
-            return;
+            PravahaException wrapped = new PravahaException(ConfigErrors.FILE_INVALID, path + ": " + e.getMessage());
+            report(problem(kind, name, path, wrapped, List.of()));
+            return wrapped;
         }
         if (!users.isEmpty()) {
-            report(inUse(kind, name, path, "changed", users));
-            return;
+            Problem held = inUse(kind, name, path, "changed", users);
+            report(held);
+            return new PravahaException(ConfigErrors.FILE_IN_USE, held.message());
         }
         current.put(name, file);
         clear(path);
+        target.changed();
         String what = before == null ? "declared" : "replaced";
         LOG.info("{} '{}' {} from {}", kind.label(), name, what, path);
         record(kind, name, what, path, true, "");
+        return null;
     }
 
-    private void removed(DeclarationKind kind, String name, Map<String, DeclarationFile> current) {
+    private @Nullable PravahaException removed(
+            DeclarationKind kind, String name, Map<String, DeclarationFile> current) {
         Path path = java.util.Objects.requireNonNull(current.get(name)).path();
         List<String> users;
         try {
             users = target.remove(kind, name);
         } catch (RuntimeException e) {
-            report(problem(
-                    kind,
-                    name,
-                    path,
-                    new PravahaException(
-                            ConfigErrors.FILE_INVALID,
-                            path + " was removed and " + kind.label() + " '" + name + "' could not be: "
-                                    + e.getMessage()),
-                    List.of()));
-            return;
+            PravahaException refused = new PravahaException(
+                    ConfigErrors.FILE_INVALID,
+                    path + " was removed and " + kind.label() + " '" + name + "' could not be: " + e.getMessage());
+            report(problem(kind, name, path, refused, List.of()));
+            return refused;
         }
         if (!users.isEmpty()) {
-            report(inUse(kind, name, path, "was removed", users));
-            return;
+            Problem held = inUse(kind, name, path, "was removed", users);
+            report(held);
+            return new PravahaException(ConfigErrors.FILE_IN_USE, held.message());
         }
         current.remove(name);
         clear(path);
+        target.changed();
         LOG.info("{} '{}' removed: {} was taken out", kind.label(), name, path);
         record(kind, name, "removed", path, true, "");
+        return null;
     }
 
     private Problem inUse(DeclarationKind kind, String name, Path path, String what, List<String> users) {

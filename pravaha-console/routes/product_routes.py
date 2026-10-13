@@ -37,7 +37,7 @@ from core import authoring
 from core.governance import owner_text, tag_pairs
 from core.services import ServiceError, jsonable
 from core.snippets import SnippetError, snippets
-from routes.auth_routes import current_user, local_path, login_required
+from routes.auth_routes import current_user, local_path, login_required, take_flashes
 from routes.base import ROLES, Routes, failure, role_of, session_roles, sign_in_first
 from routes.catalog_routes import listing
 
@@ -132,7 +132,10 @@ class ProductRoutes(Routes):
                 siblings.setdefault(q.fingerprint, []).append(q.name)
             sinks, sinks_error = (safe(services.catalog.sinks, []) if tab == "sinks" else ([], None))
             lookups, _ = (safe(services.plugins.lookups, []) if tab == "streams" else ([], None))
+            # ADR-064: New, Edit, Enable/Disable and Delete, offered where the engine would allow them.
+            can_create, may_change = self.ctx["manageable"](request)
             return self.page(request, "catalog.html", current="/catalog", tab=tab,
+                             can_create=can_create, may_change=may_change, flashes=take_flashes(request),
                              streams=streams, streams_error=streams_error, queries=queries,
                              queries_error=queries_error, siblings=siblings,
                              sinks=sinks, sinks_error=sinks_error, lookups=lookups,
@@ -163,7 +166,10 @@ class ProductRoutes(Routes):
             else:
                 readers = [q for q in queries if _names(q.sql, stream["name"])]
                 lineage = "name"
+            _, may_change = self.ctx["manageable"](request)
             return self.page(request, "stream_detail.html", current="/catalog", stream=stream,
+                             may_change=may_change(stream["name"]), flashes=take_flashes(request),
+
                              readers=readers, readers_error=readers_error, lineage=lineage,
                              templates=authoring.templates(stream))
 

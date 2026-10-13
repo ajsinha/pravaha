@@ -90,9 +90,10 @@ canvas, .freshness, #ops-freshness, #count, .monaco-editor .cursors-layer,
 """
 
 #: Pages photographed in the default and the dark theme only, narrow and wide (AI_MATRIX): the
-#: plain-English screens and the examples gallery, whose layout is the console's components and
-#: tokens throughout, so seven themes would photograph the tokens seven times.
-REDUCED = {"ask", "admin-ai", "help-examples"}
+#: plain-English screens, the declaration pages (ADR-064) and the examples gallery, whose layout is
+#: the console's components and tokens throughout, so seven themes would photograph the tokens
+#: seven times.
+REDUCED = {"ask", "admin-ai", "help-examples", "stream-new", "stream-edit", "connectors"}
 AI_MATRIX = [(theme, viewport, "comfortable") for theme in COMPACT_THEMES for viewport in VIEWPORTS]
 AI_MATRIX_IDS = ["-".join(m) for m in AI_MATRIX]
 

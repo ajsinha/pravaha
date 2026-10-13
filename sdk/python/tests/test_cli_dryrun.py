@@ -43,8 +43,11 @@ def dry(engine_url: str, *argv: str) -> "tuple[int, str, str]":
 def test_every_covered_command_takes_dry_run_and_nothing_else_does():
     tree = walk(build_parser())
     offered = {" ".join(path) for path, node in tree.items() if "--dry-run" in node["opts"]}
-    # A scaffold's --dry-run lists files it would write; it is not a planner of reads.
-    assert offered == set(COVERED) | {"init", "plugin new"}
+    # A scaffold's --dry-run lists files it would write; it is not a planner of reads. A
+    # declaration file's is the node's own (?dryRun=true): it writes nothing and says what would be.
+    declared = {f"{c} {v}" for c in ("streams", "connectors")
+                for v in ("create", "edit", "delete", "enable", "disable")}
+    assert offered == set(COVERED) | {"init", "plugin new"} | declared
 
 
 # ---------------------------------------------------------------------------------- drop

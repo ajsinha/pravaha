@@ -242,6 +242,10 @@ final class SharedPartitionFeed {
 
     private @Nullable Thread thread;
     private volatile boolean closed;
+
+    /** Whether this partition's stream is switched off (a disabled stream or connection, ADR-064). */
+    private volatile java.util.function.Predicate<String> stopped = name -> false;
+
     private volatile @Nullable PravahaException failure;
 
     /** When {@link #failure} was recorded. Written before it, so a reader that sees one sees both. */
@@ -812,8 +816,19 @@ final class SharedPartitionFeed {
         return reader == null ? SourceOffset.BEGINNING : reader.position();
     }
 
+    /** Reads nothing while {@code stopped} names this stream (ADR-064). */
+    SharedPartitionFeed stoppingWhen(java.util.function.Predicate<String> stopped) {
+        this.stopped = stopped;
+        return this;
+    }
+
     private void run() {
         while (!closed) {
+            if (stopped.test(stream)) {
+                // Disabled: declared, its readers held, and nothing read until it is enabled again.
+                LockSupport.parkNanos(20_000_000L);
+                continue;
+            }
             int moved;
             try {
                 moved = pollOnce();
