@@ -51,7 +51,8 @@ home the working directory, and starts the JVM with:
 | `-Duser.home=$PRAVAHA_HOME/tmp` | an arbitrary `--user` has no passwd entry, and the JVM then calls the home `?` — a library writing under it made a directory named `?` |
 | `-XX:+PerfDisableSharedMem` | HotSpot's counters are a file in `/tmp/hsperfdata_<user>` whatever `tmpdir` says; kept in memory instead. `jcmd` still works |
 | `-XX:HeapDumpPath=$PRAVAHA_HOME/logs`, `-XX:ErrorFile=$PRAVAHA_HOME/logs/hs_err_pid%p.log` | a heap dump (add `-XX:+HeapDumpOnOutOfMemoryError` to `PRAVAHA_JAVA_OPTS`) and a crash file land with the logs |
-| `-Dloader.path=$PRAVAHA_HOME/plugins` | jars dropped in `plugins/` are on the classpath at the next start |
+| `-Dloader.path=$PRAVAHA_HOME/plugins,<every external_lib/java/*.jar>` | jars dropped in `plugins/` or `external_lib/java/` are on the classpath at the next start (ADR-064) |
+| `-Dpravaha.external-lib.dir=$PRAVAHA_HOME/external_lib` | so the node's start-up log can say which jars it has, and which it found but did not load |
 | `-Dspring.config.additional-location=optional:classpath:/pravaha-home.yaml,optional:file:$PRAVAHA_HOME/conf/` | the layout, then your configuration, which wins |
 
 `PRAVAHA_JAVA_OPTS` comes after all of these, so any of them can be overridden. Without
@@ -68,9 +69,13 @@ home the working directory, and starts the JVM with:
 | `conf/application-<profile>.yaml` | profile overlays, if you use any | you | Spring Boot, from `conf/` |
 | `secrets/` (0700) | `initial-admin-password`, tokens, TLS keys, keystores | you | referenced from `conf/` (e.g. `secrets/initial-admin-password`) |
 | `plugins/` | extra jars for the engine's classpath (a JDBC driver, a plugin) | you | `loader.path` |
-| `data/registry.journal` | the registered continuous queries | the engine | `pravaha.registry.journal` (layout) |
-| `data/checkpoints/<query>/` | each query's checkpoints | the engine | `pravaha.checkpoint.directory` (layout) |
-| `data/identity/identity.journal` | users, password and key hashes, sessions | the engine | `pravaha.identity.store` (layout) |
+| `conf/streams/`, `conf/lookups/`, `conf/sinks/`, `conf/connectors/` | one YAML file per stream, lookup, sink and named connection, named after it; looked at again every `pravaha.config.watch-interval` (ADR-064) | you | `pravaha.config.dir` (layout), `pravaha.config.streams-dir` and siblings |
+| `conf/ai/` | the AI layer's provider files | you | `pravaha.config.dir` (layout), `pravaha.ai.dir` |
+| `external_lib/java/` | jars for the engine's classpath, read at start only | you | `pravaha.external-lib.dir` (layout), put on `loader.path` by the launcher |
+| `external_lib/python/` | modules on the console's `sys.path` | you | `pravaha.external-lib.dir` / `PRAVAHA_EXTERNAL_LIB` |
+| `data/registry.journal` | the registered continuous queries | the engine | `pravaha.registry.journal`, under `pravaha.data.dir` (layout) |
+| `data/checkpoints/<query>/` | each query's checkpoints | the engine | `pravaha.checkpoint.directory`, under `pravaha.data.dir` (layout) |
+| `data/identity/identity.journal` | users, password and key hashes, sessions | the engine | `pravaha.identity.store`, under `pravaha.data.dir` when identity is on (layout) |
 | `data/catalog.journal` | the catalogue's grants (ADR-059) | the engine | beside the registry journal |
 | `data/alerts.journal` | alert decisions (ADR-057) | the engine | beside the registry journal |
 | `data/dlq/` | dead letters, one file per query | the engine | `pravaha.dlq.directory` — **yours to set**: it switches the queue on |
@@ -85,7 +90,10 @@ home the working directory, and starts the JVM with:
 
 The layout itself — the second row of configuration, between the jar's defaults and yours — is
 [`pravaha-server/src/main/resources/pravaha-home.yaml`](../../pravaha-server/src/main/resources/pravaha-home.yaml)
-inside the server jar. It sets **only places**. A key whose value changes what the engine *does*
+inside the server jar. It sets **only places**, and since ADR-064 only three of them -- the roots
+`pravaha.data.dir` (`data/`), `pravaha.config.dir` (`conf/`) and `pravaha.external-lib.dir`
+(`external_lib/`) -- plus the log and the audit file; every other path is found beneath a root by
+convention and can still be set on its own in your file. A key whose value changes what the engine *does*
 (`dlq.directory`, `state.spill.directory`, anything under `security`) is left to your file, even
 though the layout has a directory ready for it. `PravahaHomeLayoutTest` fails the build if a new
 path-valued setting appears that is neither placed under the home nor deliberately left out.
@@ -482,8 +490,10 @@ here: `asinfo -v status` answered `ok`, `cqlsh` answered `release_version 4.1.12
 ## Adding a jar: `plugins/`
 
 The server jar carries every connector and the PostgreSQL JDBC driver. Anything else — a JDBC driver
-for another database, a plugin of your own — goes in `pravaha-home/plugins/` and is on the classpath
-at the next start (`loader.path`). Run here against the `cdc` profile's MySQL with a `jdbc` source
+for another database, a plugin of your own — goes in `pravaha-home/external_lib/java/` (or
+`pravaha-home/plugins/`, as before) and is on the classpath at the next start (`loader.path`). It is
+read at start only, and the node's start-up log names the jars it loaded. Code there runs with the
+engine's privileges: put nothing there you would not run. Run here against the `cdc` profile's MySQL with a `jdbc` source
 added to `conf/application.yaml`:
 
 ```yaml

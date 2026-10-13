@@ -7,7 +7,7 @@ icon: box-arrow-in-right
 summary: "Where rows come from: one page per shipped source, the three configuration blocks (streams, sources, lookups), how a plugin is found, what each source can and cannot see, and how to pick one."
 badge: START HERE
 audience: Operators
-keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc, kafka]
+keywords: [source, binding, plugin, connector, named connection, config/connectors, connector:, external_lib, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc, kafka]
 guide: continuous-queries#2-declaring-a-stream
 related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, source-mysql-cdc, source-kafka, lookups, connector-security]
 ---
@@ -92,6 +92,41 @@ A stream with **no binding** is not an error: it registers, runs, and receives o
 into it — a legitimate way to feed an embedded engine. The node says so:
 `no sources are bound, so registered queries receive rows only from clients that push them`.
 
+## A file per binding, and named connections
+
+A stream's source can live in the stream's own file, `config/streams/<stream>.yaml`, under `source:`
+([Streams](/help/topics/streams#declaring-a-stream-in-a-file)); a lookup in
+`config/lookups/<name>.yaml`, a sink in `config/sinks/<name>.yaml`. The node looks at the folders every
+`pravaha.config.watch-interval` and declares, replaces or removes what changed -- never what a
+registered query uses.
+
+**A named connection** keeps one system's plugin and options in one file, so every binding to it says
+only what is its own:
+
+```yaml
+# config/connectors/kafka-prod.yaml
+plugin: kafka
+options:
+  bootstrap.servers: broker1:9092
+  ssl.truststore.password: ${KAFKA_TRUSTSTORE_PASSWORD}
+```
+
+```yaml
+# config/streams/orders.yaml
+schema: "order_id:INT64,amount:INT64,event_time:TIMESTAMP"
+event-time: event_time
+source:
+  connector: kafka-prod
+  options:
+    topic: orders          # laid over the connection's options; the binding's own win
+```
+
+The plugin comes from the connection; naming a different `plugin:` beside it is PRV-1068, and a
+connection no file declares is PRV-1067. A connection a binding names is not changed or removed while
+it does (PRV-1065). `GET /api/v1/connectors` lists each one with its users and every password, secret,
+token or key shown as `****`. A literal secret in any of these files is refused (PRV-1063): write
+`${ENV_NAME}`.
+
 ## How a plugin is found
 
 Each plugin reports its own name and is discovered with Java's `ServiceLoader` **when the node
@@ -125,10 +160,14 @@ PostgreSQL JDBC driver. `java -jar pravaha-server.jar` can bind any of them.
 | `mysql-cdc` | `plugins/pravaha-plugin-mysql-cdc` | yes, no driver needed |
 | `kafka` (source), `kafka-sink` | `plugins/pravaha-plugin-kafka` | yes |
 
-**One limit worth knowing.** The launcher still reads only what is inside the jar: there is no
-plugins directory and `-Dloader.path` is not honoured, so a JDBC driver for a database other than
-PostgreSQL cannot yet be added at deployment time. Drivers for MySQL, Oracle and others are not
-bundled because their licences do not allow a proprietary product to redistribute them freely.
+**Adding a jar: `external_lib/java/`.** A connector of your own, or a JDBC driver for a database other
+than PostgreSQL, goes in `external_lib/java/` (`$PRAVAHA_HOME/external_lib/java/` under a home).
+`bin/pravaha-server` puts every `*.jar` there on the classpath at start, sorted, and `ServiceLoader`
+finds a plugin in one like a shipped one. It is read at start only: a jar added later needs a restart,
+and the start-up log lists the jars loaded. A node started without the launcher (an IDE,
+`java -jar`) does not load them, and says so. Code there runs with the server's privileges. Drivers
+for MySQL, Oracle and others are not bundled because their licences do not allow a proprietary product
+to redistribute them freely.
 
 **In an application that embeds the engine** (the embedded engine or the Spring Boot starter), a
 plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing

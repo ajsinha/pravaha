@@ -1596,8 +1596,11 @@ pravaha:
     port: 19090         # the shipped default, and what the CLI, both SDKs and the console assume
 ```
 
-A node with no `registry.journal` starts and **says so** — a development run does not need
-durability, but the cost of finding out at the next restart is every client's registrations.
+A node keeps its registrations by default: with nothing set, the registry journal is
+`data/registry.journal` and checkpoints are in `data/checkpoints/`, under `pravaha.data.dir`
+([the roots](#the-three-roots-data-config-external_lib)). Only `pravaha.data.dir: none` -- or `none` on
+the journal itself -- keeps them in memory, and the node **says so** at start: the cost of finding out
+at the next restart is every client's registrations.
 
 **`port: 0` is supported and is reportable.** The operating system picks the port, and
 `GET /api/v1/status` carries it in a `flight` field — `"flight":"127.0.0.1:44131"` — as does the
@@ -1635,7 +1638,8 @@ cp deploy/release/distribution/application.yaml.example "$PRAVAHA_HOME/conf/appl
 bin/pravaha-server                                  # from a checkout, or $PRAVAHA_HOME/bin/pravaha-server
 ```
 
-creates `conf/ data/ logs/ plugins/ secrets/ tmp/` as the user it runs as (`umask 077`; set
+creates `conf/` (with `streams/ lookups/ sinks/ connectors/`), `data/ logs/ plugins/ secrets/ tmp/` and
+`external_lib/` (with `java/ python/`) as the user it runs as (`umask 077`; set
 `PRAVAHA_UMASK` to change it), works from the home, reads `$PRAVAHA_HOME/conf/application.yaml`
 after the jar's layout file, and keeps the registry journal, checkpoints, identity store, catalogue,
 alerts, audit trail, the log, heap dumps and the JVM's temporary files under it. A relative path in
@@ -1647,6 +1651,74 @@ directory, as before.
 
 A distribution to unpack is `deploy/release/dist.sh` (`target/dist/pravaha-<version>.tar.gz`), with a
 systemd unit in its `conf/` ([`DEPLOYMENT.md`](DEPLOYMENT.md), "Without Docker: the same layout").
+
+### The three roots: data, config, external_lib
+
+A node keeps its state under one folder, reads its declarations from a second and loads added code from
+a third ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)). Every other path is
+found beneath them by convention, and each derived path is still a setting -- in a file, as
+`--pravaha.<key>=...` or as an environment variable -- that wins over the convention when written;
+`none` on a derived path switches that one store off.
+
+| Root | Default (home) | By convention beneath it |
+|---|---|---|
+| `pravaha.data.dir` | `./data` (`$PRAVAHA_HOME/data`) | `registry.journal` (`pravaha.registry.journal`), `checkpoints/` (`pravaha.checkpoint.directory`), `identity/identity.journal` (`pravaha.identity.store`, identity on); `catalog.journal` and `alerts.journal` beside the registry journal, wherever that is |
+| `pravaha.config.dir` | `./config` (`$PRAVAHA_HOME/conf`) | `streams/`, `lookups/`, `sinks/`, `connectors/` (`pravaha.config.streams-dir` and siblings), `ai/` (`pravaha.ai.dir`) |
+| `pravaha.external-lib.dir` | `./external_lib` (`$PRAVAHA_HOME/external_lib`) | `java/*.jar` on the classpath at start; `python/` on the console's and the CLI's `sys.path` |
+
+**Persistence is the default.** A node started with no settings keeps its registry journal and
+checkpoints under `./data`, so a restart brings back every registered query, its view and its source
+positions; until ADR-064 it kept them only in memory. The data root is created at start, and one that
+cannot be created or written stops the node with `PRV-1066`. `pravaha.data.dir: none` keeps nothing
+and warns. At start the node logs where everything is, once:
+
+```text
+... layout: data=/opt/pravaha/data, registry journal=/opt/pravaha/data/registry.journal, checkpoints=/opt/pravaha/data/checkpoints, catalogue=off (pravaha.catalog.enabled), alerts=/opt/pravaha/data/alerts.journal, identity=off (pravaha.identity.enabled); config=/opt/pravaha/conf, streams=/opt/pravaha/conf/streams, lookups=/opt/pravaha/conf/lookups, sinks=/opt/pravaha/conf/sinks, ai=/opt/pravaha/conf/ai, connectors=/opt/pravaha/conf/connectors; external_lib=/opt/pravaha/external_lib
+... external_lib/java (/opt/pravaha/external_lib/java): [mysql-connector-j-9.1.0.jar] on the classpath; read at start only -- a new jar needs a restart
+```
+
+**`external_lib/java/` is read at start only.** `bin/pravaha-server` puts every top-level `*.jar` there
+on the classpath, sorted, through `-Dloader.path` -- a JVM cannot safely swap jars, so a jar added while
+the node runs needs a restart. Because the classpath is fixed before the JVM starts, the launcher takes
+the root from `--pravaha.external-lib.dir=...` on its own command line or `PRAVAHA_EXTERNAL_LIB`, then the
+home; a value written only in `application.yaml` cannot move it. A node started without the launcher (an
+IDE, `java -jar`) loads none of them and its start-up line names the jars it found and did not load.
+**Code in `external_lib/` runs with the server's (or the console's) privileges**: it can read every row
+and every credential the process can. Put nothing there you would not run as that user.
+
+### Declaration files: one per stream, lookup, sink and connection
+
+A stream, its source, a lookup, a sink or a named connection can each be **a YAML file named after it**
+in `config/streams/`, `config/lookups/`, `config/sinks/` or `config/connectors/`
+(`$PRAVAHA_HOME/conf/...` under a home). A stream's file holds what `pravaha.streams.<name>` would, plus
+a `source:` block for what `pravaha.sources.<name>` would; [`CONNECTORS.md`](../guides/CONNECTORS.md#named-connections)
+has the connector side. The inline blocks keep working; the same name in a file and inline stops the
+node (`PRV-1062`).
+
+**At start**, every file is read through the same binder as the inline blocks, and one that cannot be
+used stops the node: an unknown key or an unreadable value (`PRV-1064`), a literal password, secret,
+token or key (`PRV-1063`), a name that would need brackets (`PRV-1061`), a folder named explicitly that
+does not exist (`PRV-1060`). A folder found by convention may be missing.
+
+**While the node runs**, the folders are looked at every `pravaha.config.watch-interval` -- one setting
+for all of them, `10m` by default, a unit required, at least `1s`, `0` or `off` to read them at start
+only. Each look takes connections, then streams, lookups and sinks:
+
+| The file | On the next look |
+|---|---|
+| **added** | its stream is declared and its source bound, its lookup opened, its sink bound or its connection made available. Logged at INFO, audited as `config.<kind>.declared` |
+| **taken out** | its object is **removed** |
+| **changed** (its settings, not its comments or key order) | its object is replaced |
+| **added, changed or taken out, and the object is in use** -- a registered query reads the stream, joins the lookup or writes the sink, or a binding names the connection | **not applied.** The running definition is kept and a `PRV-1065` warning names the file and the queries. It is retried at every look and goes through at the first one after the last of those queries is dropped -- or at a restart |
+| **broken** (`PRV-1061`, `PRV-1063`, `PRV-1064`, an unknown connection `PRV-1067`, a plugin the node cannot load) | reported, naming the file, and ignored until fixed; what it declared before keeps running. **A file never takes a running node down** |
+
+A folder that disappears while the node runs -- an unmounted volume -- is reported (`PRV-1060`) and
+removes nothing. Changes are made under the locks `POST /api/v1/streams` takes, so a registration cannot
+slip between "is it used?" and the change. What is not applied is visible in four places:
+`GET /api/v1/declarations` (every stream, lookup and sink with its `origin` -- `file:<path>`, `config` or
+`api` -- and its state), the stream's `notApplied` on `GET /api/v1/streams`, `pravaha status`, and the
+health detail `configFilesNotApplied` / `firstConfigFileNotApplied` (detail only: the node stays `UP`,
+because what is running is what was running).
 
 ### Where a failure's help link points
 
@@ -2209,7 +2281,9 @@ including reading its status, takes that permission, and an export is recorded i
 
 ## Restarts: what survives
 
-Registered continuous queries are written to a journal, so a restart does not lose them:
+Registered continuous queries are written to a journal, so a restart does not lose them. With
+nothing set it is `registry.journal` under `pravaha.data.dir` (`./data`, or `$PRAVAHA_HOME/data`), and
+checkpoints are beside it; name either explicitly to put it elsewhere:
 
 ```yaml
 pravaha:

@@ -55,6 +55,15 @@ python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:19090 -
 Three ports: the console on **17070**, the engine's Flight on **19090**, its HTTP on **18080** — the console
 uses both engine ports.
 
+**Code that is not the console's: `external_lib/python/`.** At start the console puts
+`<external_lib>/python` first on `sys.path` and logs the folder it added
+([ADR-064](../../design/adr/064-configuration-folders-and-node-layout.md)), before anything imports an
+optional extension -- so a deployment's own module there imports without being installed. The root is
+`paths.external_lib`, then `PRAVAHA_EXTERNAL_LIB`, then `$PRAVAHA_HOME/external_lib`, then the checkout's
+`external_lib/` beside `pravaha-console/` (`core/external_lib.py`). The `pravaha` CLI does the same at
+its start, defaulting to `./external_lib`. Code there runs with the console's privileges; review it as
+you would the console's own.
+
 ## 2. Adding an engine call
 
 1. The engine and the SDK first: the console may only do what the public SDK does

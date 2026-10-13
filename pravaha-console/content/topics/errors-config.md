@@ -4,10 +4,10 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1088: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept or will not read, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1088: a configuration value that cannot be read, a key that reached nothing, a declaration file not applied, a request the REST API will not accept, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
-keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, tls handshake, certificate, PRV-1046, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
+keywords: [configuration, declaration file, config folders, connector, named connection, data dir, in use, not applied, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, tls handshake, certificate, PRV-1046, missing field, invalid parameter, sdk, "413", "429", body too large, sign-in, max-request-body]
 guide: troubleshooting#every-code
 related: [errors-overview, configuration, clients, http-api]
 listed_on: errors-overview
@@ -23,6 +23,7 @@ They are grouped here by who raises them:
 | Codes | Raised by | When |
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
+| PRV-1060 – PRV-1068 | The server's configuration folders and data root (ADR-064) | At start, a refusal; while the node runs, a file reported as not applied |
 | PRV-1030 – PRV-1046 | The Java and Python SDKs | Constructing a client, or talking to the node |
 | PRV-1080 – PRV-1088 | The AI layer (ADR-063) and its plain-English features | An AI call while the layer is off, a provider, a model, the policy or the model endpoint refusing it, or a model's answer the engine could not use |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
@@ -145,6 +146,60 @@ a key no later request can address — not by URL, not in SQL, and over Flight o
 A surrogate **pair** is an ordinary character and is untouched.
 
 **Do:** send the text as UTF-8. If it came from a file, check what read it.
+
+## Declaration files and the data folder
+
+One YAML file per stream, lookup, sink and named connection, in `config/streams/` and its siblings
+(`$PRAVAHA_HOME/conf/...` under a home), named after the object. At start each of these stops the
+node; while it runs -- the folders are looked at every `pravaha.config.watch-interval`, `10m` by
+default -- the file is reported, ignored until fixed, and listed as *not applied*. A running node is
+never taken down by a file. See [Streams](/help/topics/streams#declaring-a-stream-in-a-file).
+
+### PRV-1060 — CONFIG_FOLDER_MISSING
+
+A folder named explicitly (`pravaha.config.streams-dir` and its siblings) does not exist. One found by
+convention under `pravaha.config.dir` may be missing. **Do:** create it, or remove the setting.
+
+### PRV-1061 — CONFIG_FILE_NAME_INVALID
+
+The file name is the object's name, and this one would need brackets. **Do:** rename the file to
+letters, digits, `_` and `-`.
+
+### PRV-1062 — CONFIG_DECLARED_TWICE
+
+One name in a file and inline (`pravaha.streams`, `pravaha.sources`, `pravaha.lookups`,
+`pravaha.sinks`), in a `.yaml` and a `.yml`, or in a new file after the API declared it. **Do:** keep
+one.
+
+### PRV-1063 — CONFIG_FILE_LITERAL_SECRET
+
+A literal password, secret, token or key in a declaration file. The message names the setting, never
+the value. **Do:** write `${ENV_NAME}`.
+
+### PRV-1064 — CONFIG_FILE_INVALID
+
+Not YAML, empty, an unknown key (named as written), or a value that cannot be read. **Do:** fix the
+file.
+
+### PRV-1065 — CONFIG_FILE_IN_USE
+
+A changed or removed file whose object a registered query uses -- or, for a connection, a binding
+names. The running definition is kept; the warning names the queries. **Do:** drop them and the change
+is applied at the next look, or restart.
+
+### PRV-1066 — CONFIG_DATA_DIR_UNUSABLE
+
+`pravaha.data.dir` (`./data` by default) cannot be created or written. **Do:** give it to the node's
+user, move it, or set it to `none` to keep nothing.
+
+### PRV-1067 — CONFIG_CONNECTOR_UNKNOWN
+
+A binding names a connection (`connector:`) no file declares; `404` on
+`GET /api/v1/connectors/{name}`. **Do:** add `config/connectors/<name>.yaml`, or fix the name.
+
+### PRV-1068 — CONFIG_CONNECTOR_PLUGIN_CLASH
+
+A binding names a plugin and a connection whose plugin differs. **Do:** leave `plugin:` out.
 
 ## Values that are not what the key needs
 

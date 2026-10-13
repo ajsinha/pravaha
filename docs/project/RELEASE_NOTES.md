@@ -12,6 +12,53 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
+**Read before upgrading.**
+
+- **A node with nothing set now keeps its queries** ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)).
+  The registry journal and checkpoints are found under `pravaha.data.dir` -- `./data` by default,
+  `$PRAVAHA_HOME/data` under a home -- so a restart brings back every registered query, its view and
+  its source positions; it used to keep them only in memory and forget them. `./data` is created at
+  start, and one that cannot be created or written stops the node (`PRV-1066`). To keep the old
+  behaviour set `pravaha.data.dir: none`, which is now the only case that warns. A node that already
+  names its journal, checkpoints or identity store keeps them where they are; the catalogue and alerts
+  journals stay beside the registry journal. The `users` profile no longer names an identity store:
+  it is `data/identity/identity.journal` by convention, the file it named before.
+- **`pravaha.ai.dir` is `ai/` under `pravaha.config.dir`** -- `config/ai`, or `$PRAVAHA_HOME/conf/ai`,
+  as before -- and `pravaha-home.yaml` now sets the three roots rather than each path.
+
+What changed, in detail:
+
+- **A file per stream, lookup, sink and named connection, watched while the node runs (ADR-064).**
+  `config/streams/<name>.yaml` declares the stream `<name>` -- what `pravaha.streams.<name>` holds, plus
+  an optional `source:` block -- and `config/lookups/`, `config/sinks/` and `config/connectors/` do the
+  same for lookups, sinks and connections (`pravaha.config.streams-dir` and its siblings to move them;
+  `$PRAVAHA_HOME/conf/...` under a home). The files are bound by the inline blocks' own binder; an
+  unknown key (`PRV-1064`), a literal secret (`PRV-1063`) and a name that would need brackets
+  (`PRV-1061`) are refused. Inline blocks keep working; one name in a file and inline is `PRV-1062`.
+  **The folders are looked at every `pravaha.config.watch-interval` (`10m`; `off` reads them at start
+  only): add a file and its stream, lookup, sink or connection is declared; take it out and it is
+  removed; change it and it is replaced** -- except what a registered query uses, which keeps its
+  running definition with a `PRV-1065` warning naming the file and the queries until they are dropped.
+  A file broken while the node runs is reported and ignored, never fatal. Each object's `origin`
+  (`file:<path>`, `config`, `api`) is on `GET /api/v1/streams`, the new `GET /api/v1/declarations`,
+  `pravaha streams` and the console's Catalog; files not applied are on `pravaha status` and the
+  health detail. `pravaha init` scaffolds `conf/streams/txn.yaml` instead of an inline block.
+- **Named connections.** `config/connectors/kafka-prod.yaml` holds a plugin and its options once; a
+  binding writes `connector: kafka-prod` and only its own options, which win on a clash. A different
+  `plugin:` beside it is `PRV-1068`, an unknown connection `PRV-1067`, and a connection a binding
+  names is not changed or removed while it does. `GET /api/v1/connectors` and `pravaha connectors
+  list|show` show each one with its users and every secret option as `****`.
+- **Three roots: `pravaha.data.dir`, `pravaha.config.dir`, `pravaha.external-lib.dir`.** Every other
+  path is found beneath them by convention and stays a setting of its own: an explicit value -- in a
+  file, `--pravaha.<key>=...` or the environment -- wins, and `none` switches one store off. One
+  `layout:` line at start names every store and folder.
+- **`external_lib/`: added code without rebuilding.** Every `*.jar` in `external_lib/java/` is on the
+  server's classpath at start, through `bin/pravaha-server`'s `-Dloader.path` -- a connector or a JDBC
+  driver dropped there is found like a shipped one; a new jar needs a restart, and the start-up log
+  lists the jars loaded. `external_lib/python/` is on the console's and the CLI's `sys.path`. Code in
+  either runs with that process's privileges. The image, the compose stack and the chart carry the
+  folder, and `pravaha init` creates it.
+
 - **Plain English on the engine, on Drishti's BI AI design ([AI.md](../guides/AI.md)).** Six features on
   the AI layer, each under its own policy name and audited without text: **ask your data**
   (`POST /api/v1/ai/ask`: the SQL the model chose, run as you -- your grants, row filters and masks --

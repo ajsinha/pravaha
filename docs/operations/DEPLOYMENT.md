@@ -43,7 +43,11 @@ Every path the product touches is under one root, `PRAVAHA_HOME` — `/opt/prava
 on a QA host, and in an unpacked distribution — and nothing outside it is the product's (the owner's
 decisions, 2026-09-26 and 2026-09-29). `bin/pravaha-server` makes it so: from a home it points the
 JVM's temporary directory, `user.home`, heap dumps and crash files under it and names the jar's
-`pravaha-home.yaml`, which places the journal, checkpoints, identity store, audit trail and log.
+`pravaha-home.yaml`, which sets the three roots -- `pravaha.data.dir` (`data/`), `pravaha.config.dir`
+(`conf/`) and `pravaha.external-lib.dir` (`external_lib/`) -- and the audit trail and log. Everything
+else is found beneath a root by convention ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)):
+the journal, checkpoints and identity store under `data/`, the declaration folders and `ai/` under
+`conf/`.
 [`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "The layout", has every path, with the setting that
 places it:
 
@@ -51,12 +55,23 @@ places it:
 |---|---|---|
 | `bin/`, `lib/` | the launcher and the server jar | the image / distribution |
 | `conf/application.yaml` | **the deployment's engine configuration**, read after the layout so it wins; `conf/console.yaml` the console's | the operator |
+| `conf/streams/`, `conf/lookups/`, `conf/sinks/`, `conf/connectors/` | one YAML file per stream (with its source), lookup, sink and named connection, named after it; looked at again every `pravaha.config.watch-interval` (`10m`): a file added declares, a file taken out removes -- never what a registered query uses | the operator |
+| `external_lib/java/`, `external_lib/python/` | jars on the engine's classpath at start (a restart picks up a new one), modules on the console's `sys.path`. Runs with the process's privileges | the operator |
 | `secrets/` | key material: the initial admin password, tokens, TLS keys (a chart mounts `secrets/tls`, `secrets/auth`) | the operator / Kubernetes |
 | `plugins/` | jars added to the engine's classpath (`loader.path`) | the operator |
 | `data/` | the volume: registry journal, checkpoints, identity store, catalogue, alerts, dead letters, spill | the engine |
 | `logs/` | `pravaha-server.log`, `audit.jsonl`, `pravaha-console.log`, heap dumps | the engine, the console |
 | `tmp/` | `java.io.tmpdir`: native codecs, Tomcat's work directory | the engine, the console |
 | `console/` | the console's code, in its own image | the image |
+
+**What is kept where, and how to override it.** `data/` is the one directory to back up and to put on
+a persistent volume: registry journal, checkpoints, identity store, catalogue and alerts journals are
+all in it by convention. Each path stays a setting of its own: write `pravaha.registry.journal`,
+`pravaha.checkpoint.directory`, `pravaha.config.streams-dir` and so on in `conf/application.yaml`, or
+pass `--pravaha.<key>=...`, and the explicit value wins; `none` switches one store off, and
+`pravaha.data.dir: none` keeps nothing at all. `external_lib/` is read by the launcher, so move it with
+`--pravaha.external-lib.dir=...` or `PRAVAHA_EXTERNAL_LIB`, not in `application.yaml`. The node logs
+one `layout:` line at start naming every store and folder.
 
 The image's old `defaults/application.yaml` is gone: the layout now travels inside the jar, so the
 image, a distribution and a developer's `PRAVAHA_HOME` all get the same one. Mount each directory
@@ -406,6 +421,18 @@ by `deploy/helm/test.sh`, along with the fact that no credential reaches the Con
 `StaticTokenVerifier` is named that so nobody mistakes it for an identity system. A real deployment
 implements `TokenVerifier` against whatever issues its credentials — see
 [`SECURITY.md`](SECURITY.md).
+
+### Declaration files and added jars
+
+The chart's `conf/` is a ConfigMap holding `application.yaml`. The per-object declarations come from
+a ConfigMap per folder, one key per object named `<object>.yaml`: `declarations.streams`,
+`.lookups`, `.sinks` and `.connectors` in `deploy/helm/pravaha/values.yaml` name existing ConfigMaps,
+each mounted at `/opt/pravaha/declarations/<folder>` and named to the node as
+`pravaha.config.<folder>-dir` ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)).
+An edited ConfigMap reaches the pod's files within the kubelet's sync period and the node applies it
+at its next look (`pravaha.config.watch-interval`). `externalLib.volume` takes any volume source -- a
+claim, a CSI volume -- mounted read-only at `/opt/pravaha/external_lib`. A jar in `external_lib/java/` is read at
+start only, so changing one means a rolling restart.
 
 ### Storage, and how much
 

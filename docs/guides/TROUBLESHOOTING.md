@@ -960,6 +960,29 @@ is waiting out `clear_after`; `owed` shows what the channels have not been told 
 `dedupe`, or not delivered (`delivery`). **An alert that said something twice** is at-least-once
 delivery doing its job after a retry or a restart: both carry the same `Idempotency-Key`.
 
+## A configuration file, or a data folder, refused (`PRV-1060` … `PRV-1068`)
+
+A stream, lookup, sink or named connection can be declared by a file of its own in the configuration
+folders -- `config/streams/<name>.yaml` and its siblings, `$PRAVAHA_HOME/conf/...` under a home
+([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)). **At start** every one of these
+stops the node, as invalid inline configuration does. **While the node runs** -- the folders are looked
+at every `pravaha.config.watch-interval`, `10m` by default -- the same refusal is a `WARN` naming the
+file: the file is ignored until it is fixed, whatever it declared before keeps running, and the node
+lists it as *not applied* (`GET /api/v1/declarations`, `pravaha status`, the console's Catalog, the
+health detail `firstConfigFileNotApplied`). Nothing in a file can take a running node down.
+
+| Code | What happened | What to do |
+|---|---|---|
+| `PRV-1060` | A folder named explicitly -- `pravaha.config.streams-dir`, `lookups-dir`, `sinks-dir` or `connectors-dir` -- does not exist. A folder found by convention under `pravaha.config.dir` may be missing; one somebody wrote must not, because a mistyped path would otherwise be a node that quietly declares nothing. While running: the folder vanished (an unmounted volume), and nothing it declared was removed | Create the folder, fix the path, or remove the setting to use the convention |
+| `PRV-1061` | A file's name is not a name the object can have without brackets. The file name, without `.yaml`, **is** the stream's, lookup's, sink's or connection's name: letters, digits, `_` and `-`, at most 128 | Rename the file, or declare the object inline under `pravaha.streams` with the bracketed key `"[name]"` |
+| `PRV-1062` | One name declared twice: by a file and inline (`pravaha.streams` or `pravaha.sources` for a stream, `pravaha.lookups`, `pravaha.sinks`), by `txn.yaml` and `txn.yml`, or -- while running -- by a new file for a stream the API already declared | Keep one declaration. A stream's source goes in its file's `source:` block, not in `pravaha.sources` |
+| `PRV-1063` | A literal value in a setting that holds a secret -- a key whose last part names a password, secret, token or API key. The message names the setting, never the value | Write it as `${ENV_NAME}` (or `${ENV_NAME:default}`) and set the variable where the node runs |
+| `PRV-1064` | The file cannot be used: not YAML, empty, more than one YAML document, an **unknown key** (named as you wrote it -- inline, Spring would have ignored it), or a value that cannot be read as its setting | Fix the file. A stream file accepts `schema`, `event-time`, `out-of-orderness`, `allowed-lateness` and a `source:` block; a lookup, sink or connection file accepts `plugin` (or `connector`) and `options` |
+| `PRV-1065` | **A changed or removed file whose object is in use**: a registered query reads the stream, joins the lookup or writes the sink, or a binding names the connection. The running definition is kept and the warning names the file and the queries (or `source:<stream>`, `lookup:<name>`, `sink:<name>`) | Drop those queries, or rebind those bindings, and the change or removal is applied at the next look. Or put the file back as it was. A restart applies it too |
+| `PRV-1066` | `pravaha.data.dir` -- `./data` by default, `$PRAVAHA_HOME/data` under a home -- cannot be created or written. The registry journal, checkpoints and identity store are kept beneath it | Give the directory to the user the node runs as, set `pravaha.data.dir` elsewhere, or set it to `none` to keep nothing across a restart |
+| `PRV-1067` | A binding names a connection (`connector: kafka-prod`) that no file in the connectors folder declares. While running, it is tried again at every look, so a connection file and the binding that names it may arrive in either order. `GET /api/v1/connectors/<name>` answers **404** with it | Add `config/connectors/<name>.yaml`, or fix the name |
+| `PRV-1068` | A binding names both a plugin and a connection whose plugin is a different one | Leave `plugin:` out -- the plugin comes from the connection -- or name a connection for that plugin |
+
 ## `PRV-1052` — an HTTP request that reached no endpoint
 
 Every non-2xx response on `/api/v1/**` is an `ApiError` — `code`, `message`, `helpUrl`,
@@ -1018,6 +1041,15 @@ client models the error rather than an empty object.
 | `PRV-1027` | CONFIG_KEY_UNREACHABLE | config |
 | `PRV-1028` | CONFIG_SCHEMA_MALFORMED | config |
 | `PRV-1029` | CONFIG_DOCS_BASE_URL_INVALID | config |
+| `PRV-1060` | CONFIG_FOLDER_MISSING | config |
+| `PRV-1061` | CONFIG_FILE_NAME_INVALID | config |
+| `PRV-1062` | CONFIG_DECLARED_TWICE | config |
+| `PRV-1063` | CONFIG_FILE_LITERAL_SECRET | config |
+| `PRV-1064` | CONFIG_FILE_INVALID | config |
+| `PRV-1065` | CONFIG_FILE_IN_USE | config |
+| `PRV-1066` | CONFIG_DATA_DIR_UNUSABLE | config |
+| `PRV-1067` | CONFIG_CONNECTOR_UNKNOWN | config |
+| `PRV-1068` | CONFIG_CONNECTOR_PLUGIN_CLASH | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
 | `PRV-1032` | CLIENT_INVALID_TLS_OPTIONS | client (SDK) |

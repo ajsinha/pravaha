@@ -7,7 +7,7 @@ icon: sliders
 summary: "How a node is configured: the shipped application.yaml, environment variables, command-line overrides and profiles, the whole pravaha: tree annotated — and every setting it reads, with its default and where it is explained."
 badge: SETTINGS
 audience: Operators
-keywords: [application.yaml, spring.profiles.active, environment variables, ports, 18080, 19090, 5432, node.id, dev profile, settings, configuration, properties, defaults, environment, flight, pgwire, security, lane, checkpoint, spill, standby, watermark, cluster, dlq, journal, every setting]
+keywords: [application.yaml, data.dir, config.dir, external_lib, config/streams, declaration files, watch-interval, connectors, layout, spring.profiles.active, environment variables, ports, 18080, 19090, 5432, node.id, dev profile, settings, configuration, properties, defaults, environment, flight, pgwire, security, lane, checkpoint, spill, standby, watermark, cluster, dlq, journal, every setting]
 guide: operations#starting-a-node
 related: [lanes, checkpoints-recovery, state-spill, authentication, observability]
 ---
@@ -46,13 +46,33 @@ and reads two more layers between the shipped file and the environment:
 
 | Layer | What it sets |
 |---|---|
-| `pravaha-home.yaml`, inside the server jar | only places: `logs/pravaha-server.log`, `data/registry.journal`, `data/checkpoints`, `data/identity/identity.journal`, `logs/audit.jsonl` |
+| `pravaha-home.yaml`, inside the server jar | only places: the three roots `data/`, `conf/` and `external_lib/` (everything beneath them follows [by convention](#the-three-roots)), `logs/pravaha-server.log`, `logs/audit.jsonl` |
 | `$PRAVAHA_HOME/conf/application.yaml` | your deployment's file; it wins over the layout |
 
 The working directory is the home, so a relative path in your file — `data/dlq`,
 `secrets/initial-admin-password` — means the same thing in a container and on a host. The JVM's
 temporary directory is `tmp/`, heap dumps and `hs_err` files go to `logs/`, and jars in `plugins/`
-are on the classpath. Without `PRAVAHA_HOME`, from a source checkout, none of this applies.
+and `external_lib/java/` are on the classpath. Without `PRAVAHA_HOME`, from a source checkout, the
+same roots are `./data`, `./config` and `./external_lib`.
+
+### The three roots
+
+A node keeps its state under one folder, reads its declarations from another and loads added code
+from a third. Every other path is found beneath them by convention, and **each derived path is still
+a setting of its own** -- written in a file, as `--pravaha.<key>=...` or as an environment variable,
+an explicit value wins; `none` on a derived path switches just that store off.
+
+| Root | Default | Beneath it |
+|---|---|---|
+| `pravaha.data.dir` | `data` | `registry.journal`, `checkpoints/`, `identity/identity.journal` (with identity on); the catalogue and alerts journals sit beside the registry journal. `none` keeps nothing across a restart |
+| `pravaha.config.dir` | `config` | `streams/`, `lookups/`, `sinks/`, `connectors/` -- [one file per object](/help/topics/streams#declaring-a-stream-in-a-file) -- and `ai/` |
+| `pravaha.external-lib.dir` | `external_lib` | `java/*.jar`, on the server's classpath at start (a new jar needs a restart), and `python/`, on the console's and the CLI's `sys.path`. Code here runs with the process's privileges |
+
+**A node with nothing set keeps its queries**: the registry journal and checkpoints are in `./data`, so
+a restart brings back every registered query, its view and its source positions. It used to keep them
+only in memory. The node logs one `layout:` line at start naming every store and folder -- read it to
+check where things are. `external_lib/java` is put on the classpath by `bin/pravaha-server`, so its
+root is taken from that command line or `PRAVAHA_EXTERNAL_LIB`, not from `application.yaml`.
 `docs/operations/RUNNING_IN_DOCKER.md` has the whole layout, the images and the compose stack.
 
 ### The `dev` profile
@@ -77,8 +97,7 @@ pravaha-server --spring.profiles.active=dev
 ... lane sizing: batch=512, inbox=2048x512B, arena=4194304B x8, wait=BACKOFF_PARK -- about 1024 KiB held per idle query
 ... lanes: auto (a lane each until 64 queries are hosted, then shared), queries per lane [] of at most 300; 0 on lanes of their own
 ... security: authentication=none, policy=permissive, audit=none, flight transport=PLAINTEXT
-... WARN pravaha.checkpoint.directory is not set, so registered queries keep no checkpoints: ...
-... WARN pravaha.registry.journal is not set, so registered queries live only in memory and ...
+... layout: data=/home/you/pravaha/data, registry journal=/home/you/pravaha/data/registry.journal, checkpoints=/home/you/pravaha/data/checkpoints, ...
 ... Flight SQL listening on 0.0.0.0:19090
 ```
 
@@ -96,6 +115,10 @@ the `admin` role, and only `admin` reads the audit trail. Until 2.0.1 it left `p
 (PERMISSIVEUSERS-1). A home whose catalogue imported `permissive` under that profile refuses to
 start with PRV-7034: set `pravaha.security.policy: permissive` to keep it, or
 `pravaha.catalog.authority: catalog`.
+
+With `dev,users` a local node keeps everything -- users, queries, their views and source positions --
+in `./data`: the identity store is `data/identity/identity.journal` by convention, beside the registry
+journal and the checkpoints.
 
 ## The ports
 
@@ -405,9 +428,23 @@ down as such.
 | `pravaha.identity.lockout.duration` | `30m` | How long a bar, or an account lock, lasts |
 | `pravaha.identity.lockout.trusted-proxies` | *none* | Addresses or CIDR blocks (the console, a load balancer) whose `X-Forwarded-For` is believed; a malformed entry is PRV-7004 at startup |
 
+### The roots and the declaration folders
+
+| Setting | Default | What it does |
+|---|---|---|
+| `pravaha.data.dir` | `data` | Where the node keeps its state ([the three roots](#the-three-roots)). Created at start; one that cannot be created or written stops the node (PRV-1066). `none` keeps nothing across a restart |
+| `pravaha.config.dir` | `config` | Where the declaration folders and `ai/` are found |
+| `pravaha.external-lib.dir` | `external_lib` | Added code: `java/*.jar` on the classpath at start (set it on the `bin/pravaha-server` command line or as `PRAVAHA_EXTERNAL_LIB`), `python/` on the console's and the CLI's path |
+| `pravaha.config.streams-dir` | `streams/` under `pravaha.config.dir` | One `<stream>.yaml` per stream, with an optional `source:` block. Named here, it must exist (PRV-1060) |
+| `pravaha.config.lookups-dir` | `lookups/` under `pravaha.config.dir` | One `<lookup>.yaml` per dimension table |
+| `pravaha.config.sinks-dir` | `sinks/` under `pravaha.config.dir` | One `<sink>.yaml` per sink |
+| `pravaha.config.connectors-dir` | `connectors/` under `pravaha.config.dir` | One `<name>.yaml` per named connection, a plugin and options a binding takes with `connector: <name>` |
+| `pravaha.config.watch-interval` | `10m` | How often the folders are looked at: a new file declares, a removed file removes, a changed file replaces -- except what a registered query uses (PRV-1065). `0` or `off` reads them at start only. A unit is required; at least `1s` |
+
 ### Streams, sources, lookups and sinks
 
-These are maps whose keys are **your** names — a stream called `txn` is configured under
+These can be declared [one file per object](/help/topics/streams#declaring-a-stream-in-a-file), or
+inline. Inline, they are maps whose keys are **your** names — a stream called `txn` is configured under
 `pravaha.streams.txn`. A name with anything but letters, digits and hyphens has to be **bracketed**
 -- `"[txnü]": {schema: ...}` -- because Spring canonicalises a map key before binding it and
 discards one it cannot. A key that reaches nothing is refused at startup with PRV-1027; it used to
@@ -440,8 +477,8 @@ sinks [filesystem](/help/topics/sink-filesystem), [jdbc-sink](/help/topics/sink-
 
 | Setting | Default | What it does |
 |---|---|---|
-| `pravaha.registry.journal` | *empty* | A file where registrations are written down and replayed at startup. Unset: queries live only in memory and a restart loses them (the node warns). **Its directory has to exist** -- it used to be created on the first append, so a typo journalled to the wrong place silently; a missing one is now PRV-8006 at startup. Holds SQL and bound values — permission it like data |
-| `pravaha.checkpoint.directory` | *empty* | Where each query checkpoints its state, one directory per query. Unset: no checkpoints, and a restart recovers questions but not answers. Needed by a standby and by exactly-once sinks. A path that exists and is not a directory, or one whose parent does not, is PRV-4093 at startup |
+| `pravaha.registry.journal` | `registry.journal` under `pravaha.data.dir` | A file where registrations are written down and replayed at startup. `none` (or `pravaha.data.dir: none`): queries live only in memory and a restart loses them (the node warns). **Its directory has to exist** -- it used to be created on the first append, so a typo journalled to the wrong place silently; a missing one is now PRV-8006 at startup. Holds SQL and bound values — permission it like data |
+| `pravaha.checkpoint.directory` | `checkpoints/` under `pravaha.data.dir` | Where each query checkpoints its state, one directory per query. `none`: no checkpoints, and a restart recovers questions but not answers. Needed by a standby and by exactly-once sinks. A path that exists and is not a directory, or one whose parent does not, is PRV-4093 at startup |
 | `pravaha.checkpoint.interval` | `1m` | How often a query checkpoints. Bounds how much a restart replays — and how far a transactional sink trails the view. **Write the unit**: a bare number is read as milliseconds by Spring and is refused (PRV-1023) |
 | `pravaha.checkpoint.keep` | `3` | Checkpoints kept per query, at least 1 (PRV-1026 at startup). Counted, not timed: an age rule would delete the last fallback after a quiet night |
 | `pravaha.checkpoint.timeout` | `30s` | How long one checkpoint may take before it is abandoned (and counted in `pravaha_query_checkpoint_failures_total`) |
@@ -530,7 +567,7 @@ Off by default; keys only from the environment, in the provider files, never her
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.ai.enabled` | `false` | The master switch (`PRAVAHA_AI_ENABLED`). Off: no provider file is read, no model is called, every AI call is PRV-1080 |
-| `pravaha.ai.dir` | `config/ai` | The folder of provider files, one `<name>.yaml` each (`$PRAVAHA_HOME/conf/ai` under a home). A literal key in a file is refused; `*.yaml.example` is not read |
+| `pravaha.ai.dir` | `ai/` under `pravaha.config.dir` | The folder of provider files, one `<name>.yaml` each (`$PRAVAHA_HOME/conf/ai` under a home). A literal key in a file is refused; `*.yaml.example` is not read |
 | `pravaha.ai.default-model` | *empty* | The model a call that names none gets: `provider/model`, or a name only one provider has |
 | `pravaha.ai.reload-interval` | `5s` | How often the folder is looked at: added, changed and removed files are picked up without a restart, and a provider that could not be built is tried again |
 | `pravaha.ai.test-per-minute` | `6` | Test connections one administrator may make a minute (`POST /api/v1/admin/ai/test`, each capped at 15 seconds) |
