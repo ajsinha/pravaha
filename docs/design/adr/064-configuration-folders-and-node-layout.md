@@ -127,9 +127,8 @@ declares is `PRV-1067` (at start a refusal, while running a report retried at ea
 cannot name another. Changing or removing a connection a binding names is refused like any in-use
 change, with the bindings named (`source:txn`, `lookup:users`, `sink:out`). `GET /api/v1/connectors`
 lists each connection's plugin, file and users with every secret option shown as `****`; `pravaha
-connectors list|show` reads it. The write path the console's editor will need is not built; the loader
-and validator (`DeclarationFile.read`) are the ones a write API would call before replacing a file
-atomically.
+connectors list|show` reads it. The write path -- the console's editor, the API and the CLI -- is the
+addendum below.
 
 ### 5. Three roots, everything else by convention
 
@@ -211,3 +210,58 @@ start. Code in either folder runs with that process's privileges.
   server whose `pravaha.config.dir` comes from `PRAVAHA_CONFIG_DIR` alone -- no command-line argument or
   system property sets it, and the YAML does not set it to the same path -- refuses to start with
   `PRV-1069`, naming the variable and the fix.
+
+## Addendum: writing the files from the console, the API and the CLI (2026-10-12)
+
+The owner's principle: *the most configurability from conventions on top of a few key settings* --
+so **the files stay the single source of truth**, and the console, the API and the CLI change a node
+by writing the same `${config}/<kind>/<name>.yaml` a person would.
+
+- **Endpoints.** `POST` (create), `PUT` (replace), `DELETE` on `/api/v1/streams/{name}`,
+  `/api/v1/connectors/{name}` and `/api/v1/declarations/{lookups|sinks}/{name}`; `POST .../enable` and
+  `.../disable` for streams and connections; `GET .../{name}/file` for an editor; `POST
+  /api/v1/connectors/{name}/test`. Each write takes `?dryRun=true` and answers `DeclarationChange` --
+  the action, whether it is valid, the exact file text, the dependents, and a refusal's code and words --
+  always 200; a refused real write is the `ApiError` for its code. A body is the fields, or `yaml`: the
+  whole file, written as given. The CLI is `pravaha streams create|edit|delete|enable|disable` and
+  `pravaha connectors create|edit|delete|enable|disable|test`.
+- **How a write is made** (`DeclarationWrites`). The text is staged in a hidden folder beside the target,
+  which no look lists, and read by `DeclarationFile.read` -- the rules are not forked: an unknown key
+  `PRV-1064`, a literal secret `PRV-1063`. What the live apply would refuse without I/O is asked next
+  (the schema, the connection a binding names, whether the plugin loads). A change or removal of an
+  object something uses is refused, `PRV-1065`, naming the users. Then the file is written atomically
+  -- a hidden temporary file in the same folder, forced to disk, renamed over the old one, the folder
+  forced -- and applied **at once** through the watcher's own path (`DeclarationWatcher.applyNow`), under
+  the watcher's lock so no poll sees half of it. What only the apply can find (a dimension table that
+  will not open) puts the old file back and applies it again. **A refused write writes nothing.** Hand
+  edits and API writes are therefore indistinguishable to the node: a restart reads the same files, and
+  comments in a hand-written file survive an enable or disable, which edits only its `enabled:` line (a
+  full replace through the form re-renders the file).
+- **`enabled`.** A stream file and a connection file may say `enabled: false` (default `true`; not a
+  lookup's or sink's). A **disabled stream** is declared and its source stays bound, but nothing is read
+  from it: every running feed skips its readers (`PluginSourceFeeds.stopReading`; a shared reader parks),
+  so the queries over it **keep running and receive nothing**, and a query registered meanwhile reads it
+  once it is enabled. **Enabling** resumes the readers from where they stood. A **disabled connection**
+  stops the stream sources that name it, as disabling each stream would; lookups and sinks naming it keep
+  running -- a loaded dimension table and a sink owed output are not what a switch-off is for. Switching
+  on or off is **never refused for being in use** -- it is the point -- because "changed" is the file's
+  settings without `enabled`; any other change to an object in use is refused as before. At start a
+  disabled file is declared disabled.
+- **`POST /api/v1/streams`** is kept as it is: a stream on the running node only (origin `api`), no
+  source, gone at a restart. It does not write a file; a name it declared is refused to a file write
+  (`PRV-1072`), as to a new file (`PRV-1062`).
+- **Option metadata.** A plugin found on the classpath declares no option metadata (only a registered
+  plugin's `PluginManifest.configSchema` names settings), so the console's options form is key/value rows,
+  prefilled with a manifest's setting names when there are any; a secret-looking key must hold
+  `${ENV_NAME}`, which the form explains.
+- **Testing a connection** configures the connection's plugin (source, else lookup, else sink) with its
+  options plus any given for the test, opens it, asks `health()` and closes it, bounded (10 s default, at
+  most 60). The answer is the state, the latency and the plugin's words with every secret option's value
+  struck out; a failure is `PRV-1074` in the answer.
+- **Who and what is recorded.** Every write, and the test, needs the `admin` role or a grant to
+  administer the object (`HttpAuthorizer.requireAdminister`, as `POST /api/v1/streams` always has) and is
+  audited as `config.<kind>.<create|update|delete|enable|disable>` / `config.connector.test` with the
+  caller; the node's own `config.<kind>.declared|replaced|removed|enabled|disabled` follows.
+- **New codes:** `PRV-1070` (name already declared by a file), `PRV-1071` (no file declares it),
+  `PRV-1072` (declared inline or by the API, not a file), `PRV-1073` (no folders, or not writable),
+  `PRV-1074` (connection test failed).

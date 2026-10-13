@@ -97,6 +97,37 @@ from under you. `pravaha streams` shows each stream's `ORIGIN` (`file:<path>`, `
 change goes through at the next look. [CONNECTORS.md](CONNECTORS.md#named-connections) has the
 connector side.
 
+### Managing streams from the console or the CLI
+
+You do not have to edit the files by hand. The console's **Catalog → Streams** lists every stream
+with where it came from, whether it is enabled, what feeds it and how many queries read it, and has
+**New stream** (a schema builder, the event-time column, the lateness settings, a source -- a plugin or
+a named connection -- and its options), **Edit**, **Delete** and **Enable/Disable**; **Catalog →
+Connectors** does the same for named connections and can **test** one. The CLI says the same things:
+
+```bash
+pravaha streams create card_swipe --schema 'card_id:STRING,amount:INT64,event_time:TIMESTAMP' \
+    --event-time event_time --out-of-orderness 10s --connector kafka-prod --option topic=card-swipes --dry-run
+pravaha streams create card_swipe --file card_swipe.yaml     # the file as you wrote it
+pravaha streams disable card_swipe                            # its queries keep running, receive nothing
+pravaha streams enable card_swipe
+pravaha streams delete card_swipe --dry-run                   # lists the queries that read it
+```
+
+**Each of these writes the file a person would** -- `config/streams/<name>.yaml`, atomically -- and the
+node applies it at once, not at the next look; the file stays the single source of truth, so a
+restart, a `git diff` of the folder and the next hand edit all see what the console did. Every one
+takes a **dry run** (the console's *Validate*, the CLI's `--dry-run`) that writes nothing and shows
+the exact file, whether the node would accept it, and what uses the stream. A change or removal of a
+stream a query reads is refused and writes nothing (`PRV-1065`, naming the queries).
+
+**Disabling a stream** writes `enabled: false` into its file: the stream stays declared and bound, its
+source is read from nothing, and the queries over it keep running and receive nothing. That is never
+refused for being in use -- it is how you stop a misbehaving source without dropping its queries.
+**Enable** removes the line, and the readers resume where they stood. Writes need the `admin` role or a
+grant to administer the stream, and are audited (`config.stream.create`, `…update`, `…delete`,
+`…enable`, `…disable`, with who).
+
 ## 2. Register a continuous query
 
 In SQL, through anything that sends SQL — `client.query(...)` in either SDK, `pravaha query --sql`,

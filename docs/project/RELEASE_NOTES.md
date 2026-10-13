@@ -14,6 +14,22 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 **Read before upgrading.**
 
+- **Streams, connections, lookups and sinks can be managed from the console, the API and the CLI**
+  ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md), addendum). The console's
+  Catalog → Streams (New stream with a schema builder, Edit, Delete, Enable/Disable) and Catalog →
+  Connectors (plugins, named connections, Test connection); `POST`/`PUT`/`DELETE /api/v1/streams/{name}`,
+  `/api/v1/connectors/{name}`, `/api/v1/declarations/{lookups|sinks}/{name}`, `.../enable|disable`,
+  `POST /api/v1/connectors/{name}/test`, each with `?dryRun=true`; `pravaha streams
+  create|edit|delete|enable|disable` and `pravaha connectors create|edit|delete|enable|disable|test`. Each
+  **writes the file a person would**, atomically, and applies it at once; a refused write (in use
+  `PRV-1065`, a literal secret `PRV-1063`) writes nothing. **`enabled: false`** in a stream file
+  declares the stream and reads nothing from its source -- its queries keep running and receive nothing
+  -- and in a connection file stops the stream sources that name it; switching off is never refused for
+  being in use. Writes need the `admin` role or a grant to administer the object, and are audited
+  (`config.<kind>.<action>`, `config.connector.test`). New codes `PRV-1069` … `PRV-1073`. The node needs
+  write access to its declaration folders for these (a read-only mount answers `PRV-1072`).
+  `GET /api/v1/streams` gains `enabled`, `connector` and `dependents`; `GET /api/v1/connectors` gains
+  `enabled`. `POST /api/v1/streams` (a stream on the running node only) is unchanged.
 - **A node with nothing set now keeps its queries** ([ADR-064](../design/adr/064-configuration-folders-and-node-layout.md)).
   The registry journal and checkpoints are found under `pravaha.data.dir` -- `./data` by default,
   `$PRAVAHA_HOME/data` under a home -- so a restart brings back every registered query, its view and
