@@ -93,6 +93,8 @@ class OrphanedClassTest {
             Map.entry("ObservabilityEnvironment", "Spring Boot spring.factories EnvironmentPostProcessor"),
             Map.entry("QueryController", "Spring @RestController"),
             Map.entry("AiController", "Spring @RestController"),
+            Map.entry("ConnectorController", "Spring @RestController"),
+            Map.entry("DeclarationController", "Spring @RestController"),
             Map.entry("AiConfiguration", "Spring @Configuration"),
             // ADR-063: listed in pravaha-ai's META-INF/services/com.ash.messaging.pravaha.ai.ProviderFactory
             Map.entry("OllamaProvider", "ServiceLoader / ProviderFactory"),
@@ -254,6 +256,8 @@ class OrphanedClassTest {
             return walk.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> p.toString().contains(under))
                     .filter(p -> !p.toString().contains("/target/"))
+                    // a tutorial's sample project is the reader's code, not the product's
+                    .filter(p -> !p.toString().contains("/docs/tutorials/"))
                     // Agent worktrees under .claude/ are copies of this repository; counting
                     // them would let a class deleted here go on looking referenced.
                     .filter(p -> !p.startsWith(nestedCheckouts()))
