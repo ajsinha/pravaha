@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
+{% import "_people.html" as people %}
 {% block title %}{{ t('catalog.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -9,9 +10,14 @@
     <p class="kicker mt-2 mb-1">{{ t('catalog.kicker') }}</p>
     <h1>{{ t('catalog.heading') }}{{ helplink('catalog') }}</h1>
   </div>
-  <a class="btn btn-sm btn-primary" href="/start">{{ t('catalog.declare_or_write') }}</a>
+  <div class="d-flex flex-wrap gap-2">
+    {% if can_create %}<a class="btn btn-sm btn-primary" href="/catalog/streams/new" id="new-stream">{{ t('decl.stream.new') }}</a>{% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="/catalog/connectors">{{ t('decl.connectors.heading') }}</a>
+    <a class="btn btn-sm {{ 'btn-outline-secondary' if can_create else 'btn-primary' }}" href="/start">{{ t('catalog.declare_or_write') }}</a>
+  </div>
 </div>
 <div class="rule"></div>
+{% if flashes %}{{ people.flashes(flashes) }}{% endif %}
 
 <nav class="tabs-bar" aria-label="{{ t('catalog.sections') }}">
   <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>{{ t('catalog.tab.streams') }}<span class="count">{{ '?' if streams_error else streams|length }}</span></a>
@@ -76,13 +82,18 @@
         {% if s.source %}<span class="chip mute" title="{{ t('catalog.stream.source_title') }}">{{ s.source }}</span>{% else %}<span class="chip mute">{{ t('catalog.stream.not_bound') }}</span>{% endif %}
         {#- ADR-064: where the stream was declared, and a file change the node has not applied. #}
         {% if s.get('origin') %}<span class="chip mute stream-origin" title="{{ t('catalog.stream.origin_title') }}">{{ s.origin }}</span>{% endif %}
-        {% if s.get('notApplied') %}<span class="chip warn stream-not-applied" title="{{ s.notApplied }}">{{ t('catalog.stream.not_applied') }}</span>{% endif %}</div>
+        {% if s.get('notApplied') %}<span class="chip warn stream-not-applied" title="{{ s.notApplied }}">{{ t('catalog.stream.not_applied') }}</span>{% endif %}
+        {#- The file's enabled:, its named connection, and how many queries read it. #}
+        {% if s.get('enabled') is sameas false %}<span class="chip warn stream-disabled" title="{{ t('decl.state.disabled_title') }}"><span class="dot"></span>{{ t('decl.state.disabled') }}</span>{% endif %}
+        {% if s.get('connector') %}<span class="chip mute stream-connection" title="{{ t('decl.state.connection_title') }}">{{ t('decl.state.connection', name=s.connector) }}</span>{% endif %}
+        {% if s.get('dependents') is not none %}<span class="chip mute stream-dependents">{{ t('decl.state.readers', n=s.dependents) }}</span>{% endif %}</div>
       <ul class="field-list mt-2">
         {% for f in s.fields[:6] %}<li><span class="mono">{{ f.name }}</span><span class="field-type">{{ f.type }}</span></li>{% endfor %}
         {% if s.fields|length > 6 %}<li class="text-muted small">{{ t('catalog.stream.more', n=s.fields|length - 6) }}</li>{% endif %}
       </ul>
       <div class="d-flex gap-2 mt-2">
         <a class="btn btn-sm btn-outline-secondary" href="/workbench?template=tumble&amp;stream={{ s.name }}">{{ t('catalog.stream.query_it') }}</a>
+        {% if may_change(s.name) and (s.get('origin') or '').startswith('file:') %}<a class="btn btn-sm btn-outline-secondary" href="/catalog/streams/{{ s.name|urlencode }}/edit">{{ t('decl.stream.edit') }}</a>{% endif %}
         <a class="btn btn-sm btn-link" href="/catalog/streams/{{ s.name }}">{{ t('catalog.stream.schema') }} &rarr;</a></div>
     </div></div></div>
     {% endfor %}
@@ -92,11 +103,13 @@
   {% if lookups %}
   <h2 class="h6 mt-4">{{ t('catalog.lookups.heading') }}</h2>
   <div class="card"><div class="table-responsive"><table class="table mb-0" id="lookups-table">
-    <thead><tr><th>{{ t('catalog.lookups.table') }}</th><th>{{ t('catalog.lookups.plugin') }}</th></tr></thead>
-    <tbody>{% for l in lookups %}<tr><td class="mono">{{ l.name }}</td><td class="mono small">{{ l.plugin }}</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>{{ t('catalog.lookups.table') }}</th><th>{{ t('catalog.lookups.plugin') }}</th>{% if can_create %}<th><span class="visually-hidden">{{ t('decl.connectors.col.actions') }}</span></th>{% endif %}</tr></thead>
+    <tbody>{% for l in lookups %}<tr><td class="mono">{{ l.name }}</td><td class="mono small">{{ l.plugin }}</td>
+      {% if can_create %}<td><a class="btn btn-sm btn-link" href="/catalog/lookups/{{ l.name|urlencode }}/edit">{{ t('decl.yaml.edit_file') }}</a></td>{% endif %}</tr>{% endfor %}</tbody>
   </table></div></div>
   <p class="small text-muted mt-2">{{ t('catalog.lookups.note') }}</p>
   {% endif %}
+  {% if can_create %}<p class="mt-2"><a class="btn btn-sm btn-outline-secondary" href="/catalog/lookups/new" id="new-lookup">{{ t('decl.yaml.new_lookup') }}</a></p>{% endif %}
 
 {% elif tab == 'queries' %}
   {% if queries_error %}
@@ -133,7 +146,7 @@
     <code>pravaha.sinks.&lt;name&gt;</code> {{ t('catalog.no_sinks.after') }}</p></div>
   {% else %}
   <div class="card"><div class="table-responsive"><table class="table mb-0" id="sinks-table">
-    <thead><tr><th>{{ t('catalog.sinks.sink') }}</th><th>{{ t('catalog.sinks.plugin') }}</th><th>{{ t('catalog.sinks.row_shape') }}</th><th>{{ t('catalog.sinks.key') }}</th><th>{{ t('catalog.sinks.accepts') }}</th><th>{{ t('catalog.sinks.written_by') }}</th></tr></thead>
+    <thead><tr><th>{{ t('catalog.sinks.sink') }}</th><th>{{ t('catalog.sinks.plugin') }}</th><th>{{ t('catalog.sinks.row_shape') }}</th><th>{{ t('catalog.sinks.key') }}</th><th>{{ t('catalog.sinks.accepts') }}</th><th>{{ t('catalog.sinks.written_by') }}</th>{% if can_create %}<th><span class="visually-hidden">{{ t('decl.connectors.col.actions') }}</span></th>{% endif %}</tr></thead>
     <tbody>
     {% for k in sinks %}
     <tr><td class="mono">{{ k.name }}</td><td class="mono small">{{ k.plugin }}</td>
@@ -144,10 +157,13 @@
       <td class="small">{% for m in k.emitModes or [] %}<span class="chip mute me-1">{{ m }}</span>{% endfor %}
         {% if k.acceptsRetractions %}<span class="chip ok" title="{{ t('catalog.sinks.revisions_title') }}">{{ t('plugins.revisions') }}</span>
         {% elif not k.problem %}<span class="chip warn" title="{{ t('catalog.sinks.append_only_title') }}">{{ t('plugins.append_only') }}</span>{% endif %}</td>
-      <td class="small">{% for w in k.writers or [] %}<a class="mono" href="/queries/{{ w }}">{{ w }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">{{ t('plugins.nothing_visible') }}</span>{% endfor %}</td></tr>
+      <td class="small">{% for w in k.writers or [] %}<a class="mono" href="/queries/{{ w }}">{{ w }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">{{ t('plugins.nothing_visible') }}</span>{% endfor %}</td>
+      {% if can_create %}<td><a class="btn btn-sm btn-link" href="/catalog/sinks/{{ k.name|urlencode }}/edit">{{ t('decl.yaml.edit_file') }}</a></td>{% endif %}</tr>
     {% endfor %}
     </tbody></table></div></div>
-  <p class="small text-muted mt-2">{{ t('catalog.sinks.note_promises') }} (<a href="/help/codes/PRV-2041">PRV-2041</a>); {{ t('catalog.sinks.note_shape') }} (<a href="/help/codes/PRV-8010">PRV-8010</a>).</p>
+  {% if can_create %}<p class="mt-2"><a class="btn btn-sm btn-outline-secondary" href="/catalog/sinks/new" id="new-sink">{{ t('decl.yaml.new_sink') }}</a></p>{% endif %}
+  <p class="small text-muted mt-2">{{ t('catalog.sinks.note_promises') }}
+ (<a href="/help/codes/PRV-2041">PRV-2041</a>); {{ t('catalog.sinks.note_shape') }} (<a href="/help/codes/PRV-8010">PRV-8010</a>).</p>
   {% endif %}
 {% endif %}
 {% endblock %}

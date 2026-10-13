@@ -23,7 +23,7 @@ They are grouped here by who raises them:
 | Codes | Raised by | When |
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
-| PRV-1060 – PRV-1069 | The server's configuration folders and data root (ADR-064) | At start, a refusal; while the node runs, a file reported as not applied |
+| PRV-1060 – PRV-1074 | The server's configuration folders and data root, and the writes the console, API and CLI make to them (ADR-064) | At start, a refusal; while the node runs, a file reported as not applied; on a write, the refusal of that write -- nothing is written |
 | PRV-1030 – PRV-1046 | The Java and Python SDKs | Constructing a client, or talking to the node |
 | PRV-1080 – PRV-1088 | The AI layer (ADR-063) and its plain-English features | An AI call while the layer is off, a provider, a model, the policy or the model endpoint refusing it, or a model's answer the engine could not use |
 | PRV-1050 – PRV-1056 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, that reached no endpoint at all, whose body is larger than the node reads, a sign-in past the node's concurrency, or a request the HTTP server itself could not read |
@@ -207,6 +207,33 @@ A binding names a plugin and a connection whose plugin differs. **Do:** leave `p
 folder -- and Spring would read it as `pravaha.config.dir`, the folder the node declares its streams,
 lookups, sinks and connections from. **Do:** unset it (the command line now reads `PRAVAHA_CLI_DIR`),
 or set `pravaha.config.dir` explicitly if that folder is meant.
+
+### PRV-1070 — CONFIG_DECLARATION_EXISTS
+
+A create (`POST /api/v1/streams/{name}` and its siblings, *New stream*, `pravaha streams create`) for a
+name a file already declares; `409`. **Do:** edit it instead, or choose another name.
+
+### PRV-1071 — CONFIG_DECLARATION_UNKNOWN
+
+An edit, delete, enable or disable of a name no declaration file declares; `404`. **Do:** check the
+name, or create it.
+
+### PRV-1072 — CONFIG_DECLARATION_NOT_A_FILE
+
+The object is declared inline in `application.yaml` or by `POST /api/v1/streams`, so there is no file to
+change; `409`. **Do:** move it into its folder as `<name>.yaml` to manage it from the console.
+
+### PRV-1073 — CONFIG_FOLDER_NOT_WRITABLE
+
+The node has no configuration folders (an embedded or builder-made node), or cannot write the folder;
+`409`. Nothing was written. **Do:** give the folder to the node's user, or declare the object in
+configuration.
+
+### PRV-1074 — CONFIG_CONNECTION_TEST_FAILED
+
+A connection test (`POST /api/v1/connectors/{name}/test`, *Test connection*) failed or ran out of time;
+the outcome carries the plugin's words with every secret struck out. **Do:** read the detail -- an
+address, a credential, a missing topic -- and test again.
 
 ## Values that are not what the key needs
 

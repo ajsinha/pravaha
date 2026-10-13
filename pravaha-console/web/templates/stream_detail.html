@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import helplink %}
 {% import "_states.html" as states %}
+{% import "_people.html" as people %}
 {% block title %}{{ t('stream.title', name=stream.name) }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="/catalog">&larr; {{ t('stream.back') }}</a></p>
@@ -10,9 +11,18 @@
     <p class="kicker mt-2 mb-1">{{ t('stream.kicker') }}</p>
     <h1 class="mono">{{ stream.name }}{{ helplink('stream') }}</h1>
   </div>
-  <a class="btn btn-sm btn-primary" href="/workbench?template=tumble&amp;stream={{ stream.name }}">{{ t('stream.write_query') }}</a>
+  <div class="d-flex flex-wrap gap-2">
+    {#- ADR-064: a stream declared by a file is managed by writing that file. #}
+    {% if may_change and (stream.get('origin') or '').startswith('file:') %}
+    <a class="btn btn-sm btn-outline-secondary" href="/catalog/streams/{{ stream.name|urlencode }}/edit" id="stream-edit">{{ t('decl.stream.edit') }}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/catalog/streams/{{ stream.name|urlencode }}/{{ 'enable' if stream.get('enabled') is sameas false else 'disable' }}" id="stream-switch">{{ t('decl.stream.enable') if stream.get('enabled') is sameas false else t('decl.stream.disable') }}</a>
+    <a class="btn btn-sm btn-outline-danger" href="/catalog/streams/{{ stream.name|urlencode }}/delete" id="stream-delete">{{ t('decl.stream.delete') }}</a>
+    {% endif %}
+    <a class="btn btn-sm btn-primary" href="/workbench?template=tumble&amp;stream={{ stream.name }}">{{ t('stream.write_query') }}</a>
+  </div>
 </div>
 <div class="rule"></div>
+{% if flashes %}{{ people.flashes(flashes) }}{% endif %}
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card"><div class="card-header d-flex justify-content-between"><span>{{ t('stream.schema') }}</span><span class="chip mute">{{ t('stream.version', version=stream.version) }}</span></div>
@@ -30,7 +40,10 @@
         {# STREAMLATE-1: the engine's allowedLateness, which the page did not show at all. #}
         <tr><th>{{ t('stream.allowed_lateness') }}</th><td id="stream-allowed-lateness">{% if stream.eventTime and stream.get('allowedLateness') %}<span class="mono">{{ stream.allowedLateness }}</span>
           <span class="small text-muted">— {{ t('stream.allowed_lateness_zero') if stream.allowedLateness in ('PT0S', 'PT0.0S') else t('stream.allowed_lateness_meaning') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
-        <tr><th>{{ t('stream.source') }}</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">{{ t('stream.not_bound') }}</span>{% endif %}</td></tr>
+        <tr><th>{{ t('stream.source') }}</th><td>{% if stream.source %}<span class="mono">{{ stream.source }}</span>{% else %}<span class="text-muted">{{ t('stream.not_bound') }}</span>{% endif %}
+          {% if stream.get('connector') %}<span class="chip mute">{{ t('decl.state.connection', name=stream.connector) }}</span>{% endif %}
+          {% if stream.get('enabled') is sameas false %}<div class="small text-warning" id="stream-disabled">{{ t('decl.state.disabled_title') }}</div>{% endif %}</td></tr>
+
         <tr><th>{{ t('stream.origin') }}</th><td id="stream-origin">{% if stream.get('origin') %}<span class="mono">{{ stream.origin }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           {% if stream.get('notApplied') %}<div class="small text-warning" id="stream-not-applied">{{ t('stream.not_applied', reason=stream.notApplied) }}</div>{% endif %}</td></tr>
       </tbody></table></div></div>

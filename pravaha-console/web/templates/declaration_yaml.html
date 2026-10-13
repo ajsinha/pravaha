@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{#- Pravaha console -- a lookup's or sink's file, edited as YAML (ADR-064). Copyright (c) 2026 Ashutosh Sinha
+    <ajsinha@gmail.com>. All rights reserved. config/lookups/<name>.yaml and config/sinks/<name>.yaml hold a
+    plugin (or a connection) and its options; Validate is the engine's dry run, Save writes the file and the
+    engine applies it at once -- refused, writing nothing, while a query uses the lookup or sink. -#}
+{% from "_helpcards.html" import helplink %}
+{% import "_people.html" as people %}
+{% import "_declare.html" as declare %}
+{% block title %}{{ t('decl.yaml.title_' ~ mode, kind=t('decl.kind.' ~ kind), name=name) }} — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="{{ '/catalog?tab=sinks' if kind == 'sinks' else '/catalog' }}">&larr; {{ t('decl.yaml.back') }}</a></p>
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('decl.kind.' ~ kind) }}</p>
+    <h1>{% if mode == 'edit' %}{{ t('decl.yaml.heading_edit') }} <span class="mono">{{ name }}</span>{% else %}{{ t('decl.yaml.heading_new_' ~ kind) }}{% endif %}{{ helplink('declaration-yaml') }}</h1>
+  </div>
+  {% if mode == 'edit' and allowed %}<a class="btn btn-sm btn-outline-danger" href="/catalog/{{ kind }}/{{ name|urlencode }}/delete">{{ t('decl.stream.delete') }}</a>{% endif %}
+</div>
+<div class="rule"></div>
+{{ people.flashes(flashes) }}
+<p class="lede">{{ t('decl.yaml.lede_' ~ kind) }}</p>
+{{ declare.holders(dependents, kind) }}
+{{ declare.outcome_panel(outcome) }}
+{{ declare.not_allowed(allowed) }}
+<form method="post" id="declaration-yaml-form" class="pnl mb-3" novalidate>
+  <div class="pnl-b">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if mode == 'create' %}
+    <label class="form-label small" for="dy-name">{{ t('decl.yaml.name') }}</label>
+    <input class="form-control mono mb-2" id="dy-name" name="name" value="{{ name }}" pattern="[A-Za-z0-9_-]{1,128}" required autocomplete="off">
+    {% endif %}
+    <label class="form-label small" for="dy-yaml">{{ t('decl.file.heading') }}</label>
+    <textarea class="form-control mono small" id="dy-yaml" name="yaml" rows="12" spellcheck="false" aria-describedby="dy-help">{{ text }}</textarea>
+    <p class="small text-muted mt-2" id="dy-help">{{ t('decl.yaml.help') }}</p>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="validate" {% if not allowed %}disabled{% endif %}>{{ t('decl.validate') }}</button>
+      <button class="btn btn-sm btn-primary" type="submit" name="action" value="save" {% if not allowed %}disabled{% endif %}>{{ t('decl.save') }}</button>
+    </div>
+  </div>
+</form>
+{{ declare.preview(outcome) }}
+{% endblock %}

@@ -3158,7 +3158,8 @@
       "evidence": "Evidence",
       "learn": "Learn",
       "reference": "Reference",
-      "about": "The product"
+      "about": "The product",
+      "manage": "Manage"
     },
     "item": {
       "streams": "Streams",
@@ -3196,7 +3197,9 @@
       "competitive": "Competitive landscape",
       "examples": "SQL examples",
       "ask": "Ask your data",
-      "ai": "AI"
+      "ai": "AI",
+      "new_stream": "New stream",
+      "connectors": "Connectors"
     },
     "desc": {
       "streams": "Every stream, its schema, and what reads from it",
@@ -3234,7 +3237,9 @@
       "competitive": "How Pravaha compares, scored",
       "examples": "Working queries with their data — open one as a copy in the Workbench",
       "ask": "A question in plain English, answered by the engine as you",
-      "ai": "The engine's AI layer: providers, health, test connection"
+      "ai": "The engine's AI layer: providers, health, test connection",
+      "new_stream": "Declare a stream: its schema, event time and source, written as a file",
+      "connectors": "Loaded plugins and named connections: create, test, disable"
     }
   },
   "page": {
@@ -3893,6 +3898,91 @@
           "text": "Keys are named by environment variable or file on the engine; the console holds none and never shows one."
         }
       }
+    },
+    "stream-form": {
+      "what": "A stream's file, config/streams/<name>.yaml, built field by field: schema, event time, lateness and source.",
+      "points": {
+        "1": {
+          "heading": "The file is the truth",
+          "text": "Save writes the file a person would, and the node applies it at once; Edit the file directly keeps its comments."
+        },
+        "2": {
+          "heading": "Validate first",
+          "text": "The dry run shows the exact file and what reads the stream, and writes nothing."
+        },
+        "3": {
+          "heading": "In use",
+          "text": "A schema or source change to a stream a query reads is refused, naming the queries; disabling it never is."
+        }
+      }
+    },
+    "connectors": {
+      "what": "The plugins this node can load, and its named connections: one file each, named by the sources, lookups and sinks that use them.",
+      "points": {
+        "1": {
+          "heading": "Written once",
+          "text": "A connection holds a plugin and its options; a binding names it and lays its own options over them."
+        },
+        "2": {
+          "heading": "Secrets are ${{ENV}}",
+          "text": "Every secret option is a reference to a variable set where the node runs, and is shown masked."
+        },
+        "3": {
+          "heading": "Test connection",
+          "text": "Through the plugin, in bounded time: the outcome and the latency, never a value."
+        }
+      }
+    },
+    "connector-form": {
+      "what": "A named connection's file, config/connectors/<name>.yaml: a plugin and its options.",
+      "points": {
+        "1": {
+          "heading": "Key and value",
+          "text": "Plugins declare no option list the engine could show, so options are rows you write; a manifest's settings are offered."
+        },
+        "2": {
+          "heading": "A literal secret is refused",
+          "text": "A key naming a password, secret, token or key must hold ${{ENV_NAME}} (PRV-1063)."
+        },
+        "3": {
+          "heading": "Disabled",
+          "text": "Stops the stream sources that name the connection; never refused for being in use."
+        }
+      }
+    },
+    "declaration-confirm": {
+      "what": "Delete, enable or disable a stream, connection, lookup or sink — after a dry run that says what uses it.",
+      "points": {
+        "1": {
+          "heading": "Dry run first",
+          "text": "The engine names what uses the object, and whether it would refuse, before anything is written."
+        },
+        "2": {
+          "heading": "Disable is safe",
+          "text": "The object stays declared and its queries keep running, receiving nothing until it is enabled."
+        },
+        "3": {
+          "heading": "Delete is refused in use",
+          "text": "While a query reads or writes it (PRV-1065); drop them first."
+        }
+      }
+    },
+    "declaration-yaml": {
+      "what": "A lookup's or sink's file, config/lookups|sinks/<name>.yaml, edited as YAML.",
+      "points": {
+        "1": {
+          "heading": "The file is the truth",
+          "text": "Save writes exactly what you write, and the node applies it at once."
+        },
+        "2": {
+          "heading": "Validate first",
+          "text": "The dry run checks the file as the node reads it and names what uses the object."
+        },
+        "3": {
+          "heading": "In use",
+          "text": "A change to a lookup a query joins, or a sink it writes, is refused and writes nothing."
+        }
+      }
     }
   },
   "ai": {
@@ -3997,6 +4087,199 @@
       "go": "Ask",
       "note": "An AI assistant answers from this panel's words and its help topics only. It can be wrong; the panel above is the reference.",
       "does_not_say": "The page does not say."
+    }
+  },
+  "decl": {
+    "validate": "Validate (dry run)",
+    "save": "Save",
+    "save_file": "Save the file",
+    "not_allowed": "Changing this needs the admin role or a grant to administer it; the engine would refuse it, so the buttons are off.",
+    "kind": {
+      "streams": "Stream",
+      "connectors": "Named connection",
+      "lookups": "Lookup",
+      "sinks": "Sink"
+    },
+    "outcome": {
+      "heading": "What the engine answered",
+      "valid": "accepted",
+      "refused": "refused",
+      "would": "Accepted: {action} {path}. Nothing has been written yet — Save writes it.",
+      "in_use_hint": "Nothing was written. Drop the queries listed below first, or disable the stream instead: disabling is never refused for being in use.",
+      "secret_hint": "A secret is never written into a declaration file. Write it as ${{ENV_NAME}} and set the variable where the node runs.",
+      "dependents": "What uses it now:"
+    },
+    "preview": {
+      "heading": "Preview YAML",
+      "exact": "Exactly the file the engine would write, at {path}:",
+      "validate_first": "Validate to see the exact file the engine would write."
+    },
+    "holders": {
+      "heading": "In use by {n}:",
+      "body": "A change to its schema or source, or deleting it, is refused while they run; disabling it is not — they keep running and receive nothing.",
+      "connection": "Changing or removing the connection is refused while they name it; disabling it is not — the stream sources that name it stop."
+    },
+    "options": {
+      "heading": "Options",
+      "caption": "The plugin's options, as key and value",
+      "key": "Key",
+      "value": "Value",
+      "remove": "Remove",
+      "add": "Add an option",
+      "needs_env": "This key names a secret: write ${{ENV_NAME}}, not the value.",
+      "secret_rule": "A key naming a password, secret, token or API key must hold ${{ENV_NAME}}; the variable is set where the node runs. A literal value is refused (PRV-1063)."
+    },
+    "file": {
+      "heading": "Edit the file directly",
+      "help": "The file as it is on the node, comments and all. Saving the form above rewrites the file from its fields; saving here keeps exactly what you write."
+    },
+    "state": {
+      "enabled": "enabled",
+      "disabled": "disabled",
+      "disabled_title": "Disabled: declared, its source read from nothing; queries over it keep running and receive nothing until it is enabled.",
+      "connection": "via {name}",
+      "connection_title": "The named connection its source takes its plugin and options from",
+      "readers": "read by {n}"
+    },
+    "stream": {
+      "new": "New stream",
+      "edit": "Edit",
+      "enable": "Enable",
+      "disable": "Disable",
+      "delete": "Delete",
+      "back": "Back",
+      "kicker": "Catalog · stream file",
+      "title_new": "New stream",
+      "title_edit": "Edit stream {name}",
+      "heading_new": "New stream",
+      "heading_edit": "Edit stream",
+      "lede": "The fields of config/streams/<name>.yaml. Validate shows the exact file and what uses the stream, writing nothing; Save writes the file and the node applies it at once.",
+      "name": "Name",
+      "name_label": "Stream name — also the file's name",
+      "name_help": "Letters, digits, _ and -, at most 128.",
+      "schema": "Schema",
+      "column": "Column",
+      "type": "Type",
+      "nullable": "Nullable",
+      "add_column": "Add a column",
+      "types_help": "Types: BOOLEAN, INT8–INT64, FLOAT32, FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, DECIMAL(p,s).",
+      "time": "Event time and lateness",
+      "event_time": "Event-time column",
+      "no_event_time": "none",
+      "out_of_orderness": "Out-of-orderness",
+      "allowed_lateness": "Allowed lateness",
+      "event_time_help": "The column a row's time is read from. Without one, no window over the stream ever closes.",
+      "out_of_orderness_help": "How late a row may arrive before a window stops waiting for it: 10s, 2m, PT30S. Needs an event time.",
+      "allowed_lateness_help": "How long after a window closes a late row may still correct it; empty is zero — windows are final when they close.",
+      "source": "Where its rows come from",
+      "source_none": "No source — rows are pushed in by a client",
+      "source_plugin": "A plugin, with its options",
+      "source_connector": "A named connection, with options laid over its own",
+      "plugin": "Plugin",
+      "connector": "Named connection",
+      "plugins_unread": "The node's plugins could not be read; type the plugin's name in the file instead.",
+      "options_help": "A connection's options come first; these are laid over them, and win on a clash.",
+      "state": "State",
+      "state_label": "When saved",
+      "enabled": "Enabled — read its source",
+      "disabled": "Disabled — declared, read nothing",
+      "state_help": "Disabled writes enabled: false: the stream stays declared and its queries keep running with nothing arriving.",
+      "saved": "Stream {name} is written to {path} and in force."
+    },
+    "connection": {
+      "title_new": "New connection",
+      "title_edit": "Edit connection {name}",
+      "back": "Connectors",
+      "kicker": "Catalog · named connection",
+      "heading_new": "New connection",
+      "heading_edit": "Edit connection",
+      "lede": "The fields of config/connectors/<name>.yaml: a plugin and its options, written once and named by every source, lookup and sink that uses it.",
+      "what": "Connection",
+      "name_label": "Connection name — also the file's name",
+      "name_help": "Letters, digits, _ and -, at most 128. A binding names it as connector: <name>.",
+      "plugin": "Plugin",
+      "show_settings": "Show its settings",
+      "state_help": "Disabled stops the stream sources that name this connection; lookups and sinks that name it keep running.",
+      "settings": "This plugin's manifest names these settings: {settings}.",
+      "no_settings": "Plugins declare no option list the engine can show, so the keys are yours to write; each plugin's page in Help lists its options.",
+      "saved": "Connection {name} is written to {path} and in force."
+    },
+    "connectors": {
+      "title": "Connectors",
+      "kicker": "Catalog",
+      "heading": "Connectors",
+      "new": "New connection",
+      "lede": "The plugins this node can load, and its named connections: a plugin and its options written once in config/connectors/<name>.yaml, named by the sources, lookups and sinks that use them.",
+      "connections": "Named connections",
+      "connections_error": "The named connections could not be read",
+      "none_title": "No named connections",
+      "none_body": "A connection is a file in the node's connectors folder; New connection writes one.",
+      "col": {
+        "name": "Name",
+        "plugin": "Plugin",
+        "state": "State",
+        "options": "Options",
+        "users": "Used by",
+        "origin": "File",
+        "actions": "Actions",
+        "version": "Version",
+        "kinds": "Can be",
+        "health": "Health"
+      },
+      "unused": "nothing names it",
+      "test": "Test",
+      "test_label": "Test connection {name}",
+      "edit": "Edit",
+      "masked": "Every password, secret, token and key is masked by the engine (****); the console is never given one.",
+      "plugins": "Plugins this node can load",
+      "plugins_detail": "Every plugin, its capabilities and bindings",
+      "plugins_error": "The node's plugins could not be read."
+    },
+    "test": {
+      "heading": "Test connection {name}",
+      "ok": "Reached through its plugin, as a {role}.",
+      "failed": "The test failed.",
+      "latency": "{ms} ms",
+      "never_secret": "Configured, opened, asked its health and closed through the plugin, in bounded time. No option's value is ever shown."
+    },
+    "confirm": {
+      "what": "action",
+      "back": "Back",
+      "cancel": "Cancel",
+      "title_delete": "Delete {name}",
+      "title_enable": "Enable {name}",
+      "title_disable": "Disable {name}",
+      "heading_delete": "Delete",
+      "heading_enable": "Enable",
+      "heading_disable": "Disable",
+      "lede_delete": "Deleting removes the file and the object. The dry run below says what uses it; while anything does, the engine refuses and nothing is written.",
+      "lede_enable": "Enabling removes enabled: false from the file: its source is read again, from where its readers stood.",
+      "lede_disable": "Disabling writes enabled: false into the file: it stays declared, its source is read from nothing, and the queries over it keep running and receive nothing until it is enabled. Never refused for being in use.",
+      "keep_running": "These keep running while it is disabled, and receive nothing.",
+      "current_file": "The file now",
+      "button_delete": "Delete",
+      "button_enable": "Enable",
+      "button_disable": "Disable",
+      "refused": "Refused: {detail}",
+      "done_delete": "{name} is deleted: its file is gone and so is it.",
+      "done_enable": "{name} is enabled.",
+      "done_disable": "{name} is disabled: declared, read from nothing."
+    },
+    "yaml": {
+      "title_create": "New {kind}",
+      "title_edit": "Edit {kind} {name}",
+      "back": "Catalog",
+      "heading_edit": "Edit",
+      "heading_new_lookups": "New lookup",
+      "heading_new_sinks": "New sink",
+      "lede_lookups": "config/lookups/<name>.yaml: a dimension table a query may join — a plugin (or connector:) and its options.",
+      "lede_sinks": "config/sinks/<name>.yaml: where a query's output can be written — a plugin (or connector:) and its options.",
+      "name": "Name — also the file's name",
+      "help": "plugin: (or connector:) and options:. A secret is ${{ENV_NAME}}. Validate shows the exact file and what uses it; Save writes it and the node applies it at once.",
+      "edit_file": "Edit file",
+      "new_lookup": "New lookup",
+      "new_sink": "New sink",
+      "saved": "{name} is written to {path} and in force."
     }
   }
 }
