@@ -43,7 +43,12 @@ public final class RowChange {
         this.change = Objects.requireNonNull(change, "change");
     }
 
-    /** The row, column name to value, in the view's column order. */
+    /**
+     * The row, column name to value, in the view's column order, each value as the engine holds it:
+     * a TIMESTAMP is a {@code Long} of epoch nanoseconds, a DATE epoch days, a TIME nanoseconds of
+     * the day. {@link #javaValues()} gives those as {@code Instant}, {@code LocalDate} and {@code
+     * LocalTime}, as {@link #as(Class)} does for a record component of those types.
+     */
     public Map<String, Object> values() {
         Map<String, Object> current = values;
         if (current == null) {
@@ -51,6 +56,15 @@ public final class RowChange {
             values = current;
         }
         return current;
+    }
+
+    /**
+     * The row, column name to value, with TIMESTAMP, DATE and TIME columns as {@code Instant},
+     * {@code LocalDate} and {@code LocalTime} (EMBEDTS-1). {@link #values()} keeps the engine's
+     * numbers, as it always has, so code reading them as {@code Long} is unchanged.
+     */
+    public Map<String, Object> javaValues() {
+        return RowMapping.toJavaMap(schema, change.values());
     }
 
     /** One column's value, or null when it is null. */

@@ -174,6 +174,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   logged and recorded on the query and the close carrying on -- so rows pushed into an embedded engine
   after the last periodic checkpoint are there on reopen. The server's clean stop takes the same path
   (one registry close), so its sources resume from a fresher checkpoint and replay less.
+- **EMBEDTS-1: `RowChange.javaValues()`.** `values()` gives each column as the engine holds it -- a
+  TIMESTAMP as a `Long` of epoch nanoseconds -- and stays so, because code reading those numbers would
+  break if it changed. The new `javaValues()` (and `RowMapping.toJavaMap`) gives TIMESTAMP, DATE and
+  TIME columns as `Instant`, `LocalDate` and `LocalTime`, as `as(Record)` does; the embedded-engine
+  help topic's example uses it and says which is which.
 
 ---
 

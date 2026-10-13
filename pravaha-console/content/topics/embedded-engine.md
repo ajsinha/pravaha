@@ -73,7 +73,7 @@ public final class Payments {
 
             // 3. Subscribe: every commit, retractions included, on the subscription's thread.
             engine.subscribe("merchant_minutes", changes -> changes.forEach(c ->
-                    System.out.println((c.isRetraction() ? "- " : "+ ") + c.values())));
+                    System.out.println((c.isRetraction() ? "- " : "+ ") + c.javaValues())));
 
             // 4. Push rows, in column order. Returns once every query reading txn has committed them.
             Instant t = Instant.parse("2026-09-19T09:30:05Z");
@@ -103,8 +103,10 @@ public final class Payments {
 ACME 09:30 spend = 1650
 ```
 
-(The exact rendering of a `RowChange`'s values follows its `toString`; the numbers are what the three
-pushed rows add up to.) The two SQL statements, as the engine plans them:
+(`javaValues()` gives a TIMESTAMP column as an `Instant`, a DATE as a `LocalDate` and a TIME as a
+`LocalTime`; `values()` gives each as the engine holds it — a TIMESTAMP is a `Long` of epoch
+nanoseconds — and `as(Record.class)` converts to whatever the record's components declare. The
+numbers are what the three pushed rows add up to.) The two SQL statements, as the engine plans them:
 
 ```sql
 CREATE CONTINUOUS QUERY merchant_minutes

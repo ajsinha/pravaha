@@ -66,6 +66,33 @@ public final class RowMapping {
     }
 
     /**
+     * The row as column name to value, with the temporal columns as Java time types: a TIMESTAMP
+     * as an {@link Instant}, a DATE as a {@link LocalDate}, a TIME as a {@link LocalTime} -- the
+     * conversions {@link #toRecord} makes for a component of those types (EMBEDTS-1). Every other
+     * column is as {@link #toMap} gives it. Nulls are kept.
+     */
+    public static Map<String, Object> toJavaMap(StreamSchema schema, Object[] values) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
+            Object value = ordinal < values.length ? values[ordinal] : null;
+            @Nullable
+            Class<?> javaType =
+                    switch (schema.field(ordinal).type().typeName()) {
+                        case TIMESTAMP_LTZ -> Instant.class;
+                        case DATE -> LocalDate.class;
+                        case TIME -> LocalTime.class;
+                        default -> null;
+                    };
+            if (javaType != null && value instanceof Number number) {
+                Object converted = fromNumber(number, javaType);
+                value = converted == null ? value : converted;
+            }
+            map.put(schema.field(ordinal).name(), value);
+        }
+        return Collections.unmodifiableMap(map);
+    }
+
+    /**
      * A reader that builds {@code type} from rows of {@code schema}.
      *
      * <p>Resolved once: which column fills each component, and the canonical constructor. A caller

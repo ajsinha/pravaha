@@ -200,6 +200,29 @@ class RowConversionTest {
                 .hasMessageContaining("for ever");
     }
 
+    /** EMBEDTS-1: javaValues() gives the temporal columns as Java time; values() keeps the numbers. */
+    @Test
+    void javaValuesGivesTemporalColumnsAsJavaTime() {
+        StreamSchema schema = StreamSchema.builder("t")
+                .field("ts", Types.timestamp())
+                .field("day", Types.date())
+                .field("at_time", Types.time())
+                .field("n", Types.int64())
+                .build();
+        long nanos = Instant.parse("2026-09-19T09:30:05.5Z").getEpochSecond() * 1_000_000_000L + 500_000_000L;
+        RowChange change =
+                new RowChange(schema, new ViewChange(new Object[] {nanos, 20_000, 3_600_000_000_000L, 7L}, 1));
+        assertThat(change.javaValues())
+                .containsExactly(
+                        Map.entry("ts", Instant.parse("2026-09-19T09:30:05.5Z")),
+                        Map.entry("day", LocalDate.ofEpochDay(20_000)),
+                        Map.entry("at_time", LocalTime.of(1, 0)),
+                        Map.entry("n", 7L));
+        assertThat(change.values()).containsEntry("ts", nanos);
+        assertThat(RowMapping.toJavaMap(schema, new Object[] {null, null, null, null}))
+                .containsEntry("ts", null);
+    }
+
     private static Object[] with(Object[] row, int ordinal, @Nullable Object value) {
         Object[] copy = row.clone();
         copy[ordinal] = value;
